@@ -1,32 +1,48 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Sparkles, Mail, Lock, ArrowRight, CheckCircle2 } from "lucide-react";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
+import { login } from "@/lib/api/pop-organize.functions";
+import { workspaceQueryKey } from "@/lib/api/use-workspace";
 
 export const Route = createFileRoute("/login")({
-  head: () => ({ meta: [{ title: "Entrar — Pop Organize" }] }),
+  head: () => ({ meta: [{ title: "Entrar - Pop Organize" }] }),
   component: LoginPage,
 });
 
 function LoginPage() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+  const [email, setEmail] = useState("joao@poporganize.com");
+  const [password, setPassword] = useState("demo1234");
+  const loginMutation = useMutation({
+    mutationFn: (payload: { email: string; password: string }) => login({ data: payload }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+      navigate({ to: "/" });
+    },
+  });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setTimeout(() => navigate({ to: "/" }), 600);
+    loginMutation.mutate({ email, password });
   };
+
+  const errorMessage = loginMutation.error instanceof Error ? loginMutation.error.message : null;
 
   return (
     <div className="min-h-screen flex">
-      {/* Left: gradient hero */}
       <div
         className="hidden lg:flex flex-1 relative overflow-hidden p-12 flex-col justify-between text-primary-foreground"
         style={{ background: "var(--gradient-primary)" }}
       >
-        <div className="absolute inset-0 opacity-20" style={{
-          backgroundImage: "radial-gradient(circle at 20% 30%, white 0%, transparent 40%), radial-gradient(circle at 80% 70%, white 0%, transparent 40%)",
-        }} />
+        <div
+          className="absolute inset-0 opacity-20"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 20% 30%, white 0%, transparent 40%), radial-gradient(circle at 80% 70%, white 0%, transparent 40%)",
+          }}
+        />
         <div className="relative">
           <div className="flex items-center gap-2.5">
             <div className="h-10 w-10 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center">
@@ -57,7 +73,6 @@ function LoginPage() {
         <div className="relative text-sm opacity-70">© 2026 Pop Organize</div>
       </div>
 
-      {/* Right: form */}
       <div className="flex-1 flex items-center justify-center p-6 sm:p-12 bg-background">
         <div className="w-full max-w-sm">
           <div className="lg:hidden flex items-center gap-2.5 mb-8 justify-center">
@@ -80,7 +95,8 @@ function LoginPage() {
                 <Mail className="h-4 w-4 text-muted-foreground" />
                 <input
                   type="email"
-                  defaultValue="joao@poporganize.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="flex-1 bg-transparent outline-none text-sm"
                   required
                 />
@@ -92,7 +108,8 @@ function LoginPage() {
                 <Lock className="h-4 w-4 text-muted-foreground" />
                 <input
                   type="password"
-                  defaultValue="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   className="flex-1 bg-transparent outline-none text-sm"
                   required
                 />
@@ -103,18 +120,28 @@ function LoginPage() {
                 <input type="checkbox" className="rounded border-input accent-primary" />
                 <span className="text-muted-foreground">Lembrar de mim</span>
               </label>
-              <a href="#" className="text-primary font-medium hover:underline">Esqueci a senha</a>
+              <Link to="/login" className="text-primary font-medium hover:underline">
+                Esqueci a senha
+              </Link>
             </div>
+            {errorMessage && <div className="text-sm text-destructive">{errorMessage}</div>}
             <button
-              disabled={loading}
+              disabled={loginMutation.isPending}
               className="w-full h-11 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:opacity-90 transition shadow-[var(--shadow-elegant)] inline-flex items-center justify-center gap-2 disabled:opacity-70"
             >
-              {loading ? "Entrando..." : (<>Entrar <ArrowRight className="h-4 w-4" /></>)}
+              {loginMutation.isPending ? (
+                "Entrando..."
+              ) : (
+                <>
+                  Entrar <ArrowRight className="h-4 w-4" />
+                </>
+              )}
             </button>
           </form>
 
           <p className="text-center text-sm text-muted-foreground mt-8">
-            Não tem conta? <Link to="/login" className="text-primary font-medium hover:underline">Criar agora</Link>
+            Demo: use <span className="font-medium text-foreground">joao@poporganize.com</span> e
+            senha <span className="font-medium text-foreground">demo1234</span>.
           </p>
         </div>
       </div>

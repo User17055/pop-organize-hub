@@ -1,4 +1,5 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   CheckSquare,
@@ -15,7 +16,9 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { currentUser, company } from "@/lib/mock-data";
+import { logout } from "@/lib/api/pop-organize.functions";
+import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
+import type { Priority, TaskStatus } from "@/lib/domain";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -27,14 +30,40 @@ const nav = [
   { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
 ];
 
-export function AppShell({ children, title, subtitle, actions }: {
+export function AppShell({
+  children,
+  title,
+  subtitle,
+  actions,
+}: {
   children: ReactNode;
   title: string;
   subtitle?: string;
   actions?: ReactNode;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const initials = currentUser.name.split(" ").map((n) => n[0]).slice(0, 2).join("");
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { data } = useWorkspaceData();
+  const currentUser = data?.currentUser ?? {
+    id: "u3",
+    name: "João Pereira",
+    email: "joao@poporganize.com",
+    role: "Admin da Empresa",
+  };
+  const companyName = data?.company.name ?? "Pop Organize";
+  const initials = currentUser.name
+    .split(" ")
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join("");
+  const logoutMutation = useMutation({
+    mutationFn: () => logout(),
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+      navigate({ to: "/login" });
+    },
+  });
 
   return (
     <div className="flex min-h-screen w-full bg-background">
@@ -53,7 +82,7 @@ export function AppShell({ children, title, subtitle, actions }: {
             </div>
             <div>
               <div className="font-display font-bold text-base leading-tight">Pop Organize</div>
-              <div className="text-[11px] text-sidebar-foreground/60">{company.name}</div>
+              <div className="text-[11px] text-sidebar-foreground/60">{companyName}</div>
             </div>
           </Link>
         </div>
@@ -73,7 +102,7 @@ export function AppShell({ children, title, subtitle, actions }: {
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
                   active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
                 )}
               >
                 <Icon className="h-4.5 w-4.5" />
@@ -93,7 +122,9 @@ export function AppShell({ children, title, subtitle, actions }: {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium truncate">{currentUser.name}</div>
-              <div className="text-[11px] text-sidebar-foreground/60 truncate">{currentUser.role}</div>
+              <div className="text-[11px] text-sidebar-foreground/60 truncate">
+                {currentUser.role}
+              </div>
             </div>
             <Settings className="h-4 w-4 text-sidebar-foreground/50" />
           </div>
@@ -120,13 +151,15 @@ export function AppShell({ children, title, subtitle, actions }: {
               <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-destructive ring-2 ring-background" />
             </button>
             {actions}
-            <Link
-              to="/login"
+            <button
+              type="button"
+              onClick={() => logoutMutation.mutate()}
+              disabled={logoutMutation.isPending}
               className="h-10 w-10 rounded-lg hover:bg-muted flex items-center justify-center transition-colors"
               title="Sair"
             >
               <LogOut className="h-4.5 w-4.5 text-foreground/70" />
-            </Link>
+            </button>
           </div>
         </header>
         <div className="flex-1 px-6 py-6">{children}</div>
@@ -135,7 +168,7 @@ export function AppShell({ children, title, subtitle, actions }: {
   );
 }
 
-export function StatusBadge({ status }: { status: import("@/lib/mock-data").TaskStatus }) {
+export function StatusBadge({ status }: { status: TaskStatus }) {
   const map = {
     pending: { label: "Pendente", cls: "bg-muted text-muted-foreground" },
     in_progress: { label: "Em andamento", cls: "bg-primary/10 text-primary" },
@@ -146,14 +179,19 @@ export function StatusBadge({ status }: { status: import("@/lib/mock-data").Task
   } as const;
   const it = map[status];
   return (
-    <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium", it.cls)}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
+        it.cls,
+      )}
+    >
       <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
       {it.label}
     </span>
   );
 }
 
-export function PriorityBadge({ priority }: { priority: import("@/lib/mock-data").Priority }) {
+export function PriorityBadge({ priority }: { priority: Priority }) {
   const map = {
     low: { label: "Baixa", cls: "bg-muted text-muted-foreground" },
     medium: { label: "Média", cls: "bg-primary/10 text-primary" },
@@ -162,7 +200,12 @@ export function PriorityBadge({ priority }: { priority: import("@/lib/mock-data"
   } as const;
   const it = map[priority];
   return (
-    <span className={cn("inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold uppercase tracking-wide", it.cls)}>
+    <span
+      className={cn(
+        "inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold uppercase tracking-wide",
+        it.cls,
+      )}
+    >
       {it.label}
     </span>
   );

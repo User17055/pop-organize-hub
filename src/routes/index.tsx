@@ -1,30 +1,83 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell, StatusBadge, PriorityBadge } from "@/components/app-shell";
-import { tasks, departments, employees, groups, getEmployee, statusLabels } from "@/lib/mock-data";
+import { ErrorState, LoadingState } from "@/components/data-state";
+import { useWorkspaceData } from "@/lib/api/use-workspace";
+import { statusLabels } from "@/lib/domain";
 import { Plus, TrendingUp, Clock, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Dashboard — Pop Organize" },
-      { name: "description", content: "Visão geral de tarefas, setores e produtividade da empresa." },
+      { title: "Dashboard - Pop Organize" },
+      {
+        name: "description",
+        content: "Visão geral de tarefas, setores e produtividade da empresa.",
+      },
     ],
   }),
   component: Dashboard,
 });
 
 function Dashboard() {
+  const { data, isLoading, error } = useWorkspaceData();
+
+  if (isLoading) {
+    return (
+      <AppShell title="Dashboard" subtitle="Carregando visão geral da empresa">
+        <LoadingState />
+      </AppShell>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <AppShell title="Dashboard" subtitle="Visão geral da empresa">
+        <ErrorState />
+      </AppShell>
+    );
+  }
+
+  const { tasks, departments, employees, groups, currentUser } = data;
+  const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const total = tasks.length;
   const completed = tasks.filter((t) => t.status === "completed").length;
   const pending = tasks.filter((t) => t.status === "pending" || t.status === "in_progress").length;
   const review = tasks.filter((t) => t.status === "waiting_review").length;
-  const overdue = tasks.filter((t) => new Date(t.dueDate) < new Date("2026-06-16") && t.status !== "completed").length;
+  const overdue = tasks.filter(
+    (t) => new Date(`${t.dueDate}T00:00:00`) < today && t.status !== "completed",
+  ).length;
 
   const stats = [
-    { label: "Total de tarefas", value: total, icon: TrendingUp, accent: "text-primary", bg: "bg-primary/10" },
-    { label: "Concluídas", value: completed, icon: CheckCircle2, accent: "text-success", bg: "bg-success/15" },
-    { label: "Em andamento", value: pending, icon: Clock, accent: "text-primary", bg: "bg-primary/10" },
-    { label: "Atrasadas", value: overdue, icon: AlertTriangle, accent: "text-destructive", bg: "bg-destructive/10" },
+    {
+      label: "Total de tarefas",
+      value: total,
+      icon: TrendingUp,
+      accent: "text-primary",
+      bg: "bg-primary/10",
+    },
+    {
+      label: "Concluídas",
+      value: completed,
+      icon: CheckCircle2,
+      accent: "text-success",
+      bg: "bg-success/15",
+    },
+    {
+      label: "Em andamento",
+      value: pending,
+      icon: Clock,
+      accent: "text-primary",
+      bg: "bg-primary/10",
+    },
+    {
+      label: "Atrasadas",
+      value: overdue,
+      icon: AlertTriangle,
+      accent: "text-destructive",
+      bg: "bg-destructive/10",
+    },
   ];
 
   const byDept = departments.map((d) => {
@@ -40,7 +93,7 @@ function Dashboard() {
 
   return (
     <AppShell
-      title="Bom dia, João 👋"
+      title={`Bom dia, ${currentUser.name.split(" ")[0]}`}
       subtitle="Aqui está o que está acontecendo na sua empresa hoje."
       actions={
         <Link
@@ -56,11 +109,16 @@ function Dashboard() {
         {stats.map((s) => {
           const Icon = s.icon;
           return (
-            <div key={s.label} className="bg-card border border-border rounded-2xl p-5 shadow-[var(--shadow-card)] hover:shadow-md transition-shadow">
+            <div
+              key={s.label}
+              className="bg-card border border-border rounded-2xl p-5 shadow-[var(--shadow-card)] hover:shadow-md transition-shadow"
+            >
               <div className="flex items-start justify-between">
                 <div>
                   <div className="text-sm text-muted-foreground">{s.label}</div>
-                  <div className="text-3xl font-display font-bold text-foreground mt-2">{s.value}</div>
+                  <div className="text-3xl font-display font-bold text-foreground mt-2">
+                    {s.value}
+                  </div>
                 </div>
                 <div className={`h-10 w-10 rounded-xl ${s.bg} flex items-center justify-center`}>
                   <Icon className={`h-5 w-5 ${s.accent}`} />
@@ -80,7 +138,10 @@ function Dashboard() {
               <h2 className="text-lg font-display font-bold">Tarefas recentes</h2>
               <p className="text-sm text-muted-foreground">Atualizadas nas últimas horas</p>
             </div>
-            <Link to="/tarefas" className="text-sm text-primary font-medium hover:underline inline-flex items-center gap-1">
+            <Link
+              to="/tarefas"
+              className="text-sm text-primary font-medium hover:underline inline-flex items-center gap-1"
+            >
               Ver todas <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -88,9 +149,16 @@ function Dashboard() {
             {recent.map((t) => {
               const emp = getEmployee(t.responsibleId);
               return (
-                <div key={t.id} className="py-3.5 flex items-center gap-4 hover:bg-muted/40 -mx-2 px-2 rounded-lg transition-colors">
+                <div
+                  key={t.id}
+                  className="py-3.5 flex items-center gap-4 hover:bg-muted/40 -mx-2 px-2 rounded-lg transition-colors"
+                >
                   <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-semibold text-xs">
-                    {emp?.name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                    {emp?.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .slice(0, 2)
+                      .join("")}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm truncate">{t.title}</div>
@@ -99,7 +167,9 @@ function Dashboard() {
                     </div>
                   </div>
                   <PriorityBadge priority={t.priority} />
-                  <div className="hidden sm:block"><StatusBadge status={t.status} /></div>
+                  <div className="hidden sm:block">
+                    <StatusBadge status={t.status} />
+                  </div>
                 </div>
               );
             })}
@@ -118,7 +188,9 @@ function Dashboard() {
                   <div key={d.id}>
                     <div className="flex items-center justify-between text-sm mb-1.5">
                       <span className="font-medium">{d.name}</span>
-                      <span className="text-muted-foreground">{d.done}/{d.total}</span>
+                      <span className="text-muted-foreground">
+                        {d.done}/{d.total}
+                      </span>
                     </div>
                     <div className="h-2 bg-muted rounded-full overflow-hidden">
                       <div
@@ -136,7 +208,9 @@ function Dashboard() {
             className="rounded-2xl p-6 text-primary-foreground shadow-[var(--shadow-elegant)]"
             style={{ background: "var(--gradient-primary)" }}
           >
-            <div className="text-xs font-semibold uppercase tracking-wider opacity-80">Aguardando revisão</div>
+            <div className="text-xs font-semibold uppercase tracking-wider opacity-80">
+              Aguardando revisão
+            </div>
             <div className="text-4xl font-display font-bold mt-2">{review}</div>
             <p className="text-sm opacity-90 mt-1">Tarefas precisam da sua atenção</p>
             <Link
@@ -149,7 +223,9 @@ function Dashboard() {
 
           <div className="bg-card border border-border rounded-2xl p-6 shadow-[var(--shadow-card)]">
             <h2 className="text-lg font-display font-bold mb-1">Equipe</h2>
-            <p className="text-sm text-muted-foreground mb-4">{employees.length} funcionários • {groups.length} grupos</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              {employees.length} funcionários • {groups.length} grupos
+            </p>
             <div className="flex -space-x-2">
               {employees.slice(0, 6).map((e) => (
                 <div
@@ -158,7 +234,11 @@ function Dashboard() {
                   style={{ background: "var(--gradient-primary)" }}
                   title={e.name}
                 >
-                  {e.name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                  {e.name
+                    .split(" ")
+                    .map((n) => n[0])
+                    .slice(0, 2)
+                    .join("")}
                 </div>
               ))}
               <div className="h-9 w-9 rounded-full ring-2 ring-card bg-muted text-muted-foreground flex items-center justify-center text-[11px] font-semibold">

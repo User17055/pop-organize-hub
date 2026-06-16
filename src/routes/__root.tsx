@@ -44,9 +44,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          Algo deu errado
-        </h1>
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">Algo deu errado</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Tente novamente ou volte para o início.
         </p>
@@ -78,10 +76,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Pop Organize — Gestão de Tarefas Empresarial" },
-      { name: "description", content: "Plataforma de gestão de tarefas para empresas. Organize setores, grupos, equipes e prazos em um só lugar." },
+      {
+        name: "description",
+        content:
+          "Plataforma de gestão de tarefas para empresas. Organize setores, grupos, equipes e prazos em um só lugar.",
+      },
       { name: "author", content: "Pop Organize" },
       { property: "og:title", content: "Pop Organize" },
-      { property: "og:description", content: "Gestão de tarefas para empresas — organize setores, grupos, equipes e prazos." },
+      {
+        property: "og:description",
+        content: "Gestão de tarefas para empresas — organize setores, grupos, equipes e prazos.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@PopOrganize" },

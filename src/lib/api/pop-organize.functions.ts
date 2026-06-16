@@ -21,6 +21,7 @@ import {
   toCurrentUser,
 } from "../database.server";
 import { departmentColors, type TargetType } from "../domain";
+import { getTaskPermissions } from "../permissions";
 
 const SESSION_COOKIE = "pop_organize_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
@@ -86,6 +87,15 @@ const updateCompanySchema = z.object({
 const updateTaskStatusSchema = z.object({
   id: z.string().min(1),
   status: statusSchema,
+});
+
+const updateTaskDetailsSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(3, "Informe um título"),
+  description: z.string().trim().min(3, "Informe uma descrição"),
+  priority: prioritySchema,
+  dueDate: z.string().min(10),
+  tags: z.array(z.string().trim().min(1)).default([]),
 });
 
 const loginSchema = z.object({
@@ -233,10 +243,50 @@ export const createTask = createServerFn({ method: "POST" })
 export const updateTaskStatus = createServerFn({ method: "POST" })
   .validator(updateTaskStatusSchema)
   .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
     return mutateDatabase((db) => {
       const task = db.tasks.find((item) => item.id === data.id);
       if (!task) throw createHttpError("Tarefa não encontrada.", 404);
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const permissions = getTaskPermissions({
+        task,
+        currentUser,
+        employees: db.employees,
+        departments: db.departments,
+        groups: db.groups,
+      });
+      if (!permissions.canChangeStatus) {
+        throw createHttpError("Você não tem permissão para alterar o status desta tarefa.", 403);
+      }
       task.status = data.status;
+      return task;
+    });
+  });
+
+export const updateTaskDetails = createServerFn({ method: "POST" })
+  .validator(updateTaskDetailsSchema)
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    return mutateDatabase((db) => {
+      const task = db.tasks.find((item) => item.id === data.id);
+      if (!task) throw createHttpError("Tarefa não encontrada.", 404);
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const permissions = getTaskPermissions({
+        task,
+        currentUser,
+        employees: db.employees,
+        departments: db.departments,
+        groups: db.groups,
+      });
+      if (!permissions.canEditContent) {
+        throw createHttpError("Você não tem permissão para editar o texto desta tarefa.", 403);
+      }
+
+      task.title = data.title;
+      task.description = data.description;
+      task.priority = data.priority;
+      task.dueDate = data.dueDate;
+      task.tags = data.tags;
       return task;
     });
   });

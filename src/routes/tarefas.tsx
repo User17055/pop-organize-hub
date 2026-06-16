@@ -3,15 +3,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { AppShell, StatusBadge, PriorityBadge } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
-import { createTask, updateTaskStatus } from "@/lib/api/pop-organize.functions";
+import { createTask, updateTaskDetails, updateTaskStatus } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import {
   priorityLabels,
   statusLabels,
+  type Task,
   type Priority,
   type TargetType,
   type TaskStatus,
 } from "@/lib/domain";
+import { getTaskPermissions } from "@/lib/permissions";
 import {
   Plus,
   Filter,
@@ -20,6 +22,10 @@ import {
   MessageSquare,
   Paperclip,
   UserCircle2,
+  Pencil,
+  CheckCircle2,
+  ShieldCheck,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +60,14 @@ type TaskFormState = {
   tags: string;
 };
 
+type TaskEditState = {
+  title: string;
+  description: string;
+  priority: Priority;
+  dueDate: string;
+  tags: string;
+};
+
 function getDefaultDueDate() {
   const date = new Date();
   date.setDate(date.getDate() + 7);
@@ -66,6 +80,7 @@ function TasksPage() {
   const [active, setActive] = useState<TaskStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [form, setForm] = useState<TaskFormState>({
     title: "",
     description: "",
@@ -75,6 +90,13 @@ function TasksPage() {
     responsibleId: "",
     reviewerId: "",
     requiresReview: false,
+    tags: "",
+  });
+  const [editForm, setEditForm] = useState<TaskEditState>({
+    title: "",
+    description: "",
+    priority: "medium",
+    dueDate: getDefaultDueDate(),
     tags: "",
   });
 
@@ -99,6 +121,18 @@ function TasksPage() {
   const statusMutation = useMutation({
     mutationFn: (payload: { id: string; status: TaskStatus }) =>
       updateTaskStatus({ data: payload }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workspaceQueryKey }),
+  });
+
+  const updateTaskMutation = useMutation({
+    mutationFn: (payload: {
+      id: string;
+      title: string;
+      description: string;
+      priority: Priority;
+      dueDate: string;
+      tags: string[];
+    }) => updateTaskDetails({ data: payload }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: workspaceQueryKey }),
   });
 
@@ -131,8 +165,18 @@ function TasksPage() {
     );
   }
 
-  const { company, departments, employees, groups, tasks } = data;
+  const { company, currentUser, departments, employees, groups, tasks } = data;
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
+  const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
+  const selectedPermissions = selectedTask
+    ? getTaskPermissions({
+        task: selectedTask,
+        currentUser,
+        employees,
+        departments,
+        groups,
+      })
+    : null;
   const targetOptions = [
     { value: `company:${company.id}`, label: "Empresa inteira" },
     ...departments.map((department) => ({
@@ -165,6 +209,18 @@ function TasksPage() {
     setShowForm(true);
   }
 
+  function openTask(task: Task) {
+    setSelectedTaskId(task.id);
+    setEditForm({
+      title: task.title,
+      description: task.description,
+      priority: task.priority,
+      dueDate: task.dueDate,
+      tags: task.tags.join(", "),
+    });
+    updateTaskMutation.reset();
+  }
+
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const [type, id] = form.targetKey.split(":") as [TargetType, string];
@@ -187,8 +243,28 @@ function TasksPage() {
     });
   }
 
+  function handleEditSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedTask) return;
+
+    updateTaskMutation.mutate({
+      id: selectedTask.id,
+      title: editForm.title,
+      description: editForm.description,
+      priority: editForm.priority,
+      dueDate: editForm.dueDate,
+      tags: editForm.tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    });
+  }
+
   const mutationError =
     createTaskMutation.error instanceof Error ? createTaskMutation.error.message : null;
+  const updateError =
+    updateTaskMutation.error instanceof Error ? updateTaskMutation.error.message : null;
+  const statusError = statusMutation.error instanceof Error ? statusMutation.error.message : null;
 
   return (
     <AppShell
@@ -248,103 +324,262 @@ function TasksPage() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {list.map((t) => {
-          const emp = getEmployee(t.responsibleId);
-          const reviewer = t.reviewerId ? getEmployee(t.reviewerId) : null;
-          return (
-            <div
-              key={t.id}
-              className="group bg-card border border-border rounded-2xl p-5 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all"
-            >
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <PriorityBadge priority={t.priority} />
-                <StatusBadge status={t.status} />
-              </div>
-              <h3 className="font-display font-semibold text-base text-foreground leading-snug group-hover:text-primary transition-colors">
-                {t.title}
-              </h3>
-              <p className="text-sm text-muted-foreground mt-1.5 line-clamp-2">{t.description}</p>
+      <div
+        className={cn(
+          "grid gap-4 items-start",
+          selectedTask ? "xl:grid-cols-[minmax(0,1fr)_380px]" : "grid-cols-1",
+        )}
+      >
+        <div
+          className={cn(
+            "grid grid-cols-1 md:grid-cols-2 gap-4",
+            selectedTask ? "2xl:grid-cols-2" : "xl:grid-cols-3",
+          )}
+        >
+          {list.map((t) => {
+            const emp = getEmployee(t.responsibleId);
+            const reviewer = t.reviewerId ? getEmployee(t.reviewerId) : null;
+            const permissions = getTaskPermissions({
+              task: t,
+              currentUser,
+              employees,
+              departments,
+              groups,
+            });
+            return (
+              <div
+                key={t.id}
+                className={cn(
+                  "group bg-card border border-border rounded-2xl p-5 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all",
+                  selectedTaskId === t.id && "border-primary/60 ring-2 ring-primary/10",
+                )}
+              >
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <PriorityBadge priority={t.priority} />
+                  <StatusBadge status={t.status} />
+                </div>
+                <h3 className="font-display font-semibold text-base text-foreground leading-snug group-hover:text-primary transition-colors">
+                  {t.title}
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1.5 line-clamp-2">{t.description}</p>
 
-              <div className="mt-4 flex flex-wrap gap-1.5">
-                {t.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-[11px] px-2 py-0.5 rounded-md bg-accent text-accent-foreground font-medium"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
+                <div className="mt-4 flex flex-wrap gap-1.5">
+                  {t.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="text-[11px] px-2 py-0.5 rounded-md bg-accent text-accent-foreground font-medium"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
 
-              <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div
-                    className="h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-semibold text-primary-foreground shrink-0"
-                    style={{ background: "var(--gradient-primary)" }}
-                  >
-                    {emp?.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .slice(0, 2)
-                      .join("")}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium truncate">{emp?.name}</div>
-                    <div className="text-[11px] text-muted-foreground truncate">
-                      {t.target.label}
+                <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div
+                      className="h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-semibold text-primary-foreground shrink-0"
+                      style={{ background: "var(--gradient-primary)" }}
+                    >
+                      {emp?.name
+                        .split(" ")
+                        .map((n) => n[0])
+                        .slice(0, 2)
+                        .join("")}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium truncate">{emp?.name}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        {t.target.label}
+                      </div>
                     </div>
                   </div>
+                  <div className="flex items-center gap-3 text-muted-foreground text-xs">
+                    {t.comments > 0 && (
+                      <span className="inline-flex items-center gap-1">
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        {t.comments}
+                      </span>
+                    )}
+                    {t.attachments > 0 && (
+                      <span className="inline-flex items-center gap-1">
+                        <Paperclip className="h-3.5 w-3.5" />
+                        {t.attachments}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-muted-foreground text-xs">
-                  {t.comments > 0 && (
-                    <span className="inline-flex items-center gap-1">
-                      <MessageSquare className="h-3.5 w-3.5" />
-                      {t.comments}
-                    </span>
-                  )}
-                  {t.attachments > 0 && (
-                    <span className="inline-flex items-center gap-1">
-                      <Paperclip className="h-3.5 w-3.5" />
-                      {t.attachments}
-                    </span>
-                  )}
-                </div>
-              </div>
 
-              <div className="mt-3 flex items-center justify-between text-xs gap-3">
-                <span className="inline-flex items-center gap-1 text-muted-foreground">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {new Date(`${t.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
-                </span>
-                {reviewer && (
-                  <span className="inline-flex items-center gap-1 text-muted-foreground truncate">
-                    <UserCircle2 className="h-3.5 w-3.5" /> Revisor: {reviewer.name.split(" ")[0]}
+                <div className="mt-3 flex items-center justify-between text-xs gap-3">
+                  <span className="inline-flex items-center gap-1 text-muted-foreground">
+                    <Calendar className="h-3.5 w-3.5" />
+                    {new Date(`${t.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                   </span>
-                )}
-              </div>
+                  {reviewer && (
+                    <span className="inline-flex items-center gap-1 text-muted-foreground truncate">
+                      <UserCircle2 className="h-3.5 w-3.5" /> Revisor: {reviewer.name.split(" ")[0]}
+                    </span>
+                  )}
+                </div>
 
-              <label className="mt-4 block">
-                <span className="text-[11px] font-medium text-muted-foreground mb-1.5 block">
-                  Atualizar status
-                </span>
-                <select
-                  value={t.status}
-                  onChange={(event) =>
-                    statusMutation.mutate({ id: t.id, status: event.target.value as TaskStatus })
-                  }
-                  className="w-full h-9 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-xs"
+                <label className="mt-4 block">
+                  <span className="text-[11px] font-medium text-muted-foreground mb-1.5 block">
+                    Atualizar status
+                  </span>
+                  <select
+                    value={t.status}
+                    disabled={!permissions.canChangeStatus || statusMutation.isPending}
+                    onChange={(event) =>
+                      statusMutation.mutate({ id: t.id, status: event.target.value as TaskStatus })
+                    }
+                    className="w-full h-9 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {Object.entries(statusLabels).map(([key, label]) => (
+                      <option key={key} value={key}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => openTask(t)}
+                  className="mt-3 w-full h-9 rounded-lg border border-border text-xs font-medium hover:bg-muted transition inline-flex items-center justify-center gap-2"
                 >
-                  {Object.entries(statusLabels).map(([key, label]) => (
-                    <option key={key} value={key}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <Pencil className="h-3.5 w-3.5" /> Abrir atividade
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {selectedTask && selectedPermissions && (
+          <aside className="bg-card border border-border rounded-2xl p-5 shadow-[var(--shadow-card)] xl:sticky xl:top-24">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div className="min-w-0">
+                <div className="text-xs text-muted-foreground">Atividade aberta</div>
+                <h2 className="font-display font-bold text-lg truncate">{selectedTask.title}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedTaskId(null)}
+                className="h-8 w-8 rounded-lg hover:bg-muted flex items-center justify-center transition"
+                aria-label="Fechar atividade"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
-          );
-        })}
+
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <StatusBadge status={selectedTask.status} />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent text-accent-foreground">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {selectedPermissions.roleLabel}
+              </span>
+            </div>
+
+            <label className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 px-3 py-3 text-sm">
+              <span className="inline-flex items-center gap-2 font-medium">
+                <CheckCircle2 className="h-4 w-4 text-success" />
+                Já concluiu
+              </span>
+              <input
+                type="checkbox"
+                checked={selectedTask.status === "completed"}
+                disabled={!selectedPermissions.canComplete || statusMutation.isPending}
+                onChange={(event) =>
+                  statusMutation.mutate({
+                    id: selectedTask.id,
+                    status: event.target.checked ? "completed" : "in_progress",
+                  })
+                }
+                className="h-4 w-4 rounded border-input accent-primary disabled:opacity-60"
+              />
+            </label>
+
+            <form onSubmit={handleEditSubmit} className="space-y-3.5">
+              <Field label="Título">
+                <input
+                  value={editForm.title}
+                  disabled={!selectedPermissions.canEditContent}
+                  onChange={(e) =>
+                    setEditForm((current) => ({ ...current, title: e.target.value }))
+                  }
+                  className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm disabled:opacity-60"
+                  required
+                />
+              </Field>
+              <Field label="Texto da atividade">
+                <textarea
+                  value={editForm.description}
+                  disabled={!selectedPermissions.canEditContent}
+                  onChange={(e) =>
+                    setEditForm((current) => ({ ...current, description: e.target.value }))
+                  }
+                  rows={5}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm resize-none disabled:opacity-60"
+                  required
+                />
+              </Field>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-3">
+                <Field label="Prioridade">
+                  <select
+                    value={editForm.priority}
+                    disabled={!selectedPermissions.canEditContent}
+                    onChange={(e) =>
+                      setEditForm((current) => ({
+                        ...current,
+                        priority: e.target.value as Priority,
+                      }))
+                    }
+                    className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm disabled:opacity-60"
+                  >
+                    {Object.entries(priorityLabels).map(([key, label]) => (
+                      <option key={key} value={key}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Prazo">
+                  <input
+                    type="date"
+                    value={editForm.dueDate}
+                    disabled={!selectedPermissions.canEditContent}
+                    onChange={(e) =>
+                      setEditForm((current) => ({ ...current, dueDate: e.target.value }))
+                    }
+                    className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm disabled:opacity-60"
+                    required
+                  />
+                </Field>
+              </div>
+              <Field label="Tags">
+                <input
+                  value={editForm.tags}
+                  disabled={!selectedPermissions.canEditContent}
+                  onChange={(e) => setEditForm((current) => ({ ...current, tags: e.target.value }))}
+                  className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm disabled:opacity-60"
+                  placeholder="Separadas por vírgula"
+                />
+              </Field>
+              {!selectedPermissions.canEditContent && (
+                <p className="text-xs text-muted-foreground">
+                  Sua hierarquia permite alterar status/conclusão, mas não editar o texto.
+                </p>
+              )}
+              {(updateError || statusError) && (
+                <div className="text-sm text-destructive">{updateError ?? statusError}</div>
+              )}
+              <button
+                type="submit"
+                disabled={!selectedPermissions.canEditContent || updateTaskMutation.isPending}
+                className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition shadow-[var(--shadow-elegant)] disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {updateTaskMutation.isPending ? "Salvando..." : "Salvar texto"}
+              </button>
+            </form>
+          </aside>
+        )}
       </div>
 
       {list.length === 0 && (

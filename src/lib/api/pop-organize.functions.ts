@@ -8,18 +8,13 @@ import {
 import { z } from "zod";
 
 import {
-  createSessionToken,
-  defaultDueDate,
   DEMO_PASSWORD,
-  hashPassword,
-  hashToken,
-  mutateDatabase,
+  defaultDueDate,
   nextId,
-  readDatabase,
   sanitizeDatabase,
   today,
   toCurrentUser,
-} from "../database.server";
+} from "../database";
 import { departmentColors, type TargetType } from "../domain";
 import { getTaskPermissions } from "../permissions";
 
@@ -117,10 +112,15 @@ function getCookieOptions() {
   };
 }
 
+async function dbServer() {
+  return import("../database.server");
+}
+
 async function getSessionUserId() {
   const token = getCookie(SESSION_COOKIE);
   if (!token) return null;
 
+  const { hashToken, readDatabase } = await dbServer();
   const tokenHash = hashToken(token);
   const db = await readDatabase();
   const now = Date.now();
@@ -134,7 +134,7 @@ async function getSessionUserId() {
 function resolveTargetLabel(
   type: TargetType,
   id: string,
-  db: Awaited<ReturnType<typeof readDatabase>>,
+  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
 ) {
   if (type === "company" && db.company.id === id) return "Empresa inteira";
   if (type === "department") return db.departments.find((department) => department.id === id)?.name;
@@ -144,6 +144,7 @@ function resolveTargetLabel(
 }
 
 export const getWorkspaceData = createServerFn({ method: "GET" }).handler(async () => {
+  const { readDatabase } = await dbServer();
   const db = await readDatabase();
   const currentUserId = (await getSessionUserId()) ?? "u3";
   return sanitizeDatabase(db, currentUserId);
@@ -153,14 +154,16 @@ export const getSessionUser = createServerFn({ method: "GET" }).handler(async ()
   const userId = await getSessionUserId();
   if (!userId) return null;
 
+  const { readDatabase } = await dbServer();
   const db = await readDatabase();
   const employee = db.employees.find((item) => item.id === userId);
   return employee ? toCurrentUser(employee) : null;
 });
 
 export const login = createServerFn({ method: "POST" })
-  .validator(loginSchema)
+  .inputValidator((data) => loginSchema.parse(data))
   .handler(async ({ data }) => {
+    const { hashPassword, mutateDatabase, createSessionToken, hashToken } = await dbServer();
     const email = data.email.toLowerCase();
     const passwordHash = hashPassword(data.password);
 
@@ -191,6 +194,7 @@ export const login = createServerFn({ method: "POST" })
   });
 
 export const logout = createServerFn({ method: "POST" }).handler(async () => {
+  const { mutateDatabase, hashToken } = await dbServer();
   const token = getCookie(SESSION_COOKIE);
   if (token) {
     const tokenHash = hashToken(token);
@@ -204,8 +208,9 @@ export const logout = createServerFn({ method: "POST" }).handler(async () => {
 });
 
 export const createTask = createServerFn({ method: "POST" })
-  .validator(createTaskSchema)
+  .inputValidator((data) => createTaskSchema.parse(data))
   .handler(async ({ data }) => {
+    const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       const responsible = db.employees.find((employee) => employee.id === data.responsibleId);
       if (!responsible) throw createHttpError("Responsável não encontrado.");
@@ -241,9 +246,10 @@ export const createTask = createServerFn({ method: "POST" })
   });
 
 export const updateTaskStatus = createServerFn({ method: "POST" })
-  .validator(updateTaskStatusSchema)
+  .inputValidator((data) => updateTaskStatusSchema.parse(data))
   .handler(async ({ data }) => {
     const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       const task = db.tasks.find((item) => item.id === data.id);
       if (!task) throw createHttpError("Tarefa não encontrada.", 404);
@@ -264,9 +270,10 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
   });
 
 export const updateTaskDetails = createServerFn({ method: "POST" })
-  .validator(updateTaskDetailsSchema)
+  .inputValidator((data) => updateTaskDetailsSchema.parse(data))
   .handler(async ({ data }) => {
     const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       const task = db.tasks.find((item) => item.id === data.id);
       if (!task) throw createHttpError("Tarefa não encontrada.", 404);
@@ -292,8 +299,9 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
   });
 
 export const createDepartment = createServerFn({ method: "POST" })
-  .validator(createDepartmentSchema)
+  .inputValidator((data) => createDepartmentSchema.parse(data))
   .handler(async ({ data }) => {
+    const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       if (!db.employees.some((employee) => employee.id === data.managerId)) {
         throw createHttpError("Gestor não encontrado.");
@@ -313,8 +321,9 @@ export const createDepartment = createServerFn({ method: "POST" })
   });
 
 export const createEmployee = createServerFn({ method: "POST" })
-  .validator(createEmployeeSchema)
+  .inputValidator((data) => createEmployeeSchema.parse(data))
   .handler(async ({ data }) => {
+    const { mutateDatabase, hashPassword } = await dbServer();
     return mutateDatabase((db) => {
       if (!db.departments.some((department) => department.id === data.departmentId)) {
         throw createHttpError("Setor não encontrado.");
@@ -343,8 +352,9 @@ export const createEmployee = createServerFn({ method: "POST" })
   });
 
 export const createGroup = createServerFn({ method: "POST" })
-  .validator(createGroupSchema)
+  .inputValidator((data) => createGroupSchema.parse(data))
   .handler(async ({ data }) => {
+    const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       if (data.leaderId && !db.employees.some((employee) => employee.id === data.leaderId)) {
         throw createHttpError("Líder não encontrado.");
@@ -372,8 +382,9 @@ export const createGroup = createServerFn({ method: "POST" })
   });
 
 export const updateCompany = createServerFn({ method: "POST" })
-  .validator(updateCompanySchema)
+  .inputValidator((data) => updateCompanySchema.parse(data))
   .handler(async ({ data }) => {
+    const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       db.company = {
         ...db.company,

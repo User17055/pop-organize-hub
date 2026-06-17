@@ -395,13 +395,3 @@ export const updateCompany = createServerFn({ method: "POST" })
       return db.company;
     });
   });
-
-// Helper used synchronously inside a handler; it must be called after the dynamic import
-// resolved, so we cache the module once loaded.
-let databaseServerModule: typeof import("../database.server") | null = null;
-async function dbServerSync() {
-  if (!databaseServerModule) {
-    databaseServerModule = await dbServer();
-  }
-  return databaseServerModule;
-}

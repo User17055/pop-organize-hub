@@ -323,7 +323,7 @@ export const createDepartment = createServerFn({ method: "POST" })
 export const createEmployee = createServerFn({ method: "POST" })
   .inputValidator((data) => createEmployeeSchema.parse(data))
   .handler(async ({ data }) => {
-    const { mutateDatabase } = await dbServer();
+    const { mutateDatabase, hashPassword } = await dbServer();
     return mutateDatabase((db) => {
       if (!db.departments.some((department) => department.id === data.departmentId)) {
         throw createHttpError("Setor não encontrado.");
@@ -335,7 +335,6 @@ export const createEmployee = createServerFn({ method: "POST" })
         throw createHttpError("Já existe um funcionário com este e-mail.");
       }
 
-      const { hashPassword } = dbServerSync() ?? {};
       const employee = {
         id: nextId("u", db.employees),
         name: data.name,
@@ -343,7 +342,7 @@ export const createEmployee = createServerFn({ method: "POST" })
         role: data.role,
         departmentId: data.departmentId,
         status: data.status,
-        passwordHash: hashPassword ? hashPassword(data.password ?? DEMO_PASSWORD) : "",
+        passwordHash: hashPassword(data.password ?? DEMO_PASSWORD),
       };
 
       db.employees.push(employee);

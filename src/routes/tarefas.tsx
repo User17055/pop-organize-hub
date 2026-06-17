@@ -23,9 +23,14 @@ import {
   Paperclip,
   UserCircle2,
   Pencil,
-  CheckCircle2,
   ShieldCheck,
   X,
+  Check,
+  Flag,
+  Target,
+  User,
+  UserCheck,
+  Tag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 

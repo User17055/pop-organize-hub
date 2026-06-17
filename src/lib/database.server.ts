@@ -3,42 +3,19 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
+import { DEMO_PASSWORD, nextId, type Database, type SessionRecord } from "./database";
 import {
   departmentColors,
   type Company,
-  type CurrentUser,
   type Department,
   type Employee,
   type Group,
   type Task,
 } from "./domain";
 
-export const DEMO_PASSWORD = "demo1234";
-
-type EmployeeRecord = Employee & {
-  passwordHash: string;
-};
-
-export type SessionRecord = {
-  id: string;
-  tokenHash: string;
-  userId: string;
-  createdAt: string;
-  expiresAt: string;
-};
-
-export type Database = {
-  company: Company;
-  employees: EmployeeRecord[];
-  departments: Department[];
-  groups: Group[];
-  tasks: Task[];
-  sessions: SessionRecord[];
-};
-
+const PASSWORD_PEPPER = "pop-organize-local-demo";
 const DATA_DIR = path.resolve(process.cwd(), ".data");
 const DB_FILE = path.join(DATA_DIR, "pop-organize-db.json");
-const PASSWORD_PEPPER = "pop-organize-local-demo";
 
 export function hashPassword(password: string) {
   return crypto.createHash("sha256").update(`${PASSWORD_PEPPER}:${password}`).digest("hex");
@@ -96,7 +73,7 @@ function initialDatabase(): Database {
     },
   ];
 
-  const employees: EmployeeRecord[] = [
+  const employees: Array<Database["employees"][number]> = [
     {
       id: "u1",
       name: "Felipe Souza",
@@ -344,34 +321,6 @@ function initialDatabase(): Database {
   };
 }
 
-function withoutPassword(employee: EmployeeRecord): Employee {
-  const { passwordHash, ...safeEmployee } = employee;
-  return safeEmployee;
-}
-
-export function toCurrentUser(employee: Employee): CurrentUser {
-  return {
-    id: employee.id,
-    name: employee.name,
-    email: employee.email,
-    role: employee.role,
-  };
-}
-
-export function sanitizeDatabase(db: Database, currentUserId = "u3") {
-  const employees = db.employees.map(withoutPassword);
-  const currentEmployee =
-    employees.find((employee) => employee.id === currentUserId) ?? employees[0];
-  return {
-    company: db.company,
-    currentUser: toCurrentUser(currentEmployee),
-    departments: db.departments,
-    employees,
-    groups: db.groups,
-    tasks: db.tasks,
-  };
-}
-
 function normalizeDatabase(value: Database): Database {
   return {
     ...initialDatabase(),
@@ -411,22 +360,4 @@ export async function mutateDatabase<T>(mutator: (db: Database) => T | Promise<T
   const result = await mutator(db);
   await saveDatabase(db);
   return result;
-}
-
-export function nextId(prefix: string, items: Array<{ id: string }>) {
-  const max = items.reduce((current, item) => {
-    const match = item.id.match(new RegExp(`^${prefix}(\\d+)$`));
-    return match ? Math.max(current, Number(match[1])) : current;
-  }, 0);
-  return `${prefix}${max + 1}`;
-}
-
-export function defaultDueDate() {
-  const date = new Date();
-  date.setDate(date.getDate() + 7);
-  return date.toISOString().slice(0, 10);
-}
-
-export function today() {
-  return nowDate();
 }

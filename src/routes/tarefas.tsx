@@ -1277,7 +1277,7 @@ function TasksPage() {
                       value={commentBody}
                       onChange={(event) => setCommentBody(event.target.value)}
                       placeholder="Escrever comentário..."
-                      className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                      className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-xs outline-none focus:border-primary"
                     />
                     <button
                       type="submit"

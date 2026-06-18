@@ -16,6 +16,8 @@ import {
 const PASSWORD_PEPPER = "pop-organize-local-demo";
 const DATA_DIR = path.resolve(process.cwd(), ".data");
 const DB_FILE = path.join(DATA_DIR, "pop-organize-db.json");
+let memoryDatabase: Database | undefined;
+let didWarnMemoryFallback = false;
 
 export function hashPassword(password: string) {
   return crypto.createHash("sha256").update(`${PASSWORD_PEPPER}:${password}`).digest("hex");
@@ -334,25 +336,94 @@ function normalizeDatabase(value: Database): Database {
   };
 }
 
+function cloneDatabase(db: Database): Database {
+  return JSON.parse(JSON.stringify(db)) as Database;
+}
+
+function isMissingFileError(error: unknown) {
+  return (error as { code?: string }).code === "ENOENT";
+}
+
+function canUseMemoryFallback(error: unknown) {
+  const code = (error as { code?: string }).code;
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return (
+    code === "EROFS" ||
+    code === "EACCES" ||
+    code === "EPERM" ||
+    code === "ENOSYS" ||
+    code === "ENOTSUP" ||
+    code === "ERR_NOT_IMPLEMENTED" ||
+    code === "ERR_UNSUPPORTED_ESM_URL_SCHEME" ||
+    message.includes("not implemented") ||
+    message.includes("read-only") ||
+    error instanceof TypeError
+  );
+}
+
+function rememberDatabase(db: Database) {
+  memoryDatabase = cloneDatabase(normalizeDatabase(db));
+  return cloneDatabase(memoryDatabase);
+}
+
+function readMemoryDatabase(reason?: unknown) {
+  if (!didWarnMemoryFallback) {
+    console.info(
+      "Using in-memory demo database because local filesystem storage is unavailable.",
+      reason,
+    );
+    didWarnMemoryFallback = true;
+  }
+
+  if (!memoryDatabase) {
+    memoryDatabase = initialDatabase();
+  }
+
+  return cloneDatabase(memoryDatabase);
+}
+
 export async function readDatabase(): Promise<Database> {
+  if (memoryDatabase) {
+    return readMemoryDatabase();
+  }
+
+  let raw: string;
   try {
-    const raw = await readFile(DB_FILE, "utf8");
-    return normalizeDatabase(JSON.parse(raw) as Database);
+    raw = await readFile(DB_FILE, "utf8");
   } catch (error) {
-    if ((error as { code?: string }).code !== "ENOENT") {
+    if (!isMissingFileError(error)) {
+      if (canUseMemoryFallback(error)) return readMemoryDatabase(error);
       throw error;
     }
+
     const db = initialDatabase();
-    await saveDatabase(db);
-    return db;
+    try {
+      await saveDatabase(db);
+    } catch (saveError) {
+      if (canUseMemoryFallback(saveError)) return rememberDatabase(db);
+      throw saveError;
+    }
+    return cloneDatabase(db);
   }
+
+  return normalizeDatabase(JSON.parse(raw) as Database);
 }
 
 export async function saveDatabase(db: Database) {
-  await mkdir(DATA_DIR, { recursive: true });
-  const tempFile = `${DB_FILE}.${process.pid}.tmp`;
-  await writeFile(tempFile, `${JSON.stringify(db, null, 2)}\n`, "utf8");
-  await rename(tempFile, DB_FILE);
+  if (memoryDatabase) {
+    rememberDatabase(db);
+    return;
+  }
+
+  try {
+    await mkdir(DATA_DIR, { recursive: true });
+    const tempFile = `${DB_FILE}.${process.pid}.tmp`;
+    await writeFile(tempFile, `${JSON.stringify(db, null, 2)}\n`, "utf8");
+    await rename(tempFile, DB_FILE);
+  } catch (error) {
+    if (!canUseMemoryFallback(error)) throw error;
+    rememberDatabase(db);
+  }
 }
 
 export async function mutateDatabase<T>(mutator: (db: Database) => T | Promise<T>) {

@@ -68,6 +68,7 @@ export function AppShell({
     .slice(0, 2)
     .join("");
   const [profileOpen, setProfileOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [profileForm, setProfileForm] = useState({
     name: currentEmployee?.name ?? currentUser.name,
     avatar: avatar ?? "",

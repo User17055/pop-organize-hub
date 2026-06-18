@@ -984,7 +984,7 @@ function TasksPage() {
       {/* Sliding right sidebar (drawer) */}
       <aside
         className={cn(
-          "fixed top-0 right-0 z-50 h-screen w-full sm:w-[460px] bg-background border-l border-border shadow-2xl flex flex-col transition-transform duration-300 ease-out",
+          "fixed top-0 right-0 z-50 h-screen w-full sm:w-[480px] bg-background border-l border-border shadow-2xl flex flex-col transition-transform duration-300 ease-out",
           selectedTask ? "translate-x-0" : "translate-x-full",
         )}
         aria-hidden={!selectedTask}
@@ -992,22 +992,23 @@ function TasksPage() {
         {selectedTask && selectedPermissions && (
           <form onSubmit={handleEditSubmit} className="flex h-full flex-col">
             {/* Sticky header */}
-            <header className="sticky top-0 z-10 border-b border-border bg-card px-5 py-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <header className="sticky top-0 z-10 border-b border-border bg-gradient-to-b from-card to-background px-5 pt-5 pb-4">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <ShieldCheck className="h-3.5 w-3.5" />
                   {selectedPermissions.roleLabel}
                 </div>
                 <button
                   type="button"
                   onClick={() => setSelectedTaskId(null)}
-                  className="h-9 w-9 rounded-lg bg-muted hover:bg-muted/70 text-foreground flex items-center justify-center transition"
+                  className="h-8 w-8 rounded-full bg-muted hover:bg-muted/70 text-foreground flex items-center justify-center transition"
                   aria-label="Fechar atividade"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <div className="mt-3 flex items-start gap-3">
+
+              <div className="flex items-start gap-3">
                 <button
                   type="button"
                   disabled={!selectedPermissions.canComplete || statusMutation.isPending}
@@ -1035,331 +1036,386 @@ function TasksPage() {
                       setEditForm((current) => ({ ...current, title: e.target.value }))
                     }
                     className={cn(
-                      "w-full text-base font-display font-semibold bg-transparent border-b border-transparent focus:border-border outline-none transition text-foreground placeholder:text-muted-foreground",
+                      "w-full text-[15px] font-display font-semibold bg-transparent border-b border-transparent focus:border-border outline-none transition text-foreground placeholder:text-muted-foreground leading-snug",
                       selectedTask.status === "completed" && "line-through text-muted-foreground",
                     )}
                   />
-                  <div className="text-[11px] text-muted-foreground mt-1">
+                  <div className="text-[11px] text-muted-foreground mt-1.5">
                     {selectedTask.status === "completed"
                       ? "Concluída"
                       : `Criada em ${new Date(`${selectedTask.createdAt}T00:00:00`).toLocaleDateString("pt-BR")}`}
                   </div>
                 </div>
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <StatusBadge status={selectedTask.status} />
                 <PriorityBadge priority={selectedTask.priority} />
+                {isOverdue(selectedTask) && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-destructive/10 text-destructive font-semibold">
+                    Atrasada
+                  </span>
+                )}
               </div>
             </header>
 
             {/* Scrollable body */}
             <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
 
-            <div>
-              <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                <Pencil className="h-3.5 w-3.5" /> Notas
+              {/* Notes */}
+              <div>
+                <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  <Pencil className="h-3.5 w-3.5" /> Notas
+                </div>
+                <textarea
+                  value={editForm.description}
+                  disabled={!selectedPermissions.canEditContent}
+                  onChange={(e) =>
+                    setEditForm((current) => ({ ...current, description: e.target.value }))
+                  }
+                  rows={3}
+                  placeholder="Adicionar uma nota..."
+                  className="w-full px-3.5 py-3 rounded-xl bg-muted/30 border border-border/60 outline-none focus:border-primary focus:bg-background text-xs resize-none disabled:opacity-60 transition leading-relaxed"
+                  required
+                />
               </div>
-              <textarea
-                value={editForm.description}
-                disabled={!selectedPermissions.canEditContent}
-                onChange={(e) =>
-                  setEditForm((current) => ({ ...current, description: e.target.value }))
-                }
-                rows={4}
-                placeholder="Adicionar uma nota..."
-                className="w-full px-3 py-2.5 rounded-xl bg-muted/40 border border-transparent outline-none focus:border-primary focus:bg-background text-xs resize-none disabled:opacity-60 transition"
-                required
-              />
-            </div>
 
-            <div className="space-y-2">
-              <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Detalhes
-              </div>
-              <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
-                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
-                    <Calendar className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-muted-foreground">Prazo</div>
-                    {selectedPermissions.canEditContent ? (
-                      <input
-                        type="date"
-                        value={editForm.dueDate}
-                        onChange={(e) =>
-                          setEditForm((current) => ({ ...current, dueDate: e.target.value }))
-                        }
-                        className="w-full bg-transparent outline-none text-sm font-semibold text-foreground"
-                        required
-                      />
-                    ) : (
-                      <div className="text-sm font-semibold text-foreground">
-                        {new Date(`${selectedTask.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
-                      </div>
-                    )}
-                  </div>
+              {/* Details grid */}
+              <div className="space-y-2">
+                <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Detalhes
                 </div>
-
-                <div className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
-                    <Repeat className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-muted-foreground">Recorrência</div>
-                    {selectedPermissions.canEditContent ? (
-                      <div className="mt-1.5">
-                        <RecurrenceFields
-                          compact
-                          value={editForm.recurrence}
-                          onChange={(recurrence) =>
-                            setEditForm((current) => ({
-                              ...current,
-                              recurrence,
-                            }))
-                          }
-                        />
-                      </div>
-                    ) : (
-                      <div className="text-sm font-semibold text-foreground">
-                        {recurrenceLabel(selectedTask.recurrence)}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
-                    <Flag className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-muted-foreground">Prioridade</div>
-                    {selectedPermissions.canEditContent ? (
-                      <select
-                        value={editForm.priority}
-                        onChange={(e) =>
-                          setEditForm((current) => ({
-                            ...current,
-                            priority: e.target.value as Priority,
-                          }))
-                        }
-                        className="w-full bg-transparent outline-none text-sm font-semibold text-foreground"
-                      >
-                        {Object.entries(priorityLabels).map(([key, label]) => (
-                          <option key={key} value={key}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div className="text-sm font-semibold text-foreground">
-                        {priorityLabels[selectedTask.priority]}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
-                    <Target className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-muted-foreground">Destino</div>
-                    <div className="text-sm font-semibold text-foreground truncate">{selectedTask.target.label}</div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold shrink-0">
-                    {getEmployee(selectedTask.responsibleId)?.name?.charAt(0) ?? "?"}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-muted-foreground">Responsável</div>
-                    <div className="text-sm font-semibold text-foreground truncate">
-                      {getEmployee(selectedTask.responsibleId)?.name}
-                    </div>
-                  </div>
-                </div>
-
-                {selectedTask.reviewerId && (
-                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                    <div className="h-8 w-8 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
-                      <UserCheck className="h-4 w-4" />
+                <div className="grid grid-cols-2 gap-2">
+                  {/* Due date */}
+                  <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                      <Calendar className="h-4 w-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] font-medium text-muted-foreground">Revisor</div>
-                      <div className="text-sm font-semibold text-foreground truncate">
-                        {getEmployee(selectedTask.reviewerId)?.name}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                <Tag className="h-3.5 w-3.5" /> Tags
-              </div>
-              {selectedPermissions.canEditContent ? (
-                <input
-                  value={editForm.tags}
-                  onChange={(e) => setEditForm((current) => ({ ...current, tags: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-lg bg-muted/40 border border-transparent outline-none focus:border-primary focus:bg-background text-xs transition"
-                  placeholder="Separadas por vírgula"
-                />
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedTask.tags.length > 0 ? (
-                    selectedTask.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-[11px] px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium"
-                      >
-                        {tag}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-muted-foreground">Nenhuma tag</span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-4">
-              <section className="rounded-xl border border-border bg-card p-3">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                    <MessageSquare className="h-3.5 w-3.5" />
-                    Comentários
-                  </div>
-                  <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                    {selectedTask.comments}
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  {(selectedTask.commentItems ?? []).map((comment) => {
-                    const author = getEmployee(comment.authorId);
-                    return (
-                      <div key={comment.id} className="rounded-lg bg-muted/40 p-2.5">
-                        <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                          <span className="font-medium text-foreground">
-                            {author?.name ?? "Usuario"}
-                          </span>
-                          <span>
-                            {new Date(comment.createdAt).toLocaleString("pt-BR", {
-                              day: "2-digit",
-                              month: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Prazo</div>
+                      {selectedPermissions.canEditContent ? (
+                        <input
+                          type="date"
+                          value={editForm.dueDate}
+                          onChange={(e) =>
+                            setEditForm((current) => ({ ...current, dueDate: e.target.value }))
+                          }
+                          className="w-full bg-transparent outline-none text-xs font-semibold text-foreground mt-0.5"
+                          required
+                        />
+                      ) : (
+                        <div className="text-xs font-semibold text-foreground mt-0.5">
+                          {new Date(`${selectedTask.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                         </div>
-                        <p className="text-xs text-foreground/85">{comment.body}</p>
-                      </div>
-                    );
-                  })}
-                  {selectedTask.comments > (selectedTask.commentItems?.length ?? 0) && (
-                    <div className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-                      {selectedTask.comments - (selectedTask.commentItems?.length ?? 0)} comentário
-                      {selectedTask.comments - (selectedTask.commentItems?.length ?? 0) === 1
-                        ? ""
-                        : "s"}{" "}
-                      no histórico.
+                      )}
                     </div>
-                  )}
-                </div>
+                  </div>
 
-                {selectedPermissions.canChangeStatus && (
-                  <form onSubmit={handleCommentSubmit} className="mt-3 flex gap-2">
-                    <input
-                      value={commentBody}
-                      onChange={(event) => setCommentBody(event.target.value)}
-                      placeholder="Escrever comentário..."
-                      className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-xs outline-none focus:border-primary"
-                    />
-                    <button
-                      type="submit"
-                      disabled={commentMutation.isPending || !commentBody.trim()}
-                      className="h-9 w-9 rounded-lg bg-primary text-primary-foreground disabled:opacity-60 inline-flex items-center justify-center hover:opacity-90 transition"
-                      aria-label="Enviar comentário"
+                  {/* Recurrence */}
+                  <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-lg bg-success/10 text-success flex items-center justify-center shrink-0">
+                      <Repeat className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Recorrência</div>
+                      {selectedPermissions.canEditContent ? (
+                        <div className="mt-1">
+                          <select
+                            value={editForm.recurrence.frequency}
+                            onChange={(e) =>
+                              setEditForm((current) => ({
+                                ...current,
+                                recurrence: { ...current.recurrence, frequency: e.target.value as RecurrenceFormState["frequency"] },
+                              }))
+                            }
+                            className="w-full bg-transparent outline-none text-xs font-semibold text-foreground"
+                          >
+                            {recurrenceOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
+                          {recurrenceLabel(selectedTask.recurrence)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Priority */}
+                  <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-lg bg-destructive/10 text-destructive flex items-center justify-center shrink-0">
+                      <Flag className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Prioridade</div>
+                      {selectedPermissions.canEditContent ? (
+                        <select
+                          value={editForm.priority}
+                          onChange={(e) =>
+                            setEditForm((current) => ({
+                              ...current,
+                              priority: e.target.value as Priority,
+                            }))
+                          }
+                          className="w-full bg-transparent outline-none text-xs font-semibold text-foreground mt-0.5"
+                        >
+                          {Object.entries(priorityLabels).map(([key, label]) => (
+                            <option key={key} value={key}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="text-xs font-semibold text-foreground mt-0.5">
+                          {priorityLabels[selectedTask.priority]}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Target */}
+                  <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-lg bg-accent/50 text-accent-foreground flex items-center justify-center shrink-0">
+                      <Target className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Destino</div>
+                      <div className="text-xs font-semibold text-foreground mt-0.5 truncate">{selectedTask.target.label}</div>
+                    </div>
+                  </div>
+
+                  {/* Responsible */}
+                  <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
+                    <div
+                      className="h-8 w-8 rounded-full text-white flex items-center justify-center text-[11px] font-bold shrink-0"
+                      style={{
+                        background: getEmployee(selectedTask.responsibleId)?.departmentId
+                          ? departments.find((d) => d.id === getEmployee(selectedTask.responsibleId)?.departmentId)?.color ?? "var(--primary)"
+                          : "var(--primary)",
+                      }}
                     >
-                      <Send className="h-4 w-4" />
-                    </button>
-                  </form>
-                )}
-              </section>
-
-              <section className="rounded-xl border border-border bg-card p-3">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                    <Paperclip className="h-3.5 w-3.5" />
-                    Anexos
+                      {getEmployee(selectedTask.responsibleId)?.name?.charAt(0) ?? "?"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Responsável</div>
+                      <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
+                        {getEmployee(selectedTask.responsibleId)?.name}
+                      </div>
+                    </div>
                   </div>
-                  <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                    {selectedTask.attachments}
-                  </span>
+
+                  {/* Reviewer */}
+                  {selectedTask.reviewerId && (
+                    <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
+                        <UserCheck className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Revisor</div>
+                        <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
+                          {getEmployee(selectedTask.reviewerId)?.name}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="space-y-2">
-                  {(selectedTask.attachmentItems ?? []).map((attachment) => {
-                    const author = getEmployee(attachment.uploadedById);
-                    return (
-                      <div
-                        key={attachment.id}
-                        className="flex items-center gap-3 rounded-lg bg-muted/40 p-2.5"
-                      >
-                        <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
-                          <FileText className="h-4 w-4" />
+                {selectedPermissions.canEditContent && editForm.recurrence.frequency !== "none" && (
+                  <div className="rounded-xl border border-border bg-card p-3 mt-2">
+                    <RecurrenceFields
+                      compact
+                      value={editForm.recurrence}
+                      onChange={(recurrence) =>
+                        setEditForm((current) => ({
+                          ...current,
+                          recurrence,
+                        }))
+                      }
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Tags */}
+              <div>
+                <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  <Tag className="h-3.5 w-3.5" /> Tags
+                </div>
+                {selectedPermissions.canEditContent ? (
+                  <input
+                    value={editForm.tags}
+                    onChange={(e) => setEditForm((current) => ({ ...current, tags: e.target.value }))}
+                    className="w-full h-10 px-3 rounded-xl bg-muted/30 border border-border/60 outline-none focus:border-primary focus:bg-background text-xs transition"
+                    placeholder="Separadas por vírgula"
+                  />
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedTask.tags.length > 0 ? (
+                      selectedTask.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="text-[11px] px-2.5 py-1 rounded-full bg-primary/10 text-primary font-medium"
+                        >
+                          {tag}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Nenhuma tag</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Comments & Attachments */}
+              <div className="space-y-4">
+                <section className="rounded-xl border border-border bg-card p-3.5">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      Comentários
+                    </div>
+                    <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium">
+                      {selectedTask.comments}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(selectedTask.commentItems ?? []).map((comment) => {
+                      const author = getEmployee(comment.authorId);
+                      const authorDept = author?.departmentId
+                        ? departments.find((d) => d.id === author.departmentId)
+                        : null;
+                      return (
+                        <div key={comment.id} className="rounded-xl bg-muted/30 p-3">
+                          <div className="mb-1.5 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="h-5 w-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center shrink-0"
+                                style={{ background: authorDept?.color ?? "var(--primary)" }}
+                              >
+                                {author?.name?.charAt(0) ?? "U"}
+                              </div>
+                              <span className="text-[11px] font-semibold text-foreground">
+                                {author?.name ?? "Usuario"}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-muted-foreground">
+                              {new Date(comment.createdAt).toLocaleString("pt-BR", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </div>
+                          <p className="text-xs text-foreground/80 leading-relaxed">{comment.body}</p>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs font-medium">{attachment.name}</div>
-                          <div className="text-[11px] text-muted-foreground">
-                            {attachment.sizeLabel} · {author?.name ?? "Usuario"}
+                      );
+                    })}
+                    {selectedTask.comments > (selectedTask.commentItems?.length ?? 0) && (
+                      <div className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground text-center">
+                        {selectedTask.comments - (selectedTask.commentItems?.length ?? 0)} comentário
+                        {selectedTask.comments - (selectedTask.commentItems?.length ?? 0) === 1
+                          ? ""
+                          : "s"}{" "}
+                        no histórico.
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedPermissions.canChangeStatus && (
+                    <form onSubmit={handleCommentSubmit} className="mt-3 flex gap-2">
+                      <input
+                        value={commentBody}
+                        onChange={(event) => setCommentBody(event.target.value)}
+                        placeholder="Escrever comentário..."
+                        className="h-9 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-xs outline-none focus:border-primary transition"
+                      />
+                      <button
+                        type="submit"
+                        disabled={commentMutation.isPending || !commentBody.trim()}
+                        className="h-9 w-9 rounded-xl bg-primary text-primary-foreground disabled:opacity-60 inline-flex items-center justify-center hover:opacity-90 transition shrink-0"
+                        aria-label="Enviar comentário"
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                      </button>
+                    </form>
+                  )}
+                </section>
+
+                <section className="rounded-xl border border-border bg-card p-3.5">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      <Paperclip className="h-3.5 w-3.5" />
+                      Anexos
+                    </div>
+                    <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium">
+                      {selectedTask.attachments}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(selectedTask.attachmentItems ?? []).map((attachment) => {
+                      const author = getEmployee(attachment.uploadedById);
+                      return (
+                        <div
+                          key={attachment.id}
+                          className="flex items-center gap-3 rounded-xl bg-muted/30 p-3"
+                        >
+                          <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                            <FileText className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-xs font-semibold">{attachment.name}</div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5">
+                              {attachment.sizeLabel} · {author?.name ?? "Usuario"}
+                            </div>
                           </div>
                         </div>
+                      );
+                    })}
+                    {selectedTask.attachments > (selectedTask.attachmentItems?.length ?? 0) && (
+                      <div className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground text-center">
+                        {selectedTask.attachments - (selectedTask.attachmentItems?.length ?? 0)} anexo
+                        {selectedTask.attachments - (selectedTask.commentItems?.length ?? 0) === 1
+                          ? ""
+                          : "s"}{" "}
+                        no histórico.
                       </div>
-                    );
-                  })}
-                  {selectedTask.attachments > (selectedTask.attachmentItems?.length ?? 0) && (
-                    <div className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-                      {selectedTask.attachments - (selectedTask.attachmentItems?.length ?? 0)} anexo
-                      {selectedTask.attachments - (selectedTask.attachmentItems?.length ?? 0) === 1
-                        ? ""
-                        : "s"}{" "}
-                      no histórico.
+                    )}
+                  </div>
+
+                  {selectedPermissions.canChangeStatus && (
+                    <div className="mt-3">
+                      <label
+                        className={cn(
+                          "flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-background px-3 text-xs font-medium transition hover:bg-muted hover:border-primary/50 hover:text-primary",
+                          attachmentMutation.isPending && "pointer-events-none opacity-60",
+                        )}
+                      >
+                        <Paperclip className="h-4 w-4" />
+                        {attachmentMutation.isPending ? "Anexando..." : "Adicionar arquivo"}
+                        <input type="file" onChange={handleAttachmentFile} className="sr-only" />
+                      </label>
                     </div>
                   )}
-                </div>
-
-                {selectedPermissions.canChangeStatus && (
-                  <div className="mt-3">
-                    <label
-                      className={cn(
-                        "flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-background px-3 text-xs font-medium transition hover:bg-muted hover:border-primary/50 hover:text-primary",
-                        attachmentMutation.isPending && "pointer-events-none opacity-60",
-                      )}
-                    >
-                      <Paperclip className="h-4 w-4" />
-                      {attachmentMutation.isPending ? "Anexando..." : "Adicionar arquivo"}
-                      <input type="file" onChange={handleAttachmentFile} className="sr-only" />
-                    </label>
-                  </div>
-                )}
-              </section>
-            </div>
-
-            {!selectedPermissions.canEditContent && (
-              <p className="text-xs text-muted-foreground">
-                Sua hierarquia permite alterar status/conclusão, mas não editar o texto.
-              </p>
-            )}
-            {(updateError || statusError || deleteError || commentError || attachmentError) && (
-              <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
-                {updateError ?? statusError ?? deleteError ?? commentError ?? attachmentError}
+                </section>
               </div>
-            )}
+
+              {!selectedPermissions.canEditContent && (
+                <p className="text-xs text-muted-foreground">
+                  Sua hierarquia permite alterar status/conclusão, mas não editar o texto.
+                </p>
+              )}
+              {(updateError || statusError || deleteError || commentError || attachmentError) && (
+                <div className="rounded-xl bg-destructive/10 border border-destructive/20 px-3 py-2.5 text-sm text-destructive">
+                  {updateError ?? statusError ?? deleteError ?? commentError ?? attachmentError}
+                </div>
+              )}
             </div>
 
             {/* Sticky footer */}
@@ -1370,7 +1426,7 @@ function TasksPage() {
                     type="button"
                     onClick={handleDeleteSelectedTask}
                     disabled={deleteTaskMutation.isPending}
-                    className="h-10 w-10 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 transition disabled:opacity-60 inline-flex items-center justify-center shrink-0"
+                    className="h-10 w-10 rounded-xl border border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 transition disabled:opacity-60 inline-flex items-center justify-center shrink-0"
                     aria-label="Excluir tarefa"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -1380,7 +1436,7 @@ function TasksPage() {
                   <button
                     type="submit"
                     disabled={updateTaskMutation.isPending}
-                    className="flex-1 h-10 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition shadow-[var(--shadow-elegant)] disabled:opacity-60"
+                    className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition shadow-[var(--shadow-elegant)] disabled:opacity-60"
                   >
                     {updateTaskMutation.isPending ? "Salvando..." : "Salvar alterações"}
                   </button>

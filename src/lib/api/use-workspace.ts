@@ -8,6 +8,7 @@ export function useWorkspaceData() {
   return useQuery({
     queryKey: workspaceQueryKey,
     queryFn: () => getWorkspaceData(),
+    placeholderData: (previousData) => previousData,
   });
 }
 

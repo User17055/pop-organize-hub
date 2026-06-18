@@ -31,9 +31,9 @@ function SetoresPage() {
       managerId: string;
       color?: string;
     }) => createDepartment({ data: payload }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    onSuccess: () => {
       setShowForm(false);
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
 

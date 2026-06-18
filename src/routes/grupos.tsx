@@ -30,9 +30,9 @@ function GruposPage() {
       leaderId?: string;
       memberIds: string[];
     }) => createGroup({ data: payload }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    onSuccess: () => {
       setShowForm(false);
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
 

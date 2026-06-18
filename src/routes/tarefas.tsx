@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useDeferredValue, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { AppShell, StatusBadge, PriorityBadge } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { createTask, updateTaskDetails, updateTaskStatus } from "@/lib/api/pop-organize.functions";
@@ -117,16 +117,18 @@ function TasksPage() {
       requiresReview: boolean;
       tags: string[];
     }) => createTask({ data: payload }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    onSuccess: () => {
       setShowForm(false);
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
 
   const statusMutation = useMutation({
     mutationFn: (payload: { id: string; status: TaskStatus }) =>
       updateTaskStatus({ data: payload }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: workspaceQueryKey }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
   });
 
   const updateTaskMutation = useMutation({
@@ -138,20 +140,23 @@ function TasksPage() {
       dueDate: string;
       tags: string[];
     }) => updateTaskDetails({ data: payload }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: workspaceQueryKey }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
   });
 
+  const deferredSearch = useDeferredValue(search);
   const taskRows = useMemo(() => data?.tasks ?? [], [data?.tasks]);
   const list = useMemo(
     () =>
       taskRows.filter(
         (t) =>
           (active === "all" || t.status === active) &&
-          (search === "" ||
-            t.title.toLowerCase().includes(search.toLowerCase()) ||
-            t.description.toLowerCase().includes(search.toLowerCase())),
+          (deferredSearch === "" ||
+            t.title.toLowerCase().includes(deferredSearch.toLowerCase()) ||
+            t.description.toLowerCase().includes(deferredSearch.toLowerCase())),
       ),
-    [active, search, taskRows],
+    [active, deferredSearch, taskRows],
   );
 
   if (isLoading) {
@@ -634,9 +639,7 @@ function TasksPage() {
               {selectedPermissions.canEditContent ? (
                 <input
                   value={editForm.tags}
-                  onChange={(e) =>
-                    setEditForm((current) => ({ ...current, tags: e.target.value }))
-                  }
+                  onChange={(e) => setEditForm((current) => ({ ...current, tags: e.target.value }))}
                   className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
                   placeholder="Separadas por vírgula"
                 />

@@ -25,9 +25,9 @@ function EmpresasPage() {
   const updateMutation = useMutation({
     mutationFn: (payload: { name: string; document: string; status: "active" | "inactive" }) =>
       updateCompany({ data: payload }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    onSuccess: () => {
       setShowForm(false);
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
 

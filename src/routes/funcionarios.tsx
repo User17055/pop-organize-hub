@@ -34,9 +34,9 @@ function FuncionariosPage() {
       status: "active" | "inactive";
       password?: string;
     }) => createEmployee({ data: payload }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    onSuccess: () => {
       setShowForm(false);
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
 

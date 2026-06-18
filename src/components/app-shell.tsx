@@ -44,7 +44,7 @@ export function AppShell({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data } = useWorkspaceData();
+  const { data, isFetching } = useWorkspaceData();
   const currentUser = data?.currentUser ?? {
     id: "u3",
     name: "João Pereira",
@@ -59,8 +59,8 @@ export function AppShell({
     .join("");
   const logoutMutation = useMutation({
     mutationFn: () => logout(),
-    onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    onSettled: () => {
+      queryClient.removeQueries({ queryKey: workspaceQueryKey });
       navigate({ to: "/login" });
     },
   });
@@ -161,8 +161,18 @@ export function AppShell({
               <LogOut className="h-4.5 w-4.5 text-foreground/70" />
             </button>
           </div>
+          <div
+            className={cn(
+              "absolute bottom-0 left-0 h-0.5 w-full overflow-hidden transition-opacity duration-200",
+              isFetching ? "opacity-100" : "opacity-0",
+            )}
+          >
+            <div className="h-full w-1/3 rounded-full bg-primary/70 shadow-[var(--shadow-elegant)] animate-pulse" />
+          </div>
         </header>
-        <div className="flex-1 px-6 py-6">{children}</div>
+        <div className="flex-1 px-6 py-6 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none">
+          {children}
+        </div>
       </main>
     </div>
   );

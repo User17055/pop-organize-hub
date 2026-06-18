@@ -17,8 +17,8 @@ function LoginPage() {
   const [password, setPassword] = useState("demo1234");
   const loginMutation = useMutation({
     mutationFn: (payload: { email: string; password: string }) => login({ data: payload }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
       navigate({ to: "/" });
     },
   });

@@ -790,10 +790,11 @@ function TasksPage() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="flex flex-col gap-2">
         {list.map((t) => {
           const emp = getEmployee(t.responsibleId);
           const reviewer = t.reviewerId ? getEmployee(t.reviewerId) : null;
+          const overdue = isOverdue(t);
           const permissions = getTaskPermissions({
             task: t,
             currentUser,
@@ -815,106 +816,115 @@ function TasksPage() {
                 }
               }}
               className={cn(
-                "group cursor-pointer bg-card border border-border rounded-2xl p-5 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
+                "group flex items-center gap-3 cursor-pointer bg-card border rounded-2xl p-4 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
+                overdue ? "border-destructive/40 bg-destructive/[0.03]" : "border-border",
                 selectedTaskId === t.id && "border-primary/60 ring-2 ring-primary/10",
               )}
             >
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <PriorityBadge priority={t.priority} />
-                <StatusBadge status={t.status} />
-              </div>
-              <h3 className="font-display font-semibold text-base text-foreground leading-snug group-hover:text-primary transition-colors">
-                {t.title}
-              </h3>
-              <p className="text-sm text-muted-foreground mt-1.5 line-clamp-2">{t.description}</p>
+              {/* Checkbox */}
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (!permissions.canChangeStatus || statusMutation.isPending) return;
+                  statusMutation.mutate({ id: t.id, status: "completed" });
+                }}
+                disabled={!permissions.canChangeStatus || statusMutation.isPending}
+                className={cn(
+                  "shrink-0 h-6 w-6 rounded-full border-2 flex items-center justify-center transition disabled:opacity-40",
+                  overdue
+                    ? "border-destructive/50 text-destructive hover:border-destructive"
+                    : "border-muted-foreground/30 text-primary hover:border-primary",
+                )}
+                aria-label="Concluir tarefa"
+              >
+                <Check className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition" />
+              </button>
 
-              <div className="mt-4 flex flex-wrap gap-1.5">
-                {t.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-[11px] px-2 py-0.5 rounded-md bg-accent text-accent-foreground font-medium"
-                  >
-                    {tag}
+              {/* Avatar */}
+              <div
+                className="shrink-0 h-9 w-9 rounded-full flex items-center justify-center text-[11px] font-semibold text-primary-foreground"
+                style={{ background: "var(--gradient-primary)" }}
+              >
+                {emp?.name
+                  .split(" ")
+                  .map((n) => n[0])
+                  .slice(0, 2)
+                  .join("")}
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-display font-semibold text-sm text-foreground leading-snug truncate group-hover:text-primary transition-colors">
+                    {t.title}
+                  </h3>
+                  {overdue && (
+                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-medium">
+                      Atrasada
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <span className="truncate max-w-[140px]">{emp?.name}</span>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    {new Date(`${t.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                   </span>
-                ))}
-                {t.recurrence && (
-                  <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
-                    <Repeat className="h-3 w-3" />
-                    {recurrenceLabel(t.recurrence)}
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="inline-flex items-center gap-1">
+                    <Flag className="h-3 w-3" />
+                    {priorityLabels[t.priority]}
                   </span>
+                  {reviewer && (
+                    <>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span className="inline-flex items-center gap-1 truncate max-w-[100px]">
+                        <UserCircle2 className="h-3 w-3" />
+                        {reviewer.name.split(" ")[0]}
+                      </span>
+                    </>
+                  )}
+                </div>
+                {t.tags.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {t.tags.slice(0, 3).map((tag) => (
+                      <span
+                        key={tag}
+                        className="text-[10px] px-1.5 py-0.5 rounded-md bg-accent text-accent-foreground font-medium"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                    {t.tags.length > 3 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">
+                        +{t.tags.length - 3}
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
 
-              <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div
-                    className="h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-semibold text-primary-foreground shrink-0"
-                    style={{ background: "var(--gradient-primary)" }}
-                  >
-                    {emp?.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .slice(0, 2)
-                      .join("")}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium truncate">{emp?.name}</div>
-                    <div className="text-[11px] text-muted-foreground truncate">
-                      {t.target.label}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 text-muted-foreground text-xs">
+              {/* Right side meta */}
+              <div className="shrink-0 flex flex-col items-end gap-2">
+                <div className="flex items-center gap-2 text-muted-foreground">
                   {t.comments > 0 && (
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-1 text-xs">
                       <MessageSquare className="h-3.5 w-3.5" />
                       {t.comments}
                     </span>
                   )}
                   {t.attachments > 0 && (
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-1 text-xs">
                       <Paperclip className="h-3.5 w-3.5" />
                       {t.attachments}
                     </span>
                   )}
+                  <Star className="h-4 w-4 text-muted-foreground/40 hover:text-warning transition" />
                 </div>
+                <PriorityBadge priority={t.priority} />
               </div>
-
-              <div className="mt-3 flex items-center justify-between text-xs gap-3">
-                <span className="inline-flex items-center gap-1 text-muted-foreground">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {new Date(`${t.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
-                </span>
-                {reviewer && (
-                  <span className="inline-flex items-center gap-1 text-muted-foreground truncate">
-                    <UserCircle2 className="h-3.5 w-3.5" /> Revisor: {reviewer.name.split(" ")[0]}
-                  </span>
-                )}
-              </div>
-
-              <label
-                className="mt-4 block cursor-default"
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
-              >
-                <span className="text-[11px] font-medium text-muted-foreground mb-1.5 block">
-                  Atualizar status
-                </span>
-                <select
-                  value={t.status}
-                  disabled={!permissions.canChangeStatus || statusMutation.isPending}
-                  onChange={(event) =>
-                    statusMutation.mutate({ id: t.id, status: event.target.value as TaskStatus })
-                  }
-                  className="w-full h-9 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-xs disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {Object.entries(statusLabels).map(([key, label]) => (
-                    <option key={key} value={key}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
             </div>
           );
         })}

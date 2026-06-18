@@ -13,10 +13,14 @@ import {
   Sparkles,
   Settings,
   LogOut,
+  Camera,
+  KeyRound,
+  Save,
+  BriefcaseBusiness,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { logout } from "@/lib/api/pop-organize.functions";
+import { logout, updateProfile } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import type { Priority, TaskStatus } from "@/lib/domain";
 
@@ -51,12 +55,24 @@ export function AppShell({
     email: "joao@poporganize.com",
     role: "Admin da Empresa",
   };
+  const currentEmployee = data?.employees.find((employee) => employee.id === currentUser.id);
+  const currentDepartment = data?.departments.find(
+    (department) => department.id === currentEmployee?.departmentId,
+  );
   const companyName = data?.company.name ?? "Pop Organize";
+  const avatar = currentEmployee?.avatar;
   const initials = currentUser.name
     .split(" ")
     .map((n) => n[0])
     .slice(0, 2)
     .join("");
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    name: currentEmployee?.name ?? currentUser.name,
+    avatar: avatar ?? "",
+    currentPassword: "",
+    newPassword: "",
+  });
   const logoutMutation = useMutation({
     mutationFn: () => logout(),
     onSettled: () => {
@@ -64,12 +80,61 @@ export function AppShell({
       navigate({ to: "/login" });
     },
   });
+  const profileMutation = useMutation({
+    mutationFn: (payload: {
+      name: string;
+      avatar?: string;
+      currentPassword?: string;
+      newPassword?: string;
+    }) => updateProfile({ data: payload }),
+    onSuccess: () => {
+      setProfileOpen(false);
+      setProfileForm((current) => ({ ...current, currentPassword: "", newPassword: "" }));
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+
+  function openProfile() {
+    setProfileForm({
+      name: currentEmployee?.name ?? currentUser.name,
+      avatar: currentEmployee?.avatar ?? "",
+      currentPassword: "",
+      newPassword: "",
+    });
+    profileMutation.reset();
+    setProfileOpen((current) => !current);
+  }
+
+  function handleAvatarFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setProfileForm((current) => ({ ...current, avatar: reader.result as string }));
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleProfileSubmit(event: FormEvent) {
+    event.preventDefault();
+    profileMutation.mutate({
+      name: profileForm.name,
+      avatar: profileForm.avatar || undefined,
+      currentPassword: profileForm.currentPassword || undefined,
+      newPassword: profileForm.newPassword || undefined,
+    });
+  }
+
+  const profileError =
+    profileMutation.error instanceof Error ? profileMutation.error.message : null;
 
   return (
     <div className="flex min-h-screen w-full bg-background">
       {/* Sidebar */}
       <aside
-        className="hidden md:flex w-64 flex-col text-sidebar-foreground sticky top-0 h-screen"
+        className="hidden md:flex w-64 flex-col text-sidebar-foreground sticky top-0 h-screen relative"
         style={{ background: "var(--gradient-sidebar)" }}
       >
         <div className="px-6 py-6 border-b border-sidebar-border">
@@ -113,12 +178,153 @@ export function AppShell({
         </nav>
 
         <div className="p-3 border-t border-sidebar-border">
-          <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent/40 transition-colors cursor-pointer">
-            <div
-              className="h-9 w-9 rounded-full flex items-center justify-center text-sm font-semibold text-primary-foreground"
-              style={{ background: "var(--gradient-primary)" }}
+          {profileOpen && (
+            <form
+              onSubmit={handleProfileSubmit}
+              className="absolute bottom-20 left-3 right-3 z-30 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150"
             >
-              {initials}
+              <div className="flex items-start gap-3">
+                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full bg-muted">
+                  {profileForm.avatar ? (
+                    <img
+                      src={profileForm.avatar}
+                      alt={profileForm.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div
+                      className="flex h-full w-full items-center justify-center text-base font-semibold text-primary-foreground"
+                      style={{ background: "var(--gradient-primary)" }}
+                    >
+                      {initials}
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold">Perfil</div>
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <BriefcaseBusiness className="h-3.5 w-3.5" />
+                    <span className="truncate">{currentEmployee?.role ?? currentUser.role}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Setor: {currentDepartment?.name ?? "Sem setor"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    Nome
+                  </span>
+                  <input
+                    value={profileForm.name}
+                    onChange={(event) =>
+                      setProfileForm((current) => ({ ...current, name: event.target.value }))
+                    }
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                    required
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    Foto
+                  </span>
+                  <div className="flex gap-2">
+                    <input
+                      value={profileForm.avatar}
+                      onChange={(event) =>
+                        setProfileForm((current) => ({
+                          ...current,
+                          avatar: event.target.value,
+                        }))
+                      }
+                      placeholder="URL da foto"
+                      className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                    />
+                    <label className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-border hover:bg-muted">
+                      <Camera className="h-4 w-4" />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarFile}
+                        className="sr-only"
+                      />
+                    </label>
+                  </div>
+                </label>
+
+                <div className="rounded-lg border border-border bg-muted/30 p-3">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                    <KeyRound className="h-3.5 w-3.5" />
+                    Alterar senha
+                  </div>
+                  <div className="space-y-2">
+                    <input
+                      type="password"
+                      value={profileForm.currentPassword}
+                      onChange={(event) =>
+                        setProfileForm((current) => ({
+                          ...current,
+                          currentPassword: event.target.value,
+                        }))
+                      }
+                      placeholder="Senha atual"
+                      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                    />
+                    <input
+                      type="password"
+                      value={profileForm.newPassword}
+                      onChange={(event) =>
+                        setProfileForm((current) => ({
+                          ...current,
+                          newPassword: event.target.value,
+                        }))
+                      }
+                      placeholder="Nova senha"
+                      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+
+                {profileError && <div className="text-xs text-destructive">{profileError}</div>}
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProfileOpen(false)}
+                    className="h-9 flex-1 rounded-lg border border-border text-sm font-medium hover:bg-muted"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={profileMutation.isPending}
+                    className="h-9 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                  >
+                    <Save className="h-4 w-4" />
+                    {profileMutation.isPending ? "Salvando" : "Salvar"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
+          <button
+            type="button"
+            onClick={openProfile}
+            className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-sidebar-accent/40"
+          >
+            <div
+              className="h-9 w-9 overflow-hidden rounded-full flex items-center justify-center text-sm font-semibold text-primary-foreground"
+              style={avatar ? undefined : { background: "var(--gradient-primary)" }}
+            >
+              {avatar ? (
+                <img src={avatar} alt={currentUser.name} className="h-full w-full object-cover" />
+              ) : (
+                initials
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium truncate">{currentUser.name}</div>
@@ -127,7 +333,7 @@ export function AppShell({
               </div>
             </div>
             <Settings className="h-4 w-4 text-sidebar-foreground/50" />
-          </div>
+          </button>
         </div>
       </aside>
 

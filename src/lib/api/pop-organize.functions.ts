@@ -14,8 +14,9 @@ import {
   sanitizeDatabase,
   today,
   toCurrentUser,
+  withoutPassword,
 } from "../database";
-import { departmentColors, type TargetType } from "../domain";
+import { departmentColors, type Task, type TargetType } from "../domain";
 import { getTaskPermissions } from "../permissions";
 
 const SESSION_COOKIE = "pop_organize_session";
@@ -34,6 +35,25 @@ const targetSchema = z.object({
   type: z.enum(["company", "department", "group", "user"]),
   id: z.string().min(1),
 });
+const recurrenceSchema = z
+  .object({
+    frequency: z.enum(["none", "daily", "biweekly", "monthly", "custom"]).default("none"),
+    intervalDays: z.coerce.number().int().min(1).max(365).optional(),
+    endDate: z
+      .union([z.literal(""), z.string().min(10)])
+      .optional()
+      .transform((value) => value || undefined),
+  })
+  .optional()
+  .superRefine((value, ctx) => {
+    if (value?.frequency === "custom" && !value.intervalDays) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Informe o intervalo personalizado.",
+        path: ["intervalDays"],
+      });
+    }
+  });
 
 const createTaskSchema = z.object({
   title: z.string().trim().min(3, "Informe um título"),
@@ -45,6 +65,7 @@ const createTaskSchema = z.object({
   reviewerId: z.string().optional(),
   requiresReview: z.boolean().default(false),
   tags: z.array(z.string().trim().min(1)).default([]),
+  recurrence: recurrenceSchema,
 });
 
 const createDepartmentSchema = z.object({
@@ -91,11 +112,40 @@ const updateTaskDetailsSchema = z.object({
   priority: prioritySchema,
   dueDate: z.string().min(10),
   tags: z.array(z.string().trim().min(1)).default([]),
+  recurrence: recurrenceSchema,
 });
 
 const deleteTaskSchema = z.object({
   id: z.string().min(1),
 });
+
+const addTaskCommentSchema = z.object({
+  taskId: z.string().min(1),
+  body: z.string().trim().min(1, "Escreva um comentário").max(1000),
+});
+
+const addTaskAttachmentSchema = z.object({
+  taskId: z.string().min(1),
+  name: z.string().trim().min(1, "Informe o nome do anexo").max(120),
+  sizeLabel: z.string().trim().max(40).optional(),
+});
+
+const updateProfileSchema = z
+  .object({
+    name: z.string().trim().min(2, "Informe seu nome"),
+    avatar: z
+      .string()
+      .trim()
+      .max(200_000)
+      .optional()
+      .transform((value) => value || undefined),
+    currentPassword: z.string().optional(),
+    newPassword: z.string().min(6, "A nova senha deve ter pelo menos 6 caracteres").optional(),
+  })
+  .refine((data) => !data.newPassword || Boolean(data.currentPassword), {
+    message: "Informe a senha atual.",
+    path: ["currentPassword"],
+  });
 
 const loginSchema = z.object({
   email: z.string().trim().email(),
@@ -145,6 +195,95 @@ function resolveTargetLabel(
   if (type === "group") return db.groups.find((group) => group.id === id)?.name;
   if (type === "user") return db.employees.find((employee) => employee.id === id)?.name;
   return undefined;
+}
+
+function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["recurrence"] {
+  if (!value || value.frequency === "none") return undefined;
+
+  return {
+    frequency: value.frequency,
+    intervalDays: value.frequency === "custom" ? value.intervalDays : undefined,
+    endDate: value.endDate,
+  };
+}
+
+function addDays(dateValue: string, days: number) {
+  const date = new Date(`${dateValue}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function addMonths(dateValue: string, months: number) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const target = new Date(year, month - 1 + months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, lastDay));
+  return target.toISOString().slice(0, 10);
+}
+
+function getNextRecurringDueDate(task: Task) {
+  if (!task.recurrence) return null;
+
+  const nextDueDate =
+    task.recurrence.frequency === "monthly"
+      ? addMonths(task.dueDate, 1)
+      : addDays(
+          task.dueDate,
+          task.recurrence.frequency === "daily"
+            ? 1
+            : task.recurrence.frequency === "biweekly"
+              ? 14
+              : (task.recurrence.intervalDays ?? 1),
+        );
+
+  if (task.recurrence.endDate && nextDueDate > task.recurrence.endDate) return null;
+  return nextDueDate;
+}
+
+function createNextRecurringTask(
+  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
+  task: Task,
+) {
+  const nextDueDate = getNextRecurringDueDate(task);
+  if (!nextDueDate) return;
+
+  db.tasks.unshift({
+    id: nextId("t", db.tasks),
+    title: task.title,
+    description: task.description,
+    priority: task.priority,
+    status: "pending",
+    dueDate: nextDueDate,
+    createdAt: today(),
+    target: task.target,
+    responsibleId: task.responsibleId,
+    reviewerId: task.reviewerId,
+    requiresReview: task.requiresReview,
+    tags: task.tags,
+    comments: 0,
+    attachments: 0,
+    recurrence: task.recurrence,
+  });
+}
+
+function getTaskWithPermissions(
+  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
+  taskId: string,
+  currentUserId: string,
+) {
+  const task = db.tasks.find((item) => item.id === taskId);
+  if (!task) throw createHttpError("Tarefa não encontrada.", 404);
+
+  const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+  const permissions = getTaskPermissions({
+    task,
+    currentUser,
+    employees: db.employees,
+    departments: db.departments,
+    groups: db.groups,
+  });
+
+  return { task, permissions };
 }
 
 export const getWorkspaceData = createServerFn({ method: "GET" }).handler(async () => {
@@ -211,6 +350,33 @@ export const logout = createServerFn({ method: "POST" }).handler(async () => {
   return { ok: true };
 });
 
+export const updateProfile = createServerFn({ method: "POST" })
+  .inputValidator((data) => updateProfileSchema.parse(data))
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase, hashPassword } = await dbServer();
+
+    return mutateDatabase((db) => {
+      const employee = db.employees.find((item) => item.id === currentUserId);
+      if (!employee) throw createHttpError("Usuário não encontrado.", 404);
+
+      if (data.newPassword) {
+        if (employee.passwordHash !== hashPassword(data.currentPassword ?? "")) {
+          throw createHttpError("Senha atual inválida.", 401);
+        }
+        employee.passwordHash = hashPassword(data.newPassword);
+      }
+
+      employee.name = data.name;
+      employee.avatar = data.avatar;
+
+      return {
+        employee: withoutPassword(employee),
+        currentUser: toCurrentUser(employee),
+      };
+    });
+  });
+
 export const createTask = createServerFn({ method: "POST" })
   .inputValidator((data) => createTaskSchema.parse(data))
   .handler(async ({ data }) => {
@@ -242,6 +408,7 @@ export const createTask = createServerFn({ method: "POST" })
         tags: data.tags,
         comments: 0,
         attachments: 0,
+        recurrence: normalizeRecurrence(data.recurrence),
       };
 
       db.tasks.unshift(task);
@@ -268,7 +435,11 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
       if (!permissions.canChangeStatus) {
         throw createHttpError("Você não tem permissão para alterar o status desta tarefa.", 403);
       }
+      const wasCompleted = task.status === "completed";
       task.status = data.status;
+      if (data.status === "completed" && !wasCompleted) {
+        createNextRecurringTask(db, task);
+      }
       return task;
     });
   });
@@ -298,6 +469,58 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       task.priority = data.priority;
       task.dueDate = data.dueDate;
       task.tags = data.tags;
+      task.recurrence = normalizeRecurrence(data.recurrence);
+      return task;
+    });
+  });
+
+export const addTaskComment = createServerFn({ method: "POST" })
+  .inputValidator((data) => addTaskCommentSchema.parse(data))
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
+
+    return mutateDatabase((db) => {
+      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
+      if (!permissions.canChangeStatus && !permissions.canEditContent) {
+        throw createHttpError("Você não tem permissão para comentar nesta tarefa.", 403);
+      }
+
+      const currentCount = task.comments ?? task.commentItems?.length ?? 0;
+      task.commentItems = task.commentItems ?? [];
+      task.commentItems.push({
+        id: nextId("tc", task.commentItems),
+        authorId: currentUserId,
+        body: data.body,
+        createdAt: new Date().toISOString(),
+      });
+      task.comments = currentCount + 1;
+      return task;
+    });
+  });
+
+export const addTaskAttachment = createServerFn({ method: "POST" })
+  .inputValidator((data) => addTaskAttachmentSchema.parse(data))
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
+
+    return mutateDatabase((db) => {
+      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
+      if (!permissions.canChangeStatus && !permissions.canEditContent) {
+        throw createHttpError("Você não tem permissão para anexar arquivos nesta tarefa.", 403);
+      }
+
+      const currentCount = task.attachments ?? task.attachmentItems?.length ?? 0;
+      task.attachmentItems = task.attachmentItems ?? [];
+      task.attachmentItems.push({
+        id: nextId("ta", task.attachmentItems),
+        name: data.name,
+        sizeLabel: data.sizeLabel || "Arquivo",
+        uploadedById: currentUserId,
+        createdAt: new Date().toISOString(),
+      });
+      task.attachments = currentCount + 1;
       return task;
     });
   });

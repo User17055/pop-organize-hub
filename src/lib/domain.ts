@@ -10,6 +10,29 @@ export type Priority = "low" | "medium" | "high" | "urgent";
 
 export type TargetType = "company" | "department" | "group" | "user";
 
+export type RecurrenceFrequency = "daily" | "biweekly" | "monthly" | "custom";
+
+export interface TaskRecurrence {
+  frequency: RecurrenceFrequency;
+  intervalDays?: number;
+  endDate?: string;
+}
+
+export interface TaskComment {
+  id: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface TaskAttachment {
+  id: string;
+  name: string;
+  sizeLabel: string;
+  uploadedById: string;
+  createdAt: string;
+}
+
 export interface Company {
   id: string;
   name: string;
@@ -58,6 +81,9 @@ export interface Task {
   tags: string[];
   comments: number;
   attachments: number;
+  recurrence?: TaskRecurrence;
+  commentItems?: TaskComment[];
+  attachmentItems?: TaskAttachment[];
 }
 
 export interface CurrentUser {

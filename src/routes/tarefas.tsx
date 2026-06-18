@@ -1,9 +1,18 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useDeferredValue, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useDeferredValue,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { AppShell, StatusBadge, PriorityBadge } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import {
+  addTaskAttachment,
+  addTaskComment,
   createTask,
   deleteTask,
   updateTaskDetails,
@@ -17,6 +26,8 @@ import {
   type Priority,
   type TargetType,
   type TaskStatus,
+  type TaskRecurrence,
+  type RecurrenceFrequency,
 } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import {
@@ -39,6 +50,9 @@ import {
   Trash2,
   ChevronDown,
   Archive,
+  Send,
+  FileText,
+  Repeat,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -70,6 +84,7 @@ type TaskFormState = {
   reviewerId: string;
   requiresReview: boolean;
   tags: string;
+  recurrence: RecurrenceFormState;
 };
 
 type TaskEditState = {
@@ -78,12 +93,81 @@ type TaskEditState = {
   priority: Priority;
   dueDate: string;
   tags: string;
+  recurrence: RecurrenceFormState;
 };
+
+type RecurrenceFormState = {
+  frequency: RecurrenceFrequency | "none";
+  intervalDays: string;
+  endDate: string;
+};
+
+type RecurrenceInput =
+  | {
+      frequency: RecurrenceFrequency;
+      intervalDays?: number;
+      endDate?: string;
+    }
+  | undefined;
 
 function getDefaultDueDate() {
   const date = new Date();
   date.setDate(date.getDate() + 7);
   return date.toISOString().slice(0, 10);
+}
+
+const recurrenceOptions: Array<{ value: RecurrenceFormState["frequency"]; label: string }> = [
+  { value: "none", label: "Sem recorrência" },
+  { value: "daily", label: "Diária" },
+  { value: "biweekly", label: "Quinzenal" },
+  { value: "monthly", label: "Mensal" },
+  { value: "custom", label: "Personalizada" },
+];
+
+function getDefaultRecurrence(): RecurrenceFormState {
+  return {
+    frequency: "none",
+    intervalDays: "7",
+    endDate: "",
+  };
+}
+
+function recurrenceToForm(recurrence?: TaskRecurrence): RecurrenceFormState {
+  return {
+    frequency: recurrence?.frequency ?? "none",
+    intervalDays: String(recurrence?.intervalDays ?? 7),
+    endDate: recurrence?.endDate ?? "",
+  };
+}
+
+function recurrenceFromForm(recurrence: RecurrenceFormState): RecurrenceInput {
+  if (recurrence.frequency === "none") return undefined;
+
+  return {
+    frequency: recurrence.frequency,
+    intervalDays:
+      recurrence.frequency === "custom"
+        ? Math.max(1, Number(recurrence.intervalDays) || 1)
+        : undefined,
+    endDate: recurrence.endDate || undefined,
+  };
+}
+
+function recurrenceLabel(recurrence?: TaskRecurrence) {
+  if (!recurrence) return "Sem recorrência";
+
+  const label =
+    recurrence.frequency === "daily"
+      ? "Diária"
+      : recurrence.frequency === "biweekly"
+        ? "Quinzenal"
+        : recurrence.frequency === "monthly"
+          ? "Mensal"
+          : `A cada ${recurrence.intervalDays ?? 1} dias`;
+
+  return recurrence.endDate
+    ? `${label} até ${new Date(`${recurrence.endDate}T00:00:00`).toLocaleDateString("pt-BR")}`
+    : label;
 }
 
 function TasksPage() {
@@ -94,6 +178,8 @@ function TasksPage() {
   const [showForm, setShowForm] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [commentBody, setCommentBody] = useState("");
+  const [attachmentForm, setAttachmentForm] = useState({ name: "", sizeLabel: "" });
   const [form, setForm] = useState<TaskFormState>({
     title: "",
     description: "",
@@ -104,6 +190,7 @@ function TasksPage() {
     reviewerId: "",
     requiresReview: false,
     tags: "",
+    recurrence: getDefaultRecurrence(),
   });
   const [editForm, setEditForm] = useState<TaskEditState>({
     title: "",
@@ -111,7 +198,21 @@ function TasksPage() {
     priority: "medium",
     dueDate: getDefaultDueDate(),
     tags: "",
+    recurrence: getDefaultRecurrence(),
   });
+
+  function updateTaskInWorkspace(updatedTask: Task) {
+    queryClient.setQueryData<WorkspaceResult>(workspaceQueryKey, (current) =>
+      current
+        ? {
+            ...current,
+            tasks: current.tasks.map((task) =>
+              task.id === updatedTask.id ? { ...task, ...updatedTask } : task,
+            ),
+          }
+        : current,
+    );
+  }
 
   const createTaskMutation = useMutation({
     mutationFn: (payload: {
@@ -124,6 +225,7 @@ function TasksPage() {
       reviewerId?: string;
       requiresReview: boolean;
       tags: string[];
+      recurrence?: RecurrenceInput;
     }) => createTask({ data: payload }),
     onSuccess: () => {
       setShowForm(false);
@@ -138,16 +240,7 @@ function TasksPage() {
       if (updatedTask.status === "completed") {
         setSelectedTaskId(null);
       }
-      queryClient.setQueryData<WorkspaceResult>(workspaceQueryKey, (current) =>
-        current
-          ? {
-              ...current,
-              tasks: current.tasks.map((task) =>
-                task.id === updatedTask.id ? { ...task, ...updatedTask } : task,
-              ),
-            }
-          : current,
-      );
+      updateTaskInWorkspace(updatedTask);
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
@@ -160,6 +253,7 @@ function TasksPage() {
       priority: Priority;
       dueDate: string;
       tags: string[];
+      recurrence?: RecurrenceInput;
     }) => updateTaskDetails({ data: payload }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
@@ -178,6 +272,25 @@ function TasksPage() {
             }
           : current,
       );
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+
+  const commentMutation = useMutation({
+    mutationFn: (payload: { taskId: string; body: string }) => addTaskComment({ data: payload }),
+    onSuccess: (updatedTask) => {
+      setCommentBody("");
+      updateTaskInWorkspace(updatedTask);
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+
+  const attachmentMutation = useMutation({
+    mutationFn: (payload: { taskId: string; name: string; sizeLabel?: string }) =>
+      addTaskAttachment({ data: payload }),
+    onSuccess: (updatedTask) => {
+      setAttachmentForm({ name: "", sizeLabel: "" });
+      updateTaskInWorkspace(updatedTask);
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
@@ -268,6 +381,7 @@ function TasksPage() {
       reviewerId: "",
       requiresReview: false,
       tags: "",
+      recurrence: getDefaultRecurrence(),
     });
     createTaskMutation.reset();
     setShowForm(true);
@@ -275,12 +389,15 @@ function TasksPage() {
 
   function openTask(task: Task) {
     setSelectedTaskId(task.id);
+    setCommentBody("");
+    setAttachmentForm({ name: "", sizeLabel: "" });
     setEditForm({
       title: task.title,
       description: task.description,
       priority: task.priority,
       dueDate: task.dueDate,
       tags: task.tags.join(", "),
+      recurrence: recurrenceToForm(task.recurrence),
     });
     updateTaskMutation.reset();
   }
@@ -304,6 +421,7 @@ function TasksPage() {
         .split(",")
         .map((tag) => tag.trim())
         .filter(Boolean),
+      recurrence: recurrenceFromForm(form.recurrence),
     });
   }
 
@@ -321,6 +439,7 @@ function TasksPage() {
         .split(",")
         .map((tag) => tag.trim())
         .filter(Boolean),
+      recurrence: recurrenceFromForm(editForm.recurrence),
     });
   }
 
@@ -333,6 +452,32 @@ function TasksPage() {
     deleteTaskMutation.mutate({ id: selectedTask.id });
   }
 
+  function handleCommentSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedTask || !commentBody.trim()) return;
+    commentMutation.mutate({ taskId: selectedTask.id, body: commentBody.trim() });
+  }
+
+  function handleAttachmentSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedTask || !attachmentForm.name.trim()) return;
+    attachmentMutation.mutate({
+      taskId: selectedTask.id,
+      name: attachmentForm.name.trim(),
+      sizeLabel: attachmentForm.sizeLabel.trim() || undefined,
+    });
+  }
+
+  function handleAttachmentFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const sizeLabel =
+      file.size >= 1_048_576
+        ? `${(file.size / 1_048_576).toFixed(1).replace(".", ",")} MB`
+        : `${Math.max(1, Math.round(file.size / 1024))} KB`;
+    setAttachmentForm({ name: file.name, sizeLabel });
+  }
+
   const mutationError =
     createTaskMutation.error instanceof Error ? createTaskMutation.error.message : null;
   const updateError =
@@ -340,6 +485,10 @@ function TasksPage() {
   const statusError = statusMutation.error instanceof Error ? statusMutation.error.message : null;
   const deleteError =
     deleteTaskMutation.error instanceof Error ? deleteTaskMutation.error.message : null;
+  const commentError =
+    commentMutation.error instanceof Error ? commentMutation.error.message : null;
+  const attachmentError =
+    attachmentMutation.error instanceof Error ? attachmentMutation.error.message : null;
 
   return (
     <AppShell
@@ -448,6 +597,12 @@ function TasksPage() {
                     {tag}
                   </span>
                 ))}
+                {t.recurrence && (
+                  <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
+                    <Repeat className="h-3 w-3" />
+                    {recurrenceLabel(t.recurrence)}
+                  </span>
+                )}
               </div>
 
               <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
@@ -584,6 +739,12 @@ function TasksPage() {
                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                           {task.description}
                         </p>
+                        {task.recurrence && (
+                          <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                            <Repeat className="h-3 w-3" />
+                            {recurrenceLabel(task.recurrence)}
+                          </div>
+                        )}
                       </div>
                       <PriorityBadge priority={task.priority} />
                     </div>
@@ -721,6 +882,76 @@ function TasksPage() {
                   </div>
                 </div>
 
+                <div className="flex items-start gap-3 p-2.5 rounded-xl bg-muted/30">
+                  <Repeat className="mt-0.5 h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] text-muted-foreground">Recorrência</div>
+                    {selectedPermissions.canEditContent ? (
+                      <div className="space-y-2">
+                        <select
+                          value={editForm.recurrence.frequency}
+                          onChange={(event) =>
+                            setEditForm((current) => ({
+                              ...current,
+                              recurrence: {
+                                ...current.recurrence,
+                                frequency: event.target.value as RecurrenceFormState["frequency"],
+                              },
+                            }))
+                          }
+                          className="w-full bg-transparent outline-none text-sm font-medium"
+                        >
+                          {recurrenceOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        {editForm.recurrence.frequency === "custom" && (
+                          <input
+                            type="number"
+                            min={1}
+                            max={365}
+                            value={editForm.recurrence.intervalDays}
+                            onChange={(event) =>
+                              setEditForm((current) => ({
+                                ...current,
+                                recurrence: {
+                                  ...current.recurrence,
+                                  intervalDays: event.target.value,
+                                },
+                              }))
+                            }
+                            className="h-8 w-full rounded-lg border border-input bg-background px-2 text-xs outline-none focus:border-primary"
+                            placeholder="Intervalo em dias"
+                          />
+                        )}
+                        {editForm.recurrence.frequency !== "none" && (
+                          <input
+                            type="date"
+                            value={editForm.recurrence.endDate}
+                            onChange={(event) =>
+                              setEditForm((current) => ({
+                                ...current,
+                                recurrence: {
+                                  ...current.recurrence,
+                                  endDate: event.target.value,
+                                },
+                              }))
+                            }
+                            className="h-8 w-full rounded-lg border border-input bg-background px-2 text-xs outline-none focus:border-primary"
+                            aria-label="Data final da recorrência"
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-sm font-medium">
+                        {recurrenceLabel(selectedTask.recurrence)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-3 p-2.5 rounded-xl bg-muted/30">
                   <Flag className="h-4 w-4 text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
@@ -811,6 +1042,164 @@ function TasksPage() {
               )}
             </div>
 
+            <div className="space-y-4">
+              <section className="rounded-xl border border-border bg-background/60 p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    Comentarios
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {selectedTask.comments} {selectedTask.comments === 1 ? "item" : "itens"}
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {(selectedTask.commentItems ?? []).map((comment) => {
+                    const author = getEmployee(comment.authorId);
+                    return (
+                      <div key={comment.id} className="rounded-lg bg-muted/40 p-2.5">
+                        <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {author?.name ?? "Usuario"}
+                          </span>
+                          <span>
+                            {new Date(comment.createdAt).toLocaleString("pt-BR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <p className="text-sm text-foreground/85">{comment.body}</p>
+                      </div>
+                    );
+                  })}
+                  {selectedTask.comments > (selectedTask.commentItems?.length ?? 0) && (
+                    <div className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                      {selectedTask.comments - (selectedTask.commentItems?.length ?? 0)} comentario
+                      {selectedTask.comments - (selectedTask.commentItems?.length ?? 0) === 1
+                        ? ""
+                        : "s"}{" "}
+                      registrado
+                      {selectedTask.comments - (selectedTask.commentItems?.length ?? 0) === 1
+                        ? ""
+                        : "s"}{" "}
+                      no historico demo.
+                    </div>
+                  )}
+                </div>
+
+                {selectedPermissions.canChangeStatus && (
+                  <form onSubmit={handleCommentSubmit} className="mt-3 flex gap-2">
+                    <input
+                      value={commentBody}
+                      onChange={(event) => setCommentBody(event.target.value)}
+                      placeholder="Escrever comentario..."
+                      className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                    />
+                    <button
+                      type="submit"
+                      disabled={commentMutation.isPending || !commentBody.trim()}
+                      className="h-9 w-9 rounded-lg bg-primary text-primary-foreground disabled:opacity-60 inline-flex items-center justify-center"
+                      aria-label="Enviar comentario"
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </form>
+                )}
+              </section>
+
+              <section className="rounded-xl border border-border bg-background/60 p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    <Paperclip className="h-3.5 w-3.5" />
+                    Anexos
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {selectedTask.attachments}{" "}
+                    {selectedTask.attachments === 1 ? "arquivo" : "arquivos"}
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {(selectedTask.attachmentItems ?? []).map((attachment) => {
+                    const author = getEmployee(attachment.uploadedById);
+                    return (
+                      <div
+                        key={attachment.id}
+                        className="flex items-center gap-3 rounded-lg bg-muted/40 p-2.5"
+                      >
+                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">{attachment.name}</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {attachment.sizeLabel} - {author?.name ?? "Usuario"}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {selectedTask.attachments > (selectedTask.attachmentItems?.length ?? 0) && (
+                    <div className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                      {selectedTask.attachments - (selectedTask.attachmentItems?.length ?? 0)} anexo
+                      {selectedTask.attachments - (selectedTask.attachmentItems?.length ?? 0) === 1
+                        ? ""
+                        : "s"}{" "}
+                      registrado
+                      {selectedTask.attachments - (selectedTask.attachmentItems?.length ?? 0) === 1
+                        ? ""
+                        : "s"}{" "}
+                      no historico demo.
+                    </div>
+                  )}
+                </div>
+
+                {selectedPermissions.canChangeStatus && (
+                  <form onSubmit={handleAttachmentSubmit} className="mt-3 space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        value={attachmentForm.name}
+                        onChange={(event) =>
+                          setAttachmentForm((current) => ({
+                            ...current,
+                            name: event.target.value,
+                          }))
+                        }
+                        placeholder="Nome do anexo"
+                        className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                      />
+                      <label className="h-9 w-9 cursor-pointer rounded-lg border border-border hover:bg-muted inline-flex items-center justify-center">
+                        <Paperclip className="h-4 w-4" />
+                        <input type="file" onChange={handleAttachmentFile} className="sr-only" />
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        value={attachmentForm.sizeLabel}
+                        onChange={(event) =>
+                          setAttachmentForm((current) => ({
+                            ...current,
+                            sizeLabel: event.target.value,
+                          }))
+                        }
+                        placeholder="Tamanho opcional"
+                        className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                      />
+                      <button
+                        type="submit"
+                        disabled={attachmentMutation.isPending || !attachmentForm.name.trim()}
+                        className="h-9 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-60"
+                      >
+                        Anexar
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </section>
+            </div>
+
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
               {selectedTask.comments > 0 && (
                 <span className="inline-flex items-center gap-1.5">
@@ -831,9 +1220,9 @@ function TasksPage() {
                 Sua hierarquia permite alterar status/conclusão, mas não editar o texto.
               </p>
             )}
-            {(updateError || statusError || deleteError) && (
+            {(updateError || statusError || deleteError || commentError || attachmentError) && (
               <div className="text-sm text-destructive">
-                {updateError ?? statusError ?? deleteError}
+                {updateError ?? statusError ?? deleteError ?? commentError ?? attachmentError}
               </div>
             )}
 
@@ -924,6 +1313,97 @@ function TasksPage() {
                     required
                   />
                 </Field>
+              </div>
+              <div className="rounded-xl border border-border bg-muted/20 p-3">
+                <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Repeat className="h-3.5 w-3.5" />
+                  Recorrência
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Field label="Frequência">
+                    <select
+                      value={form.recurrence.frequency}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          recurrence: {
+                            ...current.recurrence,
+                            frequency: event.target.value as RecurrenceFormState["frequency"],
+                          },
+                        }))
+                      }
+                      className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
+                    >
+                      {recurrenceOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  {form.recurrence.frequency === "custom" ? (
+                    <Field label="A cada quantos dias">
+                      <input
+                        type="number"
+                        min={1}
+                        max={365}
+                        value={form.recurrence.intervalDays}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            recurrence: {
+                              ...current.recurrence,
+                              intervalDays: event.target.value,
+                            },
+                          }))
+                        }
+                        className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
+                      />
+                    </Field>
+                  ) : (
+                    <Field label="Parar em">
+                      <input
+                        type="date"
+                        value={form.recurrence.endDate}
+                        disabled={form.recurrence.frequency === "none"}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            recurrence: {
+                              ...current.recurrence,
+                              endDate: event.target.value,
+                            },
+                          }))
+                        }
+                        className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm disabled:opacity-50"
+                      />
+                    </Field>
+                  )}
+                </div>
+                {form.recurrence.frequency === "custom" && (
+                  <div className="mt-3">
+                    <Field label="Parar em">
+                      <input
+                        type="date"
+                        value={form.recurrence.endDate}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            recurrence: {
+                              ...current.recurrence,
+                              endDate: event.target.value,
+                            },
+                          }))
+                        }
+                        className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
+                      />
+                    </Field>
+                  </div>
+                )}
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Ao concluir, a próxima ocorrência será criada automaticamente se ainda estiver no
+                  prazo definido.
+                </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Destino">

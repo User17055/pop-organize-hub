@@ -1220,7 +1220,7 @@ function TasksPage() {
                       </span>
                     ))
                   ) : (
-                    <span className="text-sm text-muted-foreground">Nenhuma tag</span>
+                    <span className="text-xs text-muted-foreground">Nenhuma tag</span>
                   )}
                 </div>
               )}

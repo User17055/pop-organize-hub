@@ -992,16 +992,16 @@ function TasksPage() {
         {selectedTask && selectedPermissions && (
           <form onSubmit={handleEditSubmit} className="flex h-full flex-col">
             {/* Sticky header */}
-            <header className="sticky top-0 z-10 border-b border-border bg-gradient-to-r from-primary to-primary/85 text-primary-foreground px-5 py-4">
+            <header className="sticky top-0 z-10 border-b border-border bg-card px-5 py-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-primary-foreground/80">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   <ShieldCheck className="h-3.5 w-3.5" />
                   {selectedPermissions.roleLabel}
                 </div>
                 <button
                   type="button"
                   onClick={() => setSelectedTaskId(null)}
-                  className="h-8 w-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                  className="h-9 w-9 rounded-lg bg-muted hover:bg-muted/70 text-foreground flex items-center justify-center transition"
                   aria-label="Fechar atividade"
                 >
                   <X className="h-4 w-4" />
@@ -1020,8 +1020,8 @@ function TasksPage() {
                   className={cn(
                     "mt-1 h-6 w-6 rounded-full border-2 flex items-center justify-center transition shrink-0 disabled:opacity-50",
                     selectedTask.status === "completed"
-                      ? "bg-white border-white text-primary"
-                      : "border-white/60 hover:border-white hover:bg-white/10",
+                      ? "bg-success border-success text-white"
+                      : "border-muted-foreground/40 hover:border-foreground",
                   )}
                   aria-label={selectedTask.status === "completed" ? "Reabrir" : "Concluir"}
                 >
@@ -1035,11 +1035,11 @@ function TasksPage() {
                       setEditForm((current) => ({ ...current, title: e.target.value }))
                     }
                     className={cn(
-                      "w-full text-lg font-display font-semibold bg-transparent border-b border-transparent focus:border-white/60 outline-none transition placeholder:text-white/60",
-                      selectedTask.status === "completed" && "line-through text-primary-foreground/70",
+                      "w-full text-lg font-display font-semibold bg-transparent border-b border-transparent focus:border-border outline-none transition text-foreground placeholder:text-muted-foreground",
+                      selectedTask.status === "completed" && "line-through text-muted-foreground",
                     )}
                   />
-                  <div className="text-[11px] text-primary-foreground/75 mt-1">
+                  <div className="text-xs text-muted-foreground mt-1">
                     {selectedTask.status === "completed"
                       ? "Concluída"
                       : `Criada em ${new Date(`${selectedTask.createdAt}T00:00:00`).toLocaleDateString("pt-BR")}`}

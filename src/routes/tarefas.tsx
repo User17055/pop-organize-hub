@@ -1067,7 +1067,7 @@ function TasksPage() {
                 }
                 rows={4}
                 placeholder="Adicionar uma nota..."
-                className="w-full px-3 py-2.5 rounded-xl bg-muted/40 border border-transparent outline-none focus:border-primary focus:bg-background text-sm resize-none disabled:opacity-60 transition"
+                className="w-full px-3 py-2.5 rounded-xl bg-muted/40 border border-transparent outline-none focus:border-primary focus:bg-background text-xs resize-none disabled:opacity-60 transition"
                 required
               />
             </div>
@@ -1082,7 +1082,7 @@ function TasksPage() {
                     <Calendar className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-muted-foreground">Prazo</div>
+                    <div className="text-[11px] font-medium text-muted-foreground">Prazo</div>
                     {selectedPermissions.canEditContent ? (
                       <input
                         type="date"
@@ -1090,11 +1090,11 @@ function TasksPage() {
                         onChange={(e) =>
                           setEditForm((current) => ({ ...current, dueDate: e.target.value }))
                         }
-                        className="w-full bg-transparent outline-none text-[15px] font-semibold text-foreground"
+                        className="w-full bg-transparent outline-none text-sm font-semibold text-foreground"
                         required
                       />
                     ) : (
-                      <div className="text-[15px] font-semibold text-foreground">
+                      <div className="text-sm font-semibold text-foreground">
                         {new Date(`${selectedTask.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                       </div>
                     )}
@@ -1106,7 +1106,7 @@ function TasksPage() {
                     <Repeat className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-muted-foreground">Recorrência</div>
+                    <div className="text-[11px] font-medium text-muted-foreground">Recorrência</div>
                     {selectedPermissions.canEditContent ? (
                       <div className="mt-1.5">
                         <RecurrenceFields
@@ -1121,7 +1121,7 @@ function TasksPage() {
                         />
                       </div>
                     ) : (
-                      <div className="text-[15px] font-semibold text-foreground">
+                      <div className="text-sm font-semibold text-foreground">
                         {recurrenceLabel(selectedTask.recurrence)}
                       </div>
                     )}
@@ -1133,7 +1133,7 @@ function TasksPage() {
                     <Flag className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-muted-foreground">Prioridade</div>
+                    <div className="text-[11px] font-medium text-muted-foreground">Prioridade</div>
                     {selectedPermissions.canEditContent ? (
                       <select
                         value={editForm.priority}
@@ -1143,7 +1143,7 @@ function TasksPage() {
                             priority: e.target.value as Priority,
                           }))
                         }
-                        className="w-full bg-transparent outline-none text-[15px] font-semibold text-foreground"
+                        className="w-full bg-transparent outline-none text-sm font-semibold text-foreground"
                       >
                         {Object.entries(priorityLabels).map(([key, label]) => (
                           <option key={key} value={key}>
@@ -1152,7 +1152,7 @@ function TasksPage() {
                         ))}
                       </select>
                     ) : (
-                      <div className="text-[15px] font-semibold text-foreground">
+                      <div className="text-sm font-semibold text-foreground">
                         {priorityLabels[selectedTask.priority]}
                       </div>
                     )}
@@ -1164,8 +1164,8 @@ function TasksPage() {
                     <Target className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-muted-foreground">Destino</div>
-                    <div className="text-[15px] font-semibold text-foreground truncate">{selectedTask.target.label}</div>
+                    <div className="text-[11px] font-medium text-muted-foreground">Destino</div>
+                    <div className="text-sm font-semibold text-foreground truncate">{selectedTask.target.label}</div>
                   </div>
                 </div>
 
@@ -1174,8 +1174,8 @@ function TasksPage() {
                     {getEmployee(selectedTask.responsibleId)?.name?.charAt(0) ?? "?"}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-muted-foreground">Responsável</div>
-                    <div className="text-[15px] font-semibold text-foreground truncate">
+                    <div className="text-[11px] font-medium text-muted-foreground">Responsável</div>
+                    <div className="text-sm font-semibold text-foreground truncate">
                       {getEmployee(selectedTask.responsibleId)?.name}
                     </div>
                   </div>
@@ -1187,8 +1187,8 @@ function TasksPage() {
                       <UserCheck className="h-4 w-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-muted-foreground">Revisor</div>
-                      <div className="text-[15px] font-semibold text-foreground truncate">
+                      <div className="text-[11px] font-medium text-muted-foreground">Revisor</div>
+                      <div className="text-sm font-semibold text-foreground truncate">
                         {getEmployee(selectedTask.reviewerId)?.name}
                       </div>
                     </div>

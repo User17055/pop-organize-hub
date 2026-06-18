@@ -17,8 +17,9 @@ import {
   KeyRound,
   Save,
   BriefcaseBusiness,
+  Menu,
 } from "lucide-react";
-import { useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { logout, updateProfile } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
@@ -67,6 +68,10 @@ export function AppShell({
     .slice(0, 2)
     .join("");
   const [profileOpen, setProfileOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
   const [profileForm, setProfileForm] = useState({
     name: currentEmployee?.name ?? currentUser.name,
     avatar: avatar ?? "",
@@ -132,9 +137,21 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen w-full bg-background">
+      {/* Mobile overlay */}
+      {mobileNavOpen && (
+        <button
+          type="button"
+          aria-label="Fechar menu"
+          onClick={() => setMobileNavOpen(false)}
+          className="fixed inset-0 z-40 bg-foreground/40 backdrop-blur-[2px] md:hidden"
+        />
+      )}
       {/* Sidebar */}
       <aside
-        className="hidden md:flex w-64 flex-col text-sidebar-foreground sticky top-0 h-screen relative"
+        className={cn(
+          "fixed md:sticky top-0 left-0 z-50 h-screen w-64 flex flex-col text-sidebar-foreground transition-transform duration-300 ease-out md:translate-x-0",
+          mobileNavOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0",
+        )}
         style={{ background: "var(--gradient-sidebar)" }}
       >
         <div className="px-6 py-6 border-b border-sidebar-border">
@@ -339,11 +356,19 @@ export function AppShell({
 
       {/* Main */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-md border-b border-border">
-          <div className="flex items-center gap-4 px-6 py-4">
+        <header className="relative bg-background border-b border-border">
+          <div className="flex items-center gap-3 px-4 md:px-6 py-4">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="md:hidden h-10 w-10 rounded-lg hover:bg-muted flex items-center justify-center transition-colors shrink-0"
+              aria-label="Abrir menu"
+            >
+              <Menu className="h-5 w-5 text-foreground/70" />
+            </button>
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-display font-bold text-foreground truncate">{title}</h1>
-              {subtitle && <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>}
+              <h1 className="text-xl md:text-2xl font-display font-bold text-foreground truncate">{title}</h1>
+              {subtitle && <p className="text-sm text-muted-foreground mt-0.5 truncate">{subtitle}</p>}
             </div>
             <div className="hidden lg:flex items-center gap-2 px-3 h-10 rounded-lg bg-muted border border-transparent focus-within:border-primary/40 focus-within:bg-background transition-colors w-72">
               <Search className="h-4 w-4 text-muted-foreground" />

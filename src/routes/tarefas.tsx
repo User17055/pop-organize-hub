@@ -996,7 +996,7 @@ function TasksPage() {
       {/* Overlay */}
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] transition-opacity duration-300",
+          "fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300",
           selectedTask ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
         onClick={() => setSelectedTaskId(null)}
@@ -1005,72 +1005,79 @@ function TasksPage() {
       {/* Sliding right sidebar (drawer) */}
       <aside
         className={cn(
-          "fixed top-0 right-0 z-50 h-screen w-full sm:w-[420px] bg-card border-l border-border shadow-2xl flex flex-col transition-transform duration-300 ease-out",
+          "fixed top-0 right-0 z-50 h-screen w-full sm:w-[460px] bg-background border-l border-border shadow-2xl flex flex-col transition-transform duration-300 ease-out",
           selectedTask ? "translate-x-0" : "translate-x-full",
         )}
         aria-hidden={!selectedTask}
       >
         {selectedTask && selectedPermissions && (
-          <form onSubmit={handleEditSubmit} className="flex-1 overflow-y-auto p-5 space-y-5">
-            <div className="flex items-start gap-3">
-              <button
-                type="button"
-                disabled={!selectedPermissions.canComplete || statusMutation.isPending}
-                onClick={() =>
-                  statusMutation.mutate({
-                    id: selectedTask.id,
-                    status: selectedTask.status === "completed" ? "in_progress" : "completed",
-                  })
-                }
-                className={cn(
-                  "mt-0.5 h-7 w-7 rounded-full border-2 flex items-center justify-center transition shrink-0 disabled:opacity-50",
-                  selectedTask.status === "completed"
-                    ? "bg-success border-success text-white"
-                    : "border-border hover:border-primary",
-                )}
-                aria-label={selectedTask.status === "completed" ? "Reabrir" : "Concluir"}
-              >
-                {selectedTask.status === "completed" && <Check className="h-4 w-4" />}
-              </button>
-              <div className="flex-1 min-w-0">
-                <input
-                  value={editForm.title}
-                  disabled={!selectedPermissions.canEditContent}
-                  onChange={(e) =>
-                    setEditForm((current) => ({ ...current, title: e.target.value }))
+          <form onSubmit={handleEditSubmit} className="flex h-full flex-col">
+            {/* Sticky header */}
+            <header className="sticky top-0 z-10 border-b border-border bg-gradient-to-r from-primary to-primary/85 text-primary-foreground px-5 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-primary-foreground/80">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  {selectedPermissions.roleLabel}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTaskId(null)}
+                  className="h-8 w-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                  aria-label="Fechar atividade"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-3 flex items-start gap-3">
+                <button
+                  type="button"
+                  disabled={!selectedPermissions.canComplete || statusMutation.isPending}
+                  onClick={() =>
+                    statusMutation.mutate({
+                      id: selectedTask.id,
+                      status: selectedTask.status === "completed" ? "in_progress" : "completed",
+                    })
                   }
                   className={cn(
-                    "w-full text-lg font-display font-bold bg-transparent border-b border-transparent focus:border-primary outline-none transition placeholder:text-muted-foreground",
-                    selectedTask.status === "completed" && "line-through text-muted-foreground",
+                    "mt-1 h-6 w-6 rounded-full border-2 flex items-center justify-center transition shrink-0 disabled:opacity-50",
+                    selectedTask.status === "completed"
+                      ? "bg-white border-white text-primary"
+                      : "border-white/60 hover:border-white hover:bg-white/10",
                   )}
-                />
-                <div className="text-xs text-muted-foreground mt-1">
-                  {selectedTask.status === "completed"
-                    ? "Concluída"
-                    : `Criada em ${new Date(`${selectedTask.createdAt}T00:00:00`).toLocaleDateString("pt-BR")}`}
+                  aria-label={selectedTask.status === "completed" ? "Reabrir" : "Concluir"}
+                >
+                  {selectedTask.status === "completed" && <Check className="h-3.5 w-3.5" />}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <input
+                    value={editForm.title}
+                    disabled={!selectedPermissions.canEditContent}
+                    onChange={(e) =>
+                      setEditForm((current) => ({ ...current, title: e.target.value }))
+                    }
+                    className={cn(
+                      "w-full text-lg font-display font-semibold bg-transparent border-b border-transparent focus:border-white/60 outline-none transition placeholder:text-white/60",
+                      selectedTask.status === "completed" && "line-through text-primary-foreground/70",
+                    )}
+                  />
+                  <div className="text-[11px] text-primary-foreground/75 mt-1">
+                    {selectedTask.status === "completed"
+                      ? "Concluída"
+                      : `Criada em ${new Date(`${selectedTask.createdAt}T00:00:00`).toLocaleDateString("pt-BR")}`}
+                  </div>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedTaskId(null)}
-                className="h-8 w-8 rounded-lg hover:bg-muted flex items-center justify-center transition"
-                aria-label="Fechar atividade"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                <StatusBadge status={selectedTask.status} />
+                <PriorityBadge priority={selectedTask.priority} />
+              </div>
+            </header>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge status={selectedTask.status} />
-              <PriorityBadge priority={selectedTask.priority} />
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent text-accent-foreground">
-                <ShieldCheck className="h-3.5 w-3.5" />
-                {selectedPermissions.roleLabel}
-              </span>
-            </div>
+            {/* Scrollable body */}
+            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
 
             <div>
-              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                 <Pencil className="h-3.5 w-3.5" /> Notas
               </div>
               <textarea
@@ -1079,20 +1086,22 @@ function TasksPage() {
                 onChange={(e) =>
                   setEditForm((current) => ({ ...current, description: e.target.value }))
                 }
-                rows={5}
+                rows={4}
                 placeholder="Adicionar uma nota..."
-                className="w-full px-3 py-2 rounded-xl bg-background border border-input outline-none focus:border-primary text-sm resize-none disabled:opacity-60 transition"
+                className="w-full px-3 py-2.5 rounded-xl bg-muted/40 border border-transparent outline-none focus:border-primary focus:bg-background text-sm resize-none disabled:opacity-60 transition"
                 required
               />
             </div>
 
-            <div className="space-y-3">
-              <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                 Detalhes
               </div>
-              <div className="grid grid-cols-1 gap-2">
-                <div className="flex items-center gap-3 p-2.5 rounded-xl bg-muted/30">
-                  <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
+                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <Calendar className="h-4 w-4" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-[11px] text-muted-foreground">Prazo</div>
                     {selectedPermissions.canEditContent ? (
@@ -1113,12 +1122,14 @@ function TasksPage() {
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 p-2.5 rounded-xl bg-muted/30">
-                  <Repeat className="mt-0.5 h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <Repeat className="h-4 w-4" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-[11px] text-muted-foreground">Recorrência</div>
                     {selectedPermissions.canEditContent ? (
-                      <div className="mt-2">
+                      <div className="mt-1.5">
                         <RecurrenceFields
                           compact
                           value={editForm.recurrence}
@@ -1138,8 +1149,10 @@ function TasksPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 p-2.5 rounded-xl bg-muted/30">
-                  <Flag className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <Flag className="h-4 w-4" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-[11px] text-muted-foreground">Prioridade</div>
                     {selectedPermissions.canEditContent ? (
@@ -1167,16 +1180,20 @@ function TasksPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 p-2.5 rounded-xl bg-muted/30">
-                  <Target className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <Target className="h-4 w-4" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-[11px] text-muted-foreground">Destino</div>
                     <div className="text-sm font-medium truncate">{selectedTask.target.label}</div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 p-2.5 rounded-xl bg-muted/30">
-                  <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                  <div className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold shrink-0">
+                    {getEmployee(selectedTask.responsibleId)?.name?.charAt(0) ?? "?"}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-[11px] text-muted-foreground">Responsável</div>
                     <div className="text-sm font-medium truncate">
@@ -1186,8 +1203,10 @@ function TasksPage() {
                 </div>
 
                 {selectedTask.reviewerId && (
-                  <div className="flex items-center gap-3 p-2.5 rounded-xl bg-muted/30">
-                    <UserCheck className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                    <div className="h-8 w-8 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
+                      <UserCheck className="h-4 w-4" />
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-[11px] text-muted-foreground">Revisor</div>
                       <div className="text-sm font-medium truncate">
@@ -1200,14 +1219,14 @@ function TasksPage() {
             </div>
 
             <div>
-              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                 <Tag className="h-3.5 w-3.5" /> Tags
               </div>
               {selectedPermissions.canEditContent ? (
                 <input
                   value={editForm.tags}
                   onChange={(e) => setEditForm((current) => ({ ...current, tags: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
+                  className="w-full h-10 px-3 rounded-lg bg-muted/40 border border-transparent outline-none focus:border-primary focus:bg-background text-sm transition"
                   placeholder="Separadas por vírgula"
                 />
               ) : (
@@ -1216,7 +1235,7 @@ function TasksPage() {
                     selectedTask.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="text-[11px] px-2 py-0.5 rounded-md bg-accent text-accent-foreground font-medium"
+                        className="text-[11px] px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium"
                       >
                         {tag}
                       </span>
@@ -1229,14 +1248,14 @@ function TasksPage() {
             </div>
 
             <div className="space-y-4">
-              <section className="rounded-xl border border-border bg-background/60 p-3">
+              <section className="rounded-xl border border-border bg-card p-3">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                     <MessageSquare className="h-3.5 w-3.5" />
-                    Comentarios
+                    Comentários
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {selectedTask.comments} {selectedTask.comments === 1 ? "item" : "itens"}
+                  <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    {selectedTask.comments}
                   </span>
                 </div>
 
@@ -1264,15 +1283,11 @@ function TasksPage() {
                   })}
                   {selectedTask.comments > (selectedTask.commentItems?.length ?? 0) && (
                     <div className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-                      {selectedTask.comments - (selectedTask.commentItems?.length ?? 0)} comentario
+                      {selectedTask.comments - (selectedTask.commentItems?.length ?? 0)} comentário
                       {selectedTask.comments - (selectedTask.commentItems?.length ?? 0) === 1
                         ? ""
                         : "s"}{" "}
-                      registrado
-                      {selectedTask.comments - (selectedTask.commentItems?.length ?? 0) === 1
-                        ? ""
-                        : "s"}{" "}
-                      no historico demo.
+                      no histórico.
                     </div>
                   )}
                 </div>
@@ -1282,14 +1297,14 @@ function TasksPage() {
                     <input
                       value={commentBody}
                       onChange={(event) => setCommentBody(event.target.value)}
-                      placeholder="Escrever comentario..."
+                      placeholder="Escrever comentário..."
                       className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
                     />
                     <button
                       type="submit"
                       disabled={commentMutation.isPending || !commentBody.trim()}
-                      className="h-9 w-9 rounded-lg bg-primary text-primary-foreground disabled:opacity-60 inline-flex items-center justify-center"
-                      aria-label="Enviar comentario"
+                      className="h-9 w-9 rounded-lg bg-primary text-primary-foreground disabled:opacity-60 inline-flex items-center justify-center hover:opacity-90 transition"
+                      aria-label="Enviar comentário"
                     >
                       <Send className="h-4 w-4" />
                     </button>
@@ -1297,15 +1312,14 @@ function TasksPage() {
                 )}
               </section>
 
-              <section className="rounded-xl border border-border bg-background/60 p-3">
+              <section className="rounded-xl border border-border bg-card p-3">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                     <Paperclip className="h-3.5 w-3.5" />
                     Anexos
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {selectedTask.attachments}{" "}
-                    {selectedTask.attachments === 1 ? "arquivo" : "arquivos"}
+                  <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    {selectedTask.attachments}
                   </span>
                 </div>
 
@@ -1317,11 +1331,13 @@ function TasksPage() {
                         key={attachment.id}
                         className="flex items-center gap-3 rounded-lg bg-muted/40 p-2.5"
                       >
-                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                          <FileText className="h-4 w-4" />
+                        </div>
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium">{attachment.name}</div>
                           <div className="text-[11px] text-muted-foreground">
-                            {attachment.sizeLabel} - {author?.name ?? "Usuario"}
+                            {attachment.sizeLabel} · {author?.name ?? "Usuario"}
                           </div>
                         </div>
                       </div>
@@ -1333,11 +1349,7 @@ function TasksPage() {
                       {selectedTask.attachments - (selectedTask.attachmentItems?.length ?? 0) === 1
                         ? ""
                         : "s"}{" "}
-                      registrado
-                      {selectedTask.attachments - (selectedTask.attachmentItems?.length ?? 0) === 1
-                        ? ""
-                        : "s"}{" "}
-                      no historico demo.
+                      no histórico.
                     </div>
                   )}
                 </div>
@@ -1346,32 +1358,17 @@ function TasksPage() {
                   <div className="mt-3">
                     <label
                       className={cn(
-                        "flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-background px-3 text-sm font-medium transition hover:bg-muted",
+                        "flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-background px-3 text-sm font-medium transition hover:bg-muted hover:border-primary/50 hover:text-primary",
                         attachmentMutation.isPending && "pointer-events-none opacity-60",
                       )}
                     >
                       <Paperclip className="h-4 w-4" />
-                      {attachmentMutation.isPending ? "Anexando..." : "Escolher arquivo"}
+                      {attachmentMutation.isPending ? "Anexando..." : "Adicionar arquivo"}
                       <input type="file" onChange={handleAttachmentFile} className="sr-only" />
                     </label>
                   </div>
                 )}
               </section>
-            </div>
-
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              {selectedTask.comments > 0 && (
-                <span className="inline-flex items-center gap-1.5">
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  {selectedTask.comments} comentário{selectedTask.comments !== 1 ? "s" : ""}
-                </span>
-              )}
-              {selectedTask.attachments > 0 && (
-                <span className="inline-flex items-center gap-1.5">
-                  <Paperclip className="h-3.5 w-3.5" />
-                  {selectedTask.attachments} anexo{selectedTask.attachments !== 1 ? "s" : ""}
-                </span>
-              )}
             </div>
 
             {!selectedPermissions.canEditContent && (
@@ -1380,35 +1377,41 @@ function TasksPage() {
               </p>
             )}
             {(updateError || statusError || deleteError || commentError || attachmentError) && (
-              <div className="text-sm text-destructive">
+              <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
                 {updateError ?? statusError ?? deleteError ?? commentError ?? attachmentError}
               </div>
             )}
+            </div>
 
-            {selectedPermissions.canEditContent && (
-              <button
-                type="submit"
-                disabled={updateTaskMutation.isPending}
-                className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition shadow-[var(--shadow-elegant)] disabled:opacity-60"
-              >
-                {updateTaskMutation.isPending ? "Salvando..." : "Salvar alterações"}
-              </button>
-            )}
-
-            {selectedPermissions.canDelete && (
-              <button
-                type="button"
-                onClick={handleDeleteSelectedTask}
-                disabled={deleteTaskMutation.isPending}
-                className="w-full h-10 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive text-sm font-medium hover:bg-destructive/10 transition disabled:opacity-60 inline-flex items-center justify-center gap-2"
-              >
-                <Trash2 className="h-4 w-4" />
-                {deleteTaskMutation.isPending ? "Excluindo..." : "Excluir tarefa"}
-              </button>
+            {/* Sticky footer */}
+            {(selectedPermissions.canEditContent || selectedPermissions.canDelete) && (
+              <footer className="sticky bottom-0 border-t border-border bg-background/95 backdrop-blur px-5 py-3 flex gap-2">
+                {selectedPermissions.canDelete && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteSelectedTask}
+                    disabled={deleteTaskMutation.isPending}
+                    className="h-10 w-10 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 transition disabled:opacity-60 inline-flex items-center justify-center shrink-0"
+                    aria-label="Excluir tarefa"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+                {selectedPermissions.canEditContent && (
+                  <button
+                    type="submit"
+                    disabled={updateTaskMutation.isPending}
+                    className="flex-1 h-10 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition shadow-[var(--shadow-elegant)] disabled:opacity-60"
+                  >
+                    {updateTaskMutation.isPending ? "Salvando..." : "Salvar alterações"}
+                  </button>
+                )}
+              </footer>
             )}
           </form>
         )}
       </aside>
+
 
       {showForm && (
         <div

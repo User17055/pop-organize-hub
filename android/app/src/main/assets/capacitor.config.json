@@ -1,0 +1,8 @@
+{
+	"appId": "br.com.poporganize.app",
+	"appName": "Pop Organize",
+	"webDir": "native-shell",
+	"android": {
+		"allowMixedContent": false
+	}
+}

@@ -853,7 +853,7 @@ function TasksPage() {
                   <span className="text-muted-foreground/40">·</span>
                   <PriorityBadge priority={t.priority} />
                   {overdue && (
-                    <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-semibold">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-semibold">
                       Atrasada
                     </span>
                   )}
@@ -874,7 +874,7 @@ function TasksPage() {
 
               {/* Avatar (right side, centered) */}
               <div
-                className="shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-xs font-semibold text-primary-foreground ring-2 ring-background"
+                className="shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-[11px] font-semibold text-primary-foreground ring-2 ring-background"
                 style={{ background: "var(--gradient-primary)" }}
                 title={emp?.name}
               >
@@ -1035,11 +1035,11 @@ function TasksPage() {
                       setEditForm((current) => ({ ...current, title: e.target.value }))
                     }
                     className={cn(
-                      "w-full text-lg font-display font-semibold bg-transparent border-b border-transparent focus:border-border outline-none transition text-foreground placeholder:text-muted-foreground",
+                      "w-full text-base font-display font-semibold bg-transparent border-b border-transparent focus:border-border outline-none transition text-foreground placeholder:text-muted-foreground",
                       selectedTask.status === "completed" && "line-through text-muted-foreground",
                     )}
                   />
-                  <div className="text-xs text-muted-foreground mt-1">
+                  <div className="text-[11px] text-muted-foreground mt-1">
                     {selectedTask.status === "completed"
                       ? "Concluída"
                       : `Criada em ${new Date(`${selectedTask.createdAt}T00:00:00`).toLocaleDateString("pt-BR")}`}

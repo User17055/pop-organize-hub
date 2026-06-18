@@ -1078,11 +1078,11 @@ function TasksPage() {
               </div>
               <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
                 <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Calendar className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-muted-foreground">Prazo</div>
+                    <div className="text-xs font-medium text-muted-foreground">Prazo</div>
                     {selectedPermissions.canEditContent ? (
                       <input
                         type="date"
@@ -1102,11 +1102,11 @@ function TasksPage() {
                 </div>
 
                 <div className="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Repeat className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-muted-foreground">Recorrência</div>
+                    <div className="text-xs font-medium text-muted-foreground">Recorrência</div>
                     {selectedPermissions.canEditContent ? (
                       <div className="mt-1.5">
                         <RecurrenceFields
@@ -1129,11 +1129,11 @@ function TasksPage() {
                 </div>
 
                 <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Flag className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-muted-foreground">Prioridade</div>
+                    <div className="text-xs font-medium text-muted-foreground">Prioridade</div>
                     {selectedPermissions.canEditContent ? (
                       <select
                         value={editForm.priority}
@@ -1160,11 +1160,11 @@ function TasksPage() {
                 </div>
 
                 <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Target className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-muted-foreground">Destino</div>
+                    <div className="text-xs font-medium text-muted-foreground">Destino</div>
                     <div className="text-sm font-medium truncate">{selectedTask.target.label}</div>
                   </div>
                 </div>
@@ -1174,7 +1174,7 @@ function TasksPage() {
                     {getEmployee(selectedTask.responsibleId)?.name?.charAt(0) ?? "?"}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-muted-foreground">Responsável</div>
+                    <div className="text-xs font-medium text-muted-foreground">Responsável</div>
                     <div className="text-sm font-medium truncate">
                       {getEmployee(selectedTask.responsibleId)?.name}
                     </div>
@@ -1187,7 +1187,7 @@ function TasksPage() {
                       <UserCheck className="h-4 w-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] text-muted-foreground">Revisor</div>
+                      <div className="text-xs font-medium text-muted-foreground">Revisor</div>
                       <div className="text-sm font-medium truncate">
                         {getEmployee(selectedTask.reviewerId)?.name}
                       </div>
@@ -1310,7 +1310,7 @@ function TasksPage() {
                         key={attachment.id}
                         className="flex items-center gap-3 rounded-lg bg-muted/40 p-2.5"
                       >
-                        <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                        <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                           <FileText className="h-4 w-4" />
                         </div>
                         <div className="min-w-0 flex-1">

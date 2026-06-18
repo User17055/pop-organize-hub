@@ -842,7 +842,7 @@ function TasksPage() {
 
               {/* Content */}
               <div className="flex-1 min-w-0">
-                <h3 className="font-display font-semibold text-[15px] sm:text-base text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+                <h3 className="font-display font-semibold text-sm sm:text-[15px] text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
                   {t.title}
                 </h3>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">

@@ -134,9 +134,21 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen w-full bg-background">
+      {/* Mobile overlay */}
+      {mobileNavOpen && (
+        <button
+          type="button"
+          aria-label="Fechar menu"
+          onClick={() => setMobileNavOpen(false)}
+          className="fixed inset-0 z-40 bg-foreground/40 backdrop-blur-[2px] md:hidden"
+        />
+      )}
       {/* Sidebar */}
       <aside
-        className="hidden md:flex w-64 flex-col text-sidebar-foreground sticky top-0 h-screen relative"
+        className={cn(
+          "fixed md:sticky top-0 left-0 z-50 h-screen w-64 flex flex-col text-sidebar-foreground transition-transform duration-300 ease-out md:translate-x-0",
+          mobileNavOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0",
+        )}
         style={{ background: "var(--gradient-sidebar)" }}
       >
         <div className="px-6 py-6 border-b border-sidebar-border">

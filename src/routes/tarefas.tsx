@@ -1337,7 +1337,7 @@ function TasksPage() {
                   <div className="mt-3">
                     <label
                       className={cn(
-                        "flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-background px-3 text-sm font-medium transition hover:bg-muted hover:border-primary/50 hover:text-primary",
+                        "flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-background px-3 text-xs font-medium transition hover:bg-muted hover:border-primary/50 hover:text-primary",
                         attachmentMutation.isPending && "pointer-events-none opacity-60",
                       )}
                     >

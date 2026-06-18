@@ -815,7 +815,7 @@ function TasksPage() {
                 }
               }}
               className={cn(
-                "group flex items-start gap-3 cursor-pointer bg-card border rounded-2xl p-3 sm:p-4 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
+                "group flex items-center gap-3 cursor-pointer bg-card border rounded-2xl p-3.5 sm:p-4 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
                 overdue ? "border-destructive/40 bg-destructive/[0.03]" : "border-border",
                 selectedTaskId === t.id && "border-primary/60 ring-2 ring-primary/10",
               )}
@@ -830,7 +830,7 @@ function TasksPage() {
                 }}
                 disabled={!permissions.canChangeStatus || statusMutation.isPending}
                 className={cn(
-                  "shrink-0 mt-0.5 h-6 w-6 rounded-full border-2 flex items-center justify-center transition disabled:opacity-40",
+                  "shrink-0 h-6 w-6 rounded-full border-2 flex items-center justify-center transition disabled:opacity-40",
                   overdue
                     ? "border-destructive/50 text-destructive hover:border-destructive"
                     : "border-muted-foreground/30 text-primary hover:border-primary",
@@ -840,67 +840,49 @@ function TasksPage() {
                 <Check className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition" />
               </button>
 
-              {/* Avatar */}
+              {/* Content */}
+              <div className="flex-1 min-w-0">
+                <h3 className="font-display font-semibold text-[15px] sm:text-base text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+                  {t.title}
+                </h3>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5" />
+                    {new Date(`${t.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
+                  </span>
+                  <span className="text-muted-foreground/40">·</span>
+                  <PriorityBadge priority={t.priority} />
+                  {overdue && (
+                    <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-semibold">
+                      Atrasada
+                    </span>
+                  )}
+                  {t.comments > 0 && (
+                    <span className="inline-flex items-center gap-1">
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      {t.comments}
+                    </span>
+                  )}
+                  {t.attachments > 0 && (
+                    <span className="inline-flex items-center gap-1">
+                      <Paperclip className="h-3.5 w-3.5" />
+                      {t.attachments}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Avatar (right side, centered) */}
               <div
-                className="shrink-0 h-9 w-9 rounded-full flex items-center justify-center text-[11px] font-semibold text-primary-foreground"
+                className="shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-xs font-semibold text-primary-foreground ring-2 ring-background"
                 style={{ background: "var(--gradient-primary)" }}
+                title={emp?.name}
               >
                 {emp?.name
                   .split(" ")
                   .map((n) => n[0])
                   .slice(0, 2)
                   .join("")}
-              </div>
-
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <h3 className="font-display font-semibold text-sm sm:text-[15px] text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
-                  {t.title}
-                </h3>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  <span className="truncate max-w-[120px] sm:max-w-[180px]">{emp?.name}</span>
-                  <span className="text-muted-foreground/40">·</span>
-                  <span className="inline-flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {new Date(`${t.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
-                  </span>
-                  {overdue && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-medium">
-                      Atrasada
-                    </span>
-                  )}
-                </div>
-                {t.tags.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {t.tags.slice(0, 2).map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-[10px] px-1.5 py-0.5 rounded-md bg-accent text-accent-foreground font-medium"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Right side meta */}
-              <div className="shrink-0 flex flex-col items-end gap-1.5 mt-0.5">
-                <PriorityBadge priority={t.priority} />
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  {t.comments > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs">
-                      <MessageSquare className="h-3.5 w-3.5" />
-                      {t.comments}
-                    </span>
-                  )}
-                  {t.attachments > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs">
-                      <Paperclip className="h-3.5 w-3.5" />
-                      {t.attachments}
-                    </span>
-                  )}
-                </div>
               </div>
             </div>
           );

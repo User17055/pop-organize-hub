@@ -348,8 +348,18 @@ function TasksPage() {
           return (
             <div
               key={t.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Abrir atividade ${t.title}`}
+              onClick={() => openTask(t)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openTask(t);
+                }
+              }}
               className={cn(
-                "group bg-card border border-border rounded-2xl p-5 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all",
+                "group cursor-pointer bg-card border border-border rounded-2xl p-5 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
                 selectedTaskId === t.id && "border-primary/60 ring-2 ring-primary/10",
               )}
             >
@@ -420,7 +430,11 @@ function TasksPage() {
                 )}
               </div>
 
-              <label className="mt-4 block">
+              <label
+                className="mt-4 block cursor-default"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
                 <span className="text-[11px] font-medium text-muted-foreground mb-1.5 block">
                   Atualizar status
                 </span>
@@ -439,13 +453,6 @@ function TasksPage() {
                   ))}
                 </select>
               </label>
-              <button
-                type="button"
-                onClick={() => openTask(t)}
-                className="mt-3 w-full h-9 rounded-lg border border-border text-xs font-medium hover:bg-muted transition inline-flex items-center justify-center gap-2"
-              >
-                <Pencil className="h-3.5 w-3.5" /> Abrir atividade
-              </button>
             </div>
           );
         })}

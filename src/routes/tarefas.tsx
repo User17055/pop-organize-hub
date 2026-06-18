@@ -29,6 +29,8 @@ import {
   type TaskRecurrence,
   type RecurrenceFrequency,
   type RecurrenceCustomUnit,
+  type Employee,
+  type Department,
 } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import {
@@ -38,15 +40,12 @@ import {
   Calendar,
   MessageSquare,
   Paperclip,
-  UserCircle2,
   Pencil,
   ShieldCheck,
   X,
   Check,
   Flag,
   Target,
-  User,
-  UserCheck,
   Tag,
   Trash2,
   ChevronDown,
@@ -189,6 +188,44 @@ function isOverdue(task: Task) {
   today.setHours(0, 0, 0, 0);
   const due = new Date(`${task.dueDate}T00:00:00`);
   return due < today;
+}
+
+function EmployeeAvatar({
+  employee,
+  departments,
+  size = "md",
+}: {
+  employee?: Employee;
+  departments: Department[];
+  size?: "sm" | "md";
+}) {
+  const department = employee?.departmentId
+    ? departments.find((item) => item.id === employee.departmentId)
+    : null;
+  const initials =
+    employee?.name
+      .split(" ")
+      .map((part) => part[0])
+      .slice(0, 2)
+      .join("") ?? "?";
+  const sizeClass = size === "sm" ? "h-5 w-5 text-[9px]" : "h-10 w-10 text-[11px]";
+
+  return (
+    <div
+      className={cn(
+        "shrink-0 overflow-hidden rounded-full text-white flex items-center justify-center font-semibold ring-2 ring-background",
+        sizeClass,
+      )}
+      style={employee?.avatar ? undefined : { background: department?.color ?? "var(--primary)" }}
+      title={employee?.name}
+    >
+      {employee?.avatar ? (
+        <img src={employee.avatar} alt={employee.name} className="h-full w-full object-cover" />
+      ) : (
+        initials
+      )}
+    </div>
+  );
 }
 
 function getDefaultRecurrence(dueDate?: string): RecurrenceFormState {
@@ -873,17 +910,7 @@ function TasksPage() {
               </div>
 
               {/* Avatar (right side, centered) */}
-              <div
-                className="shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-[11px] font-semibold text-primary-foreground ring-2 ring-background"
-                style={{ background: "var(--gradient-primary)" }}
-                title={emp?.name}
-              >
-                {emp?.name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .slice(0, 2)
-                  .join("")}
-              </div>
+              <EmployeeAvatar employee={emp} departments={departments} />
             </div>
           );
         })}
@@ -1190,16 +1217,10 @@ function TasksPage() {
 
                   {/* Responsible */}
                   <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
-                    <div
-                      className="h-8 w-8 rounded-full text-white flex items-center justify-center text-[11px] font-bold shrink-0"
-                      style={{
-                        background: getEmployee(selectedTask.responsibleId)?.departmentId
-                          ? departments.find((d) => d.id === getEmployee(selectedTask.responsibleId)?.departmentId)?.color ?? "var(--primary)"
-                          : "var(--primary)",
-                      }}
-                    >
-                      {getEmployee(selectedTask.responsibleId)?.name?.charAt(0) ?? "?"}
-                    </div>
+                    <EmployeeAvatar
+                      employee={getEmployee(selectedTask.responsibleId)}
+                      departments={departments}
+                    />
                     <div className="flex-1 min-w-0">
                       <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Responsável</div>
                       <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
@@ -1211,9 +1232,10 @@ function TasksPage() {
                   {/* Reviewer */}
                   {selectedTask.reviewerId && (
                     <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
-                        <UserCheck className="h-4 w-4" />
-                      </div>
+                      <EmployeeAvatar
+                        employee={getEmployee(selectedTask.reviewerId)}
+                        departments={departments}
+                      />
                       <div className="flex-1 min-w-0">
                         <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Revisor</div>
                         <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
@@ -1286,19 +1308,15 @@ function TasksPage() {
                   <div className="space-y-2">
                     {(selectedTask.commentItems ?? []).map((comment) => {
                       const author = getEmployee(comment.authorId);
-                      const authorDept = author?.departmentId
-                        ? departments.find((d) => d.id === author.departmentId)
-                        : null;
                       return (
                         <div key={comment.id} className="rounded-xl bg-muted/30 p-3">
                           <div className="mb-1.5 flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
-                              <div
-                                className="h-5 w-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center shrink-0"
-                                style={{ background: authorDept?.color ?? "var(--primary)" }}
-                              >
-                                {author?.name?.charAt(0) ?? "U"}
-                              </div>
+                              <EmployeeAvatar
+                                employee={author}
+                                departments={departments}
+                                size="sm"
+                              />
                               <span className="text-[11px] font-semibold text-foreground">
                                 {author?.name ?? "Usuario"}
                               </span>

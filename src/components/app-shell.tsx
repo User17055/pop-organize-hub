@@ -18,6 +18,7 @@ import {
   Save,
   BriefcaseBusiness,
   Menu,
+  ArrowLeft,
 } from "lucide-react";
 import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -92,7 +93,18 @@ export function AppShell({
       currentPassword?: string;
       newPassword?: string;
     }) => updateProfile({ data: payload }),
-    onSuccess: () => {
+    onSuccess: ({ employee, currentUser: updatedCurrentUser }) => {
+      queryClient.setQueryData<typeof data>(workspaceQueryKey, (current) =>
+        current
+          ? {
+              ...current,
+              currentUser: updatedCurrentUser,
+              employees: current.employees.map((item) =>
+                item.id === employee.id ? { ...item, ...employee } : item,
+              ),
+            }
+          : current,
+      );
       setProfileOpen(false);
       setProfileForm((current) => ({ ...current, currentPassword: "", newPassword: "" }));
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
@@ -107,7 +119,8 @@ export function AppShell({
       newPassword: "",
     });
     profileMutation.reset();
-    setProfileOpen((current) => !current);
+    setMobileNavOpen(false);
+    setProfileOpen(true);
   }
 
   function handleAvatarFile(event: ChangeEvent<HTMLInputElement>) {
@@ -151,6 +164,7 @@ export function AppShell({
         className={cn(
           "fixed md:sticky top-0 left-0 z-50 h-screen w-64 flex flex-col text-sidebar-foreground transition-transform duration-300 ease-out md:translate-x-0",
           mobileNavOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0",
+          profileOpen && "transform-none",
         )}
         style={{ background: "var(--gradient-sidebar)" }}
       >
@@ -198,133 +212,160 @@ export function AppShell({
           {profileOpen && (
             <form
               onSubmit={handleProfileSubmit}
-              className="absolute bottom-20 left-3 right-3 z-30 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150"
+              className="fixed inset-0 z-[70] flex min-h-dvh flex-col overflow-y-auto bg-background text-foreground animate-in fade-in duration-150"
             >
-              <div className="flex items-start gap-3">
-                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full bg-muted">
-                  {profileForm.avatar ? (
-                    <img
-                      src={profileForm.avatar}
-                      alt={profileForm.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div
-                      className="flex h-full w-full items-center justify-center text-base font-semibold text-primary-foreground"
-                      style={{ background: "var(--gradient-primary)" }}
-                    >
-                      {initials}
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold">Perfil</div>
-                  <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <BriefcaseBusiness className="h-3.5 w-3.5" />
-                    <span className="truncate">{currentEmployee?.role ?? currentUser.role}</span>
+              <header className="sticky top-0 z-10 border-b border-border bg-background px-4 py-4">
+                <div className="mx-auto flex w-full max-w-xl items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-display font-bold">Configurações do perfil</h2>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      Atualize sua foto, nome e senha.
+                    </p>
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Setor: {currentDepartment?.name ?? "Sem setor"}
+                  <button
+                    type="button"
+                    onClick={() => setProfileOpen(false)}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm font-medium transition hover:bg-muted"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Voltar
+                  </button>
+                </div>
+              </header>
+
+              <div className="mx-auto flex w-full max-w-xl flex-1 flex-col px-4 py-5">
+                <div className="rounded-xl border border-border bg-card p-4 text-card-foreground">
+                  <div className="flex items-start gap-3">
+                    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
+                      {profileForm.avatar ? (
+                        <img
+                          src={profileForm.avatar}
+                          alt={profileForm.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div
+                          className="flex h-full w-full items-center justify-center text-base font-semibold text-primary-foreground"
+                          style={{ background: "var(--gradient-primary)" }}
+                        >
+                          {initials}
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">Perfil</div>
+                      <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <BriefcaseBusiness className="h-3.5 w-3.5" />
+                        <span className="truncate">
+                          {currentEmployee?.role ?? currentUser.role}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Setor: {currentDepartment?.name ?? "Sem setor"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 space-y-3">
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                        Nome
+                      </span>
+                      <input
+                        value={profileForm.name}
+                        onChange={(event) =>
+                          setProfileForm((current) => ({ ...current, name: event.target.value }))
+                        }
+                        className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                        required
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                        Foto
+                      </span>
+                      <div className="flex gap-2">
+                        <input
+                          value={profileForm.avatar}
+                          onChange={(event) =>
+                            setProfileForm((current) => ({
+                              ...current,
+                              avatar: event.target.value,
+                            }))
+                          }
+                          placeholder="URL da foto"
+                          className="h-10 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                        />
+                        <label className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border border-border hover:bg-muted">
+                          <Camera className="h-4 w-4" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleAvatarFile}
+                            className="sr-only"
+                          />
+                        </label>
+                      </div>
+                    </label>
+
+                    <div className="rounded-lg border border-border bg-muted/30 p-3">
+                      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                        <KeyRound className="h-3.5 w-3.5" />
+                        Alterar senha
+                      </div>
+                      <div className="space-y-2">
+                        <input
+                          type="password"
+                          value={profileForm.currentPassword}
+                          onChange={(event) =>
+                            setProfileForm((current) => ({
+                              ...current,
+                              currentPassword: event.target.value,
+                            }))
+                          }
+                          placeholder="Senha atual"
+                          className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                        />
+                        <input
+                          type="password"
+                          value={profileForm.newPassword}
+                          onChange={(event) =>
+                            setProfileForm((current) => ({
+                              ...current,
+                              newPassword: event.target.value,
+                            }))
+                          }
+                          placeholder="Nova senha"
+                          className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                        />
+                      </div>
+                    </div>
+
+                    {profileError && <div className="text-xs text-destructive">{profileError}</div>}
                   </div>
                 </div>
               </div>
 
-              <div className="mt-4 space-y-3">
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                    Nome
-                  </span>
-                  <input
-                    value={profileForm.name}
-                    onChange={(event) =>
-                      setProfileForm((current) => ({ ...current, name: event.target.value }))
-                    }
-                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-                    required
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                    Foto
-                  </span>
-                  <div className="flex gap-2">
-                    <input
-                      value={profileForm.avatar}
-                      onChange={(event) =>
-                        setProfileForm((current) => ({
-                          ...current,
-                          avatar: event.target.value,
-                        }))
-                      }
-                      placeholder="URL da foto"
-                      className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-                    />
-                    <label className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-border hover:bg-muted">
-                      <Camera className="h-4 w-4" />
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleAvatarFile}
-                        className="sr-only"
-                      />
-                    </label>
-                  </div>
-                </label>
-
-                <div className="rounded-lg border border-border bg-muted/30 p-3">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                    <KeyRound className="h-3.5 w-3.5" />
-                    Alterar senha
-                  </div>
-                  <div className="space-y-2">
-                    <input
-                      type="password"
-                      value={profileForm.currentPassword}
-                      onChange={(event) =>
-                        setProfileForm((current) => ({
-                          ...current,
-                          currentPassword: event.target.value,
-                        }))
-                      }
-                      placeholder="Senha atual"
-                      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-                    />
-                    <input
-                      type="password"
-                      value={profileForm.newPassword}
-                      onChange={(event) =>
-                        setProfileForm((current) => ({
-                          ...current,
-                          newPassword: event.target.value,
-                        }))
-                      }
-                      placeholder="Nova senha"
-                      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                </div>
-
-                {profileError && <div className="text-xs text-destructive">{profileError}</div>}
-
-                <div className="flex gap-2">
+              <footer className="sticky bottom-0 border-t border-border bg-background/95 px-4 py-3 backdrop-blur">
+                <div className="mx-auto flex w-full max-w-xl gap-2">
                   <button
                     type="button"
                     onClick={() => setProfileOpen(false)}
-                    className="h-9 flex-1 rounded-lg border border-border text-sm font-medium hover:bg-muted"
+                    className="h-10 flex-1 rounded-lg border border-border text-sm font-medium hover:bg-muted"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
                     disabled={profileMutation.isPending}
-                    className="h-9 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                    className="h-10 flex-1 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60 inline-flex items-center justify-center gap-2"
                   >
                     <Save className="h-4 w-4" />
                     {profileMutation.isPending ? "Salvando" : "Salvar"}
                   </button>
                 </div>
-              </div>
+              </footer>
             </form>
           )}
 
@@ -367,8 +408,12 @@ export function AppShell({
               <Menu className="h-5 w-5 text-foreground/70" />
             </button>
             <div className="flex-1 min-w-0">
-              <h1 className="text-xl md:text-2xl font-display font-bold text-foreground truncate">{title}</h1>
-              {subtitle && <p className="text-sm text-muted-foreground mt-0.5 truncate">{subtitle}</p>}
+              <h1 className="text-xl md:text-2xl font-display font-bold text-foreground truncate">
+                {title}
+              </h1>
+              {subtitle && (
+                <p className="text-sm text-muted-foreground mt-0.5 truncate">{subtitle}</p>
+              )}
             </div>
             <div className="hidden lg:flex items-center gap-2 px-3 h-10 rounded-lg bg-muted border border-transparent focus-within:border-primary/40 focus-within:bg-background transition-colors w-72">
               <Search className="h-4 w-4 text-muted-foreground" />

@@ -1256,7 +1256,7 @@ function TasksPage() {
                             })}
                           </span>
                         </div>
-                        <p className="text-sm text-foreground/85">{comment.body}</p>
+                        <p className="text-xs text-foreground/85">{comment.body}</p>
                       </div>
                     );
                   })}

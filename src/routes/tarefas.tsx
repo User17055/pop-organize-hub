@@ -1314,7 +1314,7 @@ function TasksPage() {
                           <FileText className="h-4 w-4" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium">{attachment.name}</div>
+                          <div className="truncate text-xs font-medium">{attachment.name}</div>
                           <div className="text-[11px] text-muted-foreground">
                             {attachment.sizeLabel} · {author?.name ?? "Usuario"}
                           </div>

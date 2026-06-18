@@ -54,6 +54,7 @@ import {
   Send,
   FileText,
   Repeat,
+  Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 

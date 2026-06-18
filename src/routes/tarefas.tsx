@@ -183,6 +183,14 @@ function formatFileSizeMb(sizeInBytes: number) {
   return `${sizeInMb.toFixed(precision).replace(".", ",")} MB`;
 }
 
+function isOverdue(task: Task) {
+  if (task.status === "completed") return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(`${task.dueDate}T00:00:00`);
+  return due < today;
+}
+
 function getDefaultRecurrence(dueDate?: string): RecurrenceFormState {
   const anchor = getDueDateAnchor(dueDate);
   return {

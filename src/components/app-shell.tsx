@@ -69,6 +69,9 @@ export function AppShell({
     .join("");
   const [profileOpen, setProfileOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
   const [profileForm, setProfileForm] = useState({
     name: currentEmployee?.name ?? currentUser.name,
     avatar: avatar ?? "",

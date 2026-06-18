@@ -10,11 +10,17 @@ export type Priority = "low" | "medium" | "high" | "urgent";
 
 export type TargetType = "company" | "department" | "group" | "user";
 
-export type RecurrenceFrequency = "daily" | "biweekly" | "monthly" | "custom";
+export type RecurrenceFrequency = "daily" | "weekly" | "biweekly" | "monthly" | "yearly" | "custom";
+
+export type RecurrenceCustomUnit = "days" | "weeks" | "months" | "years";
 
 export interface TaskRecurrence {
   frequency: RecurrenceFrequency;
+  interval?: number;
   intervalDays?: number;
+  customUnit?: RecurrenceCustomUnit;
+  dayOfMonth?: number;
+  monthOfYear?: number;
   endDate?: string;
 }
 

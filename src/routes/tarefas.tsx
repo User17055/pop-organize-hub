@@ -28,6 +28,7 @@ import {
   type TaskStatus,
   type TaskRecurrence,
   type RecurrenceFrequency,
+  type RecurrenceCustomUnit,
 } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import {
@@ -98,14 +99,21 @@ type TaskEditState = {
 
 type RecurrenceFormState = {
   frequency: RecurrenceFrequency | "none";
-  intervalDays: string;
+  interval: string;
+  customUnit: RecurrenceCustomUnit;
+  dayOfMonth: string;
+  monthOfYear: string;
   endDate: string;
 };
 
 type RecurrenceInput =
   | {
       frequency: RecurrenceFrequency;
+      interval?: number;
       intervalDays?: number;
+      customUnit?: RecurrenceCustomUnit;
+      dayOfMonth?: number;
+      monthOfYear?: number;
       endDate?: string;
     }
   | undefined;
@@ -119,23 +127,81 @@ function getDefaultDueDate() {
 const recurrenceOptions: Array<{ value: RecurrenceFormState["frequency"]; label: string }> = [
   { value: "none", label: "Sem recorrência" },
   { value: "daily", label: "Diária" },
+  { value: "weekly", label: "Semanal" },
   { value: "biweekly", label: "Quinzenal" },
   { value: "monthly", label: "Mensal" },
+  { value: "yearly", label: "Anual" },
   { value: "custom", label: "Personalizada" },
 ];
 
-function getDefaultRecurrence(): RecurrenceFormState {
+const customUnitOptions: Array<{ value: RecurrenceCustomUnit; label: string }> = [
+  { value: "days", label: "dias" },
+  { value: "weeks", label: "semanas" },
+  { value: "months", label: "meses" },
+  { value: "years", label: "anos" },
+];
+
+const monthOptions = [
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
+].map((label, index) => ({ value: String(index + 1), label }));
+
+function clampNumber(
+  value: string | number | undefined,
+  min: number,
+  max: number,
+  fallback: number,
+) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
+}
+
+function getDueDateAnchor(dueDate?: string) {
+  const [, month, day] = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueDate ?? "") ?? [];
+  return {
+    dayOfMonth: day ? String(Number(day)) : "1",
+    monthOfYear: month ? String(Number(month)) : "1",
+  };
+}
+
+function formatFileSizeMb(sizeInBytes: number) {
+  if (sizeInBytes <= 0) return "0 MB";
+  const sizeInMb = sizeInBytes / 1_048_576;
+  const precision = sizeInMb >= 1 ? 1 : sizeInMb >= 0.1 ? 2 : 3;
+  return `${sizeInMb.toFixed(precision).replace(".", ",")} MB`;
+}
+
+function getDefaultRecurrence(dueDate?: string): RecurrenceFormState {
+  const anchor = getDueDateAnchor(dueDate);
   return {
     frequency: "none",
-    intervalDays: "7",
+    interval: "1",
+    customUnit: "days",
+    dayOfMonth: anchor.dayOfMonth,
+    monthOfYear: anchor.monthOfYear,
     endDate: "",
   };
 }
 
-function recurrenceToForm(recurrence?: TaskRecurrence): RecurrenceFormState {
+function recurrenceToForm(recurrence?: TaskRecurrence, dueDate?: string): RecurrenceFormState {
+  const anchor = getDueDateAnchor(dueDate);
   return {
     frequency: recurrence?.frequency ?? "none",
-    intervalDays: String(recurrence?.intervalDays ?? 7),
+    interval: String(recurrence?.interval ?? recurrence?.intervalDays ?? 1),
+    customUnit: recurrence?.customUnit ?? "days",
+    dayOfMonth: String(recurrence?.dayOfMonth ?? anchor.dayOfMonth),
+    monthOfYear: String(recurrence?.monthOfYear ?? anchor.monthOfYear),
     endDate: recurrence?.endDate ?? "",
   };
 }
@@ -143,31 +209,201 @@ function recurrenceToForm(recurrence?: TaskRecurrence): RecurrenceFormState {
 function recurrenceFromForm(recurrence: RecurrenceFormState): RecurrenceInput {
   if (recurrence.frequency === "none") return undefined;
 
-  return {
-    frequency: recurrence.frequency,
-    intervalDays:
-      recurrence.frequency === "custom"
-        ? Math.max(1, Number(recurrence.intervalDays) || 1)
-        : undefined,
-    endDate: recurrence.endDate || undefined,
-  };
+  const endDate = recurrence.endDate || undefined;
+  const dayOfMonth = clampNumber(recurrence.dayOfMonth, 1, 31, 1);
+  const monthOfYear = clampNumber(recurrence.monthOfYear, 1, 12, 1);
+
+  if (recurrence.frequency === "monthly") {
+    return { frequency: recurrence.frequency, dayOfMonth, endDate };
+  }
+
+  if (recurrence.frequency === "yearly") {
+    return { frequency: recurrence.frequency, dayOfMonth, monthOfYear, endDate };
+  }
+
+  if (recurrence.frequency === "custom") {
+    const interval = clampNumber(recurrence.interval, 1, 120, 1);
+    return {
+      frequency: recurrence.frequency,
+      interval,
+      intervalDays: recurrence.customUnit === "days" ? interval : undefined,
+      customUnit: recurrence.customUnit,
+      dayOfMonth:
+        recurrence.customUnit === "months" || recurrence.customUnit === "years"
+          ? dayOfMonth
+          : undefined,
+      monthOfYear: recurrence.customUnit === "years" ? monthOfYear : undefined,
+      endDate,
+    };
+  }
+
+  return { frequency: recurrence.frequency, endDate };
 }
 
 function recurrenceLabel(recurrence?: TaskRecurrence) {
   if (!recurrence) return "Sem recorrência";
 
+  const interval = recurrence.interval ?? recurrence.intervalDays ?? 1;
+  const unit = recurrence.customUnit ?? "days";
+  const hasDayOfMonth = recurrence.dayOfMonth != null;
+  const hasMonthOfYear = recurrence.monthOfYear != null;
+  const dayOfMonth = recurrence.dayOfMonth ?? 1;
+  const monthName = monthOptions[(recurrence.monthOfYear ?? 1) - 1]?.label ?? "Janeiro";
+  const plural = (value: number, singular: string, pluralText: string) =>
+    value === 1 ? singular : pluralText;
+
   const label =
     recurrence.frequency === "daily"
       ? "Diária"
-      : recurrence.frequency === "biweekly"
-        ? "Quinzenal"
-        : recurrence.frequency === "monthly"
-          ? "Mensal"
-          : `A cada ${recurrence.intervalDays ?? 1} dias`;
+      : recurrence.frequency === "weekly"
+        ? "Semanal"
+        : recurrence.frequency === "biweekly"
+          ? "Quinzenal"
+          : recurrence.frequency === "monthly"
+            ? hasDayOfMonth
+              ? `Mensal no dia ${dayOfMonth}`
+              : "Mensal pelo dia do prazo"
+            : recurrence.frequency === "yearly"
+              ? hasDayOfMonth && hasMonthOfYear
+                ? `Anual em ${dayOfMonth} de ${monthName.toLowerCase()}`
+                : "Anual pelo dia do prazo"
+              : unit === "weeks"
+                ? `A cada ${interval} ${plural(interval, "semana", "semanas")}`
+                : unit === "months"
+                  ? hasDayOfMonth
+                    ? `A cada ${interval} ${plural(interval, "mês", "meses")} no dia ${dayOfMonth}`
+                    : `A cada ${interval} ${plural(interval, "mês", "meses")}`
+                  : unit === "years"
+                    ? hasDayOfMonth && hasMonthOfYear
+                      ? `A cada ${interval} ${plural(interval, "ano", "anos")} em ${dayOfMonth} de ${monthName.toLowerCase()}`
+                      : `A cada ${interval} ${plural(interval, "ano", "anos")}`
+                    : `A cada ${interval} ${plural(interval, "dia", "dias")}`;
 
   return recurrence.endDate
     ? `${label} até ${new Date(`${recurrence.endDate}T00:00:00`).toLocaleDateString("pt-BR")}`
     : label;
+}
+
+function RecurrenceFields({
+  value,
+  onChange,
+  compact = false,
+}: {
+  value: RecurrenceFormState;
+  onChange: (value: RecurrenceFormState) => void;
+  compact?: boolean;
+}) {
+  const inputClass = compact
+    ? "h-8 w-full rounded-lg border border-input bg-background px-2 text-xs outline-none focus:border-primary"
+    : "w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm";
+  const update = (patch: Partial<RecurrenceFormState>) => onChange({ ...value, ...patch });
+  const isActive = value.frequency !== "none";
+  const showMonthlyDay =
+    value.frequency === "monthly" ||
+    (value.frequency === "custom" && value.customUnit === "months");
+  const showYearlyDate =
+    value.frequency === "yearly" || (value.frequency === "custom" && value.customUnit === "years");
+
+  return (
+    <div className={cn("grid grid-cols-1 gap-3", !compact && "sm:grid-cols-2")}>
+      <Field label="Frequência">
+        <select
+          value={value.frequency}
+          onChange={(event) =>
+            update({ frequency: event.target.value as RecurrenceFormState["frequency"] })
+          }
+          className={inputClass}
+        >
+          {recurrenceOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      {value.frequency === "custom" && (
+        <Field label="Repetir a cada">
+          <div className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-2">
+            <input
+              type="number"
+              min={1}
+              max={120}
+              value={value.interval}
+              onChange={(event) => update({ interval: event.target.value })}
+              className={inputClass}
+            />
+            <select
+              value={value.customUnit}
+              onChange={(event) =>
+                update({ customUnit: event.target.value as RecurrenceCustomUnit })
+              }
+              className={inputClass}
+            >
+              {customUnitOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </Field>
+      )}
+
+      {showMonthlyDay && (
+        <Field label="Dia do mês">
+          <input
+            type="number"
+            min={1}
+            max={31}
+            value={value.dayOfMonth}
+            onChange={(event) => update({ dayOfMonth: event.target.value })}
+            className={inputClass}
+          />
+        </Field>
+      )}
+
+      {showYearlyDate && (
+        <>
+          <Field label="Mês">
+            <select
+              value={value.monthOfYear}
+              onChange={(event) => update({ monthOfYear: event.target.value })}
+              className={inputClass}
+            >
+              {monthOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Dia">
+            <input
+              type="number"
+              min={1}
+              max={31}
+              value={value.dayOfMonth}
+              onChange={(event) => update({ dayOfMonth: event.target.value })}
+              className={inputClass}
+            />
+          </Field>
+        </>
+      )}
+
+      {isActive && (
+        <Field label="Parar em">
+          <input
+            type="date"
+            value={value.endDate}
+            onChange={(event) => update({ endDate: event.target.value })}
+            className={inputClass}
+            aria-label="Data final da recorrência"
+          />
+        </Field>
+      )}
+    </div>
+  );
 }
 
 function TasksPage() {
@@ -179,26 +415,31 @@ function TasksPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [commentBody, setCommentBody] = useState("");
-  const [attachmentForm, setAttachmentForm] = useState({ name: "", sizeLabel: "" });
-  const [form, setForm] = useState<TaskFormState>({
-    title: "",
-    description: "",
-    priority: "medium",
-    dueDate: getDefaultDueDate(),
-    targetKey: "",
-    responsibleId: "",
-    reviewerId: "",
-    requiresReview: false,
-    tags: "",
-    recurrence: getDefaultRecurrence(),
+  const [form, setForm] = useState<TaskFormState>(() => {
+    const dueDate = getDefaultDueDate();
+    return {
+      title: "",
+      description: "",
+      priority: "medium",
+      dueDate,
+      targetKey: "",
+      responsibleId: "",
+      reviewerId: "",
+      requiresReview: false,
+      tags: "",
+      recurrence: getDefaultRecurrence(dueDate),
+    };
   });
-  const [editForm, setEditForm] = useState<TaskEditState>({
-    title: "",
-    description: "",
-    priority: "medium",
-    dueDate: getDefaultDueDate(),
-    tags: "",
-    recurrence: getDefaultRecurrence(),
+  const [editForm, setEditForm] = useState<TaskEditState>(() => {
+    const dueDate = getDefaultDueDate();
+    return {
+      title: "",
+      description: "",
+      priority: "medium",
+      dueDate,
+      tags: "",
+      recurrence: getDefaultRecurrence(dueDate),
+    };
   });
 
   function updateTaskInWorkspace(updatedTask: Task) {
@@ -289,7 +530,6 @@ function TasksPage() {
     mutationFn: (payload: { taskId: string; name: string; sizeLabel?: string }) =>
       addTaskAttachment({ data: payload }),
     onSuccess: (updatedTask) => {
-      setAttachmentForm({ name: "", sizeLabel: "" });
       updateTaskInWorkspace(updatedTask);
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
@@ -371,17 +611,18 @@ function TasksPage() {
   ];
 
   function openForm() {
+    const dueDate = getDefaultDueDate();
     setForm({
       title: "",
       description: "",
       priority: "medium",
-      dueDate: getDefaultDueDate(),
+      dueDate,
       targetKey: `company:${company.id}`,
       responsibleId: employees[0]?.id ?? "",
       reviewerId: "",
       requiresReview: false,
       tags: "",
-      recurrence: getDefaultRecurrence(),
+      recurrence: getDefaultRecurrence(dueDate),
     });
     createTaskMutation.reset();
     setShowForm(true);
@@ -390,14 +631,13 @@ function TasksPage() {
   function openTask(task: Task) {
     setSelectedTaskId(task.id);
     setCommentBody("");
-    setAttachmentForm({ name: "", sizeLabel: "" });
     setEditForm({
       title: task.title,
       description: task.description,
       priority: task.priority,
       dueDate: task.dueDate,
       tags: task.tags.join(", "),
-      recurrence: recurrenceToForm(task.recurrence),
+      recurrence: recurrenceToForm(task.recurrence, task.dueDate),
     });
     updateTaskMutation.reset();
   }
@@ -458,24 +698,15 @@ function TasksPage() {
     commentMutation.mutate({ taskId: selectedTask.id, body: commentBody.trim() });
   }
 
-  function handleAttachmentSubmit(event: FormEvent) {
-    event.preventDefault();
-    if (!selectedTask || !attachmentForm.name.trim()) return;
-    attachmentMutation.mutate({
-      taskId: selectedTask.id,
-      name: attachmentForm.name.trim(),
-      sizeLabel: attachmentForm.sizeLabel.trim() || undefined,
-    });
-  }
-
   function handleAttachmentFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (!file) return;
-    const sizeLabel =
-      file.size >= 1_048_576
-        ? `${(file.size / 1_048_576).toFixed(1).replace(".", ",")} MB`
-        : `${Math.max(1, Math.round(file.size / 1024))} KB`;
-    setAttachmentForm({ name: file.name, sizeLabel });
+    event.target.value = "";
+    if (!file || !selectedTask) return;
+    attachmentMutation.mutate({
+      taskId: selectedTask.id,
+      name: file.name,
+      sizeLabel: formatFileSizeMb(file.size),
+    });
   }
 
   const mutationError =
@@ -887,62 +1118,17 @@ function TasksPage() {
                   <div className="flex-1 min-w-0">
                     <div className="text-[11px] text-muted-foreground">Recorrência</div>
                     {selectedPermissions.canEditContent ? (
-                      <div className="space-y-2">
-                        <select
-                          value={editForm.recurrence.frequency}
-                          onChange={(event) =>
+                      <div className="mt-2">
+                        <RecurrenceFields
+                          compact
+                          value={editForm.recurrence}
+                          onChange={(recurrence) =>
                             setEditForm((current) => ({
                               ...current,
-                              recurrence: {
-                                ...current.recurrence,
-                                frequency: event.target.value as RecurrenceFormState["frequency"],
-                              },
+                              recurrence,
                             }))
                           }
-                          className="w-full bg-transparent outline-none text-sm font-medium"
-                        >
-                          {recurrenceOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                        {editForm.recurrence.frequency === "custom" && (
-                          <input
-                            type="number"
-                            min={1}
-                            max={365}
-                            value={editForm.recurrence.intervalDays}
-                            onChange={(event) =>
-                              setEditForm((current) => ({
-                                ...current,
-                                recurrence: {
-                                  ...current.recurrence,
-                                  intervalDays: event.target.value,
-                                },
-                              }))
-                            }
-                            className="h-8 w-full rounded-lg border border-input bg-background px-2 text-xs outline-none focus:border-primary"
-                            placeholder="Intervalo em dias"
-                          />
-                        )}
-                        {editForm.recurrence.frequency !== "none" && (
-                          <input
-                            type="date"
-                            value={editForm.recurrence.endDate}
-                            onChange={(event) =>
-                              setEditForm((current) => ({
-                                ...current,
-                                recurrence: {
-                                  ...current.recurrence,
-                                  endDate: event.target.value,
-                                },
-                              }))
-                            }
-                            className="h-8 w-full rounded-lg border border-input bg-background px-2 text-xs outline-none focus:border-primary"
-                            aria-label="Data final da recorrência"
-                          />
-                        )}
+                        />
                       </div>
                     ) : (
                       <div className="text-sm font-medium">
@@ -1157,45 +1343,18 @@ function TasksPage() {
                 </div>
 
                 {selectedPermissions.canChangeStatus && (
-                  <form onSubmit={handleAttachmentSubmit} className="mt-3 space-y-2">
-                    <div className="flex gap-2">
-                      <input
-                        value={attachmentForm.name}
-                        onChange={(event) =>
-                          setAttachmentForm((current) => ({
-                            ...current,
-                            name: event.target.value,
-                          }))
-                        }
-                        placeholder="Nome do anexo"
-                        className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-                      />
-                      <label className="h-9 w-9 cursor-pointer rounded-lg border border-border hover:bg-muted inline-flex items-center justify-center">
-                        <Paperclip className="h-4 w-4" />
-                        <input type="file" onChange={handleAttachmentFile} className="sr-only" />
-                      </label>
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        value={attachmentForm.sizeLabel}
-                        onChange={(event) =>
-                          setAttachmentForm((current) => ({
-                            ...current,
-                            sizeLabel: event.target.value,
-                          }))
-                        }
-                        placeholder="Tamanho opcional"
-                        className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-                      />
-                      <button
-                        type="submit"
-                        disabled={attachmentMutation.isPending || !attachmentForm.name.trim()}
-                        className="h-9 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-60"
-                      >
-                        Anexar
-                      </button>
-                    </div>
-                  </form>
+                  <div className="mt-3">
+                    <label
+                      className={cn(
+                        "flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-background px-3 text-sm font-medium transition hover:bg-muted",
+                        attachmentMutation.isPending && "pointer-events-none opacity-60",
+                      )}
+                    >
+                      <Paperclip className="h-4 w-4" />
+                      {attachmentMutation.isPending ? "Anexando..." : "Escolher arquivo"}
+                      <input type="file" onChange={handleAttachmentFile} className="sr-only" />
+                    </label>
+                  </div>
                 )}
               </section>
             </div>
@@ -1319,87 +1478,15 @@ function TasksPage() {
                   <Repeat className="h-3.5 w-3.5" />
                   Recorrência
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Field label="Frequência">
-                    <select
-                      value={form.recurrence.frequency}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          recurrence: {
-                            ...current.recurrence,
-                            frequency: event.target.value as RecurrenceFormState["frequency"],
-                          },
-                        }))
-                      }
-                      className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
-                    >
-                      {recurrenceOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  {form.recurrence.frequency === "custom" ? (
-                    <Field label="A cada quantos dias">
-                      <input
-                        type="number"
-                        min={1}
-                        max={365}
-                        value={form.recurrence.intervalDays}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            recurrence: {
-                              ...current.recurrence,
-                              intervalDays: event.target.value,
-                            },
-                          }))
-                        }
-                        className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
-                      />
-                    </Field>
-                  ) : (
-                    <Field label="Parar em">
-                      <input
-                        type="date"
-                        value={form.recurrence.endDate}
-                        disabled={form.recurrence.frequency === "none"}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            recurrence: {
-                              ...current.recurrence,
-                              endDate: event.target.value,
-                            },
-                          }))
-                        }
-                        className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm disabled:opacity-50"
-                      />
-                    </Field>
-                  )}
-                </div>
-                {form.recurrence.frequency === "custom" && (
-                  <div className="mt-3">
-                    <Field label="Parar em">
-                      <input
-                        type="date"
-                        value={form.recurrence.endDate}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            recurrence: {
-                              ...current.recurrence,
-                              endDate: event.target.value,
-                            },
-                          }))
-                        }
-                        className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
-                      />
-                    </Field>
-                  </div>
-                )}
+                <RecurrenceFields
+                  value={form.recurrence}
+                  onChange={(recurrence) =>
+                    setForm((current) => ({
+                      ...current,
+                      recurrence,
+                    }))
+                  }
+                />
                 <p className="mt-2 text-xs text-muted-foreground">
                   Ao concluir, a próxima ocorrência será criada automaticamente se ainda estiver no
                   prazo definido.

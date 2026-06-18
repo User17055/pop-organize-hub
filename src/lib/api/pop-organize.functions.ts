@@ -37,8 +37,14 @@ const targetSchema = z.object({
 });
 const recurrenceSchema = z
   .object({
-    frequency: z.enum(["none", "daily", "biweekly", "monthly", "custom"]).default("none"),
-    intervalDays: z.coerce.number().int().min(1).max(365).optional(),
+    frequency: z
+      .enum(["none", "daily", "weekly", "biweekly", "monthly", "yearly", "custom"])
+      .default("none"),
+    interval: z.coerce.number().int().min(1).max(120).optional(),
+    intervalDays: z.coerce.number().int().min(1).max(3650).optional(),
+    customUnit: z.enum(["days", "weeks", "months", "years"]).optional(),
+    dayOfMonth: z.coerce.number().int().min(1).max(31).optional(),
+    monthOfYear: z.coerce.number().int().min(1).max(12).optional(),
     endDate: z
       .union([z.literal(""), z.string().min(10)])
       .optional()
@@ -46,11 +52,11 @@ const recurrenceSchema = z
   })
   .optional()
   .superRefine((value, ctx) => {
-    if (value?.frequency === "custom" && !value.intervalDays) {
+    if (value?.frequency === "custom" && !value.interval && !value.intervalDays) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Informe o intervalo personalizado.",
-        path: ["intervalDays"],
+        path: ["interval"],
       });
     }
   });
@@ -200,11 +206,36 @@ function resolveTargetLabel(
 function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["recurrence"] {
   if (!value || value.frequency === "none") return undefined;
 
+  const customUnit = value.frequency === "custom" ? (value.customUnit ?? "days") : undefined;
+  const interval =
+    value.frequency === "custom" ? (value.interval ?? value.intervalDays ?? 1) : undefined;
+  const usesMonthlyAnchor =
+    value.frequency === "monthly" ||
+    value.frequency === "yearly" ||
+    (value.frequency === "custom" && (customUnit === "months" || customUnit === "years"));
+  const usesYearlyAnchor =
+    value.frequency === "yearly" || (value.frequency === "custom" && customUnit === "years");
+
   return {
     frequency: value.frequency,
-    intervalDays: value.frequency === "custom" ? value.intervalDays : undefined,
+    interval,
+    intervalDays: value.frequency === "custom" && customUnit === "days" ? interval : undefined,
+    customUnit,
+    dayOfMonth: usesMonthlyAnchor ? value.dayOfMonth : undefined,
+    monthOfYear: usesYearlyAnchor ? value.monthOfYear : undefined,
     endDate: value.endDate,
   };
+}
+
+function getDateParts(dateValue: string) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  return { year, month, day };
+}
+
+function dateString(year: number, month: number, day: number) {
+  const lastDay = new Date(year, month, 0).getDate();
+  const date = new Date(year, month - 1, Math.min(day, lastDay));
+  return date.toISOString().slice(0, 10);
 }
 
 function addDays(dateValue: string, days: number) {
@@ -213,30 +244,51 @@ function addDays(dateValue: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
-function addMonths(dateValue: string, months: number) {
-  const [year, month, day] = dateValue.split("-").map(Number);
+function addMonths(dateValue: string, months: number, preferredDay?: number) {
+  const { year, month, day } = getDateParts(dateValue);
   const target = new Date(year, month - 1 + months, 1);
-  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
-  target.setDate(Math.min(day, lastDay));
-  return target.toISOString().slice(0, 10);
+  return dateString(target.getFullYear(), target.getMonth() + 1, preferredDay ?? day);
+}
+
+function addYears(
+  dateValue: string,
+  years: number,
+  preferredMonth?: number,
+  preferredDay?: number,
+) {
+  const { year, month, day } = getDateParts(dateValue);
+  return dateString(year + years, preferredMonth ?? month, preferredDay ?? day);
 }
 
 function getNextRecurringDueDate(task: Task) {
   if (!task.recurrence) return null;
 
+  const { recurrence } = task;
   const nextDueDate =
-    task.recurrence.frequency === "monthly"
-      ? addMonths(task.dueDate, 1)
-      : addDays(
-          task.dueDate,
-          task.recurrence.frequency === "daily"
-            ? 1
-            : task.recurrence.frequency === "biweekly"
-              ? 14
-              : (task.recurrence.intervalDays ?? 1),
-        );
+    recurrence.frequency === "daily"
+      ? addDays(task.dueDate, 1)
+      : recurrence.frequency === "weekly"
+        ? addDays(task.dueDate, 7)
+        : recurrence.frequency === "biweekly"
+          ? addDays(task.dueDate, 14)
+          : recurrence.frequency === "monthly"
+            ? addMonths(task.dueDate, 1, recurrence.dayOfMonth)
+            : recurrence.frequency === "yearly"
+              ? addYears(task.dueDate, 1, recurrence.monthOfYear, recurrence.dayOfMonth)
+              : recurrence.customUnit === "weeks"
+                ? addDays(task.dueDate, (recurrence.interval ?? recurrence.intervalDays ?? 1) * 7)
+                : recurrence.customUnit === "months"
+                  ? addMonths(task.dueDate, recurrence.interval ?? 1, recurrence.dayOfMonth)
+                  : recurrence.customUnit === "years"
+                    ? addYears(
+                        task.dueDate,
+                        recurrence.interval ?? 1,
+                        recurrence.monthOfYear,
+                        recurrence.dayOfMonth,
+                      )
+                    : addDays(task.dueDate, recurrence.interval ?? recurrence.intervalDays ?? 1);
 
-  if (task.recurrence.endDate && nextDueDate > task.recurrence.endDate) return null;
+  if (recurrence.endDate && nextDueDate > recurrence.endDate) return null;
   return nextDueDate;
 }
 

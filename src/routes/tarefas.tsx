@@ -790,10 +790,9 @@ function TasksPage() {
         })}
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         {list.map((t) => {
           const emp = getEmployee(t.responsibleId);
-          const reviewer = t.reviewerId ? getEmployee(t.reviewerId) : null;
           const overdue = isOverdue(t);
           const permissions = getTaskPermissions({
             task: t,
@@ -816,7 +815,7 @@ function TasksPage() {
                 }
               }}
               className={cn(
-                "group flex items-center gap-3 cursor-pointer bg-card border rounded-2xl p-4 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
+                "group flex items-start gap-3 cursor-pointer bg-card border rounded-2xl p-3 sm:p-4 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
                 overdue ? "border-destructive/40 bg-destructive/[0.03]" : "border-border",
                 selectedTaskId === t.id && "border-primary/60 ring-2 ring-primary/10",
               )}
@@ -831,7 +830,7 @@ function TasksPage() {
                 }}
                 disabled={!permissions.canChangeStatus || statusMutation.isPending}
                 className={cn(
-                  "shrink-0 h-6 w-6 rounded-full border-2 flex items-center justify-center transition disabled:opacity-40",
+                  "shrink-0 mt-0.5 h-6 w-6 rounded-full border-2 flex items-center justify-center transition disabled:opacity-40",
                   overdue
                     ? "border-destructive/50 text-destructive hover:border-destructive"
                     : "border-muted-foreground/30 text-primary hover:border-primary",
@@ -855,41 +854,25 @@ function TasksPage() {
 
               {/* Content */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-display font-semibold text-sm text-foreground leading-snug truncate group-hover:text-primary transition-colors">
-                    {t.title}
-                  </h3>
-                  {overdue && (
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-medium">
-                      Atrasada
-                    </span>
-                  )}
-                </div>
+                <h3 className="font-display font-semibold text-sm sm:text-[15px] text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+                  {t.title}
+                </h3>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  <span className="truncate max-w-[140px]">{emp?.name}</span>
+                  <span className="truncate max-w-[120px] sm:max-w-[180px]">{emp?.name}</span>
                   <span className="text-muted-foreground/40">·</span>
                   <span className="inline-flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
                     {new Date(`${t.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                   </span>
-                  <span className="text-muted-foreground/40">·</span>
-                  <span className="inline-flex items-center gap-1">
-                    <Flag className="h-3 w-3" />
-                    {priorityLabels[t.priority]}
-                  </span>
-                  {reviewer && (
-                    <>
-                      <span className="text-muted-foreground/40">·</span>
-                      <span className="inline-flex items-center gap-1 truncate max-w-[100px]">
-                        <UserCircle2 className="h-3 w-3" />
-                        {reviewer.name.split(" ")[0]}
-                      </span>
-                    </>
+                  {overdue && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-medium">
+                      Atrasada
+                    </span>
                   )}
                 </div>
                 {t.tags.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1">
-                    {t.tags.slice(0, 3).map((tag) => (
+                    {t.tags.slice(0, 2).map((tag) => (
                       <span
                         key={tag}
                         className="text-[10px] px-1.5 py-0.5 rounded-md bg-accent text-accent-foreground font-medium"
@@ -897,17 +880,13 @@ function TasksPage() {
                         {tag}
                       </span>
                     ))}
-                    {t.tags.length > 3 && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">
-                        +{t.tags.length - 3}
-                      </span>
-                    )}
                   </div>
                 )}
               </div>
 
               {/* Right side meta */}
-              <div className="shrink-0 flex flex-col items-end gap-2">
+              <div className="shrink-0 flex flex-col items-end gap-1.5 mt-0.5">
+                <PriorityBadge priority={t.priority} />
                 <div className="flex items-center gap-2 text-muted-foreground">
                   {t.comments > 0 && (
                     <span className="inline-flex items-center gap-1 text-xs">
@@ -921,14 +900,13 @@ function TasksPage() {
                       {t.attachments}
                     </span>
                   )}
-                  <Star className="h-4 w-4 text-muted-foreground/40 hover:text-warning transition" />
                 </div>
-                <PriorityBadge priority={t.priority} />
               </div>
             </div>
           );
         })}
       </div>
+
 
       {list.length === 0 && (
         <div className="py-16 text-center text-muted-foreground">

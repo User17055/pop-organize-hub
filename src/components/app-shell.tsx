@@ -401,7 +401,7 @@ export function AppShell({
             <div className="h-full w-1/3 rounded-full bg-primary/70 shadow-[var(--shadow-elegant)] animate-pulse" />
           </div>
         </header>
-        <div className="flex-1 px-6 py-6 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none">
+        <div className="flex-1 px-3 py-4 md:px-6 md:py-6 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none">
           {children}
         </div>
       </main>

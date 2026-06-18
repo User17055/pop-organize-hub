@@ -3,8 +3,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useDeferredValue, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { AppShell, StatusBadge, PriorityBadge } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
-import { createTask, updateTaskDetails, updateTaskStatus } from "@/lib/api/pop-organize.functions";
-import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
+import {
+  createTask,
+  deleteTask,
+  updateTaskDetails,
+  updateTaskStatus,
+} from "@/lib/api/pop-organize.functions";
+import { useWorkspaceData, workspaceQueryKey, type WorkspaceResult } from "@/lib/api/use-workspace";
 import {
   priorityLabels,
   statusLabels,
@@ -31,6 +36,9 @@ import {
   User,
   UserCheck,
   Tag,
+  Trash2,
+  ChevronDown,
+  Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -50,7 +58,6 @@ const filters: Array<{ key: TaskStatus | "all"; label: string }> = [
   { key: "in_progress", label: "Em andamento" },
   { key: "waiting_review", label: "Aguardando revisão" },
   { key: "reopened", label: "Reabertas" },
-  { key: "completed", label: "Concluídas" },
 ];
 
 type TaskFormState = {
@@ -86,6 +93,7 @@ function TasksPage() {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [form, setForm] = useState<TaskFormState>({
     title: "",
     description: "",
@@ -126,7 +134,20 @@ function TasksPage() {
   const statusMutation = useMutation({
     mutationFn: (payload: { id: string; status: TaskStatus }) =>
       updateTaskStatus({ data: payload }),
-    onSuccess: () => {
+    onSuccess: (updatedTask) => {
+      if (updatedTask.status === "completed") {
+        setSelectedTaskId(null);
+      }
+      queryClient.setQueryData<WorkspaceResult>(workspaceQueryKey, (current) =>
+        current
+          ? {
+              ...current,
+              tasks: current.tasks.map((task) =>
+                task.id === updatedTask.id ? { ...task, ...updatedTask } : task,
+              ),
+            }
+          : current,
+      );
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
@@ -145,18 +166,51 @@ function TasksPage() {
     },
   });
 
+  const deleteTaskMutation = useMutation({
+    mutationFn: (payload: { id: string }) => deleteTask({ data: payload }),
+    onSuccess: (_result, variables) => {
+      setSelectedTaskId(null);
+      queryClient.setQueryData<WorkspaceResult>(workspaceQueryKey, (current) =>
+        current
+          ? {
+              ...current,
+              tasks: current.tasks.filter((task) => task.id !== variables.id),
+            }
+          : current,
+      );
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+
   const deferredSearch = useDeferredValue(search);
+  const normalizedSearch = deferredSearch.trim().toLowerCase();
   const taskRows = useMemo(() => data?.tasks ?? [], [data?.tasks]);
+  const activeTaskRows = useMemo(
+    () => taskRows.filter((task) => task.status !== "completed"),
+    [taskRows],
+  );
   const list = useMemo(
     () =>
       taskRows.filter(
         (t) =>
+          t.status !== "completed" &&
           (active === "all" || t.status === active) &&
-          (deferredSearch === "" ||
-            t.title.toLowerCase().includes(deferredSearch.toLowerCase()) ||
-            t.description.toLowerCase().includes(deferredSearch.toLowerCase())),
+          (normalizedSearch === "" ||
+            t.title.toLowerCase().includes(normalizedSearch) ||
+            t.description.toLowerCase().includes(normalizedSearch)),
       ),
-    [active, deferredSearch, taskRows],
+    [active, normalizedSearch, taskRows],
+  );
+  const completedTasks = useMemo(
+    () =>
+      taskRows.filter(
+        (task) =>
+          task.status === "completed" &&
+          (normalizedSearch === "" ||
+            task.title.toLowerCase().includes(normalizedSearch) ||
+            task.description.toLowerCase().includes(normalizedSearch)),
+      ),
+    [normalizedSearch, taskRows],
   );
 
   if (isLoading) {
@@ -270,11 +324,22 @@ function TasksPage() {
     });
   }
 
+  function handleDeleteSelectedTask() {
+    if (!selectedTask) return;
+    const confirmed = window.confirm(
+      `Excluir a tarefa "${selectedTask.title}"? Esta ação não pode ser desfeita.`,
+    );
+    if (!confirmed) return;
+    deleteTaskMutation.mutate({ id: selectedTask.id });
+  }
+
   const mutationError =
     createTaskMutation.error instanceof Error ? createTaskMutation.error.message : null;
   const updateError =
     updateTaskMutation.error instanceof Error ? updateTaskMutation.error.message : null;
   const statusError = statusMutation.error instanceof Error ? statusMutation.error.message : null;
+  const deleteError =
+    deleteTaskMutation.error instanceof Error ? deleteTaskMutation.error.message : null;
 
   return (
     <AppShell
@@ -307,7 +372,9 @@ function TasksPage() {
       <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
         {filters.map((f) => {
           const count =
-            f.key === "all" ? tasks.length : tasks.filter((t) => t.status === f.key).length;
+            f.key === "all"
+              ? activeTaskRows.length
+              : activeTaskRows.filter((t) => t.status === f.key).length;
           const isActive = active === f.key;
           return (
             <button
@@ -457,6 +524,82 @@ function TasksPage() {
           );
         })}
       </div>
+
+      {list.length === 0 && (
+        <div className="py-16 text-center text-muted-foreground">
+          {completedTasks.length > 0
+            ? "Nenhuma tarefa ativa neste filtro."
+            : "Nenhuma tarefa encontrada."}
+        </div>
+      )}
+
+      {completedTasks.length > 0 && (
+        <section className="mt-6 rounded-2xl border border-dashed border-border bg-card/60 shadow-[var(--shadow-card)]">
+          <button
+            type="button"
+            onClick={() => setShowCompleted((current) => !current)}
+            className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+          >
+            <span className="inline-flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <Archive className="h-4 w-4" />
+              </span>
+              <span>
+                <span className="block text-sm font-semibold text-foreground">
+                  Tarefas concluídas
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {completedTasks.length} {completedTasks.length === 1 ? "atividade" : "atividades"}{" "}
+                  arquivada{completedTasks.length === 1 ? "" : "s"}
+                </span>
+              </span>
+            </span>
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 text-muted-foreground transition-transform",
+                showCompleted && "rotate-180",
+              )}
+            />
+          </button>
+
+          {showCompleted && (
+            <div className="grid grid-cols-1 gap-3 border-t border-border/70 p-4 md:grid-cols-2 xl:grid-cols-3 animate-in fade-in slide-in-from-top-1 duration-150">
+              {completedTasks.map((task) => {
+                const emp = getEmployee(task.responsibleId);
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => openTask(task)}
+                    className="rounded-xl border border-border/70 bg-background/70 p-4 text-left opacity-65 transition hover:border-primary/30 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Check className="h-4 w-4 shrink-0 text-success" />
+                          <h3 className="truncate text-sm font-semibold text-foreground line-through">
+                            {task.title}
+                          </h3>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          {task.description}
+                        </p>
+                      </div>
+                      <PriorityBadge priority={task.priority} />
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+                      <span className="truncate">{emp?.name}</span>
+                      <span>
+                        {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Overlay */}
       <div
@@ -688,8 +831,10 @@ function TasksPage() {
                 Sua hierarquia permite alterar status/conclusão, mas não editar o texto.
               </p>
             )}
-            {(updateError || statusError) && (
-              <div className="text-sm text-destructive">{updateError ?? statusError}</div>
+            {(updateError || statusError || deleteError) && (
+              <div className="text-sm text-destructive">
+                {updateError ?? statusError ?? deleteError}
+              </div>
             )}
 
             {selectedPermissions.canEditContent && (
@@ -701,13 +846,21 @@ function TasksPage() {
                 {updateTaskMutation.isPending ? "Salvando..." : "Salvar alterações"}
               </button>
             )}
+
+            {selectedPermissions.canDelete && (
+              <button
+                type="button"
+                onClick={handleDeleteSelectedTask}
+                disabled={deleteTaskMutation.isPending}
+                className="w-full h-10 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive text-sm font-medium hover:bg-destructive/10 transition disabled:opacity-60 inline-flex items-center justify-center gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleteTaskMutation.isPending ? "Excluindo..." : "Excluir tarefa"}
+              </button>
+            )}
           </form>
         )}
       </aside>
-
-      {list.length === 0 && (
-        <div className="text-center py-20 text-muted-foreground">Nenhuma tarefa encontrada.</div>
-      )}
 
       {showForm && (
         <div

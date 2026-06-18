@@ -6,6 +6,7 @@ export type TaskPermissions = {
   canEditContent: boolean;
   canChangeStatus: boolean;
   canComplete: boolean;
+  canDelete: boolean;
   roleLabel: string;
 };
 
@@ -49,6 +50,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
       canEditContent: false,
       canChangeStatus: false,
       canComplete: false,
+      canDelete: false,
       roleLabel: "Sem acesso",
     };
   }
@@ -58,6 +60,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
       canEditContent: true,
       canChangeStatus: true,
       canComplete: true,
+      canDelete: true,
       roleLabel: "Admin da empresa",
     };
   }
@@ -67,6 +70,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
       canEditContent: true,
       canChangeStatus: true,
       canComplete: true,
+      canDelete: false,
       roleLabel: "Gestor do setor",
     };
   }
@@ -76,6 +80,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
       canEditContent: true,
       canChangeStatus: true,
       canComplete: true,
+      canDelete: false,
       roleLabel: "Líder do grupo",
     };
   }
@@ -85,6 +90,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
       canEditContent: false,
       canChangeStatus: true,
       canComplete: true,
+      canDelete: false,
       roleLabel: "Revisor",
     };
   }
@@ -94,6 +100,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
       canEditContent: false,
       canChangeStatus: true,
       canComplete: true,
+      canDelete: false,
       roleLabel: "Responsável",
     };
   }
@@ -102,6 +109,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
     canEditContent: false,
     canChangeStatus: false,
     canComplete: false,
+    canDelete: false,
     roleLabel: "Somente leitura",
   };
 }

@@ -93,6 +93,10 @@ const updateTaskDetailsSchema = z.object({
   tags: z.array(z.string().trim().min(1)).default([]),
 });
 
+const deleteTaskSchema = z.object({
+  id: z.string().min(1),
+});
+
 const loginSchema = z.object({
   email: z.string().trim().email(),
   password: z.string().min(1),
@@ -295,6 +299,33 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       task.dueDate = data.dueDate;
       task.tags = data.tags;
       return task;
+    });
+  });
+
+export const deleteTask = createServerFn({ method: "POST" })
+  .inputValidator((data) => deleteTaskSchema.parse(data))
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
+    return mutateDatabase((db) => {
+      const taskIndex = db.tasks.findIndex((item) => item.id === data.id);
+      if (taskIndex === -1) throw createHttpError("Tarefa nÃ£o encontrada.", 404);
+
+      const task = db.tasks[taskIndex];
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const permissions = getTaskPermissions({
+        task,
+        currentUser,
+        employees: db.employees,
+        departments: db.departments,
+        groups: db.groups,
+      });
+      if (!permissions.canDelete) {
+        throw createHttpError("Apenas administradores podem excluir tarefas.", 403);
+      }
+
+      db.tasks.splice(taskIndex, 1);
+      return { ok: true, id: data.id };
     });
   });
 

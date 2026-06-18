@@ -1205,7 +1205,7 @@ function TasksPage() {
                 <input
                   value={editForm.tags}
                   onChange={(e) => setEditForm((current) => ({ ...current, tags: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-lg bg-muted/40 border border-transparent outline-none focus:border-primary focus:bg-background text-sm transition"
+                  className="w-full h-10 px-3 rounded-lg bg-muted/40 border border-transparent outline-none focus:border-primary focus:bg-background text-xs transition"
                   placeholder="Separadas por vírgula"
                 />
               ) : (

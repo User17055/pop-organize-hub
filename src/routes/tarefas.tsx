@@ -845,7 +845,7 @@ function TasksPage() {
                 <h3 className="font-display font-semibold text-sm sm:text-[15px] text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
                   {t.title}
                 </h3>
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                   <span className="inline-flex items-center gap-1">
                     <Calendar className="h-3.5 w-3.5" />
                     {new Date(`${t.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}

@@ -815,7 +815,7 @@ function TasksPage() {
                 }
               }}
               className={cn(
-                "group flex items-start gap-3 cursor-pointer bg-card border rounded-2xl p-3 sm:p-4 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
+                "group flex items-center gap-3 cursor-pointer bg-card border rounded-2xl p-3.5 sm:p-4 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
                 overdue ? "border-destructive/40 bg-destructive/[0.03]" : "border-border",
                 selectedTaskId === t.id && "border-primary/60 ring-2 ring-primary/10",
               )}
@@ -830,7 +830,7 @@ function TasksPage() {
                 }}
                 disabled={!permissions.canChangeStatus || statusMutation.isPending}
                 className={cn(
-                  "shrink-0 mt-0.5 h-6 w-6 rounded-full border-2 flex items-center justify-center transition disabled:opacity-40",
+                  "shrink-0 h-6 w-6 rounded-full border-2 flex items-center justify-center transition disabled:opacity-40",
                   overdue
                     ? "border-destructive/50 text-destructive hover:border-destructive"
                     : "border-muted-foreground/30 text-primary hover:border-primary",
@@ -840,67 +840,49 @@ function TasksPage() {
                 <Check className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition" />
               </button>
 
-              {/* Avatar */}
+              {/* Content */}
+              <div className="flex-1 min-w-0">
+                <h3 className="font-display font-semibold text-[15px] sm:text-base text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+                  {t.title}
+                </h3>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5" />
+                    {new Date(`${t.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
+                  </span>
+                  <span className="text-muted-foreground/40">·</span>
+                  <PriorityBadge priority={t.priority} />
+                  {overdue && (
+                    <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-semibold">
+                      Atrasada
+                    </span>
+                  )}
+                  {t.comments > 0 && (
+                    <span className="inline-flex items-center gap-1">
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      {t.comments}
+                    </span>
+                  )}
+                  {t.attachments > 0 && (
+                    <span className="inline-flex items-center gap-1">
+                      <Paperclip className="h-3.5 w-3.5" />
+                      {t.attachments}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Avatar (right side, centered) */}
               <div
-                className="shrink-0 h-9 w-9 rounded-full flex items-center justify-center text-[11px] font-semibold text-primary-foreground"
+                className="shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-xs font-semibold text-primary-foreground ring-2 ring-background"
                 style={{ background: "var(--gradient-primary)" }}
+                title={emp?.name}
               >
                 {emp?.name
                   .split(" ")
                   .map((n) => n[0])
                   .slice(0, 2)
                   .join("")}
-              </div>
-
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <h3 className="font-display font-semibold text-sm sm:text-[15px] text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
-                  {t.title}
-                </h3>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  <span className="truncate max-w-[120px] sm:max-w-[180px]">{emp?.name}</span>
-                  <span className="text-muted-foreground/40">·</span>
-                  <span className="inline-flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {new Date(`${t.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
-                  </span>
-                  {overdue && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-medium">
-                      Atrasada
-                    </span>
-                  )}
-                </div>
-                {t.tags.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {t.tags.slice(0, 2).map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-[10px] px-1.5 py-0.5 rounded-md bg-accent text-accent-foreground font-medium"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Right side meta */}
-              <div className="shrink-0 flex flex-col items-end gap-1.5 mt-0.5">
-                <PriorityBadge priority={t.priority} />
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  {t.comments > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs">
-                      <MessageSquare className="h-3.5 w-3.5" />
-                      {t.comments}
-                    </span>
-                  )}
-                  {t.attachments > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs">
-                      <Paperclip className="h-3.5 w-3.5" />
-                      {t.attachments}
-                    </span>
-                  )}
-                </div>
               </div>
             </div>
           );
@@ -1010,16 +992,16 @@ function TasksPage() {
         {selectedTask && selectedPermissions && (
           <form onSubmit={handleEditSubmit} className="flex h-full flex-col">
             {/* Sticky header */}
-            <header className="sticky top-0 z-10 border-b border-border bg-gradient-to-r from-primary to-primary/85 text-primary-foreground px-5 py-4">
+            <header className="sticky top-0 z-10 border-b border-border bg-card px-5 py-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-primary-foreground/80">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   <ShieldCheck className="h-3.5 w-3.5" />
                   {selectedPermissions.roleLabel}
                 </div>
                 <button
                   type="button"
                   onClick={() => setSelectedTaskId(null)}
-                  className="h-8 w-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                  className="h-9 w-9 rounded-lg bg-muted hover:bg-muted/70 text-foreground flex items-center justify-center transition"
                   aria-label="Fechar atividade"
                 >
                   <X className="h-4 w-4" />
@@ -1038,8 +1020,8 @@ function TasksPage() {
                   className={cn(
                     "mt-1 h-6 w-6 rounded-full border-2 flex items-center justify-center transition shrink-0 disabled:opacity-50",
                     selectedTask.status === "completed"
-                      ? "bg-white border-white text-primary"
-                      : "border-white/60 hover:border-white hover:bg-white/10",
+                      ? "bg-success border-success text-white"
+                      : "border-muted-foreground/40 hover:border-foreground",
                   )}
                   aria-label={selectedTask.status === "completed" ? "Reabrir" : "Concluir"}
                 >
@@ -1053,11 +1035,11 @@ function TasksPage() {
                       setEditForm((current) => ({ ...current, title: e.target.value }))
                     }
                     className={cn(
-                      "w-full text-lg font-display font-semibold bg-transparent border-b border-transparent focus:border-white/60 outline-none transition placeholder:text-white/60",
-                      selectedTask.status === "completed" && "line-through text-primary-foreground/70",
+                      "w-full text-lg font-display font-semibold bg-transparent border-b border-transparent focus:border-border outline-none transition text-foreground placeholder:text-muted-foreground",
+                      selectedTask.status === "completed" && "line-through text-muted-foreground",
                     )}
                   />
-                  <div className="text-[11px] text-primary-foreground/75 mt-1">
+                  <div className="text-xs text-muted-foreground mt-1">
                     {selectedTask.status === "completed"
                       ? "Concluída"
                       : `Criada em ${new Date(`${selectedTask.createdAt}T00:00:00`).toLocaleDateString("pt-BR")}`}
@@ -1095,12 +1077,12 @@ function TasksPage() {
                 Detalhes
               </div>
               <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
-                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
+                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Calendar className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-muted-foreground">Prazo</div>
+                    <div className="text-xs font-medium text-muted-foreground">Prazo</div>
                     {selectedPermissions.canEditContent ? (
                       <input
                         type="date"
@@ -1108,23 +1090,23 @@ function TasksPage() {
                         onChange={(e) =>
                           setEditForm((current) => ({ ...current, dueDate: e.target.value }))
                         }
-                        className="w-full bg-transparent outline-none text-sm font-medium"
+                        className="w-full bg-transparent outline-none text-[15px] font-semibold text-foreground"
                         required
                       />
                     ) : (
-                      <div className="text-sm font-medium">
+                      <div className="text-[15px] font-semibold text-foreground">
                         {new Date(`${selectedTask.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <div className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition">
+                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Repeat className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-muted-foreground">Recorrência</div>
+                    <div className="text-xs font-medium text-muted-foreground">Recorrência</div>
                     {selectedPermissions.canEditContent ? (
                       <div className="mt-1.5">
                         <RecurrenceFields
@@ -1139,19 +1121,19 @@ function TasksPage() {
                         />
                       </div>
                     ) : (
-                      <div className="text-sm font-medium">
+                      <div className="text-[15px] font-semibold text-foreground">
                         {recurrenceLabel(selectedTask.recurrence)}
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
+                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Flag className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-muted-foreground">Prioridade</div>
+                    <div className="text-xs font-medium text-muted-foreground">Prioridade</div>
                     {selectedPermissions.canEditContent ? (
                       <select
                         value={editForm.priority}
@@ -1161,7 +1143,7 @@ function TasksPage() {
                             priority: e.target.value as Priority,
                           }))
                         }
-                        className="w-full bg-transparent outline-none text-sm font-medium"
+                        className="w-full bg-transparent outline-none text-[15px] font-semibold text-foreground"
                       >
                         {Object.entries(priorityLabels).map(([key, label]) => (
                           <option key={key} value={key}>
@@ -1170,43 +1152,43 @@ function TasksPage() {
                         ))}
                       </select>
                     ) : (
-                      <div className="text-sm font-medium">
+                      <div className="text-[15px] font-semibold text-foreground">
                         {priorityLabels[selectedTask.priority]}
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
+                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Target className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-muted-foreground">Destino</div>
-                    <div className="text-sm font-medium truncate">{selectedTask.target.label}</div>
+                    <div className="text-xs font-medium text-muted-foreground">Destino</div>
+                    <div className="text-[15px] font-semibold text-foreground truncate">{selectedTask.target.label}</div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
                   <div className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold shrink-0">
                     {getEmployee(selectedTask.responsibleId)?.name?.charAt(0) ?? "?"}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-muted-foreground">Responsável</div>
-                    <div className="text-sm font-medium truncate">
+                    <div className="text-xs font-medium text-muted-foreground">Responsável</div>
+                    <div className="text-[15px] font-semibold text-foreground truncate">
                       {getEmployee(selectedTask.responsibleId)?.name}
                     </div>
                   </div>
                 </div>
 
                 {selectedTask.reviewerId && (
-                  <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
                     <div className="h-8 w-8 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
                       <UserCheck className="h-4 w-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] text-muted-foreground">Revisor</div>
-                      <div className="text-sm font-medium truncate">
+                      <div className="text-xs font-medium text-muted-foreground">Revisor</div>
+                      <div className="text-[15px] font-semibold text-foreground truncate">
                         {getEmployee(selectedTask.reviewerId)?.name}
                       </div>
                     </div>
@@ -1328,7 +1310,7 @@ function TasksPage() {
                         key={attachment.id}
                         className="flex items-center gap-3 rounded-lg bg-muted/40 p-2.5"
                       >
-                        <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                        <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                           <FileText className="h-4 w-4" />
                         </div>
                         <div className="min-w-0 flex-1">

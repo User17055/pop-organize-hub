@@ -1090,11 +1090,11 @@ function TasksPage() {
                         onChange={(e) =>
                           setEditForm((current) => ({ ...current, dueDate: e.target.value }))
                         }
-                        className="w-full bg-transparent outline-none text-sm font-medium"
+                        className="w-full bg-transparent outline-none text-[15px] font-semibold text-foreground"
                         required
                       />
                     ) : (
-                      <div className="text-sm font-medium">
+                      <div className="text-[15px] font-semibold text-foreground">
                         {new Date(`${selectedTask.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                       </div>
                     )}
@@ -1121,7 +1121,7 @@ function TasksPage() {
                         />
                       </div>
                     ) : (
-                      <div className="text-sm font-medium">
+                      <div className="text-[15px] font-semibold text-foreground">
                         {recurrenceLabel(selectedTask.recurrence)}
                       </div>
                     )}
@@ -1143,7 +1143,7 @@ function TasksPage() {
                             priority: e.target.value as Priority,
                           }))
                         }
-                        className="w-full bg-transparent outline-none text-sm font-medium"
+                        className="w-full bg-transparent outline-none text-[15px] font-semibold text-foreground"
                       >
                         {Object.entries(priorityLabels).map(([key, label]) => (
                           <option key={key} value={key}>
@@ -1152,7 +1152,7 @@ function TasksPage() {
                         ))}
                       </select>
                     ) : (
-                      <div className="text-sm font-medium">
+                      <div className="text-[15px] font-semibold text-foreground">
                         {priorityLabels[selectedTask.priority]}
                       </div>
                     )}
@@ -1165,7 +1165,7 @@ function TasksPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium text-muted-foreground">Destino</div>
-                    <div className="text-sm font-medium truncate">{selectedTask.target.label}</div>
+                    <div className="text-[15px] font-semibold text-foreground truncate">{selectedTask.target.label}</div>
                   </div>
                 </div>
 
@@ -1175,7 +1175,7 @@ function TasksPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium text-muted-foreground">Responsável</div>
-                    <div className="text-sm font-medium truncate">
+                    <div className="text-[15px] font-semibold text-foreground truncate">
                       {getEmployee(selectedTask.responsibleId)?.name}
                     </div>
                   </div>
@@ -1188,7 +1188,7 @@ function TasksPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-medium text-muted-foreground">Revisor</div>
-                      <div className="text-sm font-medium truncate">
+                      <div className="text-[15px] font-semibold text-foreground truncate">
                         {getEmployee(selectedTask.reviewerId)?.name}
                       </div>
                     </div>

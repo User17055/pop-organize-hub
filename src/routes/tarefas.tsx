@@ -1077,7 +1077,7 @@ function TasksPage() {
                 Detalhes
               </div>
               <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
-                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
                   <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Calendar className="h-4 w-4" />
                   </div>
@@ -1101,7 +1101,7 @@ function TasksPage() {
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                <div className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition">
                   <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Repeat className="h-4 w-4" />
                   </div>
@@ -1128,7 +1128,7 @@ function TasksPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
                   <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Flag className="h-4 w-4" />
                   </div>
@@ -1159,7 +1159,7 @@ function TasksPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
                   <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
                     <Target className="h-4 w-4" />
                   </div>
@@ -1169,7 +1169,7 @@ function TasksPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
                   <div className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold shrink-0">
                     {getEmployee(selectedTask.responsibleId)?.name?.charAt(0) ?? "?"}
                   </div>
@@ -1182,7 +1182,7 @@ function TasksPage() {
                 </div>
 
                 {selectedTask.reviewerId && (
-                  <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition">
+                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
                     <div className="h-8 w-8 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
                       <UserCheck className="h-4 w-4" />
                     </div>

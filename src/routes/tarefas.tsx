@@ -1075,16 +1075,16 @@ function TasksPage() {
             </div>
 
             <div className="space-y-2">
-              <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.16em] px-1">
                 Detalhes
               </div>
-              <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
-                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
+              <div className="rounded-2xl border border-border bg-card overflow-hidden divide-y divide-border shadow-[var(--shadow-card)]">
+                <div className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition">
+                  <div className="h-9 w-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
                     <Calendar className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-muted-foreground">Prazo</div>
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.12em]">Prazo</div>
                     {selectedPermissions.canEditContent ? (
                       <input
                         type="date"
@@ -1092,23 +1092,23 @@ function TasksPage() {
                         onChange={(e) =>
                           setEditForm((current) => ({ ...current, dueDate: e.target.value }))
                         }
-                        className="w-full bg-transparent outline-none text-sm font-semibold text-foreground"
+                        className="w-full bg-transparent outline-none text-[15px] font-display font-semibold text-foreground"
                         required
                       />
                     ) : (
-                      <div className="text-sm font-semibold text-foreground">
+                      <div className="text-[15px] font-display font-semibold text-foreground">
                         {new Date(`${selectedTask.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
+                <div className="flex items-start gap-3 px-4 py-3.5 hover:bg-muted/30 transition">
+                  <div className="h-9 w-9 rounded-xl bg-accent text-accent-foreground flex items-center justify-center shrink-0">
                     <Repeat className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-muted-foreground">Recorrência</div>
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.12em]">Recorrência</div>
                     {selectedPermissions.canEditContent ? (
                       <div className="mt-1.5">
                         <RecurrenceFields
@@ -1123,19 +1123,19 @@ function TasksPage() {
                         />
                       </div>
                     ) : (
-                      <div className="text-sm font-semibold text-foreground">
+                      <div className="text-[15px] font-display font-semibold text-foreground">
                         {recurrenceLabel(selectedTask.recurrence)}
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
+                <div className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition">
+                  <div className="h-9 w-9 rounded-xl bg-warning/15 text-warning-foreground flex items-center justify-center shrink-0">
                     <Flag className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-muted-foreground">Prioridade</div>
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.12em]">Prioridade</div>
                     {selectedPermissions.canEditContent ? (
                       <select
                         value={editForm.priority}
@@ -1145,7 +1145,7 @@ function TasksPage() {
                             priority: e.target.value as Priority,
                           }))
                         }
-                        className="w-full bg-transparent outline-none text-sm font-semibold text-foreground"
+                        className="w-full bg-transparent outline-none text-[15px] font-display font-semibold text-foreground"
                       >
                         {Object.entries(priorityLabels).map(([key, label]) => (
                           <option key={key} value={key}>
@@ -1154,43 +1154,43 @@ function TasksPage() {
                         ))}
                       </select>
                     ) : (
-                      <div className="text-sm font-semibold text-foreground">
+                      <div className="text-[15px] font-display font-semibold text-foreground">
                         {priorityLabels[selectedTask.priority]}
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0">
+                <div className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition">
+                  <div className="h-9 w-9 rounded-xl bg-success/15 text-success flex items-center justify-center shrink-0">
                     <Target className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-muted-foreground">Destino</div>
-                    <div className="text-sm font-semibold text-foreground truncate">{selectedTask.target.label}</div>
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.12em]">Destino</div>
+                    <div className="text-[15px] font-display font-semibold text-foreground truncate">{selectedTask.target.label}</div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                  <div className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold shrink-0">
+                <div className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition">
+                  <div className="h-9 w-9 rounded-full bg-gradient-to-br from-primary to-primary-glow text-primary-foreground flex items-center justify-center text-xs font-semibold shrink-0 ring-2 ring-background">
                     {getEmployee(selectedTask.responsibleId)?.name?.charAt(0) ?? "?"}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-muted-foreground">Responsável</div>
-                    <div className="text-sm font-semibold text-foreground truncate">
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.12em]">Responsável</div>
+                    <div className="text-[15px] font-display font-semibold text-foreground truncate">
                       {getEmployee(selectedTask.responsibleId)?.name}
                     </div>
                   </div>
                 </div>
 
                 {selectedTask.reviewerId && (
-                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition">
-                    <div className="h-8 w-8 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
+                  <div className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition">
+                    <div className="h-9 w-9 rounded-xl bg-success/15 text-success flex items-center justify-center shrink-0">
                       <UserCheck className="h-4 w-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] font-medium text-muted-foreground">Revisor</div>
-                      <div className="text-sm font-semibold text-foreground truncate">
+                      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.12em]">Revisor</div>
+                      <div className="text-[15px] font-display font-semibold text-foreground truncate">
                         {getEmployee(selectedTask.reviewerId)?.name}
                       </div>
                     </div>
@@ -1198,6 +1198,7 @@ function TasksPage() {
                 )}
               </div>
             </div>
+
 
             <div>
               <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">

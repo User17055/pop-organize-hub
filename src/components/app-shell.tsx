@@ -149,7 +149,7 @@ export function AppShell({
     profileMutation.error instanceof Error ? profileMutation.error.message : null;
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
+    <div className="native-viewport flex w-full bg-background">
       {/* Mobile overlay */}
       {mobileNavOpen && (
         <button
@@ -162,7 +162,7 @@ export function AppShell({
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed md:sticky top-0 left-0 z-50 h-screen w-64 flex flex-col text-sidebar-foreground transition-transform duration-300 ease-out md:translate-x-0",
+          "native-sidebar fixed md:sticky top-0 left-0 z-50 w-64 flex flex-col text-sidebar-foreground transition-transform duration-300 ease-out md:translate-x-0",
           mobileNavOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0",
           profileOpen && "transform-none",
         )}
@@ -397,7 +397,7 @@ export function AppShell({
 
       {/* Main */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="relative bg-background border-b border-border">
+        <header className="safe-top relative bg-background border-b border-border">
           <div className="flex items-center gap-3 px-4 md:px-6 py-4">
             <button
               type="button"
@@ -446,7 +446,7 @@ export function AppShell({
             <div className="h-full w-1/3 rounded-full bg-primary/70 shadow-[var(--shadow-elegant)] animate-pulse" />
           </div>
         </header>
-        <div className="flex-1 px-3 py-4 md:px-6 md:py-6 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none">
+        <div className="safe-x safe-bottom flex-1 px-3 py-4 md:px-6 md:py-6 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none">
           {children}
         </div>
       </main>

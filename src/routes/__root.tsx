@@ -75,7 +75,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "Pop Organize — Gestão de Tarefas Empresarial" },
       { name: "theme-color", content: "#2563eb" },
       { name: "mobile-web-app-capable", content: "yes" },

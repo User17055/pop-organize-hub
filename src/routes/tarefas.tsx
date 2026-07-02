@@ -1,61 +1,33 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  useDeferredValue,
-  useMemo,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-  type ReactNode,
-} from "react";
-import { AppShell, StatusBadge, PriorityBadge } from "@/components/app-shell";
+import { useDeferredValue, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
-import {
-  addTaskAttachment,
-  addTaskComment,
-  createTask,
-  deleteTask,
-  updateTaskDetails,
-  updateTaskStatus,
-} from "@/lib/api/pop-organize.functions";
-import { useWorkspaceData, workspaceQueryKey, type WorkspaceResult } from "@/lib/api/use-workspace";
-import {
-  priorityLabels,
-  statusLabels,
-  type Task,
-  type Priority,
-  type TargetType,
-  type TaskStatus,
-  type TaskRecurrence,
-  type RecurrenceFrequency,
-  type RecurrenceCustomUnit,
-  type Employee,
-  type Department,
-} from "@/lib/domain";
+import { useWorkspaceData } from "@/lib/api/use-workspace";
+import type { TargetType, Task, TaskStatus } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
-import {
-  Plus,
-  Filter,
-  Search,
-  Calendar,
-  MessageSquare,
-  Paperclip,
-  Pencil,
-  ShieldCheck,
-  X,
-  Check,
-  Flag,
-  Target,
-  Tag,
-  Trash2,
-  ChevronDown,
-  Archive,
-  Send,
-  FileText,
-  Repeat,
-  Star,
-} from "lucide-react";
+import { Plus, Search, Check, ChevronDown, Archive, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TaskCreateDialog } from "@/components/tasks/task-create-dialog";
+import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
+import { TaskList } from "@/components/tasks/task-list";
+import { useTaskMutations } from "@/components/tasks/use-task-mutations";
+import {
+  emptyTaskFilters,
+  TaskFilterBar,
+  taskMatchesFilters,
+  type TaskFilterState,
+} from "@/components/tasks/task-filter-bar";
+import { PriorityBadge } from "@/components/app-shell";
+import {
+  getDefaultDueDate,
+  getDefaultRecurrence,
+  recurrenceFromForm,
+  recurrenceLabel,
+  recurrenceToForm,
+  formatFileSizeMb,
+  type TaskEditState,
+  type TaskFormState,
+} from "@/components/tasks/task-form-types";
 
 export const Route = createFileRoute("/tarefas")({
   head: () => ({
@@ -67,7 +39,7 @@ export const Route = createFileRoute("/tarefas")({
   component: TasksPage,
 });
 
-const filters: Array<{ key: TaskStatus | "all"; label: string }> = [
+const statusFilters: Array<{ key: TaskStatus | "all"; label: string }> = [
   { key: "all", label: "Todas" },
   { key: "pending", label: "Pendentes" },
   { key: "in_progress", label: "Em andamento" },
@@ -75,388 +47,11 @@ const filters: Array<{ key: TaskStatus | "all"; label: string }> = [
   { key: "reopened", label: "Reabertas" },
 ];
 
-type TaskFormState = {
-  title: string;
-  description: string;
-  priority: Priority;
-  dueDate: string;
-  targetKey: string;
-  responsibleId: string;
-  reviewerId: string;
-  requiresReview: boolean;
-  tags: string;
-  recurrence: RecurrenceFormState;
-};
-
-type TaskEditState = {
-  title: string;
-  description: string;
-  priority: Priority;
-  dueDate: string;
-  tags: string;
-  recurrence: RecurrenceFormState;
-};
-
-type RecurrenceFormState = {
-  frequency: RecurrenceFrequency | "none";
-  interval: string;
-  customUnit: RecurrenceCustomUnit;
-  dayOfMonth: string;
-  monthOfYear: string;
-  endDate: string;
-};
-
-type RecurrenceInput =
-  | {
-      frequency: RecurrenceFrequency;
-      interval?: number;
-      intervalDays?: number;
-      customUnit?: RecurrenceCustomUnit;
-      dayOfMonth?: number;
-      monthOfYear?: number;
-      endDate?: string;
-    }
-  | undefined;
-
-function getDefaultDueDate() {
-  const date = new Date();
-  date.setDate(date.getDate() + 7);
-  return date.toISOString().slice(0, 10);
-}
-
-const recurrenceOptions: Array<{ value: RecurrenceFormState["frequency"]; label: string }> = [
-  { value: "none", label: "Sem recorrência" },
-  { value: "daily", label: "Diária" },
-  { value: "weekly", label: "Semanal" },
-  { value: "biweekly", label: "Quinzenal" },
-  { value: "monthly", label: "Mensal" },
-  { value: "yearly", label: "Anual" },
-  { value: "custom", label: "Personalizada" },
-];
-
-const customUnitOptions: Array<{ value: RecurrenceCustomUnit; label: string }> = [
-  { value: "days", label: "dias" },
-  { value: "weeks", label: "semanas" },
-  { value: "months", label: "meses" },
-  { value: "years", label: "anos" },
-];
-
-const monthOptions = [
-  "Janeiro",
-  "Fevereiro",
-  "Março",
-  "Abril",
-  "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro",
-].map((label, index) => ({ value: String(index + 1), label }));
-
-function clampNumber(
-  value: string | number | undefined,
-  min: number,
-  max: number,
-  fallback: number,
-) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(max, Math.max(min, Math.trunc(parsed)));
-}
-
-function getDueDateAnchor(dueDate?: string) {
-  const [, month, day] = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueDate ?? "") ?? [];
-  return {
-    dayOfMonth: day ? String(Number(day)) : "1",
-    monthOfYear: month ? String(Number(month)) : "1",
-  };
-}
-
-function formatFileSizeMb(sizeInBytes: number) {
-  if (sizeInBytes <= 0) return "0 MB";
-  const sizeInMb = sizeInBytes / 1_048_576;
-  const precision = sizeInMb >= 1 ? 1 : sizeInMb >= 0.1 ? 2 : 3;
-  return `${sizeInMb.toFixed(precision).replace(".", ",")} MB`;
-}
-
-function isOverdue(task: Task) {
-  if (task.status === "completed") return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(`${task.dueDate}T00:00:00`);
-  return due < today;
-}
-
-function EmployeeAvatar({
-  employee,
-  departments,
-  size = "md",
-}: {
-  employee?: Employee;
-  departments: Department[];
-  size?: "sm" | "md";
-}) {
-  const department = employee?.departmentId
-    ? departments.find((item) => item.id === employee.departmentId)
-    : null;
-  const initials =
-    employee?.name
-      .split(" ")
-      .map((part) => part[0])
-      .slice(0, 2)
-      .join("") ?? "?";
-  const sizeClass = size === "sm" ? "h-5 w-5 text-[9px]" : "h-10 w-10 text-[11px]";
-
-  return (
-    <div
-      className={cn(
-        "shrink-0 overflow-hidden rounded-full text-white flex items-center justify-center font-semibold ring-2 ring-background",
-        sizeClass,
-      )}
-      style={employee?.avatar ? undefined : { background: department?.color ?? "var(--primary)" }}
-      title={employee?.name}
-    >
-      {employee?.avatar ? (
-        <img src={employee.avatar} alt={employee.name} className="h-full w-full object-cover" />
-      ) : (
-        initials
-      )}
-    </div>
-  );
-}
-
-function getDefaultRecurrence(dueDate?: string): RecurrenceFormState {
-  const anchor = getDueDateAnchor(dueDate);
-  return {
-    frequency: "none",
-    interval: "1",
-    customUnit: "days",
-    dayOfMonth: anchor.dayOfMonth,
-    monthOfYear: anchor.monthOfYear,
-    endDate: "",
-  };
-}
-
-function recurrenceToForm(recurrence?: TaskRecurrence, dueDate?: string): RecurrenceFormState {
-  const anchor = getDueDateAnchor(dueDate);
-  return {
-    frequency: recurrence?.frequency ?? "none",
-    interval: String(recurrence?.interval ?? recurrence?.intervalDays ?? 1),
-    customUnit: recurrence?.customUnit ?? "days",
-    dayOfMonth: String(recurrence?.dayOfMonth ?? anchor.dayOfMonth),
-    monthOfYear: String(recurrence?.monthOfYear ?? anchor.monthOfYear),
-    endDate: recurrence?.endDate ?? "",
-  };
-}
-
-function recurrenceFromForm(recurrence: RecurrenceFormState): RecurrenceInput {
-  if (recurrence.frequency === "none") return undefined;
-
-  const endDate = recurrence.endDate || undefined;
-  const dayOfMonth = clampNumber(recurrence.dayOfMonth, 1, 31, 1);
-  const monthOfYear = clampNumber(recurrence.monthOfYear, 1, 12, 1);
-
-  if (recurrence.frequency === "monthly") {
-    return { frequency: recurrence.frequency, dayOfMonth, endDate };
-  }
-
-  if (recurrence.frequency === "yearly") {
-    return { frequency: recurrence.frequency, dayOfMonth, monthOfYear, endDate };
-  }
-
-  if (recurrence.frequency === "custom") {
-    const interval = clampNumber(recurrence.interval, 1, 120, 1);
-    return {
-      frequency: recurrence.frequency,
-      interval,
-      intervalDays: recurrence.customUnit === "days" ? interval : undefined,
-      customUnit: recurrence.customUnit,
-      dayOfMonth:
-        recurrence.customUnit === "months" || recurrence.customUnit === "years"
-          ? dayOfMonth
-          : undefined,
-      monthOfYear: recurrence.customUnit === "years" ? monthOfYear : undefined,
-      endDate,
-    };
-  }
-
-  return { frequency: recurrence.frequency, endDate };
-}
-
-function recurrenceLabel(recurrence?: TaskRecurrence) {
-  if (!recurrence) return "Sem recorrência";
-
-  const interval = recurrence.interval ?? recurrence.intervalDays ?? 1;
-  const unit = recurrence.customUnit ?? "days";
-  const hasDayOfMonth = recurrence.dayOfMonth != null;
-  const hasMonthOfYear = recurrence.monthOfYear != null;
-  const dayOfMonth = recurrence.dayOfMonth ?? 1;
-  const monthName = monthOptions[(recurrence.monthOfYear ?? 1) - 1]?.label ?? "Janeiro";
-  const plural = (value: number, singular: string, pluralText: string) =>
-    value === 1 ? singular : pluralText;
-
-  const label =
-    recurrence.frequency === "daily"
-      ? "Diária"
-      : recurrence.frequency === "weekly"
-        ? "Semanal"
-        : recurrence.frequency === "biweekly"
-          ? "Quinzenal"
-          : recurrence.frequency === "monthly"
-            ? hasDayOfMonth
-              ? `Mensal no dia ${dayOfMonth}`
-              : "Mensal pelo dia do prazo"
-            : recurrence.frequency === "yearly"
-              ? hasDayOfMonth && hasMonthOfYear
-                ? `Anual em ${dayOfMonth} de ${monthName.toLowerCase()}`
-                : "Anual pelo dia do prazo"
-              : unit === "weeks"
-                ? `A cada ${interval} ${plural(interval, "semana", "semanas")}`
-                : unit === "months"
-                  ? hasDayOfMonth
-                    ? `A cada ${interval} ${plural(interval, "mês", "meses")} no dia ${dayOfMonth}`
-                    : `A cada ${interval} ${plural(interval, "mês", "meses")}`
-                  : unit === "years"
-                    ? hasDayOfMonth && hasMonthOfYear
-                      ? `A cada ${interval} ${plural(interval, "ano", "anos")} em ${dayOfMonth} de ${monthName.toLowerCase()}`
-                      : `A cada ${interval} ${plural(interval, "ano", "anos")}`
-                    : `A cada ${interval} ${plural(interval, "dia", "dias")}`;
-
-  return recurrence.endDate
-    ? `${label} até ${new Date(`${recurrence.endDate}T00:00:00`).toLocaleDateString("pt-BR")}`
-    : label;
-}
-
-function RecurrenceFields({
-  value,
-  onChange,
-  compact = false,
-}: {
-  value: RecurrenceFormState;
-  onChange: (value: RecurrenceFormState) => void;
-  compact?: boolean;
-}) {
-  const inputClass = compact
-    ? "h-8 w-full rounded-lg border border-input bg-background px-2 text-xs outline-none focus:border-primary"
-    : "w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm";
-  const update = (patch: Partial<RecurrenceFormState>) => onChange({ ...value, ...patch });
-  const isActive = value.frequency !== "none";
-  const showMonthlyDay =
-    value.frequency === "monthly" ||
-    (value.frequency === "custom" && value.customUnit === "months");
-  const showYearlyDate =
-    value.frequency === "yearly" || (value.frequency === "custom" && value.customUnit === "years");
-
-  return (
-    <div className={cn("grid grid-cols-1 gap-3", !compact && "sm:grid-cols-2")}>
-      <Field label="Frequência">
-        <select
-          value={value.frequency}
-          onChange={(event) =>
-            update({ frequency: event.target.value as RecurrenceFormState["frequency"] })
-          }
-          className={inputClass}
-        >
-          {recurrenceOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      {value.frequency === "custom" && (
-        <Field label="Repetir a cada">
-          <div className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-2">
-            <input
-              type="number"
-              min={1}
-              max={120}
-              value={value.interval}
-              onChange={(event) => update({ interval: event.target.value })}
-              className={inputClass}
-            />
-            <select
-              value={value.customUnit}
-              onChange={(event) =>
-                update({ customUnit: event.target.value as RecurrenceCustomUnit })
-              }
-              className={inputClass}
-            >
-              {customUnitOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </Field>
-      )}
-
-      {showMonthlyDay && (
-        <Field label="Dia do mês">
-          <input
-            type="number"
-            min={1}
-            max={31}
-            value={value.dayOfMonth}
-            onChange={(event) => update({ dayOfMonth: event.target.value })}
-            className={inputClass}
-          />
-        </Field>
-      )}
-
-      {showYearlyDate && (
-        <>
-          <Field label="Mês">
-            <select
-              value={value.monthOfYear}
-              onChange={(event) => update({ monthOfYear: event.target.value })}
-              className={inputClass}
-            >
-              {monthOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Dia">
-            <input
-              type="number"
-              min={1}
-              max={31}
-              value={value.dayOfMonth}
-              onChange={(event) => update({ dayOfMonth: event.target.value })}
-              className={inputClass}
-            />
-          </Field>
-        </>
-      )}
-
-      {isActive && (
-        <Field label="Parar em">
-          <input
-            type="date"
-            value={value.endDate}
-            onChange={(event) => update({ endDate: event.target.value })}
-            className={inputClass}
-            aria-label="Data final da recorrência"
-          />
-        </Field>
-      )}
-    </div>
-  );
-}
-
 function TasksPage() {
-  const queryClient = useQueryClient();
   const { data, isLoading, error } = useWorkspaceData();
   const [active, setActive] = useState<TaskStatus | "all">("all");
   const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<TaskFilterState>(emptyTaskFilters);
   const [showForm, setShowForm] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -488,97 +83,21 @@ function TasksPage() {
     };
   });
 
-  function updateTaskInWorkspace(updatedTask: Task) {
-    queryClient.setQueryData<WorkspaceResult>(workspaceQueryKey, (current) =>
-      current
-        ? {
-            ...current,
-            tasks: current.tasks.map((task) =>
-              task.id === updatedTask.id ? { ...task, ...updatedTask } : task,
-            ),
-          }
-        : current,
-    );
-  }
-
-  const createTaskMutation = useMutation({
-    mutationFn: (payload: {
-      title: string;
-      description: string;
-      priority: Priority;
-      dueDate: string;
-      target: { type: TargetType; id: string };
-      responsibleId: string;
-      reviewerId?: string;
-      requiresReview: boolean;
-      tags: string[];
-      recurrence?: RecurrenceInput;
-    }) => createTask({ data: payload }),
-    onSuccess: () => {
-      setShowForm(false);
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
-    },
-  });
-
-  const statusMutation = useMutation({
-    mutationFn: (payload: { id: string; status: TaskStatus }) =>
-      updateTaskStatus({ data: payload }),
-    onSuccess: (updatedTask) => {
-      if (updatedTask.status === "completed") {
-        setSelectedTaskId(null);
-      }
-      updateTaskInWorkspace(updatedTask);
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
-    },
-  });
-
-  const updateTaskMutation = useMutation({
-    mutationFn: (payload: {
-      id: string;
-      title: string;
-      description: string;
-      priority: Priority;
-      dueDate: string;
-      tags: string[];
-      recurrence?: RecurrenceInput;
-    }) => updateTaskDetails({ data: payload }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
-    },
-  });
-
-  const deleteTaskMutation = useMutation({
-    mutationFn: (payload: { id: string }) => deleteTask({ data: payload }),
-    onSuccess: (_result, variables) => {
-      setSelectedTaskId(null);
-      queryClient.setQueryData<WorkspaceResult>(workspaceQueryKey, (current) =>
-        current
-          ? {
-              ...current,
-              tasks: current.tasks.filter((task) => task.id !== variables.id),
-            }
-          : current,
-      );
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
-    },
-  });
-
-  const commentMutation = useMutation({
-    mutationFn: (payload: { taskId: string; body: string }) => addTaskComment({ data: payload }),
-    onSuccess: (updatedTask) => {
-      setCommentBody("");
-      updateTaskInWorkspace(updatedTask);
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
-    },
-  });
-
-  const attachmentMutation = useMutation({
-    mutationFn: (payload: { taskId: string; name: string; sizeLabel?: string }) =>
-      addTaskAttachment({ data: payload }),
-    onSuccess: (updatedTask) => {
-      updateTaskInWorkspace(updatedTask);
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
-    },
+  const {
+    createTaskMutation,
+    statusMutation,
+    updateTaskMutation,
+    deleteTaskMutation,
+    commentMutation,
+    attachmentMutation,
+    addSubtaskMutation,
+    toggleSubtaskMutation,
+    deleteSubtaskMutation,
+  } = useTaskMutations({
+    onCompleted: () => setSelectedTaskId(null),
+    onCreated: () => setShowForm(false),
+    onDeleted: () => setSelectedTaskId(null),
+    onCommented: () => setCommentBody(""),
   });
 
   const deferredSearch = useDeferredValue(search);
@@ -596,9 +115,11 @@ function TasksPage() {
           (active === "all" || t.status === active) &&
           (normalizedSearch === "" ||
             t.title.toLowerCase().includes(normalizedSearch) ||
-            t.description.toLowerCase().includes(normalizedSearch)),
+            t.description.toLowerCase().includes(normalizedSearch)) &&
+          (!data ||
+            taskMatchesFilters(t, filters, { employees: data.employees, groups: data.groups })),
       ),
-    [active, normalizedSearch, taskRows],
+    [active, normalizedSearch, taskRows, filters, data],
   );
   const completedTasks = useMemo(
     () =>
@@ -629,7 +150,6 @@ function TasksPage() {
   }
 
   const { company, currentUser, departments, employees, groups, tasks } = data;
-  const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
   const selectedPermissions = selectedTask
     ? getTaskPermissions({
@@ -738,8 +258,7 @@ function TasksPage() {
     deleteTaskMutation.mutate({ id: selectedTask.id });
   }
 
-  function handleCommentSubmit(event: FormEvent) {
-    event.preventDefault();
+  function handleCommentSubmit() {
     if (!selectedTask || !commentBody.trim()) return;
     commentMutation.mutate({ taskId: selectedTask.id, body: commentBody.trim() });
   }
@@ -766,6 +285,14 @@ function TasksPage() {
     commentMutation.error instanceof Error ? commentMutation.error.message : null;
   const attachmentError =
     attachmentMutation.error instanceof Error ? attachmentMutation.error.message : null;
+  const subtaskError =
+    addSubtaskMutation.error instanceof Error
+      ? addSubtaskMutation.error.message
+      : toggleSubtaskMutation.error instanceof Error
+        ? toggleSubtaskMutation.error.message
+        : deleteSubtaskMutation.error instanceof Error
+          ? deleteSubtaskMutation.error.message
+          : null;
 
   return (
     <AppShell
@@ -774,14 +301,14 @@ function TasksPage() {
       actions={
         <button
           onClick={openForm}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition shadow-[var(--shadow-elegant)]"
+          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
         >
           <Plus className="h-4 w-4" /> Nova tarefa
         </button>
       }
     >
-      <div className="flex flex-wrap items-center gap-3 mb-5">
-        <div className="flex-1 min-w-[240px] flex items-center gap-2 px-3 h-10 rounded-lg bg-card border border-border focus-within:border-primary/40 transition-colors">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="flex-1 min-w-[240px] flex items-center gap-2 px-3 h-9 rounded-md bg-card border border-border focus-within:border-primary/40 transition-colors">
           <Search className="h-4 w-4 text-muted-foreground" />
           <input
             value={search}
@@ -790,13 +317,27 @@ function TasksPage() {
             className="flex-1 bg-transparent outline-none text-sm"
           />
         </div>
-        <button className="h-10 px-3 rounded-lg bg-card border border-border text-sm font-medium inline-flex items-center gap-2 hover:bg-muted transition-colors">
-          <Filter className="h-4 w-4" /> Filtros
+        <button
+          onClick={openForm}
+          className="md:hidden inline-flex items-center gap-2 px-4 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
+        >
+          <Plus className="h-4 w-4" /> Nova
         </button>
       </div>
 
+      <div className="mb-4">
+        <TaskFilterBar
+          filters={filters}
+          onChange={setFilters}
+          departments={departments}
+          groups={groups}
+          employees={employees}
+          tasks={taskRows}
+        />
+      </div>
+
       <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
-        {filters.map((f) => {
+        {statusFilters.map((f) => {
           const count =
             f.key === "all"
               ? activeTaskRows.length
@@ -807,16 +348,16 @@ function TasksPage() {
               key={f.key}
               onClick={() => setActive(f.key)}
               className={cn(
-                "px-4 h-9 rounded-full text-sm font-medium whitespace-nowrap transition-all inline-flex items-center gap-2",
+                "px-3.5 h-8 rounded-md text-sm font-medium whitespace-nowrap transition-all inline-flex items-center gap-2",
                 isActive
-                  ? "bg-primary text-primary-foreground shadow-[var(--shadow-elegant)]"
+                  ? "bg-primary text-primary-foreground"
                   : "bg-card border border-border text-foreground/70 hover:border-primary/40",
               )}
             >
               {f.label}
               <span
                 className={cn(
-                  "text-[11px] px-1.5 rounded-full",
+                  "text-[11px] px-1.5 rounded-md",
                   isActive ? "bg-white/20" : "bg-muted",
                 )}
               >
@@ -827,95 +368,17 @@ function TasksPage() {
         })}
       </div>
 
-      <div className="flex flex-col gap-3">
-        {list.map((t) => {
-          const emp = getEmployee(t.responsibleId);
-          const overdue = isOverdue(t);
-          const permissions = getTaskPermissions({
-            task: t,
-            currentUser,
-            employees,
-            departments,
-            groups,
-          });
-          return (
-            <div
-              key={t.id}
-              role="button"
-              tabIndex={0}
-              aria-label={`Abrir atividade ${t.title}`}
-              onClick={() => openTask(t)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openTask(t);
-                }
-              }}
-              className={cn(
-                "group flex items-center gap-3 cursor-pointer bg-card border rounded-2xl p-3.5 sm:p-4 shadow-[var(--shadow-card)] hover:shadow-md hover:border-primary/40 transition-all outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
-                overdue ? "border-destructive/40 bg-destructive/[0.03]" : "border-border",
-                selectedTaskId === t.id && "border-primary/60 ring-2 ring-primary/10",
-              )}
-            >
-              {/* Checkbox */}
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (!permissions.canChangeStatus || statusMutation.isPending) return;
-                  statusMutation.mutate({ id: t.id, status: "completed" });
-                }}
-                disabled={!permissions.canChangeStatus || statusMutation.isPending}
-                className={cn(
-                  "shrink-0 h-6 w-6 rounded-full border-2 flex items-center justify-center transition disabled:opacity-40",
-                  overdue
-                    ? "border-destructive/50 text-destructive hover:border-destructive"
-                    : "border-muted-foreground/30 text-primary hover:border-primary",
-                )}
-                aria-label="Concluir tarefa"
-              >
-                <Check className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition" />
-              </button>
-
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <h3 className="font-display font-semibold text-sm sm:text-[15px] text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
-                  {t.title}
-                </h3>
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1">
-                    <Calendar className="h-3.5 w-3.5" />
-                    {new Date(`${t.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
-                  </span>
-                  <span className="text-muted-foreground/40">·</span>
-                  <PriorityBadge priority={t.priority} />
-                  {overdue && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-semibold">
-                      Atrasada
-                    </span>
-                  )}
-                  {t.comments > 0 && (
-                    <span className="inline-flex items-center gap-1">
-                      <MessageSquare className="h-3.5 w-3.5" />
-                      {t.comments}
-                    </span>
-                  )}
-                  {t.attachments > 0 && (
-                    <span className="inline-flex items-center gap-1">
-                      <Paperclip className="h-3.5 w-3.5" />
-                      {t.attachments}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Avatar (right side, centered) */}
-              <EmployeeAvatar employee={emp} departments={departments} />
-            </div>
-          );
-        })}
-      </div>
-
+      <TaskList
+        tasks={list}
+        employees={employees}
+        departments={departments}
+        groups={groups}
+        currentUser={currentUser}
+        selectedTaskId={selectedTaskId}
+        onOpen={openTask}
+        onComplete={(task) => statusMutation.mutate({ id: task.id, status: "completed" })}
+        isCompleting={statusMutation.isPending}
+      />
 
       {list.length === 0 && (
         <div className="py-16 text-center text-muted-foreground">
@@ -926,14 +389,14 @@ function TasksPage() {
       )}
 
       {completedTasks.length > 0 && (
-        <section className="mt-6 rounded-2xl border border-dashed border-border bg-card/60 shadow-[var(--shadow-card)]">
+        <section className="mt-6 rounded-md border border-dashed border-border bg-card/60">
           <button
             type="button"
             onClick={() => setShowCompleted((current) => !current)}
             className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
           >
             <span className="inline-flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <span className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-muted-foreground">
                 <Archive className="h-4 w-4" />
               </span>
               <span>
@@ -957,13 +420,13 @@ function TasksPage() {
           {showCompleted && (
             <div className="grid grid-cols-1 gap-3 border-t border-border/70 p-4 md:grid-cols-2 xl:grid-cols-3 animate-in fade-in slide-in-from-top-1 duration-150">
               {completedTasks.map((task) => {
-                const emp = getEmployee(task.responsibleId);
+                const emp = employees.find((employee) => employee.id === task.responsibleId);
                 return (
                   <button
                     key={task.id}
                     type="button"
                     onClick={() => openTask(task)}
-                    className="rounded-xl border border-border/70 bg-background/70 p-4 text-left opacity-65 transition hover:border-primary/30 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+                    className="rounded-md border border-border/70 bg-background/70 p-4 text-left opacity-65 transition hover:border-primary/30 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1017,636 +480,63 @@ function TasksPage() {
         aria-hidden={!selectedTask}
       >
         {selectedTask && selectedPermissions && (
-          <form onSubmit={handleEditSubmit} className="flex h-full flex-col">
-            {/* Sticky header */}
-            <header className="sticky top-0 z-10 border-b border-border bg-gradient-to-b from-card to-background px-5 pt-5 pb-4">
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  {selectedPermissions.roleLabel}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedTaskId(null)}
-                  className="h-8 w-8 rounded-full bg-muted hover:bg-muted/70 text-foreground flex items-center justify-center transition"
-                  aria-label="Fechar atividade"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <button
-                  type="button"
-                  disabled={!selectedPermissions.canComplete || statusMutation.isPending}
-                  onClick={() =>
-                    statusMutation.mutate({
-                      id: selectedTask.id,
-                      status: selectedTask.status === "completed" ? "in_progress" : "completed",
-                    })
-                  }
-                  className={cn(
-                    "mt-1 h-6 w-6 rounded-full border-2 flex items-center justify-center transition shrink-0 disabled:opacity-50",
-                    selectedTask.status === "completed"
-                      ? "bg-success border-success text-white"
-                      : "border-muted-foreground/40 hover:border-foreground",
-                  )}
-                  aria-label={selectedTask.status === "completed" ? "Reabrir" : "Concluir"}
-                >
-                  {selectedTask.status === "completed" && <Check className="h-3.5 w-3.5" />}
-                </button>
-                <div className="flex-1 min-w-0">
-                  <input
-                    value={editForm.title}
-                    disabled={!selectedPermissions.canEditContent}
-                    onChange={(e) =>
-                      setEditForm((current) => ({ ...current, title: e.target.value }))
-                    }
-                    className={cn(
-                      "w-full text-[15px] font-display font-semibold bg-transparent border-b border-transparent focus:border-border outline-none transition text-foreground placeholder:text-muted-foreground leading-snug",
-                      selectedTask.status === "completed" && "line-through text-muted-foreground",
-                    )}
-                  />
-                  <div className="text-[11px] text-muted-foreground mt-1.5">
-                    {selectedTask.status === "completed"
-                      ? "Concluída"
-                      : `Criada em ${new Date(`${selectedTask.createdAt}T00:00:00`).toLocaleDateString("pt-BR")}`}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <StatusBadge status={selectedTask.status} />
-                <PriorityBadge priority={selectedTask.priority} />
-                {isOverdue(selectedTask) && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-destructive/10 text-destructive font-semibold">
-                    Atrasada
-                  </span>
-                )}
-              </div>
-            </header>
-
-            {/* Scrollable body */}
-            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
-
-              {/* Notes */}
-              <div>
-                <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  <Pencil className="h-3.5 w-3.5" /> Notas
-                </div>
-                <textarea
-                  value={editForm.description}
-                  disabled={!selectedPermissions.canEditContent}
-                  onChange={(e) =>
-                    setEditForm((current) => ({ ...current, description: e.target.value }))
-                  }
-                  rows={3}
-                  placeholder="Adicionar uma nota..."
-                  className="w-full px-3.5 py-3 rounded-xl bg-muted/30 border border-border/60 outline-none focus:border-primary focus:bg-background text-xs resize-none disabled:opacity-60 transition leading-relaxed"
-                  required
-                />
-              </div>
-
-              {/* Details grid */}
-              <div className="space-y-2">
-                <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Detalhes
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {/* Due date */}
-                  <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                      <Calendar className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Prazo</div>
-                      {selectedPermissions.canEditContent ? (
-                        <input
-                          type="date"
-                          value={editForm.dueDate}
-                          onChange={(e) =>
-                            setEditForm((current) => ({ ...current, dueDate: e.target.value }))
-                          }
-                          className="w-full bg-transparent outline-none text-xs font-semibold text-foreground mt-0.5"
-                          required
-                        />
-                      ) : (
-                        <div className="text-xs font-semibold text-foreground mt-0.5">
-                          {new Date(`${selectedTask.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Recurrence */}
-                  <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-lg bg-success/10 text-success flex items-center justify-center shrink-0">
-                      <Repeat className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Recorrência</div>
-                      {selectedPermissions.canEditContent ? (
-                        <div className="mt-1">
-                          <select
-                            value={editForm.recurrence.frequency}
-                            onChange={(e) =>
-                              setEditForm((current) => ({
-                                ...current,
-                                recurrence: { ...current.recurrence, frequency: e.target.value as RecurrenceFormState["frequency"] },
-                              }))
-                            }
-                            className="w-full bg-transparent outline-none text-xs font-semibold text-foreground"
-                          >
-                            {recurrenceOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : (
-                        <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
-                          {recurrenceLabel(selectedTask.recurrence)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Priority */}
-                  <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-lg bg-destructive/10 text-destructive flex items-center justify-center shrink-0">
-                      <Flag className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Prioridade</div>
-                      {selectedPermissions.canEditContent ? (
-                        <select
-                          value={editForm.priority}
-                          onChange={(e) =>
-                            setEditForm((current) => ({
-                              ...current,
-                              priority: e.target.value as Priority,
-                            }))
-                          }
-                          className="w-full bg-transparent outline-none text-xs font-semibold text-foreground mt-0.5"
-                        >
-                          {Object.entries(priorityLabels).map(([key, label]) => (
-                            <option key={key} value={key}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <div className="text-xs font-semibold text-foreground mt-0.5">
-                          {priorityLabels[selectedTask.priority]}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Target */}
-                  <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-lg bg-accent/50 text-accent-foreground flex items-center justify-center shrink-0">
-                      <Target className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Destino</div>
-                      <div className="text-xs font-semibold text-foreground mt-0.5 truncate">{selectedTask.target.label}</div>
-                    </div>
-                  </div>
-
-                  {/* Responsible */}
-                  <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
-                    <EmployeeAvatar
-                      employee={getEmployee(selectedTask.responsibleId)}
-                      departments={departments}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Responsável</div>
-                      <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
-                        {getEmployee(selectedTask.responsibleId)?.name}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Reviewer */}
-                  {selectedTask.reviewerId && (
-                    <div className="col-span-2 sm:col-span-1 rounded-xl border border-border bg-card p-3 flex items-center gap-3">
-                      <EmployeeAvatar
-                        employee={getEmployee(selectedTask.reviewerId)}
-                        departments={departments}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Revisor</div>
-                        <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
-                          {getEmployee(selectedTask.reviewerId)?.name}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {selectedPermissions.canEditContent && editForm.recurrence.frequency !== "none" && (
-                  <div className="rounded-xl border border-border bg-card p-3 mt-2">
-                    <RecurrenceFields
-                      compact
-                      value={editForm.recurrence}
-                      onChange={(recurrence) =>
-                        setEditForm((current) => ({
-                          ...current,
-                          recurrence,
-                        }))
-                      }
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Tags */}
-              <div>
-                <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  <Tag className="h-3.5 w-3.5" /> Tags
-                </div>
-                {selectedPermissions.canEditContent ? (
-                  <input
-                    value={editForm.tags}
-                    onChange={(e) => setEditForm((current) => ({ ...current, tags: e.target.value }))}
-                    className="w-full h-10 px-3 rounded-xl bg-muted/30 border border-border/60 outline-none focus:border-primary focus:bg-background text-xs transition"
-                    placeholder="Separadas por vírgula"
-                  />
-                ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedTask.tags.length > 0 ? (
-                      selectedTask.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="text-[11px] px-2.5 py-1 rounded-full bg-primary/10 text-primary font-medium"
-                        >
-                          {tag}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Nenhuma tag</span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Comments & Attachments */}
-              <div className="space-y-4">
-                <section className="rounded-xl border border-border bg-card p-3.5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                      <MessageSquare className="h-3.5 w-3.5" />
-                      Comentários
-                    </div>
-                    <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium">
-                      {selectedTask.comments}
-                    </span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {(selectedTask.commentItems ?? []).map((comment) => {
-                      const author = getEmployee(comment.authorId);
-                      return (
-                        <div key={comment.id} className="rounded-xl bg-muted/30 p-3">
-                          <div className="mb-1.5 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <EmployeeAvatar
-                                employee={author}
-                                departments={departments}
-                                size="sm"
-                              />
-                              <span className="text-[11px] font-semibold text-foreground">
-                                {author?.name ?? "Usuario"}
-                              </span>
-                            </div>
-                            <span className="text-[10px] text-muted-foreground">
-                              {new Date(comment.createdAt).toLocaleString("pt-BR", {
-                                day: "2-digit",
-                                month: "2-digit",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                          </div>
-                          <p className="text-xs text-foreground/80 leading-relaxed">{comment.body}</p>
-                        </div>
-                      );
-                    })}
-                    {selectedTask.comments > (selectedTask.commentItems?.length ?? 0) && (
-                      <div className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground text-center">
-                        {selectedTask.comments - (selectedTask.commentItems?.length ?? 0)} comentário
-                        {selectedTask.comments - (selectedTask.commentItems?.length ?? 0) === 1
-                          ? ""
-                          : "s"}{" "}
-                        no histórico.
-                      </div>
-                    )}
-                  </div>
-
-                  {selectedPermissions.canChangeStatus && (
-                    <form onSubmit={handleCommentSubmit} className="mt-3 flex gap-2">
-                      <input
-                        value={commentBody}
-                        onChange={(event) => setCommentBody(event.target.value)}
-                        placeholder="Escrever comentário..."
-                        className="h-9 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-xs outline-none focus:border-primary transition"
-                      />
-                      <button
-                        type="submit"
-                        disabled={commentMutation.isPending || !commentBody.trim()}
-                        className="h-9 w-9 rounded-xl bg-primary text-primary-foreground disabled:opacity-60 inline-flex items-center justify-center hover:opacity-90 transition shrink-0"
-                        aria-label="Enviar comentário"
-                      >
-                        <Send className="h-3.5 w-3.5" />
-                      </button>
-                    </form>
-                  )}
-                </section>
-
-                <section className="rounded-xl border border-border bg-card p-3.5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                      <Paperclip className="h-3.5 w-3.5" />
-                      Anexos
-                    </div>
-                    <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium">
-                      {selectedTask.attachments}
-                    </span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {(selectedTask.attachmentItems ?? []).map((attachment) => {
-                      const author = getEmployee(attachment.uploadedById);
-                      return (
-                        <div
-                          key={attachment.id}
-                          className="flex items-center gap-3 rounded-xl bg-muted/30 p-3"
-                        >
-                          <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                            <FileText className="h-4 w-4" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-xs font-semibold">{attachment.name}</div>
-                            <div className="text-[10px] text-muted-foreground mt-0.5">
-                              {attachment.sizeLabel} · {author?.name ?? "Usuario"}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {selectedTask.attachments > (selectedTask.attachmentItems?.length ?? 0) && (
-                      <div className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground text-center">
-                        {selectedTask.attachments - (selectedTask.attachmentItems?.length ?? 0)} anexo
-                        {selectedTask.attachments - (selectedTask.commentItems?.length ?? 0) === 1
-                          ? ""
-                          : "s"}{" "}
-                        no histórico.
-                      </div>
-                    )}
-                  </div>
-
-                  {selectedPermissions.canChangeStatus && (
-                    <div className="mt-3">
-                      <label
-                        className={cn(
-                          "flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-background px-3 text-xs font-medium transition hover:bg-muted hover:border-primary/50 hover:text-primary",
-                          attachmentMutation.isPending && "pointer-events-none opacity-60",
-                        )}
-                      >
-                        <Paperclip className="h-4 w-4" />
-                        {attachmentMutation.isPending ? "Anexando..." : "Adicionar arquivo"}
-                        <input type="file" onChange={handleAttachmentFile} className="sr-only" />
-                      </label>
-                    </div>
-                  )}
-                </section>
-              </div>
-
-              {!selectedPermissions.canEditContent && (
-                <p className="text-xs text-muted-foreground">
-                  Sua hierarquia permite alterar status/conclusão, mas não editar o texto.
-                </p>
-              )}
-              {(updateError || statusError || deleteError || commentError || attachmentError) && (
-                <div className="rounded-xl bg-destructive/10 border border-destructive/20 px-3 py-2.5 text-sm text-destructive">
-                  {updateError ?? statusError ?? deleteError ?? commentError ?? attachmentError}
-                </div>
-              )}
-            </div>
-
-            {/* Sticky footer */}
-            {(selectedPermissions.canEditContent || selectedPermissions.canDelete) && (
-              <footer className="sticky bottom-0 border-t border-border bg-background/95 backdrop-blur px-5 py-3 flex gap-2">
-                {selectedPermissions.canDelete && (
-                  <button
-                    type="button"
-                    onClick={handleDeleteSelectedTask}
-                    disabled={deleteTaskMutation.isPending}
-                    className="h-10 w-10 rounded-xl border border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 transition disabled:opacity-60 inline-flex items-center justify-center shrink-0"
-                    aria-label="Excluir tarefa"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-                {selectedPermissions.canEditContent && (
-                  <button
-                    type="submit"
-                    disabled={updateTaskMutation.isPending}
-                    className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition shadow-[var(--shadow-elegant)] disabled:opacity-60"
-                  >
-                    {updateTaskMutation.isPending ? "Salvando..." : "Salvar alterações"}
-                  </button>
-                )}
-              </footer>
-            )}
-          </form>
+          <TaskDetailDrawer
+            task={selectedTask}
+            permissions={selectedPermissions}
+            employees={employees}
+            departments={departments}
+            editForm={editForm}
+            onEditFormChange={setEditForm}
+            onSubmit={handleEditSubmit}
+            onClose={() => setSelectedTaskId(null)}
+            onToggleComplete={() =>
+              statusMutation.mutate({
+                id: selectedTask.id,
+                status: selectedTask.status === "completed" ? "in_progress" : "completed",
+              })
+            }
+            onDelete={handleDeleteSelectedTask}
+            isSaving={updateTaskMutation.isPending}
+            isDeleting={deleteTaskMutation.isPending}
+            isStatusPending={statusMutation.isPending}
+            commentBody={commentBody}
+            onCommentBodyChange={setCommentBody}
+            onCommentSubmit={handleCommentSubmit}
+            isCommenting={commentMutation.isPending}
+            onAttachmentFile={handleAttachmentFile}
+            isAttaching={attachmentMutation.isPending}
+            subtasks={selectedTask.subtasks}
+            onAddSubtask={(title) => addSubtaskMutation.mutate({ taskId: selectedTask.id, title })}
+            onToggleSubtask={(subtaskId, done) =>
+              toggleSubtaskMutation.mutate({ taskId: selectedTask.id, subtaskId, done })
+            }
+            onDeleteSubtask={(subtaskId) =>
+              deleteSubtaskMutation.mutate({ taskId: selectedTask.id, subtaskId })
+            }
+            isAddingSubtask={addSubtaskMutation.isPending}
+            errorMessage={
+              updateError ??
+              statusError ??
+              deleteError ??
+              commentError ??
+              attachmentError ??
+              subtaskError
+            }
+          />
         )}
       </aside>
 
-
-      {showForm && (
-        <div
-          className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setShowForm(false)}
-        >
-          <form
-            className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={handleSubmit}
-          >
-            <h2 className="text-xl font-display font-bold mb-1">Nova tarefa</h2>
-            <p className="text-sm text-muted-foreground mb-5">
-              Preencha os dados abaixo para criar uma nova tarefa.
-            </p>
-            <div className="space-y-3.5">
-              <Field label="Título">
-                <input
-                  value={form.title}
-                  onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
-                  placeholder="Ex: Criar campanha..."
-                  required
-                />
-              </Field>
-              <Field label="Descrição">
-                <textarea
-                  value={form.description}
-                  onChange={(e) =>
-                    setForm((current) => ({ ...current, description: e.target.value }))
-                  }
-                  rows={3}
-                  className="w-full px-3 py-2 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm resize-none"
-                  required
-                />
-              </Field>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Prioridade">
-                  <select
-                    value={form.priority}
-                    onChange={(e) =>
-                      setForm((current) => ({ ...current, priority: e.target.value as Priority }))
-                    }
-                    className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
-                  >
-                    {Object.entries(priorityLabels).map(([key, label]) => (
-                      <option key={key} value={key}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Prazo">
-                  <input
-                    type="date"
-                    value={form.dueDate}
-                    onChange={(e) =>
-                      setForm((current) => ({ ...current, dueDate: e.target.value }))
-                    }
-                    className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
-                    required
-                  />
-                </Field>
-              </div>
-              <div className="rounded-xl border border-border bg-muted/20 p-3">
-                <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <Repeat className="h-3.5 w-3.5" />
-                  Recorrência
-                </div>
-                <RecurrenceFields
-                  value={form.recurrence}
-                  onChange={(recurrence) =>
-                    setForm((current) => ({
-                      ...current,
-                      recurrence,
-                    }))
-                  }
-                />
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Ao concluir, a próxima ocorrência será criada automaticamente se ainda estiver no
-                  prazo definido.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Destino">
-                  <select
-                    value={form.targetKey}
-                    onChange={(e) =>
-                      setForm((current) => ({ ...current, targetKey: e.target.value }))
-                    }
-                    className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
-                  >
-                    {targetOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Responsável">
-                  <select
-                    value={form.responsibleId}
-                    onChange={(e) =>
-                      setForm((current) => ({ ...current, responsibleId: e.target.value }))
-                    }
-                    className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
-                  >
-                    {employees.map((employee) => (
-                      <option key={employee.id} value={employee.id}>
-                        {employee.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.requiresReview}
-                  onChange={(e) =>
-                    setForm((current) => ({ ...current, requiresReview: e.target.checked }))
-                  }
-                  className="rounded border-input accent-primary"
-                />
-                Precisa de revisão
-              </label>
-              {form.requiresReview && (
-                <Field label="Revisor">
-                  <select
-                    value={form.reviewerId}
-                    onChange={(e) =>
-                      setForm((current) => ({ ...current, reviewerId: e.target.value }))
-                    }
-                    className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
-                  >
-                    <option value="">Usar o responsável</option>
-                    {employees.map((employee) => (
-                      <option key={employee.id} value={employee.id}>
-                        {employee.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              )}
-              <Field label="Tags">
-                <input
-                  value={form.tags}
-                  onChange={(e) => setForm((current) => ({ ...current, tags: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
-                  placeholder="Separadas por vírgula"
-                />
-              </Field>
-              {mutationError && <div className="text-sm text-destructive">{mutationError}</div>}
-            </div>
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="h-10 px-4 rounded-lg border border-border text-sm font-medium hover:bg-muted transition"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={createTaskMutation.isPending}
-                className="h-10 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition shadow-[var(--shadow-elegant)] disabled:opacity-60"
-              >
-                {createTaskMutation.isPending ? "Criando..." : "Criar tarefa"}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <TaskCreateDialog
+        open={showForm}
+        onOpenChange={setShowForm}
+        form={form}
+        onFormChange={setForm}
+        onSubmit={handleSubmit}
+        isSubmitting={createTaskMutation.isPending}
+        errorMessage={mutationError}
+        employees={employees}
+        targetOptions={targetOptions}
+      />
     </AppShell>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="block">
-      <span className="text-xs font-medium text-foreground/70 mb-1.5 block">{label}</span>
-      {children}
-    </label>
   );
 }

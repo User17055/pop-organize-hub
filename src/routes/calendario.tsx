@@ -1,0 +1,319 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { addMonths, format, subMonths } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { AppShell } from "@/components/app-shell";
+import { ErrorState, LoadingState } from "@/components/data-state";
+import { useWorkspaceData } from "@/lib/api/use-workspace";
+import { getTaskPermissions } from "@/lib/permissions";
+import type { Task } from "@/lib/domain";
+import { cn } from "@/lib/utils";
+import { MonthGrid } from "@/components/calendar/month-grid";
+import { DaySheet } from "@/components/calendar/day-sheet";
+import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
+import { useTaskMutations } from "@/components/tasks/use-task-mutations";
+import {
+  emptyTaskFilters,
+  TaskFilterBar,
+  taskMatchesFilters,
+  type TaskFilterState,
+} from "@/components/tasks/task-filter-bar";
+import {
+  formatFileSizeMb,
+  recurrenceFromForm,
+  recurrenceToForm,
+  type TaskEditState,
+} from "@/components/tasks/task-form-types";
+
+export const Route = createFileRoute("/calendario")({
+  head: () => ({
+    meta: [
+      { title: "Calendário - Pop Organize" },
+      {
+        name: "description",
+        content: "Visualize as tarefas da empresa organizadas por data de vencimento.",
+      },
+    ],
+  }),
+  component: CalendarPage,
+});
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function CalendarPage() {
+  const { data, isLoading, error } = useWorkspaceData();
+  const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(new Date()));
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [filters, setFilters] = useState<TaskFilterState>(emptyTaskFilters);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [commentBody, setCommentBody] = useState("");
+  const [editForm, setEditForm] = useState<TaskEditState>({
+    title: "",
+    description: "",
+    priority: "medium",
+    dueDate: "",
+    tags: "",
+    recurrence: {
+      frequency: "none",
+      interval: "1",
+      customUnit: "days",
+      dayOfMonth: "1",
+      monthOfYear: "1",
+      endDate: "",
+    },
+  });
+
+  const {
+    statusMutation,
+    updateTaskMutation,
+    deleteTaskMutation,
+    commentMutation,
+    attachmentMutation,
+    addSubtaskMutation,
+    toggleSubtaskMutation,
+    deleteSubtaskMutation,
+  } = useTaskMutations({
+    onCompleted: () => setSelectedTaskId(null),
+    onDeleted: () => setSelectedTaskId(null),
+    onCommented: () => setCommentBody(""),
+  });
+
+  const filteredTasks = useMemo(() => {
+    if (!data) return [];
+    return data.tasks.filter((task) =>
+      taskMatchesFilters(task, filters, { employees: data.employees, groups: data.groups }),
+    );
+  }, [data, filters]);
+
+  const tasksByDay = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const task of filteredTasks) {
+      const bucket = map.get(task.dueDate);
+      if (bucket) bucket.push(task);
+      else map.set(task.dueDate, [task]);
+    }
+    return map;
+  }, [filteredTasks]);
+
+  if (isLoading) {
+    return (
+      <AppShell title="Calendário" subtitle="Carregando tarefas da empresa">
+        <LoadingState />
+      </AppShell>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <AppShell title="Calendário" subtitle="Visualize tarefas por data de vencimento">
+        <ErrorState />
+      </AppShell>
+    );
+  }
+
+  const { currentUser, departments, employees, groups, tasks } = data;
+  const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
+  const selectedPermissions = selectedTask
+    ? getTaskPermissions({ task: selectedTask, currentUser, employees, departments, groups })
+    : null;
+  const selectedDayKey = selectedDay ? format(selectedDay, "yyyy-MM-dd") : null;
+  const dayTasks = selectedDayKey ? (tasksByDay.get(selectedDayKey) ?? []) : [];
+
+  function openTask(task: Task) {
+    setSelectedDay(null);
+    setSelectedTaskId(task.id);
+    setCommentBody("");
+    setEditForm({
+      title: task.title,
+      description: task.description,
+      priority: task.priority,
+      dueDate: task.dueDate,
+      tags: task.tags.join(", "),
+      recurrence: recurrenceToForm(task.recurrence, task.dueDate),
+    });
+    updateTaskMutation.reset();
+  }
+
+  function handleEditSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedTask) return;
+    updateTaskMutation.mutate({
+      id: selectedTask.id,
+      title: editForm.title,
+      description: editForm.description,
+      priority: editForm.priority,
+      dueDate: editForm.dueDate,
+      tags: editForm.tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+      recurrence: recurrenceFromForm(editForm.recurrence),
+    });
+  }
+
+  function handleDeleteSelectedTask() {
+    if (!selectedTask) return;
+    const confirmed = window.confirm(
+      `Excluir a tarefa "${selectedTask.title}"? Esta ação não pode ser desfeita.`,
+    );
+    if (!confirmed) return;
+    deleteTaskMutation.mutate({ id: selectedTask.id });
+  }
+
+  function handleCommentSubmit() {
+    if (!selectedTask || !commentBody.trim()) return;
+    commentMutation.mutate({ taskId: selectedTask.id, body: commentBody.trim() });
+  }
+
+  function handleAttachmentFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !selectedTask) return;
+    attachmentMutation.mutate({
+      taskId: selectedTask.id,
+      name: file.name,
+      sizeLabel: formatFileSizeMb(file.size),
+    });
+  }
+
+  const updateError =
+    updateTaskMutation.error instanceof Error ? updateTaskMutation.error.message : null;
+  const statusError = statusMutation.error instanceof Error ? statusMutation.error.message : null;
+  const deleteError =
+    deleteTaskMutation.error instanceof Error ? deleteTaskMutation.error.message : null;
+  const commentError =
+    commentMutation.error instanceof Error ? commentMutation.error.message : null;
+  const attachmentError =
+    attachmentMutation.error instanceof Error ? attachmentMutation.error.message : null;
+
+  return (
+    <AppShell title="Calendário" subtitle="Visualize as tarefas organizadas por data de vencimento">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setVisibleMonth((current) => startOfMonth(subMonths(current, 1)))}
+            className="h-9 w-9 rounded-md border border-border bg-card hover:bg-muted flex items-center justify-center transition-colors"
+            aria-label="Mês anterior"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div className="min-w-[160px] text-center text-sm font-display font-semibold capitalize">
+            {format(visibleMonth, "MMMM 'de' yyyy", { locale: ptBR })}
+          </div>
+          <button
+            type="button"
+            onClick={() => setVisibleMonth((current) => startOfMonth(addMonths(current, 1)))}
+            className="h-9 w-9 rounded-md border border-border bg-card hover:bg-muted flex items-center justify-center transition-colors"
+            aria-label="Próximo mês"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const today = new Date();
+              setVisibleMonth(startOfMonth(today));
+              setSelectedDay(today);
+            }}
+            className={cn(
+              "h-9 px-3 rounded-md border border-border bg-card hover:bg-muted text-sm font-medium transition-colors",
+            )}
+          >
+            Hoje
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <TaskFilterBar
+          filters={filters}
+          onChange={setFilters}
+          departments={departments}
+          groups={groups}
+          employees={employees}
+          tasks={tasks}
+        />
+      </div>
+
+      <MonthGrid
+        month={visibleMonth}
+        tasksByDay={tasksByDay}
+        selectedDay={selectedDay}
+        onSelectDay={setSelectedDay}
+      />
+
+      <DaySheet
+        day={selectedDay}
+        tasks={dayTasks}
+        employees={employees}
+        departments={departments}
+        onOpenChange={(open) => {
+          if (!open) setSelectedDay(null);
+        }}
+        onOpenTask={openTask}
+      />
+
+      {/* Task detail overlay */}
+      <div
+        className={cn(
+          "fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300",
+          selectedTask ? "opacity-100" : "opacity-0 pointer-events-none",
+        )}
+        onClick={() => setSelectedTaskId(null)}
+        aria-hidden={!selectedTask}
+      />
+      <aside
+        className={cn(
+          "fixed top-0 right-0 z-50 h-screen w-full sm:w-[480px] bg-background border-l border-border shadow-2xl flex flex-col transition-transform duration-300 ease-out",
+          selectedTask ? "translate-x-0" : "translate-x-full",
+        )}
+        aria-hidden={!selectedTask}
+      >
+        {selectedTask && selectedPermissions && (
+          <TaskDetailDrawer
+            task={selectedTask}
+            permissions={selectedPermissions}
+            employees={employees}
+            departments={departments}
+            editForm={editForm}
+            onEditFormChange={setEditForm}
+            onSubmit={handleEditSubmit}
+            onClose={() => setSelectedTaskId(null)}
+            onToggleComplete={() =>
+              statusMutation.mutate({
+                id: selectedTask.id,
+                status: selectedTask.status === "completed" ? "in_progress" : "completed",
+              })
+            }
+            onDelete={handleDeleteSelectedTask}
+            isSaving={updateTaskMutation.isPending}
+            isDeleting={deleteTaskMutation.isPending}
+            isStatusPending={statusMutation.isPending}
+            commentBody={commentBody}
+            onCommentBodyChange={setCommentBody}
+            onCommentSubmit={handleCommentSubmit}
+            isCommenting={commentMutation.isPending}
+            onAttachmentFile={handleAttachmentFile}
+            isAttaching={attachmentMutation.isPending}
+            subtasks={selectedTask.subtasks}
+            onAddSubtask={(title) => addSubtaskMutation.mutate({ taskId: selectedTask.id, title })}
+            onToggleSubtask={(subtaskId, done) =>
+              toggleSubtaskMutation.mutate({ taskId: selectedTask.id, subtaskId, done })
+            }
+            onDeleteSubtask={(subtaskId) =>
+              deleteSubtaskMutation.mutate({ taskId: selectedTask.id, subtaskId })
+            }
+            isAddingSubtask={addSubtaskMutation.isPending}
+            errorMessage={
+              updateError ?? statusError ?? deleteError ?? commentError ?? attachmentError
+            }
+          />
+        )}
+      </aside>
+    </AppShell>
+  );
+}

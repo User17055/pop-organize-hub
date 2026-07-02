@@ -136,6 +136,28 @@ const addTaskAttachmentSchema = z.object({
   sizeLabel: z.string().trim().max(40).optional(),
 });
 
+const addTaskSubtaskSchema = z.object({
+  taskId: z.string().min(1),
+  title: z.string().trim().min(1, "Informe o item").max(200),
+});
+
+const toggleTaskSubtaskSchema = z.object({
+  taskId: z.string().min(1),
+  subtaskId: z.string().min(1),
+  done: z.boolean(),
+});
+
+const updateTaskSubtaskSchema = z.object({
+  taskId: z.string().min(1),
+  subtaskId: z.string().min(1),
+  title: z.string().trim().min(1, "Informe o item").max(200),
+});
+
+const deleteTaskSubtaskSchema = z.object({
+  taskId: z.string().min(1),
+  subtaskId: z.string().min(1),
+});
+
 const updateProfileSchema = z
   .object({
     name: z.string().trim().min(2, "Informe seu nome"),
@@ -315,6 +337,7 @@ function createNextRecurringTask(
     comments: 0,
     attachments: 0,
     recurrence: task.recurrence,
+    subtasks: [],
   });
 }
 
@@ -461,6 +484,7 @@ export const createTask = createServerFn({ method: "POST" })
         comments: 0,
         attachments: 0,
         recurrence: normalizeRecurrence(data.recurrence),
+        subtasks: [],
       };
 
       db.tasks.unshift(task);
@@ -573,6 +597,87 @@ export const addTaskAttachment = createServerFn({ method: "POST" })
         createdAt: new Date().toISOString(),
       });
       task.attachments = currentCount + 1;
+      return task;
+    });
+  });
+
+export const addTaskSubtask = createServerFn({ method: "POST" })
+  .inputValidator((data) => addTaskSubtaskSchema.parse(data))
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
+
+    return mutateDatabase((db) => {
+      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
+      if (!permissions.canChangeStatus && !permissions.canEditContent) {
+        throw createHttpError("Você não tem permissão para adicionar itens nesta tarefa.", 403);
+      }
+
+      task.subtasks = task.subtasks ?? [];
+      task.subtasks.push({
+        id: nextId("ts", task.subtasks),
+        title: data.title,
+        done: false,
+        createdAt: new Date().toISOString(),
+      });
+      return task;
+    });
+  });
+
+export const toggleTaskSubtask = createServerFn({ method: "POST" })
+  .inputValidator((data) => toggleTaskSubtaskSchema.parse(data))
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
+
+    return mutateDatabase((db) => {
+      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
+      if (!permissions.canChangeStatus && !permissions.canEditContent) {
+        throw createHttpError("Você não tem permissão para atualizar itens desta tarefa.", 403);
+      }
+
+      const subtask = task.subtasks?.find((item) => item.id === data.subtaskId);
+      if (!subtask) throw createHttpError("Item não encontrado.", 404);
+
+      subtask.done = data.done;
+      subtask.completedAt = data.done ? new Date().toISOString() : undefined;
+      return task;
+    });
+  });
+
+export const updateTaskSubtask = createServerFn({ method: "POST" })
+  .inputValidator((data) => updateTaskSubtaskSchema.parse(data))
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
+
+    return mutateDatabase((db) => {
+      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
+      if (!permissions.canEditContent) {
+        throw createHttpError("Você não tem permissão para editar itens desta tarefa.", 403);
+      }
+
+      const subtask = task.subtasks?.find((item) => item.id === data.subtaskId);
+      if (!subtask) throw createHttpError("Item não encontrado.", 404);
+
+      subtask.title = data.title;
+      return task;
+    });
+  });
+
+export const deleteTaskSubtask = createServerFn({ method: "POST" })
+  .inputValidator((data) => deleteTaskSubtaskSchema.parse(data))
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
+
+    return mutateDatabase((db) => {
+      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
+      if (!permissions.canEditContent) {
+        throw createHttpError("Você não tem permissão para remover itens desta tarefa.", 403);
+      }
+
+      task.subtasks = (task.subtasks ?? []).filter((item) => item.id !== data.subtaskId);
       return task;
     });
   });

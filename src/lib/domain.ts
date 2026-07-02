@@ -39,6 +39,14 @@ export interface TaskAttachment {
   createdAt: string;
 }
 
+export interface TaskSubtask {
+  id: string;
+  title: string;
+  done: boolean;
+  createdAt: string;
+  completedAt?: string;
+}
+
 export interface Company {
   id: string;
   name: string;
@@ -90,6 +98,7 @@ export interface Task {
   recurrence?: TaskRecurrence;
   commentItems?: TaskComment[];
   attachmentItems?: TaskAttachment[];
+  subtasks?: TaskSubtask[];
 }
 
 export interface CurrentUser {
@@ -125,10 +134,10 @@ export const priorityLabels: Record<Priority, string> = {
 };
 
 export const departmentColors = [
-  "oklch(0.68 0.18 245)",
-  "oklch(0.65 0.16 155)",
-  "oklch(0.78 0.16 75)",
-  "oklch(0.6 0.22 27)",
-  "oklch(0.52 0.21 256)",
-  "oklch(0.7 0.17 330)",
+  "oklch(0.55 0.13 254)",
+  "oklch(0.55 0.12 155)",
+  "oklch(0.7 0.13 75)",
+  "oklch(0.55 0.19 25)",
+  "oklch(0.5 0.1 300)",
+  "oklch(0.6 0.11 200)",
 ];

@@ -1,8 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent } from "react";
 import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
+import { Field } from "@/components/form-field";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { createGroup } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import { Plus, Crown } from "lucide-react";
@@ -88,7 +97,7 @@ function GruposPage() {
       actions={
         <button
           onClick={openForm}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition shadow-[var(--shadow-elegant)]"
+          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
         >
           <Plus className="h-4 w-4" /> Novo grupo
         </button>
@@ -100,21 +109,18 @@ function GruposPage() {
           const members = g.memberIds.map(getEmployee).filter(Boolean);
           const gTasks = tasks.filter((t) => t.target.type === "group" && t.target.id === g.id);
           return (
-            <div
-              key={g.id}
-              className="bg-card border border-border rounded-2xl p-6 shadow-[var(--shadow-card)] hover:shadow-md transition-shadow"
-            >
+            <div key={g.id} className="bg-card border border-border rounded-md p-5">
               <div className="flex items-start justify-between mb-3 gap-4">
                 <div>
-                  <h3 className="font-display font-bold text-lg">{g.name}</h3>
+                  <h3 className="font-display font-semibold text-base">{g.name}</h3>
                   <p className="text-sm text-muted-foreground mt-0.5">{g.description}</p>
                 </div>
-                <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-primary/10 text-primary whitespace-nowrap">
+                <span className="text-xs font-medium px-2 py-1 rounded-md bg-primary/10 text-primary whitespace-nowrap">
                   {gTasks.length} {gTasks.length === 1 ? "tarefa" : "tarefas"}
                 </span>
               </div>
 
-              <div className="flex items-center gap-2 mt-4 p-3 rounded-xl bg-accent/40">
+              <div className="flex items-center gap-2 mt-4 p-2.5 rounded-md bg-accent/40">
                 <Crown className="h-4 w-4 text-warning-foreground" />
                 <span className="text-xs text-muted-foreground">Líder:</span>
                 <span className="text-sm font-medium">{leader?.name ?? "Sem líder definido"}</span>
@@ -128,10 +134,7 @@ function GruposPage() {
                       key={m!.id}
                       className="inline-flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-muted"
                     >
-                      <div
-                        className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-semibold text-primary-foreground"
-                        style={{ background: "var(--gradient-primary)" }}
-                      >
+                      <div className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-semibold text-primary-foreground bg-primary">
                         {m!.name
                           .split(" ")
                           .map((n) => n[0])
@@ -148,26 +151,21 @@ function GruposPage() {
         })}
       </div>
 
-      {showForm && (
-        <div
-          className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setShowForm(false)}
-        >
-          <form
-            className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={handleSubmit}
-          >
-            <h2 className="text-xl font-display font-bold mb-1">Novo grupo</h2>
-            <p className="text-sm text-muted-foreground mb-5">
-              Monte uma equipe flexível para campanhas, projetos ou plantões.
-            </p>
-            <div className="space-y-3.5">
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <form onSubmit={handleSubmit}>
+            <DialogHeader>
+              <DialogTitle>Novo grupo</DialogTitle>
+              <DialogDescription>
+                Monte uma equipe flexível para campanhas, projetos ou plantões.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3.5 mt-4">
               <Field label="Nome">
                 <input
                   value={form.name}
                   onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
+                  className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
                   required
                 />
               </Field>
@@ -178,7 +176,7 @@ function GruposPage() {
                     setForm((current) => ({ ...current, description: e.target.value }))
                   }
                   rows={3}
-                  className="w-full px-3 py-2 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm resize-none"
+                  className="w-full px-3 py-2 rounded-md bg-background border border-input outline-none focus:border-primary text-sm resize-none"
                   required
                 />
               </Field>
@@ -198,7 +196,7 @@ function GruposPage() {
                             : current.memberIds,
                     }));
                   }}
-                  className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
+                  className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
                 >
                   <option value="">Sem líder</option>
                   {employees.map((employee) => (
@@ -213,7 +211,7 @@ function GruposPage() {
                   {employees.map((employee) => (
                     <label
                       key={employee.id}
-                      className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                      className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm"
                     >
                       <input
                         type="checkbox"
@@ -228,34 +226,25 @@ function GruposPage() {
               </Field>
               {mutationError && <div className="text-sm text-destructive">{mutationError}</div>}
             </div>
-            <div className="flex justify-end gap-2 mt-6">
+            <DialogFooter className="mt-6">
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="h-10 px-4 rounded-lg border border-border text-sm font-medium hover:bg-muted transition"
+                className="h-9 px-4 rounded-md border border-border text-sm font-medium hover:bg-muted transition"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
                 disabled={createMutation.isPending}
-                className="h-10 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition shadow-[var(--shadow-elegant)] disabled:opacity-60"
+                className="h-9 px-5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition disabled:opacity-60"
               >
                 {createMutation.isPending ? "Criando..." : "Criar grupo"}
               </button>
-            </div>
+            </DialogFooter>
           </form>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </AppShell>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="block">
-      <span className="text-xs font-medium text-foreground/70 mb-1.5 block">{label}</span>
-      {children}
-    </label>
   );
 }

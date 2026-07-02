@@ -1,8 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent } from "react";
 import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
+import { Field } from "@/components/form-field";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { updateCompany } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import { Building2, Pencil, Users, Layers, FolderKanban, CheckSquare } from "lucide-react";
@@ -78,28 +87,25 @@ function EmpresasPage() {
       actions={
         <button
           onClick={openForm}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition shadow-[var(--shadow-elegant)]"
+          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
         >
           <Pencil className="h-4 w-4" /> Editar empresa
         </button>
       }
     >
-      <div className="bg-card border border-border rounded-2xl p-6 shadow-[var(--shadow-card)]">
-        <div className="flex items-start gap-5">
-          <div
-            className="h-16 w-16 rounded-2xl flex items-center justify-center shadow-[var(--shadow-elegant)]"
-            style={{ background: "var(--gradient-primary)" }}
-          >
-            <Building2 className="h-8 w-8 text-primary-foreground" />
+      <div className="bg-card border border-border rounded-md p-5">
+        <div className="flex items-start gap-4">
+          <div className="h-12 w-12 rounded-md flex items-center justify-center bg-primary/10 border border-primary/20 shrink-0">
+            <Building2 className="h-6 w-6 text-primary" />
           </div>
           <div className="flex-1">
-            <h2 className="text-xl font-display font-bold">{company.name}</h2>
+            <h2 className="text-lg font-display font-semibold">{company.name}</h2>
             <p className="text-sm text-muted-foreground">CNPJ: {company.document}</p>
             <span
               className={
                 company.status === "active"
-                  ? "inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-full text-xs font-medium bg-success/15 text-success"
-                  : "inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground"
+                  ? "inline-flex items-center gap-1.5 mt-2 px-2 py-0.5 rounded-md text-xs font-medium bg-success/15 text-success"
+                  : "inline-flex items-center gap-1.5 mt-2 px-2 py-0.5 rounded-md text-xs font-medium bg-muted text-muted-foreground"
               }
             >
               <span className="h-1.5 w-1.5 rounded-full bg-current" />{" "}
@@ -107,13 +113,13 @@ function EmpresasPage() {
             </span>
           </div>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
           {stats.map((s) => {
             const Icon = s.icon;
             return (
-              <div key={s.label} className="p-4 rounded-xl bg-muted/50 border border-border">
-                <Icon className="h-5 w-5 text-primary mb-2" />
-                <div className="text-2xl font-display font-bold">{s.value}</div>
+              <div key={s.label} className="p-3.5 rounded-md bg-muted/50 border border-border">
+                <Icon className="h-4.5 w-4.5 text-primary mb-2" />
+                <div className="text-xl font-display font-bold">{s.value}</div>
                 <div className="text-xs text-muted-foreground">{s.label}</div>
               </div>
             );
@@ -121,26 +127,19 @@ function EmpresasPage() {
         </div>
       </div>
 
-      {showForm && (
-        <div
-          className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setShowForm(false)}
-        >
-          <form
-            className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg p-6"
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={handleSubmit}
-          >
-            <h2 className="text-xl font-display font-bold mb-1">Editar empresa</h2>
-            <p className="text-sm text-muted-foreground mb-5">
-              Atualize os dados usados em toda a organização.
-            </p>
-            <div className="space-y-3.5">
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent className="max-w-lg">
+          <form onSubmit={handleSubmit}>
+            <DialogHeader>
+              <DialogTitle>Editar empresa</DialogTitle>
+              <DialogDescription>Atualize os dados usados em toda a organização.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3.5 mt-4">
               <Field label="Nome">
                 <input
                   value={form.name}
                   onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
+                  className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
                   required
                 />
               </Field>
@@ -148,7 +147,7 @@ function EmpresasPage() {
                 <input
                   value={form.document}
                   onChange={(e) => setForm((current) => ({ ...current, document: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
+                  className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
                   required
                 />
               </Field>
@@ -161,7 +160,7 @@ function EmpresasPage() {
                       status: e.target.value as "active" | "inactive",
                     }))
                   }
-                  className="w-full h-10 px-3 rounded-lg bg-background border border-input outline-none focus:border-primary text-sm"
+                  className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
                 >
                   <option value="active">Ativa</option>
                   <option value="inactive">Inativa</option>
@@ -169,34 +168,25 @@ function EmpresasPage() {
               </Field>
               {mutationError && <div className="text-sm text-destructive">{mutationError}</div>}
             </div>
-            <div className="flex justify-end gap-2 mt-6">
+            <DialogFooter className="mt-6">
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="h-10 px-4 rounded-lg border border-border text-sm font-medium hover:bg-muted transition"
+                className="h-9 px-4 rounded-md border border-border text-sm font-medium hover:bg-muted transition"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
                 disabled={updateMutation.isPending}
-                className="h-10 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition shadow-[var(--shadow-elegant)] disabled:opacity-60"
+                className="h-9 px-5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition disabled:opacity-60"
               >
                 {updateMutation.isPending ? "Salvando..." : "Salvar empresa"}
               </button>
-            </div>
+            </DialogFooter>
           </form>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </AppShell>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="block">
-      <span className="text-xs font-medium text-foreground/70 mb-1.5 block">{label}</span>
-      {children}
-    </label>
   );
 }

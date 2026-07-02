@@ -35,6 +35,12 @@ function nowDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function offsetDate(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function initialDatabase(): Database {
   const passwordHash = hashPassword(DEMO_PASSWORD);
   const departments: Department[] = [
@@ -188,8 +194,8 @@ function initialDatabase(): Database {
       description: "Desenvolver arte, legenda e vídeo para campanha de check-up anual.",
       priority: "high",
       status: "in_progress",
-      dueDate: "2026-06-20",
-      createdAt: "2026-06-10",
+      dueDate: offsetDate(4),
+      createdAt: offsetDate(-12),
       target: { type: "group", id: "g1", label: "Campanha Junho Violeta" },
       responsibleId: "u1",
       reviewerId: "u2",
@@ -197,6 +203,11 @@ function initialDatabase(): Database {
       tags: ["Campanha", "Vídeo"],
       comments: 4,
       attachments: 2,
+      subtasks: [
+        { id: "ts1", title: "Criar roteiro da campanha", done: true, createdAt: offsetDate(-12) },
+        { id: "ts2", title: "Gravar vídeo", done: false, createdAt: offsetDate(-12) },
+        { id: "ts3", title: "Editar e revisar", done: false, createdAt: offsetDate(-12) },
+      ],
     },
     {
       id: "t2",
@@ -204,8 +215,8 @@ function initialDatabase(): Database {
       description: "Revisar dados de contato de todos os clientes ativos.",
       priority: "medium",
       status: "pending",
-      dueDate: "2026-06-25",
-      createdAt: "2026-06-12",
+      dueDate: offsetDate(9),
+      createdAt: offsetDate(-10),
       target: { type: "company", id: "c1", label: "Empresa inteira" },
       responsibleId: "u4",
       requiresReview: false,
@@ -219,8 +230,8 @@ function initialDatabase(): Database {
       description: "Preparar sala para reunião de planejamento estratégico.",
       priority: "low",
       status: "completed",
-      dueDate: "2026-06-15",
-      createdAt: "2026-06-08",
+      dueDate: offsetDate(-6),
+      createdAt: offsetDate(-14),
       target: { type: "department", id: "d5", label: "Administrativo" },
       responsibleId: "u3",
       requiresReview: false,
@@ -234,8 +245,8 @@ function initialDatabase(): Database {
       description: "Roteiro, gravação e edição de vídeo educativo.",
       priority: "high",
       status: "waiting_review",
-      dueDate: "2026-06-18",
-      createdAt: "2026-06-05",
+      dueDate: offsetDate(2),
+      createdAt: offsetDate(-16),
       target: { type: "group", id: "g1", label: "Campanha Junho Violeta" },
       responsibleId: "u1",
       reviewerId: "u6",
@@ -243,6 +254,12 @@ function initialDatabase(): Database {
       tags: ["Vídeo", "Educativo"],
       comments: 8,
       attachments: 5,
+      subtasks: [
+        { id: "ts4", title: "Roteiro aprovado", done: true, createdAt: offsetDate(-16) },
+        { id: "ts5", title: "Gravação concluída", done: true, createdAt: offsetDate(-16) },
+        { id: "ts6", title: "Edição finalizada", done: false, createdAt: offsetDate(-16) },
+        { id: "ts7", title: "Publicar nas redes", done: false, createdAt: offsetDate(-16) },
+      ],
     },
     {
       id: "t5",
@@ -250,8 +267,8 @@ function initialDatabase(): Database {
       description: "Conciliar contas e gerar relatório do mês.",
       priority: "urgent",
       status: "in_progress",
-      dueDate: "2026-06-17",
-      createdAt: "2026-06-11",
+      dueDate: offsetDate(1),
+      createdAt: offsetDate(-11),
       target: { type: "department", id: "d2", label: "Financeiro" },
       responsibleId: "u4",
       reviewerId: "u3",
@@ -266,8 +283,8 @@ function initialDatabase(): Database {
       description: "Cada colaborador deve ler e assinar o novo termo.",
       priority: "medium",
       status: "pending",
-      dueDate: "2026-06-30",
-      createdAt: "2026-06-13",
+      dueDate: offsetDate(14),
+      createdAt: offsetDate(-9),
       target: { type: "company", id: "c1", label: "Empresa inteira" },
       responsibleId: "u3",
       requiresReview: false,
@@ -281,8 +298,8 @@ function initialDatabase(): Database {
       description: "Sessão de treinamento sobre novo protocolo.",
       priority: "medium",
       status: "reopened",
-      dueDate: "2026-06-22",
-      createdAt: "2026-06-09",
+      dueDate: offsetDate(-3),
+      createdAt: offsetDate(-13),
       target: { type: "group", id: "g4", label: "Treinamento Interno" },
       responsibleId: "u5",
       reviewerId: "u3",
@@ -297,8 +314,8 @@ function initialDatabase(): Database {
       description: "Reposição de estoque de suprimentos médicos.",
       priority: "high",
       status: "pending",
-      dueDate: "2026-06-16",
-      createdAt: "2026-06-14",
+      dueDate: offsetDate(-1),
+      createdAt: offsetDate(-8),
       target: { type: "department", id: "d4", label: "Veterinários" },
       responsibleId: "u7",
       requiresReview: false,

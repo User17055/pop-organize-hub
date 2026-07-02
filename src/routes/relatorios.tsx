@@ -62,11 +62,11 @@ function RelatoriosPage() {
 
   return (
     <AppShell title="Relatórios" subtitle="Indicadores de produtividade da empresa">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-card border border-border rounded-2xl p-6 shadow-[var(--shadow-card)]">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 bg-card border border-border rounded-md p-5">
           <div className="flex items-center gap-2 mb-5">
-            <TrendingUp className="h-5 w-5 text-primary" />
-            <h2 className="font-display font-bold text-lg">Tarefas por setor</h2>
+            <TrendingUp className="h-4.5 w-4.5 text-primary" />
+            <h2 className="font-display font-semibold text-base">Tarefas por setor</h2>
           </div>
           <div className="space-y-5">
             {byDept.map((d) => {
@@ -81,7 +81,7 @@ function RelatoriosPage() {
                       <span className="text-muted-foreground">{d.total} total</span>
                     </div>
                   </div>
-                  <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all"
                       style={{ width: `${pct}%`, background: d.color }}
@@ -93,23 +93,20 @@ function RelatoriosPage() {
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-2xl p-6 shadow-[var(--shadow-card)]">
+        <div className="bg-card border border-border rounded-md p-5">
           <div className="flex items-center gap-2 mb-5">
-            <Award className="h-5 w-5 text-primary" />
-            <h2 className="font-display font-bold text-lg">Top produtividade</h2>
+            <Award className="h-4.5 w-4.5 text-primary" />
+            <h2 className="font-display font-semibold text-base">Top produtividade</h2>
           </div>
           <div className="space-y-3">
             {ranking.map((e, i) => (
               <div key={e.id} className="flex items-center gap-3">
                 <div
-                  className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? "bg-warning text-warning-foreground" : "bg-muted text-muted-foreground"}`}
+                  className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? "bg-warning text-warning-foreground" : "bg-muted text-muted-foreground"}`}
                 >
                   {i + 1}
                 </div>
-                <div
-                  className="h-9 w-9 rounded-full flex items-center justify-center text-[11px] font-semibold text-primary-foreground"
-                  style={{ background: "var(--gradient-primary)" }}
-                >
+                <div className="h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-semibold text-primary-foreground bg-primary">
                   {e.name
                     .split(" ")
                     .map((n) => n[0])
@@ -129,20 +126,19 @@ function RelatoriosPage() {
           </div>
         </div>
 
-        <div
-          className="lg:col-span-3 rounded-2xl p-6 text-primary-foreground shadow-[var(--shadow-elegant)] flex items-center justify-between flex-wrap gap-4"
-          style={{ background: "var(--gradient-primary)" }}
-        >
+        <div className="lg:col-span-3 rounded-md border border-border bg-card p-5 flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
-            <Clock className="h-10 w-10 opacity-80" />
+            <div className="h-11 w-11 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+              <Clock className="h-5 w-5 text-primary" />
+            </div>
             <div>
-              <div className="text-sm opacity-90">Tempo médio planejado</div>
-              <div className="text-3xl font-display font-bold">
+              <div className="text-sm text-muted-foreground">Tempo médio planejado</div>
+              <div className="text-2xl font-display font-bold text-foreground">
                 {averageDays.toFixed(1).replace(".", ",")} dias
               </div>
             </div>
           </div>
-          <div className="text-sm opacity-90 max-w-md">
+          <div className="text-sm text-muted-foreground max-w-md">
             Os indicadores são calculados diretamente das tarefas, setores e funcionários
             persistidos no backend local.
           </div>

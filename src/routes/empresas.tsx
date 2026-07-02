@@ -2,8 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { AppShell } from "@/components/app-shell";
+import { AccessRestricted } from "@/components/access-restricted";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { Field } from "@/components/form-field";
+import { getAccessLevel, meetsAccess } from "@/lib/access";
 import {
   Dialog,
   DialogContent,
@@ -56,7 +58,16 @@ function EmpresasPage() {
     );
   }
 
-  const { company, employees, departments, groups, tasks } = data;
+  const { company, employees, departments, groups, tasks, currentUser } = data;
+  const access = getAccessLevel({ currentUser, departments, groups });
+  if (!meetsAccess(access, "admin")) {
+    return (
+      <AppShell title="Empresas" subtitle="Gerencie a empresa da plataforma">
+        <AccessRestricted requiredLabel="administradores da empresa" />
+      </AppShell>
+    );
+  }
+
   const stats = [
     { label: "Funcionários", value: employees.length, icon: Users },
     { label: "Setores", value: departments.length, icon: Layers },
@@ -87,16 +98,20 @@ function EmpresasPage() {
       actions={
         <button
           onClick={openForm}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
+          style={{ background: "var(--gradient-primary)" }}
+          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
         >
           <Pencil className="h-4 w-4" /> Editar empresa
         </button>
       }
     >
-      <div className="bg-card border border-border rounded-md p-5">
+      <div className="hover-lift bg-card border border-border rounded-2xl p-5">
         <div className="flex items-start gap-4">
-          <div className="h-12 w-12 rounded-md flex items-center justify-center bg-primary/10 border border-primary/20 shrink-0">
-            <Building2 className="h-6 w-6 text-primary" />
+          <div
+            className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: "var(--gradient-primary)" }}
+          >
+            <Building2 className="h-6 w-6 text-primary-foreground" />
           </div>
           <div className="flex-1">
             <h2 className="text-lg font-display font-semibold">{company.name}</h2>
@@ -179,7 +194,8 @@ function EmpresasPage() {
               <button
                 type="submit"
                 disabled={updateMutation.isPending}
-                className="h-9 px-5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition disabled:opacity-60"
+                style={{ background: "var(--gradient-primary)" }}
+                className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
               >
                 {updateMutation.isPending ? "Salvando..." : "Salvar empresa"}
               </button>

@@ -542,7 +542,8 @@ export function TaskDetailDrawer({
             <button
               type="submit"
               disabled={isSaving}
-              className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition disabled:opacity-60"
+              style={{ background: "var(--gradient-primary)" }}
+              className="flex-1 h-9 rounded-xl text-primary-foreground text-sm font-semibold hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
             >
               {isSaving ? "Salvando..." : "Salvar alterações"}
             </button>

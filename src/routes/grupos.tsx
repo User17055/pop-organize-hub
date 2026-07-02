@@ -97,7 +97,8 @@ function GruposPage() {
       actions={
         <button
           onClick={openForm}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
+          style={{ background: "var(--gradient-primary)" }}
+          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
         >
           <Plus className="h-4 w-4" /> Novo grupo
         </button>
@@ -109,7 +110,7 @@ function GruposPage() {
           const members = g.memberIds.map(getEmployee).filter(Boolean);
           const gTasks = tasks.filter((t) => t.target.type === "group" && t.target.id === g.id);
           return (
-            <div key={g.id} className="bg-card border border-border rounded-md p-5">
+            <div key={g.id} className="hover-lift bg-card border border-border rounded-2xl p-5">
               <div className="flex items-start justify-between mb-3 gap-4">
                 <div>
                   <h3 className="font-display font-semibold text-base">{g.name}</h3>
@@ -237,7 +238,8 @@ function GruposPage() {
               <button
                 type="submit"
                 disabled={createMutation.isPending}
-                className="h-9 px-5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition disabled:opacity-60"
+                style={{ background: "var(--gradient-primary)" }}
+                className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
               >
                 {createMutation.isPending ? "Criando..." : "Criar grupo"}
               </button>

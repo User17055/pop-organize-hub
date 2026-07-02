@@ -192,7 +192,8 @@ export function TaskCreateDialog({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="h-9 px-5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition disabled:opacity-60"
+              style={{ background: "var(--gradient-primary)" }}
+              className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
             >
               {isSubmitting ? "Criando..." : "Criar tarefa"}
             </button>

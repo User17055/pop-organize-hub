@@ -9,7 +9,6 @@ import {
   FolderKanban,
   BarChart3,
   CalendarDays,
-  Bell,
   Search,
   Settings,
   LogOut,
@@ -17,13 +16,16 @@ import {
   KeyRound,
   Save,
   BriefcaseBusiness,
-  Menu,
+  Sparkles,
 } from "lucide-react";
-import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { logout, updateProfile } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import type { Priority, TaskStatus } from "@/lib/domain";
+import { getAccessLevel, meetsAccess, type AccessLevel } from "@/lib/access";
+import { NotificationsMenu } from "@/components/notifications-menu";
+import { BottomTabBar, type NavItem } from "@/components/bottom-tab-bar";
 import {
   Dialog,
   DialogContent,
@@ -33,15 +35,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const nav = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { to: "/tarefas", label: "Tarefas", icon: CheckSquare },
-  { to: "/calendario", label: "Calendário", icon: CalendarDays },
-  { to: "/setores", label: "Setores", icon: Layers },
-  { to: "/grupos", label: "Grupos", icon: FolderKanban },
-  { to: "/funcionarios", label: "Funcionários", icon: Users },
-  { to: "/empresas", label: "Empresas", icon: Building2 },
-  { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
+const nav: Array<NavItem & { minAccess: AccessLevel }> = [
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true, minAccess: "collaborator" },
+  { to: "/tarefas", label: "Tarefas", icon: CheckSquare, minAccess: "collaborator" },
+  { to: "/calendario", label: "Calendário", icon: CalendarDays, minAccess: "collaborator" },
+  { to: "/grupos", label: "Grupos", icon: FolderKanban, minAccess: "collaborator" },
+  { to: "/setores", label: "Setores", icon: Layers, minAccess: "manager" },
+  { to: "/relatorios", label: "Relatórios", icon: BarChart3, minAccess: "manager" },
+  { to: "/funcionarios", label: "Funcionários", icon: Users, minAccess: "admin" },
+  { to: "/empresas", label: "Empresas", icon: Building2, minAccess: "admin" },
 ];
 
 export function AppShell({
@@ -76,11 +78,18 @@ export function AppShell({
     .map((n) => n[0])
     .slice(0, 2)
     .join("");
+  const accessLevel = getAccessLevel({
+    currentUser,
+    departments: data?.departments ?? [],
+    groups: data?.groups ?? [],
+  });
+  const visibleNav = nav.filter((item) => meetsAccess(accessLevel, item.minAccess));
+  const primaryMobileNav = visibleNav.filter((item) =>
+    ["/", "/tarefas", "/calendario"].includes(item.to),
+  );
+  const moreMobileNav = visibleNav.filter((item) => !primaryMobileNav.includes(item));
+
   const [profileOpen, setProfileOpen] = useState(false);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  useEffect(() => {
-    setMobileNavOpen(false);
-  }, [pathname]);
   const [profileForm, setProfileForm] = useState({
     name: currentEmployee?.name ?? currentUser.name,
     avatar: avatar ?? "",
@@ -127,7 +136,6 @@ export function AppShell({
       newPassword: "",
     });
     profileMutation.reset();
-    setMobileNavOpen(false);
     setProfileOpen(true);
   }
 
@@ -158,41 +166,30 @@ export function AppShell({
 
   return (
     <div className="native-viewport flex w-full bg-background">
-      {/* Mobile overlay */}
-      {mobileNavOpen && (
-        <button
-          type="button"
-          aria-label="Fechar menu"
-          onClick={() => setMobileNavOpen(false)}
-          className="fixed inset-0 z-40 bg-foreground/40 backdrop-blur-[2px] md:hidden"
-        />
-      )}
-      {/* Sidebar */}
+      {/* Sidebar (desktop/tablet only) */}
       <aside
-        className={cn(
-          "native-sidebar fixed md:sticky top-0 left-0 z-50 w-60 flex flex-col bg-sidebar text-sidebar-foreground transition-transform duration-200 ease-out md:translate-x-0",
-          mobileNavOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0",
-        )}
+        className="native-sidebar sticky top-0 hidden h-screen w-64 flex-col border-r border-sidebar-border text-sidebar-foreground md:flex"
+        style={{ background: "var(--gradient-sidebar)" }}
       >
-        <div className="px-5 py-5 border-b border-sidebar-border">
-          <Link to="/" className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center">
-              <Building2 className="h-4.5 w-4.5 text-primary-foreground" />
+        <div className="px-6 py-6">
+          <Link to="/" className="flex items-center gap-3">
+            <div
+              className="flex h-10 w-10 items-center justify-center rounded-2xl shadow-[var(--shadow-elegant)]"
+              style={{ background: "var(--gradient-primary)" }}
+            >
+              <Sparkles className="h-5 w-5 text-primary-foreground" />
             </div>
             <div className="min-w-0">
-              <div className="font-display font-semibold text-sm leading-tight truncate">
+              <div className="truncate font-display text-base font-bold leading-tight">
                 Pop Organize
               </div>
-              <div className="text-[11px] text-sidebar-foreground/60 truncate">{companyName}</div>
+              <div className="truncate text-[11px] text-sidebar-foreground/55">{companyName}</div>
             </div>
           </Link>
         </div>
 
-        <nav className="flex-1 px-2.5 py-4 space-y-0.5 overflow-y-auto">
-          <div className="px-2.5 pb-2 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
-            Navegação
-          </div>
-          {nav.map((item) => {
+        <nav className="flex-1 space-y-1.5 overflow-y-auto px-4 py-2">
+          {visibleNav.map((item) => {
             const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
             const Icon = item.icon;
             return (
@@ -200,39 +197,45 @@ export function AppShell({
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  "flex items-center gap-3 px-2.5 py-2 rounded-md text-sm font-medium border-l-2 transition-colors",
+                  "flex items-center gap-3 rounded-2xl px-4 py-2.5 text-sm font-medium transition-all duration-200",
                   active
-                    ? "border-l-primary bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "border-l-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
+                    ? "text-primary-foreground shadow-[var(--shadow-elegant)]"
+                    : "text-sidebar-foreground/65 hover:translate-x-0.5 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
+                style={active ? { background: "var(--gradient-primary)" } : undefined}
               >
-                <Icon className="h-4 w-4 shrink-0" />
+                <Icon className="h-[18px] w-[18px] shrink-0" />
                 <span className="truncate">{item.label}</span>
               </Link>
             );
           })}
         </nav>
 
-        <div className="p-2.5 border-t border-sidebar-border">
+        <div className="p-4">
           <button
             type="button"
             onClick={openProfile}
-            className="flex w-full items-center gap-3 rounded-md p-2 text-left transition-colors hover:bg-sidebar-accent/40"
+            className="flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition-colors hover:bg-sidebar-accent"
           >
-            <div className="h-8 w-8 overflow-hidden rounded-full bg-primary flex items-center justify-center text-xs font-semibold text-primary-foreground shrink-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-semibold text-primary-foreground shadow-sm">
               {avatar ? (
                 <img src={avatar} alt={currentUser.name} className="h-full w-full object-cover" />
               ) : (
-                initials
+                <span
+                  className="flex h-full w-full items-center justify-center"
+                  style={{ background: "var(--gradient-primary)" }}
+                >
+                  {initials}
+                </span>
               )}
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{currentUser.name}</div>
-              <div className="text-[11px] text-sidebar-foreground/60 truncate">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold">{currentUser.name}</div>
+              <div className="truncate text-[11px] text-sidebar-foreground/55">
                 {currentUser.role}
               </div>
             </div>
-            <Settings className="h-4 w-4 text-sidebar-foreground/50 shrink-0" />
+            <Settings className="h-4 w-4 shrink-0 text-sidebar-foreground/40" />
           </button>
         </div>
       </aside>
@@ -256,7 +259,10 @@ export function AppShell({
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center text-base font-semibold text-primary-foreground bg-primary">
+                    <div
+                      className="flex h-full w-full items-center justify-center text-base font-semibold text-primary-foreground"
+                      style={{ background: "var(--gradient-primary)" }}
+                    >
                       {initials}
                     </div>
                   )}
@@ -280,7 +286,7 @@ export function AppShell({
                   onChange={(event) =>
                     setProfileForm((current) => ({ ...current, name: event.target.value }))
                   }
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                  className="h-9 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-primary"
                   required
                 />
               </label>
@@ -297,9 +303,9 @@ export function AppShell({
                       }))
                     }
                     placeholder="URL da foto"
-                    className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                    className="h-9 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-primary"
                   />
-                  <label className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-border hover:bg-muted">
+                  <label className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-border hover:bg-muted">
                     <Camera className="h-4 w-4" />
                     <input
                       type="file"
@@ -311,7 +317,7 @@ export function AppShell({
                 </div>
               </label>
 
-              <div className="rounded-md border border-border bg-muted/30 p-3">
+              <div className="rounded-xl border border-border bg-muted/30 p-3">
                 <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                   <KeyRound className="h-3.5 w-3.5" />
                   Alterar senha
@@ -327,7 +333,7 @@ export function AppShell({
                       }))
                     }
                     placeholder="Senha atual"
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                    className="h-9 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-primary"
                   />
                   <input
                     type="password"
@@ -339,7 +345,7 @@ export function AppShell({
                       }))
                     }
                     placeholder="Nova senha"
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                    className="h-9 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-primary"
                   />
                 </div>
               </div>
@@ -351,14 +357,15 @@ export function AppShell({
               <button
                 type="button"
                 onClick={() => setProfileOpen(false)}
-                className="h-9 flex-1 sm:flex-none sm:px-4 rounded-md border border-border text-sm font-medium hover:bg-muted"
+                className="h-9 flex-1 rounded-xl border border-border text-sm font-medium hover:bg-muted sm:flex-none sm:px-4"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
                 disabled={profileMutation.isPending}
-                className="h-9 flex-1 sm:flex-none sm:px-4 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-xl text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-60 sm:flex-none sm:px-4"
+                style={{ background: "var(--gradient-primary)" }}
               >
                 <Save className="h-4 w-4" />
                 {profileMutation.isPending ? "Salvando" : "Salvar"}
@@ -369,45 +376,34 @@ export function AppShell({
       </Dialog>
 
       {/* Main */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="safe-top relative bg-background border-b border-border">
-          <div className="flex items-center gap-3 px-4 md:px-6 py-3.5">
-            <button
-              type="button"
-              onClick={() => setMobileNavOpen(true)}
-              className="md:hidden h-9 w-9 rounded-md hover:bg-muted flex items-center justify-center transition-colors shrink-0"
-              aria-label="Abrir menu"
-            >
-              <Menu className="h-5 w-5 text-foreground/70" />
-            </button>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-lg md:text-xl font-display font-semibold text-foreground truncate">
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="safe-top relative border-b border-border bg-background/80 backdrop-blur">
+          <div className="flex items-center gap-3 px-4 py-3.5 md:px-6">
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate font-display text-lg font-semibold text-foreground md:text-xl">
                 {title}
               </h1>
               {subtitle && (
-                <p className="text-sm text-muted-foreground mt-0.5 truncate">{subtitle}</p>
+                <p className="mt-0.5 truncate text-sm text-muted-foreground">{subtitle}</p>
               )}
             </div>
-            <div className="hidden lg:flex items-center gap-2 px-3 h-9 rounded-md bg-muted border border-transparent focus-within:border-primary/40 focus-within:bg-background transition-colors w-64">
+            <div className="hidden h-9 w-64 items-center gap-2 rounded-xl border border-transparent bg-muted px-3 transition-colors focus-within:border-primary/40 focus-within:bg-background lg:flex">
               <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 placeholder="Buscar tarefas, pessoas..."
-                className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
+                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
             </div>
-            <button className="relative h-9 w-9 rounded-md hover:bg-muted flex items-center justify-center transition-colors">
-              <Bell className="h-4.5 w-4.5 text-foreground/70" />
-              <span className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-destructive ring-2 ring-background" />
-            </button>
+            <NotificationsMenu tasks={data?.tasks ?? []} currentUserId={data?.currentUser.id} />
             {actions}
             <button
               type="button"
               onClick={() => logoutMutation.mutate()}
               disabled={logoutMutation.isPending}
-              className="h-9 w-9 rounded-md hover:bg-muted flex items-center justify-center transition-colors"
+              className="hidden h-9 w-9 items-center justify-center rounded-xl text-foreground/70 transition-colors hover:bg-muted md:flex"
               title="Sair"
             >
-              <LogOut className="h-4 w-4 text-foreground/70" />
+              <LogOut className="h-4 w-4" />
             </button>
           </div>
           <div
@@ -416,13 +412,26 @@ export function AppShell({
               isFetching ? "opacity-100" : "opacity-0",
             )}
           >
-            <div className="h-full w-1/3 bg-primary/70 animate-pulse" />
+            <div
+              className="h-full w-1/3 animate-pulse"
+              style={{ background: "var(--gradient-primary)" }}
+            />
           </div>
         </header>
-        <div className="safe-x safe-bottom flex-1 px-3 py-4 md:px-6 md:py-6 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none">
+        <div className="safe-x flex-1 animate-in fade-in slide-in-from-bottom-1 px-3 py-4 pb-24 duration-200 motion-reduce:animate-none md:px-6 md:py-6 md:pb-6">
           {children}
         </div>
       </main>
+
+      <BottomTabBar
+        primaryItems={primaryMobileNav}
+        moreItems={moreMobileNav}
+        pathname={pathname}
+        userName={currentUser.name}
+        userRole={currentUser.role}
+        onOpenProfile={openProfile}
+        onLogout={() => logoutMutation.mutate()}
+      />
     </div>
   );
 }
@@ -430,17 +439,17 @@ export function AppShell({
 export function StatusBadge({ status }: { status: TaskStatus }) {
   const map = {
     pending: { label: "Pendente", cls: "bg-muted text-muted-foreground" },
-    in_progress: { label: "Em andamento", cls: "bg-primary/10 text-primary" },
-    waiting_review: { label: "Aguardando revisão", cls: "bg-warning/15 text-warning-foreground" },
-    reopened: { label: "Reaberta", cls: "bg-destructive/10 text-destructive" },
-    completed: { label: "Concluída", cls: "bg-success/15 text-success" },
+    in_progress: { label: "Em andamento", cls: "bg-primary/15 text-primary" },
+    waiting_review: { label: "Aguardando revisão", cls: "bg-warning/20 text-warning-foreground" },
+    reopened: { label: "Reaberta", cls: "bg-destructive/15 text-destructive" },
+    completed: { label: "Concluída", cls: "bg-success/20 text-success" },
     canceled: { label: "Cancelada", cls: "bg-muted text-muted-foreground line-through" },
   } as const;
   const it = map[status];
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium border border-transparent",
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
         it.cls,
       )}
     >
@@ -453,17 +462,22 @@ export function StatusBadge({ status }: { status: TaskStatus }) {
 export function PriorityBadge({ priority }: { priority: Priority }) {
   const map = {
     low: { label: "Baixa", cls: "bg-muted text-muted-foreground" },
-    medium: { label: "Média", cls: "bg-primary/10 text-primary" },
-    high: { label: "Alta", cls: "bg-warning/15 text-warning-foreground" },
-    urgent: { label: "Urgente", cls: "bg-destructive/10 text-destructive" },
+    medium: { label: "Média", cls: "bg-primary/15 text-primary" },
+    high: { label: "Alta", cls: "bg-warning/20 text-warning-foreground" },
+    urgent: { label: "Urgente", cls: "text-destructive-foreground" },
   } as const;
   const it = map[priority];
   return (
     <span
       className={cn(
-        "inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold uppercase tracking-wide",
+        "inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
         it.cls,
       )}
+      style={
+        priority === "urgent"
+          ? { background: "linear-gradient(135deg, var(--destructive), oklch(0.68 0.2 15))" }
+          : undefined
+      }
     >
       {it.label}
     </span>

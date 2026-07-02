@@ -2,8 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { AppShell } from "@/components/app-shell";
+import { AccessRestricted } from "@/components/access-restricted";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { Field } from "@/components/form-field";
+import { getAccessLevel, meetsAccess } from "@/lib/access";
 import {
   Dialog,
   DialogContent,
@@ -70,7 +72,16 @@ function SetoresPage() {
     );
   }
 
-  const { departments, employees, tasks } = data;
+  const { departments, employees, tasks, groups, currentUser } = data;
+  const access = getAccessLevel({ currentUser, departments, groups });
+  if (!meetsAccess(access, "manager")) {
+    return (
+      <AppShell title="Setores" subtitle="Divisões fixas da empresa">
+        <AccessRestricted requiredLabel="gestores e administradores" />
+      </AppShell>
+    );
+  }
+
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
   const mutationError = createMutation.error instanceof Error ? createMutation.error.message : null;
 
@@ -97,7 +108,8 @@ function SetoresPage() {
       actions={
         <button
           onClick={openForm}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
+          style={{ background: "var(--gradient-primary)" }}
+          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
         >
           <Plus className="h-4 w-4" /> Novo setor
         </button>
@@ -223,7 +235,8 @@ function SetoresPage() {
               <button
                 type="submit"
                 disabled={createMutation.isPending}
-                className="h-9 px-5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition disabled:opacity-60"
+                style={{ background: "var(--gradient-primary)" }}
+                className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
               >
                 {createMutation.isPending ? "Criando..." : "Criar setor"}
               </button>

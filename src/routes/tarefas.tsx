@@ -1,7 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useDeferredValue, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
+import { PENDING_TASK_KEY } from "@/components/notifications-menu";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
 import type { TargetType, Task, TaskStatus } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
@@ -99,6 +107,27 @@ function TasksPage() {
     onDeleted: () => setSelectedTaskId(null),
     onCommented: () => setCommentBody(""),
   });
+
+  useEffect(() => {
+    if (!data) return;
+    const pendingId = sessionStorage.getItem(PENDING_TASK_KEY);
+    if (!pendingId) return;
+    sessionStorage.removeItem(PENDING_TASK_KEY);
+    const task = data.tasks.find((item) => item.id === pendingId);
+    if (!task) return;
+    setSelectedTaskId(task.id);
+    setCommentBody("");
+    setEditForm({
+      title: task.title,
+      description: task.description,
+      priority: task.priority,
+      dueDate: task.dueDate,
+      tags: task.tags.join(", "),
+      recurrence: recurrenceToForm(task.recurrence, task.dueDate),
+    });
+    updateTaskMutation.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const deferredSearch = useDeferredValue(search);
   const normalizedSearch = deferredSearch.trim().toLowerCase();
@@ -301,7 +330,8 @@ function TasksPage() {
       actions={
         <button
           onClick={openForm}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
+          style={{ background: "var(--gradient-primary)" }}
+          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
         >
           <Plus className="h-4 w-4" /> Nova tarefa
         </button>
@@ -319,7 +349,8 @@ function TasksPage() {
         </div>
         <button
           onClick={openForm}
-          className="md:hidden inline-flex items-center gap-2 px-4 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
+          style={{ background: "var(--gradient-primary)" }}
+          className="md:hidden inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:opacity-90 shadow-[var(--shadow-elegant)]"
         >
           <Plus className="h-4 w-4" /> Nova
         </button>
@@ -347,10 +378,11 @@ function TasksPage() {
             <button
               key={f.key}
               onClick={() => setActive(f.key)}
+              style={isActive ? { background: "var(--gradient-primary)" } : undefined}
               className={cn(
-                "px-3.5 h-8 rounded-md text-sm font-medium whitespace-nowrap transition-all inline-flex items-center gap-2",
+                "px-3.5 h-8 rounded-full text-sm font-medium whitespace-nowrap transition-all inline-flex items-center gap-2",
                 isActive
-                  ? "bg-primary text-primary-foreground"
+                  ? "text-primary-foreground shadow-[var(--shadow-elegant)]"
                   : "bg-card border border-border text-foreground/70 hover:border-primary/40",
               )}
             >

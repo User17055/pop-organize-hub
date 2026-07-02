@@ -32,20 +32,30 @@ function LoginPage() {
 
   return (
     <div className="min-h-screen flex">
-      <div className="hidden lg:flex flex-1 relative overflow-hidden p-12 flex-col justify-between text-sidebar-foreground bg-sidebar">
+      <div
+        className="hidden lg:flex flex-1 relative overflow-hidden p-12 flex-col justify-between text-primary-foreground"
+        style={{ background: "var(--gradient-hero)" }}
+      >
+        <div
+          className="absolute inset-0 opacity-25"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 15% 20%, white 0%, transparent 42%), radial-gradient(circle at 85% 80%, white 0%, transparent 42%)",
+          }}
+        />
         <div className="relative">
           <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-md bg-primary flex items-center justify-center">
-              <Building2 className="h-4.5 w-4.5 text-primary-foreground" />
+            <div className="h-10 w-10 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center">
+              <Building2 className="h-5 w-5" />
             </div>
-            <span className="font-display font-semibold text-lg">Pop Organize</span>
+            <span className="font-display font-bold text-xl">Pop Organize</span>
           </div>
         </div>
         <div className="relative space-y-6">
-          <h1 className="text-3xl font-display font-bold leading-tight">
+          <h1 className="text-4xl font-display font-bold leading-tight">
             Organize sua empresa de ponta a ponta.
           </h1>
-          <p className="text-base text-sidebar-foreground/70 max-w-md">
+          <p className="text-lg text-primary-foreground/90 max-w-md">
             Tarefas, setores, grupos e equipes em uma única plataforma, simples e poderosa.
           </p>
           <ul className="space-y-2.5 max-w-md">
@@ -55,22 +65,25 @@ function LoginPage() {
               "Fluxo de revisão e aprovação completo",
               "Dashboard com indicadores em tempo real",
             ].map((f) => (
-              <li key={f} className="flex items-center gap-2.5 text-sm text-sidebar-foreground/85">
-                <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-primary" /> {f}
+              <li key={f} className="flex items-center gap-2.5 text-sm text-primary-foreground/95">
+                <CheckCircle2 className="h-5 w-5 shrink-0" /> {f}
               </li>
             ))}
           </ul>
         </div>
-        <div className="relative text-sm text-sidebar-foreground/50">© 2026 Pop Organize</div>
+        <div className="relative text-sm text-primary-foreground/70">© 2026 Pop Organize</div>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6 sm:p-12 bg-background">
         <div className="w-full max-w-sm">
           <div className="lg:hidden flex items-center gap-2.5 mb-8 justify-center">
-            <div className="h-9 w-9 rounded-md bg-primary flex items-center justify-center">
-              <Building2 className="h-4.5 w-4.5 text-primary-foreground" />
+            <div
+              className="h-10 w-10 rounded-xl flex items-center justify-center"
+              style={{ background: "var(--gradient-primary)" }}
+            >
+              <Building2 className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="font-display font-semibold text-lg">Pop Organize</span>
+            <span className="font-display font-bold text-xl">Pop Organize</span>
           </div>
 
           <h2 className="text-2xl font-display font-bold">Bem-vindo de volta</h2>
@@ -115,7 +128,8 @@ function LoginPage() {
             {errorMessage && <div className="text-sm text-destructive">{errorMessage}</div>}
             <button
               disabled={loginMutation.isPending}
-              className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition inline-flex items-center justify-center gap-2 disabled:opacity-70"
+              style={{ background: "var(--gradient-primary)" }}
+              className="w-full h-10 rounded-xl text-primary-foreground font-medium text-sm hover:opacity-90 transition inline-flex items-center justify-center gap-2 disabled:opacity-70 shadow-[var(--shadow-elegant)]"
             >
               {loginMutation.isPending ? (
                 "Entrando..."

@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
+import { AccessRestricted } from "@/components/access-restricted";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
+import { getAccessLevel, meetsAccess } from "@/lib/access";
 import { TrendingUp, Award, Clock } from "lucide-react";
 
 export const Route = createFileRoute("/relatorios")({
@@ -28,7 +30,16 @@ function RelatoriosPage() {
     );
   }
 
-  const { tasks, departments, employees } = data;
+  const { tasks, departments, employees, groups, currentUser } = data;
+  const access = getAccessLevel({ currentUser, departments, groups });
+  if (!meetsAccess(access, "manager")) {
+    return (
+      <AppShell title="Relatórios" subtitle="Indicadores de produtividade da empresa">
+        <AccessRestricted requiredLabel="gestores e administradores" />
+      </AppShell>
+    );
+  }
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const byDept = departments.map((d) => {

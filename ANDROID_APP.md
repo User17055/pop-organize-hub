@@ -8,21 +8,21 @@ Este projeto ja esta preparado para virar um app Android real usando Capacitor.
 - JDK 17 ou mais novo
 - Android SDK configurado pelo Android Studio
 
-## Configurar a URL do sistema
+## Configurar a URL de producao
 
-Como o app usa TanStack Start com funcoes de servidor, o APK precisa apontar para uma versao publicada do sistema.
+Como o app usa TanStack Start com funcoes de servidor, o app nativo precisa apontar para uma versao publicada do sistema em HTTPS. Para Play Store, use `CAPACITOR_APP_URL`.
 
 No PowerShell:
 
 ```powershell
-$env:CAPACITOR_SERVER_URL="https://seu-dominio.com"
-npm run android:sync
+$env:CAPACITOR_APP_URL="https://seu-dominio.com"
+npm run android:sync:store
 ```
 
-Para testar na rede local, use o IP do computador:
+Para testar com live reload na rede local, use uma variavel separada. Nao use isto para loja:
 
 ```powershell
-$env:CAPACITOR_SERVER_URL="http://192.168.0.10:5173"
+$env:CAPACITOR_LIVE_RELOAD_URL="http://192.168.0.10:5173"
 npm run android:sync
 ```
 
@@ -34,16 +34,17 @@ npm run android:open
 
 Depois clique em Run para instalar no celular conectado por USB.
 
-## Gerar APK
+## Gerar AAB para Play Store
 
-```bash
-npm run android:apk
+```powershell
+$env:CAPACITOR_APP_URL="https://seu-dominio.com"
+npm run android:aab
 ```
 
-O APK debug fica em:
+O AAB de release fica em:
 
 ```text
-android/app/build/outputs/apk/debug/app-debug.apk
+android/app/build/outputs/bundle/release/app-release.aab
 ```
 
-Esse arquivo pode ser enviado para um Android e instalado manualmente.
+Antes de publicar, configure a assinatura de release no Android Studio/Gradle. Para teste manual, `npm run android:apk` ainda gera APK debug.

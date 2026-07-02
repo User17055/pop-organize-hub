@@ -3,7 +3,7 @@ import { AppShell } from "@/components/app-shell";
 import { AccessRestricted } from "@/components/access-restricted";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
-import { getAccessLevel, meetsAccess } from "@/lib/access";
+import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 import { TrendingUp, Award, Clock } from "lucide-react";
 
 export const Route = createFileRoute("/relatorios")({
@@ -30,12 +30,12 @@ function RelatoriosPage() {
     );
   }
 
-  const { tasks, departments, employees, groups, currentUser } = data;
-  const access = getAccessLevel({ currentUser, departments, groups });
-  if (!meetsAccess(access, "manager")) {
+  const { tasks, departments, employees, currentUser, permissionGroups } = data;
+  const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
+  if (!hasPermission(permissionSet, "pages.reports")) {
     return (
       <AppShell title="Relatórios" subtitle="Indicadores de produtividade da empresa">
-        <AccessRestricted requiredLabel="gestores e administradores" />
+        <AccessRestricted requiredLabel="quem tem a permissão “Ver Relatórios”" />
       </AppShell>
     );
   }

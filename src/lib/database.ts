@@ -1,4 +1,12 @@
-import type { Company, CurrentUser, Department, Employee, Group, Task } from "./domain";
+import type {
+  Company,
+  CurrentUser,
+  Department,
+  Employee,
+  Group,
+  PermissionGroup,
+  Task,
+} from "./domain";
 
 export const DEMO_PASSWORD = "demo1234";
 
@@ -20,6 +28,7 @@ export type Database = {
   departments: Department[];
   groups: Group[];
   tasks: Task[];
+  permissionGroups: PermissionGroup[];
   sessions: SessionRecord[];
 };
 
@@ -48,6 +57,7 @@ export function sanitizeDatabase(db: Database, currentUserId = "u3") {
     employees,
     groups: db.groups,
     tasks: db.tasks,
+    permissionGroups: db.permissionGroups,
   };
 }
 

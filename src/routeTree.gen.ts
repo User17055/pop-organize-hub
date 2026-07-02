@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TarefasRouteImport } from './routes/tarefas'
 import { Route as SetoresRouteImport } from './routes/setores'
 import { Route as RelatoriosRouteImport } from './routes/relatorios'
+import { Route as PermissoesRouteImport } from './routes/permissoes'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as GruposRouteImport } from './routes/grupos'
 import { Route as FuncionariosRouteImport } from './routes/funcionarios'
@@ -32,6 +33,11 @@ const SetoresRoute = SetoresRouteImport.update({
 const RelatoriosRoute = RelatoriosRouteImport.update({
   id: '/relatorios',
   path: '/relatorios',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PermissoesRoute = PermissoesRouteImport.update({
+  id: '/permissoes',
+  path: '/permissoes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -72,6 +78,7 @@ export interface FileRoutesByFullPath {
   '/funcionarios': typeof FuncionariosRoute
   '/grupos': typeof GruposRoute
   '/login': typeof LoginRoute
+  '/permissoes': typeof PermissoesRoute
   '/relatorios': typeof RelatoriosRoute
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/funcionarios': typeof FuncionariosRoute
   '/grupos': typeof GruposRoute
   '/login': typeof LoginRoute
+  '/permissoes': typeof PermissoesRoute
   '/relatorios': typeof RelatoriosRoute
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/funcionarios': typeof FuncionariosRoute
   '/grupos': typeof GruposRoute
   '/login': typeof LoginRoute
+  '/permissoes': typeof PermissoesRoute
   '/relatorios': typeof RelatoriosRoute
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
@@ -108,6 +117,7 @@ export interface FileRouteTypes {
     | '/funcionarios'
     | '/grupos'
     | '/login'
+    | '/permissoes'
     | '/relatorios'
     | '/setores'
     | '/tarefas'
@@ -119,6 +129,7 @@ export interface FileRouteTypes {
     | '/funcionarios'
     | '/grupos'
     | '/login'
+    | '/permissoes'
     | '/relatorios'
     | '/setores'
     | '/tarefas'
@@ -130,6 +141,7 @@ export interface FileRouteTypes {
     | '/funcionarios'
     | '/grupos'
     | '/login'
+    | '/permissoes'
     | '/relatorios'
     | '/setores'
     | '/tarefas'
@@ -142,6 +154,7 @@ export interface RootRouteChildren {
   FuncionariosRoute: typeof FuncionariosRoute
   GruposRoute: typeof GruposRoute
   LoginRoute: typeof LoginRoute
+  PermissoesRoute: typeof PermissoesRoute
   RelatoriosRoute: typeof RelatoriosRoute
   SetoresRoute: typeof SetoresRoute
   TarefasRoute: typeof TarefasRoute
@@ -168,6 +181,13 @@ declare module '@tanstack/react-router' {
       path: '/relatorios'
       fullPath: '/relatorios'
       preLoaderRoute: typeof RelatoriosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/permissoes': {
+      id: '/permissoes'
+      path: '/permissoes'
+      fullPath: '/permissoes'
+      preLoaderRoute: typeof PermissoesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -222,6 +242,7 @@ const rootRouteChildren: RootRouteChildren = {
   FuncionariosRoute: FuncionariosRoute,
   GruposRoute: GruposRoute,
   LoginRoute: LoginRoute,
+  PermissoesRoute: PermissoesRoute,
   RelatoriosRoute: RelatoriosRoute,
   SetoresRoute: SetoresRoute,
   TarefasRoute: TarefasRoute,

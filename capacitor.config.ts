@@ -1,6 +1,8 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
-const serverUrl = process.env.CAPACITOR_SERVER_URL;
+const storeAppUrl = process.env.CAPACITOR_APP_URL;
+const liveReloadUrl = process.env.CAPACITOR_LIVE_RELOAD_URL;
+const serverUrl = storeAppUrl || liveReloadUrl;
 
 const config: CapacitorConfig = {
   appId: "br.com.poporganize.app",

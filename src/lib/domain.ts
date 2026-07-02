@@ -62,7 +62,77 @@ export interface Employee {
   departmentId: string;
   avatar?: string;
   status: "active" | "inactive";
+  permissionGroupId?: string;
 }
+
+export type PermissionKey =
+  | "tasks.create"
+  | "tasks.edit"
+  | "tasks.changeStatus"
+  | "tasks.complete"
+  | "tasks.reopen"
+  | "tasks.delete"
+  | "tasks.comment"
+  | "tasks.attach"
+  | "tasks.checklist"
+  | "pages.departments"
+  | "pages.reports"
+  | "pages.employees"
+  | "pages.company"
+  | "manage.departments"
+  | "manage.groups"
+  | "manage.employees"
+  | "manage.company";
+
+export interface PermissionGroup {
+  id: string;
+  name: string;
+  description: string;
+  permissions: PermissionKey[];
+  isSystem?: boolean;
+}
+
+export const permissionCatalog: Array<{
+  category: string;
+  items: Array<{ key: PermissionKey; label: string; hint: string }>;
+}> = [
+  {
+    category: "Tarefas",
+    items: [
+      { key: "tasks.create", label: "Criar tarefas", hint: "Pode abrir novas tarefas" },
+      { key: "tasks.edit", label: "Editar tarefas", hint: "Título, descrição, prazo e tags" },
+      { key: "tasks.changeStatus", label: "Alterar status", hint: "Mover entre pendente/andamento/revisão" },
+      { key: "tasks.complete", label: "Concluir tarefas", hint: "Marcar tarefas como concluídas" },
+      { key: "tasks.reopen", label: "Reabrir tarefas", hint: "Reabrir tarefas concluídas" },
+      { key: "tasks.delete", label: "Excluir tarefas", hint: "Remover tarefas permanentemente" },
+      { key: "tasks.comment", label: "Comentar", hint: "Escrever comentários nas tarefas" },
+      { key: "tasks.attach", label: "Anexar arquivos", hint: "Adicionar anexos nas tarefas" },
+      { key: "tasks.checklist", label: "Gerenciar checklist", hint: "Adicionar e marcar itens do checklist" },
+    ],
+  },
+  {
+    category: "Visualização de páginas",
+    items: [
+      { key: "pages.departments", label: "Ver Setores", hint: "Acessa a página de setores" },
+      { key: "pages.reports", label: "Ver Relatórios", hint: "Acessa indicadores e relatórios" },
+      { key: "pages.employees", label: "Ver Funcionários", hint: "Acessa a lista de colaboradores" },
+      { key: "pages.company", label: "Ver Empresas", hint: "Acessa o cadastro da empresa" },
+    ],
+  },
+  {
+    category: "Gestão",
+    items: [
+      { key: "manage.departments", label: "Criar/editar setores", hint: "Gerencia setores da empresa" },
+      { key: "manage.groups", label: "Criar/editar grupos", hint: "Gerencia grupos de trabalho" },
+      { key: "manage.employees", label: "Cadastrar funcionários", hint: "Adiciona novos colaboradores" },
+      { key: "manage.company", label: "Editar empresa", hint: "Altera dados da empresa" },
+    ],
+  },
+];
+
+export const allPermissionKeys = permissionCatalog.flatMap((category) =>
+  category.items.map((item) => item.key),
+);
 
 export interface Department {
   id: string;
@@ -115,6 +185,7 @@ export interface WorkspaceData {
   employees: Employee[];
   groups: Group[];
   tasks: Task[];
+  permissionGroups: PermissionGroup[];
 }
 
 export const statusLabels: Record<TaskStatus, string> = {

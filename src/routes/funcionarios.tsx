@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { AccessRestricted } from "@/components/access-restricted";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { Field } from "@/components/form-field";
-import { getAccessLevel, meetsAccess } from "@/lib/access";
+import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +42,7 @@ function FuncionariosPage() {
     departmentId: "",
     status: "active" as "active" | "inactive",
     password: "demo1234",
+    permissionGroupId: "",
   });
 
   const createMutation = useMutation({
@@ -52,6 +53,7 @@ function FuncionariosPage() {
       departmentId: string;
       status: "active" | "inactive";
       password?: string;
+      permissionGroupId?: string;
     }) => createEmployee({ data: payload }),
     onSuccess: () => {
       setShowForm(false);
@@ -75,17 +77,20 @@ function FuncionariosPage() {
     );
   }
 
-  const { employees, departments, tasks, groups, currentUser } = data;
-  const access = getAccessLevel({ currentUser, departments, groups });
-  if (!meetsAccess(access, "admin")) {
+  const { employees, departments, tasks, currentUser, permissionGroups } = data;
+  const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
+  if (!hasPermission(permissionSet, "pages.employees")) {
     return (
       <AppShell title="Funcionários" subtitle="Colaboradores cadastrados">
-        <AccessRestricted requiredLabel="administradores da empresa" />
+        <AccessRestricted requiredLabel="quem tem a permissão “Ver Funcionários”" />
       </AppShell>
     );
   }
+  const canManage = hasPermission(permissionSet, "manage.employees");
 
   const getDepartment = (id: string) => departments.find((department) => department.id === id);
+  const getPermissionGroup = (id?: string) =>
+    permissionGroups.find((group) => group.id === id);
   const mutationError = createMutation.error instanceof Error ? createMutation.error.message : null;
 
   function openForm() {
@@ -96,6 +101,7 @@ function FuncionariosPage() {
       departmentId: departments[0]?.id ?? "",
       status: "active",
       password: "demo1234",
+      permissionGroupId: "",
     });
     createMutation.reset();
     setShowForm(true);
@@ -111,22 +117,25 @@ function FuncionariosPage() {
       title="Funcionários"
       subtitle={`${employees.length} colaboradores cadastrados`}
       actions={
-        <button
-          onClick={openForm}
-          style={{ background: "var(--gradient-primary)" }}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
-        >
-          <Plus className="h-4 w-4" /> Novo funcionário
-        </button>
+        canManage ? (
+          <button
+            onClick={openForm}
+            style={{ background: "var(--gradient-primary)" }}
+            className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
+          >
+            <Plus className="h-4 w-4" /> Novo funcionário
+          </button>
+        ) : undefined
       }
     >
-      <div className="bg-card border border-border rounded-md overflow-x-auto">
-        <Table className="min-w-[720px]">
+      <div className="bg-card border border-border rounded-2xl overflow-x-auto">
+        <Table className="min-w-[820px]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead>Nome</TableHead>
               <TableHead>Cargo</TableHead>
               <TableHead>Setor</TableHead>
+              <TableHead>Permissões</TableHead>
               <TableHead className="text-right">Tarefas</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
@@ -162,6 +171,11 @@ function FuncionariosPage() {
                         style={{ background: dept?.color }}
                       />
                       <span className="text-xs text-foreground/80">{dept?.name}</span>
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary whitespace-nowrap">
+                      {getPermissionGroup(e.permissionGroupId)?.name ?? "Padrão"}
                     </span>
                   </TableCell>
                   <TableCell className="text-right text-sm font-medium">{count}</TableCell>
@@ -263,6 +277,22 @@ function FuncionariosPage() {
                   />
                 </Field>
               </div>
+              <Field label="Grupo de permissão">
+                <select
+                  value={form.permissionGroupId}
+                  onChange={(e) =>
+                    setForm((current) => ({ ...current, permissionGroupId: e.target.value }))
+                  }
+                  className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                >
+                  <option value="">Padrão (sem restrições)</option>
+                  {permissionGroups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
               {mutationError && <div className="text-sm text-destructive">{mutationError}</div>}
             </div>
             <DialogFooter className="mt-6">

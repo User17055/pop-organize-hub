@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { AccessRestricted } from "@/components/access-restricted";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { Field } from "@/components/form-field";
-import { getAccessLevel, meetsAccess } from "@/lib/access";
+import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 import {
   Dialog,
   DialogContent,
@@ -58,15 +58,16 @@ function EmpresasPage() {
     );
   }
 
-  const { company, employees, departments, groups, tasks, currentUser } = data;
-  const access = getAccessLevel({ currentUser, departments, groups });
-  if (!meetsAccess(access, "admin")) {
+  const { company, employees, departments, groups, tasks, currentUser, permissionGroups } = data;
+  const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
+  if (!hasPermission(permissionSet, "pages.company")) {
     return (
       <AppShell title="Empresas" subtitle="Gerencie a empresa da plataforma">
-        <AccessRestricted requiredLabel="administradores da empresa" />
+        <AccessRestricted requiredLabel="quem tem a permissão “Ver Empresas”" />
       </AppShell>
     );
   }
+  const canManage = hasPermission(permissionSet, "manage.company");
 
   const stats = [
     { label: "Funcionários", value: employees.length, icon: Users },
@@ -96,13 +97,15 @@ function EmpresasPage() {
       title="Empresas"
       subtitle="Gerencie a empresa da plataforma"
       actions={
-        <button
-          onClick={openForm}
-          style={{ background: "var(--gradient-primary)" }}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
-        >
-          <Pencil className="h-4 w-4" /> Editar empresa
-        </button>
+        canManage ? (
+          <button
+            onClick={openForm}
+            style={{ background: "var(--gradient-primary)" }}
+            className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
+          >
+            <Pencil className="h-4 w-4" /> Editar empresa
+          </button>
+        ) : undefined
       }
     >
       <div className="hover-lift bg-card border border-border rounded-2xl p-5">

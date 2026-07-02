@@ -1,21 +1,29 @@
-import type { CurrentUser, Department, Employee, Group, Task } from "./domain";
+import type { CurrentUser, Department, Employee, Group, PermissionGroup, Task } from "./domain";
+import { hasPermission, resolvePermissionSet } from "./permission-groups";
 
-type PermissionEmployee = Pick<Employee, "id" | "role" | "departmentId"> | CurrentUser;
+type PermissionEmployee =
+  | Pick<Employee, "id" | "role" | "departmentId" | "permissionGroupId">
+  | CurrentUser;
 
 export type TaskPermissions = {
   canEditContent: boolean;
   canChangeStatus: boolean;
   canComplete: boolean;
+  canReopen: boolean;
   canDelete: boolean;
+  canComment: boolean;
+  canAttach: boolean;
+  canManageChecklist: boolean;
   roleLabel: string;
 };
 
 type PermissionInput = {
   task: Task;
   currentUser?: PermissionEmployee | null;
-  employees: Array<Pick<Employee, "id" | "role" | "departmentId">>;
+  employees: Array<Pick<Employee, "id" | "role" | "departmentId" | "permissionGroupId">>;
   departments: Array<Pick<Department, "id" | "managerId">>;
   groups: Array<Pick<Group, "id" | "leaderId">>;
+  permissionGroups?: PermissionGroup[];
 };
 
 function isAdmin(role?: string) {
@@ -43,7 +51,15 @@ function getGroupLedByUser(input: PermissionInput) {
   return group?.leaderId === input.currentUser?.id;
 }
 
-export function getTaskPermissions(input: PermissionInput): TaskPermissions {
+type HierarchyPermissions = {
+  canEditContent: boolean;
+  canChangeStatus: boolean;
+  canComplete: boolean;
+  canDelete: boolean;
+  roleLabel: string;
+};
+
+function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
   const userId = input.currentUser?.id;
   if (!userId) {
     return {
@@ -111,5 +127,36 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
     canComplete: false,
     canDelete: false,
     roleLabel: "Somente leitura",
+  };
+}
+
+/**
+ * Effective task permissions = hierarchy (what tasks the user can act on)
+ * AND permission group (what kinds of action the user may perform at all).
+ * When `permissionGroups` is omitted the group cap is skipped (legacy callers).
+ */
+export function getTaskPermissions(input: PermissionInput): TaskPermissions {
+  const base = getHierarchyPermissions(input);
+
+  const set = resolvePermissionSet({
+    currentUser: input.currentUser,
+    employees: input.employees,
+    permissionGroups: input.permissionGroups ?? [],
+  });
+  const allowed = input.permissionGroups
+    ? (key: Parameters<typeof hasPermission>[1]) => hasPermission(set, key)
+    : () => true;
+
+  return {
+    canEditContent: base.canEditContent && allowed("tasks.edit"),
+    canChangeStatus: base.canChangeStatus && allowed("tasks.changeStatus"),
+    canComplete: base.canComplete && allowed("tasks.complete"),
+    canReopen: base.canComplete && allowed("tasks.reopen"),
+    canDelete: base.canDelete && allowed("tasks.delete"),
+    canComment: base.canChangeStatus && allowed("tasks.comment"),
+    canAttach: base.canChangeStatus && allowed("tasks.attach"),
+    canManageChecklist:
+      (base.canChangeStatus || base.canEditContent) && allowed("tasks.checklist"),
+    roleLabel: base.roleLabel,
   };
 }

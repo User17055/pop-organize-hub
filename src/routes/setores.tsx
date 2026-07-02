@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { AccessRestricted } from "@/components/access-restricted";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { Field } from "@/components/form-field";
-import { getAccessLevel, meetsAccess } from "@/lib/access";
+import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 import {
   Dialog,
   DialogContent,
@@ -72,15 +72,16 @@ function SetoresPage() {
     );
   }
 
-  const { departments, employees, tasks, groups, currentUser } = data;
-  const access = getAccessLevel({ currentUser, departments, groups });
-  if (!meetsAccess(access, "manager")) {
+  const { departments, employees, tasks, currentUser, permissionGroups } = data;
+  const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
+  if (!hasPermission(permissionSet, "pages.departments")) {
     return (
       <AppShell title="Setores" subtitle="Divisões fixas da empresa">
-        <AccessRestricted requiredLabel="gestores e administradores" />
+        <AccessRestricted requiredLabel="quem tem a permissão “Ver Setores”" />
       </AppShell>
     );
   }
+  const canManage = hasPermission(permissionSet, "manage.departments");
 
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
   const mutationError = createMutation.error instanceof Error ? createMutation.error.message : null;
@@ -106,13 +107,15 @@ function SetoresPage() {
       title="Setores"
       subtitle="Divisões fixas da empresa"
       actions={
-        <button
-          onClick={openForm}
-          style={{ background: "var(--gradient-primary)" }}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
-        >
-          <Plus className="h-4 w-4" /> Novo setor
-        </button>
+        canManage ? (
+          <button
+            onClick={openForm}
+            style={{ background: "var(--gradient-primary)" }}
+            className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
+          >
+            <Plus className="h-4 w-4" /> Novo setor
+          </button>
+        ) : undefined
       }
     >
       <div className="rounded-md border border-border bg-card overflow-hidden">

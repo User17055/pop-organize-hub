@@ -9,21 +9,21 @@ Este projeto tambem esta preparado para virar um app iOS real usando Capacitor.
 - Node.js 20 ou mais novo
 - CocoaPods, se o Xcode pedir dependencias nativas
 
-## Configurar a URL do sistema
+## Configurar a URL de producao
 
-Como o app usa TanStack Start com funcoes de servidor, o app iOS precisa apontar para uma versao publicada do sistema.
+Como o app usa TanStack Start com funcoes de servidor, o app iOS precisa apontar para uma versao publicada do sistema em HTTPS. Para App Store, use `CAPACITOR_APP_URL`.
 
 No terminal do Mac:
 
 ```bash
-export CAPACITOR_SERVER_URL="https://poporganize.com.br"
-npm run ios:sync
+export CAPACITOR_APP_URL="https://poporganize.com.br"
+npm run ios:sync:store
 ```
 
-Para testar na rede local, use o IP do computador:
+Para testar com live reload na rede local, use uma variavel separada. Nao use isto para loja:
 
 ```bash
-export CAPACITOR_SERVER_URL="http://192.168.0.10:5173"
+export CAPACITOR_LIVE_RELOAD_URL="http://192.168.0.10:5173"
 npm run ios:sync
 ```
 

@@ -5,11 +5,13 @@ import process from "node:process";
 
 import { DEMO_PASSWORD, nextId, type Database, type SessionRecord } from "./database";
 import {
+  allPermissionKeys,
   departmentColors,
   type Company,
   type Department,
   type Employee,
   type Group,
+  type PermissionGroup,
   type Task,
 } from "./domain";
 
@@ -39,6 +41,64 @@ function offsetDate(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function initialPermissionGroups(): PermissionGroup[] {
+  return [
+    {
+      id: "pg1",
+      name: "Administrador",
+      description: "Acesso total a todas as áreas e ações do sistema.",
+      permissions: [...allPermissionKeys],
+      isSystem: true,
+    },
+    {
+      id: "pg2",
+      name: "Gestor",
+      description: "Gerencia tarefas da equipe, setores e grupos. Sem acesso a cadastros da empresa.",
+      permissions: [
+        "tasks.create",
+        "tasks.edit",
+        "tasks.changeStatus",
+        "tasks.complete",
+        "tasks.reopen",
+        "tasks.delete",
+        "tasks.comment",
+        "tasks.attach",
+        "tasks.checklist",
+        "pages.departments",
+        "pages.reports",
+        "manage.departments",
+        "manage.groups",
+      ],
+    },
+    {
+      id: "pg3",
+      name: "Colaborador",
+      description: "Trabalha nas próprias tarefas. Não pode excluir nem reabrir tarefas.",
+      permissions: [
+        "tasks.create",
+        "tasks.edit",
+        "tasks.changeStatus",
+        "tasks.complete",
+        "tasks.comment",
+        "tasks.attach",
+        "tasks.checklist",
+      ],
+    },
+  ];
+}
+
+function defaultPermissionGroupId(
+  employee: Pick<Employee, "id" | "role">,
+  departments: Array<Pick<Department, "managerId">>,
+  groups: Array<Pick<Group, "leaderId">>,
+) {
+  if (employee.role.toLowerCase().includes("admin")) return "pg1";
+  const isManager =
+    departments.some((department) => department.managerId === employee.id) ||
+    groups.some((group) => group.leaderId === employee.id);
+  return isManager ? "pg2" : "pg3";
 }
 
 function initialDatabase(): Database {
@@ -332,23 +392,40 @@ function initialDatabase(): Database {
       document: "00.000.000/0001-00",
       status: "active",
     },
-    employees,
+    employees: employees.map((employee) => ({
+      ...employee,
+      permissionGroupId: defaultPermissionGroupId(employee, departments, groups),
+    })),
     departments,
     groups,
     tasks,
+    permissionGroups: initialPermissionGroups(),
     sessions: [],
   };
 }
 
 function normalizeDatabase(value: Database): Database {
+  const departments = value.departments ?? [];
+  const groups = value.groups ?? [];
+  const permissionGroups = value.permissionGroups?.length
+    ? value.permissionGroups
+    : initialPermissionGroups();
+  // Migration: databases created before permission groups existed get a
+  // sensible group assigned based on the employee's current role/hierarchy.
+  const employees = (value.employees ?? []).map((employee) =>
+    employee.permissionGroupId && permissionGroups.some((g) => g.id === employee.permissionGroupId)
+      ? employee
+      : { ...employee, permissionGroupId: defaultPermissionGroupId(employee, departments, groups) },
+  );
   return {
     ...initialDatabase(),
     ...value,
     company: { ...initialDatabase().company, ...value.company },
-    employees: value.employees ?? [],
-    departments: value.departments ?? [],
-    groups: value.groups ?? [],
+    employees,
+    departments,
+    groups,
     tasks: value.tasks ?? [],
+    permissionGroups,
     sessions: value.sessions ?? [],
   };
 }

@@ -16,7 +16,14 @@ import {
   toCurrentUser,
   withoutPassword,
 } from "../database";
-import { departmentColors, type Task, type TargetType } from "../domain";
+import {
+  allPermissionKeys,
+  departmentColors,
+  type PermissionKey,
+  type Task,
+  type TargetType,
+} from "../domain";
+import { hasPermission, isAdminUser, resolvePermissionSet } from "../permission-groups";
 import { getTaskPermissions } from "../permissions";
 
 const SESSION_COOKIE = "pop_organize_session";
@@ -88,6 +95,27 @@ const createEmployeeSchema = z.object({
   departmentId: z.string().min(1),
   status: z.enum(["active", "inactive"]).default("active"),
   password: z.string().min(6).optional(),
+  permissionGroupId: z
+    .union([z.literal(""), z.string().min(1)])
+    .optional()
+    .transform((value) => value || undefined),
+});
+
+const permissionKeySchema = z.enum(allPermissionKeys as [PermissionKey, ...PermissionKey[]]);
+
+const createPermissionGroupSchema = z.object({
+  name: z.string().trim().min(2, "Informe um nome"),
+  description: z.string().trim().max(200).default(""),
+  permissions: z.array(permissionKeySchema).default([]),
+  memberIds: z.array(z.string().min(1)).default([]),
+});
+
+const updatePermissionGroupSchema = createPermissionGroupSchema.extend({
+  id: z.string().min(1),
+});
+
+const deletePermissionGroupSchema = z.object({
+  id: z.string().min(1),
 });
 
 const createGroupSchema = z.object({
@@ -356,9 +384,35 @@ function getTaskWithPermissions(
     employees: db.employees,
     departments: db.departments,
     groups: db.groups,
+    permissionGroups: db.permissionGroups,
   });
 
   return { task, permissions };
+}
+
+function requireGroupPermission(
+  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
+  currentUserId: string,
+  key: PermissionKey,
+  message: string,
+) {
+  const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+  const set = resolvePermissionSet({
+    currentUser,
+    employees: db.employees,
+    permissionGroups: db.permissionGroups,
+  });
+  if (!hasPermission(set, key)) throw createHttpError(message, 403);
+}
+
+function requireAdmin(
+  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
+  currentUserId: string,
+) {
+  const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+  if (!isAdminUser({ currentUser, employees: db.employees })) {
+    throw createHttpError("Apenas administradores podem gerenciar grupos de permissão.", 403);
+  }
 }
 
 export const getWorkspaceData = createServerFn({ method: "GET" }).handler(async () => {
@@ -455,8 +509,16 @@ export const updateProfile = createServerFn({ method: "POST" })
 export const createTask = createServerFn({ method: "POST" })
   .inputValidator((data) => createTaskSchema.parse(data))
   .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "tasks.create",
+        "Seu grupo de permissão não pode criar tarefas.",
+      );
+
       const responsible = db.employees.find((employee) => employee.id === data.responsibleId);
       if (!responsible) throw createHttpError("Responsável não encontrado.");
 
@@ -507,8 +569,17 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
         employees: db.employees,
         departments: db.departments,
         groups: db.groups,
+        permissionGroups: db.permissionGroups,
       });
-      if (!permissions.canChangeStatus) {
+      if (data.status === "completed") {
+        if (!permissions.canComplete) {
+          throw createHttpError("Seu grupo de permissão não pode concluir tarefas.", 403);
+        }
+      } else if (task.status === "completed" || data.status === "reopened") {
+        if (!permissions.canReopen) {
+          throw createHttpError("Seu grupo de permissão não pode reabrir tarefas.", 403);
+        }
+      } else if (!permissions.canChangeStatus) {
         throw createHttpError("Você não tem permissão para alterar o status desta tarefa.", 403);
       }
       const wasCompleted = task.status === "completed";
@@ -535,6 +606,7 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
         employees: db.employees,
         departments: db.departments,
         groups: db.groups,
+        permissionGroups: db.permissionGroups,
       });
       if (!permissions.canEditContent) {
         throw createHttpError("Você não tem permissão para editar o texto desta tarefa.", 403);
@@ -558,7 +630,7 @@ export const addTaskComment = createServerFn({ method: "POST" })
 
     return mutateDatabase((db) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
-      if (!permissions.canChangeStatus && !permissions.canEditContent) {
+      if (!permissions.canComment) {
         throw createHttpError("Você não tem permissão para comentar nesta tarefa.", 403);
       }
 
@@ -583,7 +655,7 @@ export const addTaskAttachment = createServerFn({ method: "POST" })
 
     return mutateDatabase((db) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
-      if (!permissions.canChangeStatus && !permissions.canEditContent) {
+      if (!permissions.canAttach) {
         throw createHttpError("Você não tem permissão para anexar arquivos nesta tarefa.", 403);
       }
 
@@ -609,7 +681,7 @@ export const addTaskSubtask = createServerFn({ method: "POST" })
 
     return mutateDatabase((db) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
-      if (!permissions.canChangeStatus && !permissions.canEditContent) {
+      if (!permissions.canManageChecklist) {
         throw createHttpError("Você não tem permissão para adicionar itens nesta tarefa.", 403);
       }
 
@@ -632,7 +704,7 @@ export const toggleTaskSubtask = createServerFn({ method: "POST" })
 
     return mutateDatabase((db) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
-      if (!permissions.canChangeStatus && !permissions.canEditContent) {
+      if (!permissions.canManageChecklist) {
         throw createHttpError("Você não tem permissão para atualizar itens desta tarefa.", 403);
       }
 
@@ -653,7 +725,7 @@ export const updateTaskSubtask = createServerFn({ method: "POST" })
 
     return mutateDatabase((db) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
-      if (!permissions.canEditContent) {
+      if (!permissions.canManageChecklist || !permissions.canEditContent) {
         throw createHttpError("Você não tem permissão para editar itens desta tarefa.", 403);
       }
 
@@ -673,7 +745,7 @@ export const deleteTaskSubtask = createServerFn({ method: "POST" })
 
     return mutateDatabase((db) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
-      if (!permissions.canEditContent) {
+      if (!permissions.canManageChecklist) {
         throw createHttpError("Você não tem permissão para remover itens desta tarefa.", 403);
       }
 
@@ -699,9 +771,10 @@ export const deleteTask = createServerFn({ method: "POST" })
         employees: db.employees,
         departments: db.departments,
         groups: db.groups,
+        permissionGroups: db.permissionGroups,
       });
       if (!permissions.canDelete) {
-        throw createHttpError("Apenas administradores podem excluir tarefas.", 403);
+        throw createHttpError("Seu grupo de permissão não pode excluir tarefas.", 403);
       }
 
       db.tasks.splice(taskIndex, 1);
@@ -712,8 +785,15 @@ export const deleteTask = createServerFn({ method: "POST" })
 export const createDepartment = createServerFn({ method: "POST" })
   .inputValidator((data) => createDepartmentSchema.parse(data))
   .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.departments",
+        "Seu grupo de permissão não pode criar setores.",
+      );
       if (!db.employees.some((employee) => employee.id === data.managerId)) {
         throw createHttpError("Gestor não encontrado.");
       }
@@ -734,8 +814,15 @@ export const createDepartment = createServerFn({ method: "POST" })
 export const createEmployee = createServerFn({ method: "POST" })
   .inputValidator((data) => createEmployeeSchema.parse(data))
   .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
     const { mutateDatabase, hashPassword } = await dbServer();
     return mutateDatabase((db) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.employees",
+        "Seu grupo de permissão não pode cadastrar funcionários.",
+      );
       if (!db.departments.some((department) => department.id === data.departmentId)) {
         throw createHttpError("Setor não encontrado.");
       }
@@ -746,6 +833,13 @@ export const createEmployee = createServerFn({ method: "POST" })
         throw createHttpError("Já existe um funcionário com este e-mail.");
       }
 
+      if (
+        data.permissionGroupId &&
+        !db.permissionGroups.some((group) => group.id === data.permissionGroupId)
+      ) {
+        throw createHttpError("Grupo de permissão não encontrado.");
+      }
+
       const employee = {
         id: nextId("u", db.employees),
         name: data.name,
@@ -753,6 +847,7 @@ export const createEmployee = createServerFn({ method: "POST" })
         role: data.role,
         departmentId: data.departmentId,
         status: data.status,
+        permissionGroupId: data.permissionGroupId,
         passwordHash: hashPassword(data.password ?? DEMO_PASSWORD),
       };
 
@@ -765,8 +860,15 @@ export const createEmployee = createServerFn({ method: "POST" })
 export const createGroup = createServerFn({ method: "POST" })
   .inputValidator((data) => createGroupSchema.parse(data))
   .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.groups",
+        "Seu grupo de permissão não pode criar grupos.",
+      );
       if (data.leaderId && !db.employees.some((employee) => employee.id === data.leaderId)) {
         throw createHttpError("Líder não encontrado.");
       }
@@ -795,8 +897,15 @@ export const createGroup = createServerFn({ method: "POST" })
 export const updateCompany = createServerFn({ method: "POST" })
   .inputValidator((data) => updateCompanySchema.parse(data))
   .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.company",
+        "Seu grupo de permissão não pode editar a empresa.",
+      );
       db.company = {
         ...db.company,
         name: data.name,
@@ -804,5 +913,89 @@ export const updateCompany = createServerFn({ method: "POST" })
         status: data.status,
       };
       return db.company;
+    });
+  });
+
+function applyPermissionGroupMembers(
+  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
+  groupId: string,
+  memberIds: string[],
+) {
+  const invalidMember = memberIds.find(
+    (memberId) => !db.employees.some((employee) => employee.id === memberId),
+  );
+  if (invalidMember) throw createHttpError("Um dos membros não foi encontrado.");
+
+  for (const employee of db.employees) {
+    if (memberIds.includes(employee.id)) {
+      employee.permissionGroupId = groupId;
+    } else if (employee.permissionGroupId === groupId) {
+      employee.permissionGroupId = undefined;
+    }
+  }
+}
+
+export const createPermissionGroup = createServerFn({ method: "POST" })
+  .inputValidator((data) => createPermissionGroupSchema.parse(data))
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
+    return mutateDatabase((db) => {
+      requireAdmin(db, currentUserId);
+
+      const group = {
+        id: nextId("pg", db.permissionGroups),
+        name: data.name,
+        description: data.description,
+        permissions: data.permissions,
+      };
+      db.permissionGroups.push(group);
+      applyPermissionGroupMembers(db, group.id, data.memberIds);
+      return group;
+    });
+  });
+
+export const updatePermissionGroup = createServerFn({ method: "POST" })
+  .inputValidator((data) => updatePermissionGroupSchema.parse(data))
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
+    return mutateDatabase((db) => {
+      requireAdmin(db, currentUserId);
+
+      const group = db.permissionGroups.find((item) => item.id === data.id);
+      if (!group) throw createHttpError("Grupo de permissão não encontrado.", 404);
+
+      group.name = data.name;
+      group.description = data.description;
+      if (!group.isSystem) {
+        group.permissions = data.permissions;
+      }
+      applyPermissionGroupMembers(db, group.id, data.memberIds);
+      return group;
+    });
+  });
+
+export const deletePermissionGroup = createServerFn({ method: "POST" })
+  .inputValidator((data) => deletePermissionGroupSchema.parse(data))
+  .handler(async ({ data }) => {
+    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const { mutateDatabase } = await dbServer();
+    return mutateDatabase((db) => {
+      requireAdmin(db, currentUserId);
+
+      const groupIndex = db.permissionGroups.findIndex((item) => item.id === data.id);
+      if (groupIndex === -1) throw createHttpError("Grupo de permissão não encontrado.", 404);
+      if (db.permissionGroups[groupIndex].isSystem) {
+        throw createHttpError("O grupo Administrador não pode ser excluído.", 400);
+      }
+
+      for (const employee of db.employees) {
+        if (employee.permissionGroupId === data.id) {
+          employee.permissionGroupId = undefined;
+        }
+      }
+      db.permissionGroups.splice(groupIndex, 1);
+      return { ok: true, id: data.id };
     });
   });

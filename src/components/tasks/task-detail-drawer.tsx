@@ -87,9 +87,9 @@ export function TaskDetailDrawer({
   const getEmployee = (id?: string) => employees.find((employee) => employee.id === id);
 
   return (
-    <form onSubmit={onSubmit} className="flex h-full flex-col">
+    <form onSubmit={onSubmit} className="flex h-full flex-col overflow-hidden rounded-l-[28px]">
       {/* Sticky header */}
-      <header className="sticky top-0 z-10 border-b border-border bg-card px-5 pt-5 pb-4">
+      <header className="glass-header sticky top-0 z-10 border-b border-white/70 px-5 pb-4 pt-5">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5" />
@@ -98,7 +98,7 @@ export function TaskDetailDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="h-8 w-8 rounded-md bg-muted hover:bg-muted/70 text-foreground flex items-center justify-center transition"
+            className="glass-icon-button flex h-8 w-8 items-center justify-center rounded-xl text-foreground"
             aria-label="Fechar atividade"
           >
             <X className="h-3.5 w-3.5" />

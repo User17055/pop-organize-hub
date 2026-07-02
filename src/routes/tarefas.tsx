@@ -11,8 +11,9 @@ import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { PENDING_TASK_KEY } from "@/components/notifications-menu";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
-import type { TargetType, Task, TaskStatus } from "@/lib/domain";
+import type { PermissionKey, TargetType, Task, TaskStatus } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
+import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { Plus, Search, Check, ChevronDown, Archive, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskCreateDialog } from "@/components/tasks/task-create-dialog";
@@ -21,9 +22,7 @@ import { TaskList } from "@/components/tasks/task-list";
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
 import {
   emptyTaskFilters,
-  TaskFilterBar,
   taskMatchesFilters,
-  type TaskFilterState,
 } from "@/components/tasks/task-filter-bar";
 import { PriorityBadge } from "@/components/app-shell";
 import {
@@ -59,7 +58,7 @@ function TasksPage() {
   const { data, isLoading, error } = useWorkspaceData();
   const [active, setActive] = useState<TaskStatus | "all">("all");
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState<TaskFilterState>(emptyTaskFilters);
+  const filters = emptyTaskFilters;
   const [showForm, setShowForm] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -179,6 +178,16 @@ function TasksPage() {
   }
 
   const { company, currentUser, departments, employees, groups, tasks } = data;
+  const permissionSet = resolvePermissionSet({
+    currentUser,
+    employees,
+    permissionGroups: data.permissionGroups,
+  });
+  const canSeePeopleContext =
+    isAdminUser({ currentUser, employees }) ||
+    (["pages.employees", "pages.reports", "manage.employees"] as PermissionKey[]).some((key) =>
+      hasPermission(permissionSet, key),
+    );
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
   const selectedPermissions = selectedTask
     ? getTaskPermissions({
@@ -337,8 +346,8 @@ function TasksPage() {
         </button>
       }
     >
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex-1 min-w-[240px] flex items-center gap-2 px-3 h-9 rounded-md bg-card border border-border focus-within:border-primary/40 transition-colors">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="app-surface flex h-11 min-w-[240px] flex-1 items-center gap-2 rounded-2xl px-3 transition-colors focus-within:border-primary/40 md:h-9 md:rounded-xl">
           <Search className="h-4 w-4 text-muted-foreground" />
           <input
             value={search}
@@ -350,24 +359,13 @@ function TasksPage() {
         <button
           onClick={openForm}
           style={{ background: "var(--gradient-primary)" }}
-          className="md:hidden inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:opacity-90 shadow-[var(--shadow-elegant)]"
+          className="pressable inline-flex h-11 items-center gap-2 rounded-2xl px-4 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-elegant)] md:hidden"
         >
           <Plus className="h-4 w-4" /> Nova
         </button>
       </div>
 
-      <div className="mb-4">
-        <TaskFilterBar
-          filters={filters}
-          onChange={setFilters}
-          departments={departments}
-          groups={groups}
-          employees={employees}
-          tasks={taskRows}
-        />
-      </div>
-
-      <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
+      <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
         {statusFilters.map((f) => {
           const count =
             f.key === "all"
@@ -380,10 +378,10 @@ function TasksPage() {
               onClick={() => setActive(f.key)}
               style={isActive ? { background: "var(--gradient-primary)" } : undefined}
               className={cn(
-                "px-3.5 h-8 rounded-full text-sm font-medium whitespace-nowrap transition-all inline-flex items-center gap-2",
+                "pressable inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-all",
                 isActive
                   ? "text-primary-foreground shadow-[var(--shadow-elegant)]"
-                  : "bg-card border border-border text-foreground/70 hover:border-primary/40",
+                  : "app-surface text-foreground/70 hover:border-primary/40",
               )}
             >
               {f.label}
@@ -406,6 +404,7 @@ function TasksPage() {
         departments={departments}
         groups={groups}
         currentUser={currentUser}
+        showResponsible={canSeePeopleContext}
         selectedTaskId={selectedTaskId}
         onOpen={openTask}
         onComplete={(task) => statusMutation.mutate({ id: task.id, status: "completed" })}
@@ -421,14 +420,14 @@ function TasksPage() {
       )}
 
       {completedTasks.length > 0 && (
-        <section className="mt-6 rounded-md border border-dashed border-border bg-card/60">
+        <section className="mobile-card mt-6 rounded-[24px] border-dashed md:rounded-2xl">
           <button
             type="button"
             onClick={() => setShowCompleted((current) => !current)}
             className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
           >
             <span className="inline-flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-muted-foreground">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
                 <Archive className="h-4 w-4" />
               </span>
               <span>
@@ -450,7 +449,7 @@ function TasksPage() {
           </button>
 
           {showCompleted && (
-            <div className="grid grid-cols-1 gap-3 border-t border-border/70 p-4 md:grid-cols-2 xl:grid-cols-3 animate-in fade-in slide-in-from-top-1 duration-150">
+            <div className="grid grid-cols-1 gap-3 border-t border-border/70 p-4 animate-in fade-in slide-in-from-top-1 duration-150 md:grid-cols-2 xl:grid-cols-3">
               {completedTasks.map((task) => {
                 const emp = employees.find((employee) => employee.id === task.responsibleId);
                 return (
@@ -458,7 +457,7 @@ function TasksPage() {
                     key={task.id}
                     type="button"
                     onClick={() => openTask(task)}
-                    className="rounded-md border border-border/70 bg-background/70 p-4 text-left opacity-65 transition hover:border-primary/30 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+                    className="pressable rounded-2xl border border-border/70 bg-background/80 p-4 text-left opacity-70 hover:border-primary/30 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -480,8 +479,13 @@ function TasksPage() {
                       </div>
                       <PriorityBadge priority={task.priority} />
                     </div>
-                    <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-                      <span className="truncate">{emp?.name}</span>
+                    <div
+                      className={cn(
+                        "mt-3 flex items-center gap-3 text-[11px] text-muted-foreground",
+                        canSeePeopleContext ? "justify-between" : "justify-end",
+                      )}
+                    >
+                      {canSeePeopleContext && <span className="truncate">{emp?.name}</span>}
                       <span>
                         {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                       </span>
@@ -497,7 +501,7 @@ function TasksPage() {
       {/* Overlay */}
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300",
+          "fixed inset-0 z-40 bg-slate-900/20 backdrop-blur-[2px] transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
           selectedTask ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
         onClick={() => setSelectedTaskId(null)}
@@ -506,7 +510,7 @@ function TasksPage() {
       {/* Sliding right sidebar (drawer) */}
       <aside
         className={cn(
-          "fixed top-0 right-0 z-50 h-screen w-full sm:w-[480px] bg-background border-l border-border shadow-2xl flex flex-col transition-transform duration-300 ease-out",
+          "fixed right-0 top-0 z-50 flex h-screen w-[94vw] flex-col rounded-l-[28px] border-l border-white/70 bg-background shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:w-[50vw] sm:min-w-[420px] sm:max-w-[680px]",
           selectedTask ? "translate-x-0" : "translate-x-full",
         )}
         aria-hidden={!selectedTask}

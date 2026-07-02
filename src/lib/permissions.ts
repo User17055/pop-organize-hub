@@ -22,12 +22,34 @@ type PermissionInput = {
   currentUser?: PermissionEmployee | null;
   employees: Array<Pick<Employee, "id" | "role" | "departmentId" | "permissionGroupId">>;
   departments: Array<Pick<Department, "id" | "managerId">>;
-  groups: Array<Pick<Group, "id" | "leaderId">>;
+  groups: Array<Pick<Group, "id" | "leaderId" | "memberIds">>;
   permissionGroups?: PermissionGroup[];
 };
 
 function isAdmin(role?: string) {
   return role?.toLowerCase().includes("admin") ?? false;
+}
+
+export function canViewTask(input: PermissionInput) {
+  const userId = input.currentUser?.id;
+  if (!userId) return false;
+
+  if (isAdmin(input.currentUser?.role)) return true;
+
+  const currentEmployee = input.employees.find((item) => item.id === userId);
+  if (isAdmin(currentEmployee?.role)) return true;
+
+  if (input.task.target.type === "company") return true;
+  if (input.task.target.type === "user") return input.task.target.id === userId;
+  if (input.task.target.type === "department") {
+    return input.task.target.id === currentEmployee?.departmentId;
+  }
+  if (input.task.target.type === "group") {
+    const group = input.groups.find((item) => item.id === input.task.target.id);
+    return group?.leaderId === userId || group?.memberIds.includes(userId) || false;
+  }
+
+  return false;
 }
 
 function getDepartmentManagedByUser(input: PermissionInput) {
@@ -61,7 +83,7 @@ type HierarchyPermissions = {
 
 function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
   const userId = input.currentUser?.id;
-  if (!userId) {
+  if (!userId || !canViewTask(input)) {
     return {
       canEditContent: false,
       canChangeStatus: false,

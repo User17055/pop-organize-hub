@@ -2,7 +2,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell, StatusBadge, PriorityBadge } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
-import { statusLabels } from "@/lib/domain";
+import { statusLabels, type PermissionKey } from "@/lib/domain";
+import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { Plus, TrendingUp, Clock, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -17,6 +18,13 @@ export const Route = createFileRoute("/")({
   }),
   component: Dashboard,
 });
+
+function getGreeting(date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 12) return "Bom dia";
+  if (hour < 18) return "Boa tarde";
+  return "Boa noite";
+}
 
 function Dashboard() {
   const { data, isLoading, error } = useWorkspaceData();
@@ -37,7 +45,13 @@ function Dashboard() {
     );
   }
 
-  const { tasks, departments, employees, groups, currentUser } = data;
+  const { tasks, departments, employees, groups, currentUser, permissionGroups } = data;
+  const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
+  const canSeePeopleContext =
+    isAdminUser({ currentUser, employees }) ||
+    (["pages.employees", "pages.reports", "manage.employees"] as PermissionKey[]).some((key) =>
+      hasPermission(permissionSet, key),
+    );
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -87,13 +101,14 @@ function Dashboard() {
       total: dt.length,
       done: dt.filter((t) => t.status === "completed").length,
     };
-  });
+  }).filter((department) => canSeePeopleContext || department.total > 0);
 
   const recent = tasks.slice(0, 5);
+  const greeting = getGreeting();
 
   return (
     <AppShell
-      title={`Bom dia, ${currentUser.name.split(" ")[0]}`}
+      title={`${greeting}, ${currentUser.name.split(" ")[0]}`}
       subtitle="Aqui está o que está acontecendo na sua empresa hoje."
       actions={
         <Link
@@ -106,11 +121,11 @@ function Dashboard() {
       }
     >
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         {stats.map((s) => {
           const Icon = s.icon;
           return (
-            <div key={s.label} className="hover-lift bg-card border border-border rounded-2xl p-4">
+            <div key={s.label} className="mobile-card hover-lift rounded-[24px] p-4 md:rounded-2xl">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="text-sm text-muted-foreground">{s.label}</div>
@@ -129,7 +144,7 @@ function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Recent tasks */}
-        <div className="lg:col-span-2 bg-card border border-border rounded-2xl p-5">
+        <div className="mobile-card rounded-[24px] p-5 md:rounded-2xl lg:col-span-2">
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="text-base font-display font-semibold">Tarefas recentes</h2>
@@ -148,22 +163,26 @@ function Dashboard() {
               return (
                 <div
                   key={t.id}
-                  className="py-3 flex items-center gap-3 hover:bg-muted/40 -mx-2 px-2 rounded-md transition-colors"
+                  className="pressable -mx-2 flex items-center gap-3 rounded-2xl px-2 py-3 hover:bg-muted/40"
                 >
-                  <div
-                    className="h-9 w-9 rounded-xl flex items-center justify-center text-primary-foreground font-semibold text-xs shrink-0"
-                    style={{ background: "var(--gradient-primary)" }}
-                  >
-                    {emp?.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .slice(0, 2)
-                      .join("")}
-                  </div>
+                  {canSeePeopleContext && (
+                    <div
+                      className="h-9 w-9 rounded-xl flex items-center justify-center text-primary-foreground font-semibold text-xs shrink-0"
+                      style={{ background: "var(--gradient-primary)" }}
+                    >
+                      {emp?.name
+                        .split(" ")
+                        .map((n) => n[0])
+                        .slice(0, 2)
+                        .join("")}
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm truncate">{t.title}</div>
                     <div className="text-xs text-muted-foreground truncate">
-                      {emp?.name} • {t.target.label}
+                      {canSeePeopleContext
+                        ? `${emp?.name ?? ""} - ${t.target.label}`
+                        : t.target.label}
                     </div>
                   </div>
                   <PriorityBadge priority={t.priority} />
@@ -178,7 +197,7 @@ function Dashboard() {
 
         {/* Side panel */}
         <div className="space-y-5">
-          <div className="hover-lift bg-card border border-border rounded-2xl p-5">
+          <div className="mobile-card hover-lift rounded-[24px] p-5 md:rounded-2xl">
             <h2 className="text-base font-display font-semibold mb-1">Tarefas por setor</h2>
             <p className="text-sm text-muted-foreground mb-4">Distribuição atual</p>
             <div className="space-y-3.5">
@@ -205,7 +224,7 @@ function Dashboard() {
           </div>
 
           <div
-            className="hover-lift rounded-2xl p-5 text-primary-foreground shadow-[var(--shadow-elegant)]"
+            className="hover-lift rounded-[24px] p-5 text-primary-foreground shadow-[var(--shadow-elegant)] md:rounded-2xl"
             style={{ background: "var(--gradient-hero)" }}
           >
             <div className="text-xs font-semibold uppercase tracking-wider text-primary-foreground/75">
@@ -223,7 +242,8 @@ function Dashboard() {
             </Link>
           </div>
 
-          <div className="hover-lift bg-card border border-border rounded-2xl p-5">
+          {canSeePeopleContext && (
+          <div className="mobile-card hover-lift rounded-[24px] p-5 md:rounded-2xl">
             <h2 className="text-base font-display font-semibold mb-1">Equipe</h2>
             <p className="text-sm text-muted-foreground mb-4">
               {employees.length} funcionários • {groups.length} grupos
@@ -243,16 +263,19 @@ function Dashboard() {
                     .join("")}
                 </div>
               ))}
-              <div className="h-8 w-8 rounded-full ring-2 ring-card bg-muted text-muted-foreground flex items-center justify-center text-[11px] font-semibold">
-                +{employees.length - 6}
-              </div>
+              {employees.length > 6 && (
+                <div className="h-8 w-8 rounded-full ring-2 ring-card bg-muted text-muted-foreground flex items-center justify-center text-[11px] font-semibold">
+                  +{employees.length - 6}
+                </div>
+              )}
             </div>
           </div>
+          )}
         </div>
       </div>
 
       {/* Status legend at bottom */}
-      <div className="hover-lift mt-5 bg-card border border-border rounded-2xl p-5">
+      <div className="mobile-card hover-lift mt-5 rounded-[24px] p-5 md:rounded-2xl">
         <h2 className="text-base font-display font-semibold mb-4">Distribuição por status</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {(Object.keys(statusLabels) as Array<keyof typeof statusLabels>).map((k) => {

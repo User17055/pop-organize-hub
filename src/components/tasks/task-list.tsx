@@ -1,4 +1,5 @@
 import { Calendar, Check, ListChecks, MessageSquare, Paperclip } from "lucide-react";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { PriorityBadge, StatusBadge } from "@/components/app-shell";
 import {
@@ -26,6 +27,7 @@ export function TaskList({
   departments,
   groups,
   currentUser,
+  showResponsible = true,
   selectedTaskId,
   onOpen,
   onComplete,
@@ -36,6 +38,7 @@ export function TaskList({
   departments: Department[];
   groups: Group[];
   currentUser: CurrentUser;
+  showResponsible?: boolean;
   selectedTaskId: string | null;
   onOpen: (task: Task) => void;
   onComplete: (task: Task) => void;
@@ -46,13 +49,13 @@ export function TaskList({
   return (
     <>
       {/* Desktop dense table */}
-      <div className="hidden md:block rounded-md border border-border bg-card overflow-hidden">
+      <div className="hidden overflow-hidden rounded-2xl border border-border bg-card md:block">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-10"></TableHead>
               <TableHead>Título</TableHead>
-              <TableHead>Responsável</TableHead>
+              {showResponsible && <TableHead>Responsável</TableHead>}
               <TableHead>Destino</TableHead>
               <TableHead>Prazo</TableHead>
               <TableHead>Prioridade</TableHead>
@@ -121,14 +124,16 @@ export function TaskList({
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <EmployeeAvatar employee={emp} departments={departments} size="sm" />
-                      <span className="text-xs text-foreground/80 truncate max-w-[120px]">
-                        {emp?.name}
-                      </span>
-                    </div>
-                  </TableCell>
+                  {showResponsible && (
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <EmployeeAvatar employee={emp} departments={departments} size="sm" />
+                        <span className="text-xs text-foreground/80 truncate max-w-[120px]">
+                          {emp?.name}
+                        </span>
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell>
                     <span className="text-xs text-muted-foreground truncate block max-w-[140px]">
                       {task.target.label}
@@ -170,8 +175,8 @@ export function TaskList({
       </div>
 
       {/* Mobile cards */}
-      <div className="flex flex-col gap-2.5 md:hidden">
-        {tasks.map((task) => {
+      <div className="flex flex-col gap-3 md:hidden">
+        {tasks.map((task, index) => {
           const emp = getEmployee(task.responsibleId);
           const overdue = isOverdue(task);
           const permissions = getTaskPermissions({
@@ -183,8 +188,19 @@ export function TaskList({
           });
           const progress = subtaskProgress(task);
           return (
-            <div
+            <motion.div
               key={task.id}
+              layout
+              initial={{ opacity: 0, y: 12, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.98 }}
+              whileTap={{ scale: 0.992 }}
+              transition={{
+                duration: 0.34,
+                delay: Math.min(index * 0.018, 0.09),
+                ease: [0.22, 1, 0.36, 1],
+                layout: { type: "spring", stiffness: 280, damping: 32, mass: 0.9 },
+              }}
               role="button"
               tabIndex={0}
               aria-label={`Abrir atividade ${task.title}`}
@@ -196,8 +212,8 @@ export function TaskList({
                 }
               }}
               className={cn(
-                "group flex items-center gap-3 cursor-pointer bg-card border rounded-md p-3.5 transition-all outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
-                overdue ? "border-destructive/40 bg-destructive/[0.03]" : "border-border",
+                "mobile-card pressable group flex cursor-pointer items-start gap-3 rounded-[24px] p-4 outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
+                overdue ? "border-destructive/35 bg-destructive/[0.03]" : "border-border",
                 selectedTaskId === task.id && "border-primary/60 ring-1 ring-primary/10",
               )}
             >
@@ -210,7 +226,7 @@ export function TaskList({
                 }}
                 disabled={!permissions.canChangeStatus || isCompleting}
                 className={cn(
-                  "shrink-0 h-6 w-6 rounded-full border-2 flex items-center justify-center transition disabled:opacity-40",
+                  "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition disabled:opacity-40",
                   overdue
                     ? "border-destructive/50 text-destructive hover:border-destructive"
                     : "border-muted-foreground/30 text-primary hover:border-primary",
@@ -220,36 +236,35 @@ export function TaskList({
                 <Check className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition" />
               </button>
 
-              <div className="flex-1 min-w-0">
-                <h3 className="font-display font-semibold text-sm text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+              <div className="min-w-0 flex-1">
+                <h3 className="line-clamp-2 font-display text-[15px] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
                   {task.title}
                 </h3>
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1">
+                <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted/70 px-2 py-1">
                     <Calendar className="h-3.5 w-3.5" />
                     {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                   </span>
-                  <span className="text-muted-foreground/40">·</span>
                   <PriorityBadge priority={task.priority} />
                   {overdue && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-destructive/10 text-destructive font-semibold">
+                    <span className="rounded-full bg-destructive/10 px-2 py-1 text-[10px] font-semibold text-destructive">
                       Atrasada
                     </span>
                   )}
                   {progress && (
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-muted/70 px-2 py-1">
                       <ListChecks className="h-3.5 w-3.5" />
                       {progress.done}/{progress.total}
                     </span>
                   )}
                   {task.comments > 0 && (
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-muted/70 px-2 py-1">
                       <MessageSquare className="h-3.5 w-3.5" />
                       {task.comments}
                     </span>
                   )}
                   {task.attachments > 0 && (
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-muted/70 px-2 py-1">
                       <Paperclip className="h-3.5 w-3.5" />
                       {task.attachments}
                     </span>
@@ -257,8 +272,8 @@ export function TaskList({
                 </div>
               </div>
 
-              <EmployeeAvatar employee={emp} departments={departments} />
-            </div>
+              {showResponsible && <EmployeeAvatar employee={emp} departments={departments} />}
+            </motion.div>
           );
         })}
       </div>

@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dialog";
 import { createGroup } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
+import type { PermissionKey } from "@/lib/domain";
+import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { Plus, Crown } from "lucide-react";
 
 export const Route = createFileRoute("/grupos")({
@@ -61,7 +63,18 @@ function GruposPage() {
     );
   }
 
-  const { groups, employees, tasks } = data;
+  const { groups, employees, tasks, currentUser, permissionGroups } = data;
+  const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
+  const canManageGroups =
+    isAdminUser({ currentUser, employees }) ||
+    (["manage.groups", "pages.employees", "pages.reports"] as PermissionKey[]).some((key) =>
+      hasPermission(permissionSet, key),
+    );
+  const visibleGroups = canManageGroups
+    ? groups
+    : groups.filter(
+        (group) => group.leaderId === currentUser.id || group.memberIds.includes(currentUser.id),
+      );
   const getEmployee = (id?: string) => employees.find((employee) => employee.id === id);
   const mutationError = createMutation.error instanceof Error ? createMutation.error.message : null;
 
@@ -95,6 +108,7 @@ function GruposPage() {
       title="Grupos"
       subtitle="Equipes flexíveis para projetos e campanhas"
       actions={
+        canManageGroups ? (
         <button
           onClick={openForm}
           style={{ background: "var(--gradient-primary)" }}
@@ -102,10 +116,11 @@ function GruposPage() {
         >
           <Plus className="h-4 w-4" /> Novo grupo
         </button>
+        ) : null
       }
     >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {groups.map((g) => {
+        {visibleGroups.map((g) => {
           const leader = getEmployee(g.leaderId);
           const members = g.memberIds.map(getEmployee).filter(Boolean);
           const gTasks = tasks.filter((t) => t.target.type === "group" && t.target.id === g.id);
@@ -121,12 +136,21 @@ function GruposPage() {
                 </span>
               </div>
 
-              <div className="flex items-center gap-2 mt-4 p-2.5 rounded-md bg-accent/40">
-                <Crown className="h-4 w-4 text-warning-foreground" />
-                <span className="text-xs text-muted-foreground">Líder:</span>
-                <span className="text-sm font-medium">{leader?.name ?? "Sem líder definido"}</span>
-              </div>
+              {canManageGroups ? (
+                <div className="flex items-center gap-2 mt-4 p-2.5 rounded-md bg-accent/40">
+                  <Crown className="h-4 w-4 text-warning-foreground" />
+                  <span className="text-xs text-muted-foreground">Líder:</span>
+                  <span className="text-sm font-medium">
+                    {leader?.name ?? "Sem líder definido"}
+                  </span>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                  Grupo em que você participa
+                </div>
+              )}
 
+              {canManageGroups && (
               <div className="mt-4">
                 <div className="text-xs text-muted-foreground mb-2">Membros ({members.length})</div>
                 <div className="flex flex-wrap gap-2">
@@ -147,6 +171,7 @@ function GruposPage() {
                   ))}
                 </div>
               </div>
+              )}
             </div>
           );
         })}

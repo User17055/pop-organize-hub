@@ -7,6 +7,7 @@ import type {
   PermissionGroup,
   Task,
 } from "./domain";
+import { canViewTask } from "./permissions";
 
 export const DEMO_PASSWORD = "demo1234";
 
@@ -50,13 +51,24 @@ export function sanitizeDatabase(db: Database, currentUserId = "u3") {
   const employees = db.employees.map(withoutPassword);
   const currentEmployee =
     employees.find((employee) => employee.id === currentUserId) ?? employees[0];
+  const visibleTasks = db.tasks.filter((task) =>
+    canViewTask({
+      task,
+      currentUser: currentEmployee,
+      employees,
+      departments: db.departments,
+      groups: db.groups,
+      permissionGroups: db.permissionGroups,
+    }),
+  );
+
   return {
     company: db.company,
     currentUser: toCurrentUser(currentEmployee),
     departments: db.departments,
     employees,
     groups: db.groups,
-    tasks: db.tasks,
+    tasks: visibleTasks,
     permissionGroups: db.permissionGroups,
   };
 }

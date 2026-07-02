@@ -15,9 +15,7 @@ import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
 import {
   emptyTaskFilters,
-  TaskFilterBar,
   taskMatchesFilters,
-  type TaskFilterState,
 } from "@/components/tasks/task-filter-bar";
 import {
   formatFileSizeMb,
@@ -47,7 +45,7 @@ function CalendarPage() {
   const { data, isLoading, error } = useWorkspaceData();
   const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
-  const [filters, setFilters] = useState<TaskFilterState>(emptyTaskFilters);
+  const filters = emptyTaskFilters;
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [commentBody, setCommentBody] = useState("");
   const [editForm, setEditForm] = useState<TaskEditState>({
@@ -190,24 +188,28 @@ function CalendarPage() {
     attachmentMutation.error instanceof Error ? attachmentMutation.error.message : null;
 
   return (
-    <AppShell title="Calendário" subtitle="Visualize as tarefas organizadas por data de vencimento">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+    <AppShell
+      title="Calendário"
+      subtitle="Visualize as tarefas organizadas por data de vencimento"
+      contentClassName="flex min-h-0 flex-col md:min-h-[calc(100dvh-96px)]"
+    >
+      <div className="mb-4 flex justify-center md:mb-5 md:justify-between">
+        <div className="app-surface flex w-full items-center justify-between gap-2 rounded-[24px] px-2 py-2 md:w-auto md:rounded-2xl">
           <button
             type="button"
             onClick={() => setVisibleMonth((current) => startOfMonth(subMonths(current, 1)))}
-            className="h-9 w-9 rounded-md border border-border bg-card hover:bg-muted flex items-center justify-center transition-colors"
+            className="glass-icon-button flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-foreground md:h-9 md:w-9"
             aria-label="Mês anterior"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <div className="min-w-[160px] text-center text-sm font-display font-semibold capitalize">
+          <div className="min-w-0 flex-1 text-center font-display text-[15px] font-bold capitalize text-foreground md:min-w-[180px] md:text-sm">
             {format(visibleMonth, "MMMM 'de' yyyy", { locale: ptBR })}
           </div>
           <button
             type="button"
             onClick={() => setVisibleMonth((current) => startOfMonth(addMonths(current, 1)))}
-            className="h-9 w-9 rounded-md border border-border bg-card hover:bg-muted flex items-center justify-center transition-colors"
+            className="glass-icon-button flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-foreground md:h-9 md:w-9"
             aria-label="Próximo mês"
           >
             <ChevronRight className="h-4 w-4" />
@@ -220,31 +222,27 @@ function CalendarPage() {
               setSelectedDay(today);
             }}
             className={cn(
-              "h-9 px-3 rounded-md border border-border bg-card hover:bg-muted text-sm font-medium transition-colors",
+              "pressable hidden h-9 rounded-full border border-border bg-white/70 px-3 text-sm font-semibold hover:bg-white md:inline-flex md:items-center",
             )}
           >
             Hoje
           </button>
         </div>
+        <div className="hidden items-center gap-2 text-sm text-muted-foreground md:flex">
+          <span className="h-2 w-2 rounded-full bg-primary" />
+          {filteredTasks.length} tarefas no calendário
+        </div>
       </div>
 
-      <div className="mb-4">
-        <TaskFilterBar
-          filters={filters}
-          onChange={setFilters}
-          departments={departments}
-          groups={groups}
-          employees={employees}
-          tasks={tasks}
+      <div className="min-h-0 flex-1">
+        <MonthGrid
+          month={visibleMonth}
+          tasksByDay={tasksByDay}
+          selectedDay={selectedDay}
+          onSelectDay={setSelectedDay}
+          fullHeight
         />
       </div>
-
-      <MonthGrid
-        month={visibleMonth}
-        tasksByDay={tasksByDay}
-        selectedDay={selectedDay}
-        onSelectDay={setSelectedDay}
-      />
 
       <DaySheet
         day={selectedDay}
@@ -260,7 +258,7 @@ function CalendarPage() {
       {/* Task detail overlay */}
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300",
+          "fixed inset-0 z-40 bg-slate-900/20 backdrop-blur-[2px] transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
           selectedTask ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
         onClick={() => setSelectedTaskId(null)}
@@ -268,7 +266,7 @@ function CalendarPage() {
       />
       <aside
         className={cn(
-          "fixed top-0 right-0 z-50 h-screen w-full sm:w-[480px] bg-background border-l border-border shadow-2xl flex flex-col transition-transform duration-300 ease-out",
+          "fixed right-0 top-0 z-50 flex h-screen w-[94vw] flex-col rounded-l-[28px] border-l border-white/70 bg-background shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:w-[50vw] sm:min-w-[420px] sm:max-w-[680px]",
           selectedTask ? "translate-x-0" : "translate-x-full",
         )}
         aria-hidden={!selectedTask}

@@ -111,7 +111,7 @@ export function TaskCreateDialog({
               </p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Destino">
+              <Field label="Destino / visibilidade">
                 <select
                   value={form.targetKey}
                   onChange={(e) =>
@@ -125,6 +125,10 @@ export function TaskCreateDialog({
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Empresa inteira aparece para todos. Setor, grupo ou pessoa limitam quem enxerga a
+                  tarefa.
+                </p>
               </Field>
               <Field label="Responsável">
                 <select

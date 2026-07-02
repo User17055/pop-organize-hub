@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   LayoutDashboard,
   CheckSquare,
@@ -18,10 +19,16 @@ import {
   BriefcaseBusiness,
   Sparkles,
   ShieldCheck,
-  PanelLeftClose,
-  PanelLeftOpen,
+  Menu,
 } from "lucide-react";
-import { useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { cn } from "@/lib/utils";
 import { logout, updateProfile } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
@@ -56,21 +63,115 @@ const nav: Array<NavItem & { visibility: NavVisibility }> = [
 
 const SIDEBAR_COLLAPSED_KEY = "pop-organize:sidebar-collapsed";
 
+type ScrollEdge = "top" | "bottom" | null;
+
+function getScrollableElement(target: EventTarget | null) {
+  let node = target instanceof Element ? target : null;
+  while (node && node !== document.body) {
+    const style = window.getComputedStyle(node);
+    const canScroll =
+      /(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1;
+    if (canScroll) return node as HTMLElement;
+    node = node.parentElement;
+  }
+  return document.scrollingElement as HTMLElement | null;
+}
+
+function isAtScrollEdge(element: HTMLElement, edge: Exclude<ScrollEdge, null>) {
+  const top = element.scrollTop;
+  const max = element.scrollHeight - element.clientHeight;
+  return edge === "top" ? top <= 1 : top >= max - 1;
+}
+
+function ScrollBoundaryEffect() {
+  const [edge, setEdge] = useState<ScrollEdge>(null);
+  const startYRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    function flash(nextEdge: Exclude<ScrollEdge, null>) {
+      setEdge(nextEdge);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setEdge(null), 420);
+    }
+
+    function handleTouchStart(event: TouchEvent) {
+      startYRef.current = event.touches[0]?.clientY ?? null;
+    }
+
+    function handleTouchMove(event: TouchEvent) {
+      const startY = startYRef.current;
+      const currentY = event.touches[0]?.clientY;
+      if (startY == null || currentY == null) return;
+      const delta = currentY - startY;
+      const scrollable = getScrollableElement(event.target);
+      if (!scrollable || Math.abs(delta) < 10) return;
+      if (delta > 0 && isAtScrollEdge(scrollable, "top")) flash("top");
+      if (delta < 0 && isAtScrollEdge(scrollable, "bottom")) flash("bottom");
+    }
+
+    function handleWheel(event: WheelEvent) {
+      const scrollable = getScrollableElement(event.target);
+      if (!scrollable) return;
+      if (event.deltaY < -8 && isAtScrollEdge(scrollable, "top")) flash("top");
+      if (event.deltaY > 8 && isAtScrollEdge(scrollable, "bottom")) flash("bottom");
+    }
+
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+    window.addEventListener("wheel", handleWheel, { passive: true });
+    return () => {
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("wheel", handleWheel);
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  return (
+    <AnimatePresence>
+      {edge && (
+        <motion.div
+          key={edge}
+          initial={{ opacity: 0, scaleY: 0.75 }}
+          animate={{ opacity: 1, scaleY: 1 }}
+          exit={{ opacity: 0, scaleY: 0.92 }}
+          transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+          className={cn(
+            "pointer-events-none fixed left-0 right-0 z-[80] md:hidden",
+            edge === "top" ? "top-0 origin-top" : "bottom-0 origin-bottom",
+          )}
+          style={{
+            height: edge === "top" ? "7rem" : "8.5rem",
+            background:
+              edge === "top"
+                ? "radial-gradient(ellipse at top, color-mix(in oklab, var(--primary) 28%, transparent), transparent 68%)"
+                : "radial-gradient(ellipse at bottom, color-mix(in oklab, var(--primary) 24%, transparent), transparent 70%)",
+            filter: "blur(0.5px)",
+          }}
+        />
+      )}
+    </AnimatePresence>
+  );
+}
+
 export function AppShell({
   children,
   title,
   subtitle,
   actions,
+  contentClassName,
 }: {
   children: ReactNode;
   title: string;
   subtitle?: string;
   actions?: ReactNode;
+  contentClassName?: string;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data, isFetching } = useWorkspaceData();
+  const { data } = useWorkspaceData();
   const currentUser = data?.currentUser ?? {
     id: "u3",
     name: "João Pereira",
@@ -81,7 +182,6 @@ export function AppShell({
   const currentDepartment = data?.departments.find(
     (department) => department.id === currentEmployee?.departmentId,
   );
-  const companyName = data?.company.name ?? "Pop Organize";
   const avatar = currentEmployee?.avatar;
   const initials = currentUser.name
     .split(" ")
@@ -103,6 +203,7 @@ export function AppShell({
     ["/", "/tarefas", "/calendario"].includes(item.to),
   );
   const moreMobileNav = visibleNav.filter((item) => !primaryMobileNav.includes(item));
+  const showMobileTopLogo = pathname === "/";
 
   const [profileOpen, setProfileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
@@ -202,33 +303,24 @@ export function AppShell({
       {/* Sidebar (desktop/tablet only) */}
       <aside
         className={cn(
-          "native-sidebar sticky top-0 hidden h-screen flex-col border-r border-sidebar-border text-sidebar-foreground transition-[width] duration-300 ease-out md:flex",
+          "glass-sidebar native-sidebar sticky top-0 hidden h-screen flex-col border-r border-white/70 text-sidebar-foreground soft-transition transition-[width,box-shadow,background-color] duration-300 md:flex",
           collapsed ? "w-[84px]" : "w-72",
         )}
-        style={{ background: "var(--gradient-sidebar)" }}
       >
-        <div className={cn("py-7", collapsed ? "px-4" : "px-7")}>
-          <Link to="/" className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-            <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl shadow-[var(--shadow-elegant)]"
-              style={{ background: "var(--gradient-primary)" }}
-            >
-              <Sparkles className="h-5 w-5 text-primary-foreground" />
-            </div>
-            {!collapsed && (
-              <div className="min-w-0">
-                <div className="truncate font-display text-base font-bold leading-tight">
-                  Pop Organize
-                </div>
-                <div className="truncate text-[11px] text-sidebar-foreground/55">
-                  {companyName}
-                </div>
-              </div>
-            )}
-          </Link>
+        <div className={cn("flex py-5", collapsed ? "justify-center px-3" : "justify-end px-5")}>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title={collapsed ? "Expandir menu" : "Recolher menu"}
+            className="glass-icon-button flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sidebar-foreground/70 hover:text-primary"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
         </div>
 
-        <nav className={cn("flex-1 space-y-1.5 overflow-y-auto py-2", collapsed ? "px-3.5" : "px-5")}>
+        <nav
+          className={cn("flex-1 space-y-1.5 overflow-y-auto py-2", collapsed ? "px-3.5" : "px-5")}
+        >
           {visibleNav.map((item) => {
             const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
             const Icon = item.icon;
@@ -238,12 +330,12 @@ export function AppShell({
                 to={item.to}
                 title={collapsed ? item.label : undefined}
                 className={cn(
-                  "flex items-center rounded-2xl text-sm font-medium transition-all duration-200",
+                  "flex items-center rounded-2xl text-sm font-medium soft-transition transition-all duration-300",
                   collapsed ? "justify-center px-0 py-3" : "gap-3.5 px-4 py-2.5",
                   active
                     ? "text-primary-foreground shadow-[var(--shadow-elegant)]"
                     : cn(
-                        "text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                        "text-sidebar-foreground/65 hover:bg-white/70 hover:text-sidebar-accent-foreground",
                         !collapsed && "hover:translate-x-0.5",
                       ),
                 )}
@@ -259,28 +351,10 @@ export function AppShell({
         <div className={cn("space-y-1.5 py-4", collapsed ? "px-3.5" : "px-5")}>
           <button
             type="button"
-            onClick={toggleCollapsed}
-            title={collapsed ? "Expandir menu" : "Recolher menu"}
-            className={cn(
-              "flex w-full items-center rounded-2xl text-sm font-medium text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              collapsed ? "justify-center px-0 py-3" : "gap-3.5 px-4 py-2.5",
-            )}
-          >
-            {collapsed ? (
-              <PanelLeftOpen className="h-[18px] w-[18px] shrink-0" />
-            ) : (
-              <>
-                <PanelLeftClose className="h-[18px] w-[18px] shrink-0" />
-                <span className="truncate">Recolher menu</span>
-              </>
-            )}
-          </button>
-          <button
-            type="button"
             onClick={openProfile}
             title={collapsed ? currentUser.name : undefined}
             className={cn(
-              "flex w-full items-center rounded-2xl text-left transition-colors hover:bg-sidebar-accent",
+              "flex w-full items-center rounded-2xl text-left soft-transition transition-colors hover:bg-white/70",
               collapsed ? "justify-center p-2" : "gap-3 p-2.5",
             )}
           >
@@ -448,50 +522,74 @@ export function AppShell({
 
       {/* Main */}
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="safe-top relative border-b border-border bg-background/80 backdrop-blur">
-          <div className="flex items-center gap-3 px-4 py-3.5 md:px-10 lg:px-12">
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate font-display text-lg font-semibold text-foreground md:text-xl">
+        <header className="glass-header safe-top sticky top-0 z-30 border-b border-white/70">
+          <div className="relative flex items-center gap-3 px-4 py-3 md:px-10 md:py-3.5 lg:px-12">
+            {showMobileTopLogo && (
+              <Link
+                to="/"
+                className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full px-2 py-1.5 md:hidden"
+                aria-label="Pop Organize"
+              >
+                <span
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl shadow-[var(--shadow-elegant)]"
+                  style={{ background: "var(--gradient-primary)" }}
+                >
+                  <Sparkles className="h-4.5 w-4.5 text-primary-foreground" />
+                </span>
+              </Link>
+            )}
+            <div
+              className={cn(
+                "min-w-0 flex-1",
+                showMobileTopLogo ? "max-w-[42vw] md:max-w-none" : "max-w-full",
+              )}
+            >
+              <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground md:text-xl md:font-semibold">
                 {title}
               </h1>
               {subtitle && (
-                <p className="mt-0.5 truncate text-sm text-muted-foreground">{subtitle}</p>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground md:text-sm">
+                  {subtitle}
+                </p>
               )}
             </div>
-            <div className="hidden h-9 w-64 items-center gap-2 rounded-xl border border-transparent bg-muted px-3 transition-colors focus-within:border-primary/40 focus-within:bg-background lg:flex">
+            <div className="glass-surface hidden h-9 w-64 items-center gap-2 rounded-xl border border-white/70 bg-white/50 px-3 soft-transition transition-colors focus-within:border-primary/40 focus-within:bg-white/85 lg:flex">
               <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 placeholder="Buscar tarefas, pessoas..."
                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
             </div>
-            <NotificationsMenu tasks={data?.tasks ?? []} currentUserId={data?.currentUser.id} />
-            {actions}
-            <button
-              type="button"
-              onClick={() => logoutMutation.mutate()}
-              disabled={logoutMutation.isPending}
-              className="hidden h-9 w-9 items-center justify-center rounded-xl text-foreground/70 transition-colors hover:bg-muted md:flex"
-              title="Sair"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
-          <div
-            className={cn(
-              "absolute bottom-0 left-0 h-0.5 w-full overflow-hidden transition-opacity duration-200",
-              isFetching ? "opacity-100" : "opacity-0",
-            )}
-          >
-            <div
-              className="h-full w-1/3 animate-pulse"
-              style={{ background: "var(--gradient-primary)" }}
-            />
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <NotificationsMenu tasks={data?.tasks ?? []} currentUserId={data?.currentUser.id} />
+              {actions}
+              <button
+                type="button"
+                onClick={() => logoutMutation.mutate()}
+                disabled={logoutMutation.isPending}
+                className="glass-icon-button hidden h-9 w-9 items-center justify-center rounded-xl text-foreground/70 md:flex"
+                title="Sair"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </header>
-        <div className="flex-1 animate-in fade-in slide-in-from-bottom-1 px-4 py-4 pb-24 duration-200 motion-reduce:animate-none md:px-10 md:py-7 md:pb-7 lg:px-12">
-          {children}
-        </div>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={pathname}
+            initial={{ opacity: 0, y: 10, filter: "blur(5px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -6, filter: "blur(3px)" }}
+            transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+            className={cn(
+              "flex-1 px-4 py-4 pb-32 md:px-10 md:py-7 md:pb-7 lg:px-12",
+              contentClassName,
+            )}
+          >
+            {children}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       <BottomTabBar
@@ -505,6 +603,7 @@ export function AppShell({
       />
 
       <Toaster position="top-center" closeButton richColors />
+      <ScrollBoundaryEffect />
     </div>
   );
 }

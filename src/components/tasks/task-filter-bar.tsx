@@ -10,9 +10,11 @@ import {
   type Group,
   type Priority,
   type Task,
+  type TargetType,
 } from "@/lib/domain";
 
 export type TaskFilterState = {
+  targetTypes: TargetType[];
   departmentIds: string[];
   groupIds: string[];
   priorities: Priority[];
@@ -21,6 +23,7 @@ export type TaskFilterState = {
 };
 
 export const emptyTaskFilters: TaskFilterState = {
+  targetTypes: [],
   departmentIds: [],
   groupIds: [],
   priorities: [],
@@ -30,6 +33,7 @@ export const emptyTaskFilters: TaskFilterState = {
 
 export function hasActiveTaskFilters(filters: TaskFilterState) {
   return (
+    filters.targetTypes.length > 0 ||
     filters.departmentIds.length > 0 ||
     filters.groupIds.length > 0 ||
     filters.priorities.length > 0 ||
@@ -43,6 +47,9 @@ export function taskMatchesFilters(
   filters: TaskFilterState,
   context: { employees: Employee[]; groups: Group[] },
 ) {
+  if (filters.targetTypes.length > 0 && !filters.targetTypes.includes(task.target.type)) {
+    return false;
+  }
   if (filters.priorities.length > 0 && !filters.priorities.includes(task.priority)) return false;
   if (filters.responsibleIds.length > 0 && !filters.responsibleIds.includes(task.responsibleId)) {
     return false;
@@ -74,6 +81,17 @@ export function taskMatchesFilters(
 
 type FacetOption = { value: string; label: string };
 
+const targetTypeLabels: Record<TargetType, string> = {
+  company: "Empresa inteira",
+  department: "Setor",
+  group: "Grupo",
+  user: "Pessoa",
+};
+
+function uniqueValues<T extends string>(values: T[]) {
+  return Array.from(new Set(values));
+}
+
 function FacetPopover({
   label,
   options,
@@ -92,21 +110,23 @@ function FacetPopover({
     );
   };
 
+  if (options.length === 0) return null;
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
           className={cn(
-            "h-9 px-3 rounded-md border text-sm font-medium inline-flex items-center gap-2 transition-colors",
+            "pressable inline-flex h-9 items-center gap-2 rounded-full border px-3 text-sm font-semibold transition-colors",
             selected.length > 0
               ? "border-primary/40 bg-primary/5 text-primary"
-              : "border-border bg-card hover:bg-muted",
+              : "app-surface text-foreground/80 hover:bg-white",
           )}
         >
           {label}
           {selected.length > 0 && (
-            <span className="text-[11px] bg-primary/15 text-primary rounded-md px-1.5 py-0.5 font-semibold">
+            <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
               {selected.length}
             </span>
           )}
@@ -114,13 +134,10 @@ function FacetPopover({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-2">
         <div className="max-h-64 overflow-y-auto space-y-0.5">
-          {options.length === 0 && (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">Nenhuma opção</div>
-          )}
           {options.map((option) => (
             <label
               key={option.value}
-              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted cursor-pointer"
+              className="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 text-sm hover:bg-muted"
             >
               <Checkbox
                 checked={selected.includes(option.value)}
@@ -142,6 +159,7 @@ export function TaskFilterBar({
   groups,
   employees,
   tasks,
+  showResponsibleFilter = true,
 }: {
   filters: TaskFilterState;
   onChange: (filters: TaskFilterState) => void;
@@ -149,9 +167,41 @@ export function TaskFilterBar({
   groups: Group[];
   employees: Employee[];
   tasks: Task[];
+  showResponsibleFilter?: boolean;
 }) {
+  const targetTypeOptions = useMemo(
+    () =>
+      uniqueValues(tasks.map((task) => task.target.type))
+        .sort()
+        .map((value) => ({ value, label: targetTypeLabels[value] })),
+    [tasks],
+  );
+  const departmentOptions = useMemo(() => {
+    const ids = new Set(
+      tasks
+        .filter((task) => task.target.type === "department")
+        .map((task) => task.target.id),
+    );
+    return departments
+      .filter((department) => ids.has(department.id))
+      .map((department) => ({ value: department.id, label: department.name }));
+  }, [departments, tasks]);
+  const groupOptions = useMemo(() => {
+    const ids = new Set(
+      tasks.filter((task) => task.target.type === "group").map((task) => task.target.id),
+    );
+    return groups
+      .filter((group) => ids.has(group.id))
+      .map((group) => ({ value: group.id, label: group.name }));
+  }, [groups, tasks]);
+  const responsibleOptions = useMemo(() => {
+    const ids = new Set(tasks.map((task) => task.responsibleId));
+    return employees
+      .filter((employee) => ids.has(employee.id))
+      .map((employee) => ({ value: employee.id, label: employee.name }));
+  }, [employees, tasks]);
   const allTags = useMemo(
-    () => Array.from(new Set(tasks.flatMap((task) => task.tags))).sort(),
+    () => uniqueValues(tasks.flatMap((task) => task.tags)).sort(),
     [tasks],
   );
 
@@ -163,18 +213,23 @@ export function TaskFilterBar({
         <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground mr-1">
           <Filter className="h-3.5 w-3.5" /> Filtros
         </span>
+        {targetTypeOptions.length > 1 && (
+          <FacetPopover
+            label="Destino"
+            options={targetTypeOptions}
+            selected={filters.targetTypes}
+            onChange={(values) => onChange({ ...filters, targetTypes: values as TargetType[] })}
+          />
+        )}
         <FacetPopover
           label="Setor"
-          options={departments.map((department) => ({
-            value: department.id,
-            label: department.name,
-          }))}
+          options={departmentOptions}
           selected={filters.departmentIds}
           onChange={(values) => onChange({ ...filters, departmentIds: values })}
         />
         <FacetPopover
           label="Grupo"
-          options={groups.map((group) => ({ value: group.id, label: group.name }))}
+          options={groupOptions}
           selected={filters.groupIds}
           onChange={(values) => onChange({ ...filters, groupIds: values })}
         />
@@ -184,12 +239,14 @@ export function TaskFilterBar({
           selected={filters.priorities}
           onChange={(values) => onChange({ ...filters, priorities: values as Priority[] })}
         />
-        <FacetPopover
-          label="Responsável"
-          options={employees.map((employee) => ({ value: employee.id, label: employee.name }))}
-          selected={filters.responsibleIds}
-          onChange={(values) => onChange({ ...filters, responsibleIds: values })}
-        />
+        {showResponsibleFilter && responsibleOptions.length > 1 && (
+          <FacetPopover
+            label="Responsável"
+            options={responsibleOptions}
+            selected={filters.responsibleIds}
+            onChange={(values) => onChange({ ...filters, responsibleIds: values })}
+          />
+        )}
         <FacetPopover
           label="Tags"
           options={allTags.map((tag) => ({ value: tag, label: tag }))}
@@ -200,6 +257,18 @@ export function TaskFilterBar({
 
       {active && (
         <div className="flex flex-wrap items-center gap-1.5">
+          {filters.targetTypes.map((type) => (
+            <FilterChip
+              key={`target-${type}`}
+              label={targetTypeLabels[type]}
+              onRemove={() =>
+                onChange({
+                  ...filters,
+                  targetTypes: filters.targetTypes.filter((item) => item !== type),
+                })
+              }
+            />
+          ))}
           {filters.departmentIds.map((id) => (
             <FilterChip
               key={`d-${id}`}
@@ -233,18 +302,19 @@ export function TaskFilterBar({
               }
             />
           ))}
-          {filters.responsibleIds.map((id) => (
-            <FilterChip
-              key={`r-${id}`}
-              label={employees.find((employee) => employee.id === id)?.name ?? id}
-              onRemove={() =>
-                onChange({
-                  ...filters,
-                  responsibleIds: filters.responsibleIds.filter((item) => item !== id),
-                })
-              }
-            />
-          ))}
+          {showResponsibleFilter &&
+            filters.responsibleIds.map((id) => (
+              <FilterChip
+                key={`r-${id}`}
+                label={employees.find((employee) => employee.id === id)?.name ?? id}
+                onRemove={() =>
+                  onChange({
+                    ...filters,
+                    responsibleIds: filters.responsibleIds.filter((item) => item !== id),
+                  })
+                }
+              />
+            ))}
           {filters.tags.map((tag) => (
             <FilterChip
               key={`t-${tag}`}

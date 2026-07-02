@@ -9,10 +9,10 @@ export function useWorkspaceData() {
     queryKey: workspaceQueryKey,
     queryFn: () => getWorkspaceData(),
     placeholderData: (previousData) => previousData,
-    refetchInterval: 5_000,
+    refetchInterval: 30_000,
     refetchIntervalInBackground: true,
-    refetchOnWindowFocus: true,
-    staleTime: 2_000,
+    refetchOnWindowFocus: false,
+    staleTime: 20_000,
   });
 }
 

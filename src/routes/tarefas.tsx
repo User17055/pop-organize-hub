@@ -16,7 +16,7 @@ import { getTaskPermissions } from "@/lib/permissions";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { Plus, Search, Check, ChevronDown, Archive, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TaskCreateDialog } from "@/components/tasks/task-create-dialog";
+import { TaskCreateDrawer } from "@/components/tasks/task-create-drawer";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { TaskList } from "@/components/tasks/task-list";
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
@@ -562,7 +562,7 @@ function TasksPage() {
         )}
       </aside>
 
-      <TaskCreateDialog
+      <TaskCreateDrawer
         open={showForm}
         onOpenChange={setShowForm}
         form={form}

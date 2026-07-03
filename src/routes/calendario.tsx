@@ -13,10 +13,7 @@ import { MonthGrid } from "@/components/calendar/month-grid";
 import { DaySheet } from "@/components/calendar/day-sheet";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
-import {
-  emptyTaskFilters,
-  taskMatchesFilters,
-} from "@/components/tasks/task-filter-bar";
+import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import {
   formatFileSizeMb,
   recurrenceFromForm,
@@ -258,7 +255,7 @@ function CalendarPage() {
       {/* Task detail overlay */}
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-slate-900/20 backdrop-blur-[2px] transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+          "fixed inset-0 z-[190] bg-slate-950/18 backdrop-blur-[1.5px] transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
           selectedTask ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
         onClick={() => setSelectedTaskId(null)}
@@ -266,7 +263,7 @@ function CalendarPage() {
       />
       <aside
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-screen w-[94vw] flex-col rounded-l-[28px] border-l border-white/70 bg-background shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:w-[50vw] sm:min-w-[420px] sm:max-w-[680px]",
+          "calendar-detail-drawer fixed inset-y-0 right-0 z-[200] flex h-dvh w-full flex-col overflow-hidden rounded-none border transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:inset-y-3 sm:right-3 sm:h-[calc(100dvh-1.5rem)] sm:w-[50vw] sm:min-w-[420px] sm:max-w-[680px] sm:rounded-lg",
           selectedTask ? "translate-x-0" : "translate-x-full",
         )}
         aria-hidden={!selectedTask}

@@ -520,9 +520,41 @@ export function AppShell({
         </DialogContent>
       </Dialog>
 
+      {/* Mobile fixed header */}
+      <header className="mobile-fixed-header glass-header safe-top fixed left-0 right-0 top-0 z-[70] border-b border-white/70 md:hidden">
+        <div className="relative flex items-center gap-3 px-4 py-3">
+          {showMobileTopLogo && (
+            <Link
+              to="/"
+              className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full px-2 py-1.5"
+              aria-label="Pop Organize"
+            >
+              <span
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl shadow-[var(--shadow-elegant)]"
+                style={{ background: "var(--gradient-primary)" }}
+              >
+                <Sparkles className="h-4.5 w-4.5 text-primary-foreground" />
+              </span>
+            </Link>
+          )}
+          <div className={cn("min-w-0 flex-1", showMobileTopLogo ? "max-w-[42vw]" : "max-w-full")}>
+            <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground">
+              {title}
+            </h1>
+            {subtitle && (
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{subtitle}</p>
+            )}
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <NotificationsMenu tasks={data?.tasks ?? []} currentUserId={data?.currentUser.id} />
+            {actions}
+          </div>
+        </div>
+      </header>
+
       {/* Main */}
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="glass-header safe-top sticky top-0 z-30 border-b border-white/70">
+      <main className="app-main-shell flex min-w-0 flex-1 flex-col">
+        <header className="glass-header safe-top sticky top-0 z-30 hidden border-b border-white/70 md:block">
           <div className="relative flex items-center gap-3 px-4 py-3 md:px-10 md:py-3.5 lg:px-12">
             {showMobileTopLogo && (
               <Link
@@ -583,7 +615,7 @@ export function AppShell({
             exit={{ opacity: 0, y: -6, filter: "blur(3px)" }}
             transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
             className={cn(
-              "flex-1 px-4 py-4 pb-32 md:px-10 md:py-7 md:pb-7 lg:px-12",
+              "app-scroll-content flex-1 px-4 pb-32 pt-[calc(var(--safe-area-top)+5.25rem)] md:px-10 md:py-7 md:pb-7 lg:px-12",
               contentClassName,
             )}
           >

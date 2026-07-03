@@ -21,7 +21,8 @@ import type { Department, Employee, Priority, Task } from "@/lib/domain";
 import { priorityLabels } from "@/lib/domain";
 import type { TaskPermissions } from "@/lib/permissions";
 import { EmployeeAvatar } from "./employee-avatar";
-import { RecurrenceFields } from "./recurrence-fields";
+import { GlassDatePicker } from "./glass-date-picker";
+import { GlassSelect, RecurrenceFields } from "./recurrence-fields";
 import { TaskSubtaskChecklist } from "./task-subtask-checklist";
 import {
   isOverdue,
@@ -87,9 +88,9 @@ export function TaskDetailDrawer({
   const getEmployee = (id?: string) => employees.find((employee) => employee.id === id);
 
   return (
-    <form onSubmit={onSubmit} className="flex h-full flex-col overflow-hidden rounded-l-[28px]">
+    <form onSubmit={onSubmit} className="flex h-full flex-col overflow-hidden rounded-lg">
       {/* Sticky header */}
-      <header className="glass-header sticky top-0 z-10 border-b border-white/70 px-5 pb-4 pt-5">
+      <header className="glass-header sticky top-0 z-[60] border-b border-white/70 px-5 pb-4 pt-5">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5" />
@@ -98,7 +99,7 @@ export function TaskDetailDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="glass-icon-button flex h-8 w-8 items-center justify-center rounded-xl text-foreground"
+            className="glass-icon-button flex h-8 w-8 items-center justify-center rounded-md text-foreground"
             aria-label="Fechar atividade"
           >
             <X className="h-3.5 w-3.5" />
@@ -187,13 +188,11 @@ export function TaskDetailDrawer({
                   Prazo
                 </div>
                 {permissions.canEditContent ? (
-                  <input
-                    type="date"
+                  <GlassDatePicker
                     value={editForm.dueDate}
-                    onChange={(e) =>
-                      onEditFormChange((current) => ({ ...current, dueDate: e.target.value }))
-                    }
-                    className="w-full bg-transparent outline-none text-xs font-semibold text-foreground mt-0.5"
+                    onChange={(dueDate) => onEditFormChange((current) => ({ ...current, dueDate }))}
+                    compact
+                    ariaLabel="Prazo da tarefa"
                     required
                   />
                 ) : (
@@ -215,25 +214,20 @@ export function TaskDetailDrawer({
                 </div>
                 {permissions.canEditContent ? (
                   <div className="mt-1">
-                    <select
+                    <GlassSelect
                       value={editForm.recurrence.frequency}
-                      onChange={(e) =>
+                      options={recurrenceOptions}
+                      onChange={(frequency) =>
                         onEditFormChange((current) => ({
                           ...current,
                           recurrence: {
                             ...current.recurrence,
-                            frequency: e.target.value as RecurrenceFormState["frequency"],
+                            frequency: frequency as RecurrenceFormState["frequency"],
                           },
                         }))
                       }
-                      className="w-full bg-transparent outline-none text-xs font-semibold text-foreground"
-                    >
-                      {recurrenceOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      compact
+                    />
                   </div>
                 ) : (
                   <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
@@ -253,22 +247,20 @@ export function TaskDetailDrawer({
                   Prioridade
                 </div>
                 {permissions.canEditContent ? (
-                  <select
+                  <GlassSelect
                     value={editForm.priority}
-                    onChange={(e) =>
+                    options={Object.entries(priorityLabels).map(([value, label]) => ({
+                      value,
+                      label,
+                    }))}
+                    onChange={(priority) =>
                       onEditFormChange((current) => ({
                         ...current,
-                        priority: e.target.value as Priority,
+                        priority: priority as Priority,
                       }))
                     }
-                    className="w-full bg-transparent outline-none text-xs font-semibold text-foreground mt-0.5"
-                  >
-                    {Object.entries(priorityLabels).map(([key, label]) => (
-                      <option key={key} value={key}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+                    compact
+                  />
                 ) : (
                   <div className="text-xs font-semibold text-foreground mt-0.5">
                     {priorityLabels[task.priority]}
@@ -526,7 +518,7 @@ export function TaskDetailDrawer({
 
       {/* Sticky footer */}
       {(permissions.canEditContent || permissions.canDelete) && (
-        <footer className="sticky bottom-0 border-t border-border bg-background/95 backdrop-blur px-5 py-3 flex gap-2">
+        <footer className="task-create-footer sticky bottom-0 border-t px-5 py-3 flex gap-2">
           {permissions.canDelete && (
             <button
               type="button"
@@ -542,8 +534,7 @@ export function TaskDetailDrawer({
             <button
               type="submit"
               disabled={isSaving}
-              style={{ background: "var(--gradient-primary)" }}
-              className="flex-1 h-9 rounded-xl text-primary-foreground text-sm font-semibold hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
+              className="task-create-primary-button flex-1 h-9 rounded-md text-sm font-semibold transition disabled:opacity-60"
             >
               {isSaving ? "Salvando..." : "Salvar alterações"}
             </button>

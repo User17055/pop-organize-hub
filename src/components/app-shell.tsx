@@ -17,7 +17,6 @@ import {
   KeyRound,
   Save,
   BriefcaseBusiness,
-  Sparkles,
   ShieldCheck,
   Menu,
 } from "lucide-react";
@@ -30,6 +29,7 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "@/lib/utils";
+import logo from "@/assets/logo.png";
 import { logout, updateProfile } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import type { PermissionKey, Priority, TaskStatus } from "@/lib/domain";
@@ -303,11 +303,23 @@ export function AppShell({
       {/* Sidebar (desktop/tablet only) */}
       <aside
         className={cn(
-          "glass-sidebar native-sidebar sticky top-0 hidden h-screen flex-col border-r border-white/70 text-sidebar-foreground soft-transition transition-[width,box-shadow,background-color] duration-300 md:flex",
+          "glass-sidebar native-sidebar sticky top-0 hidden h-screen flex-col border-r border-white/70 text-sidebar-foreground soft-transition transition-[width,background-color] duration-300 md:flex",
           collapsed ? "w-[84px]" : "w-72",
         )}
       >
-        <div className={cn("flex py-5", collapsed ? "justify-center px-3" : "justify-end px-5")}>
+        <div
+          className={cn(
+            "flex items-center py-5",
+            collapsed ? "flex-col gap-3 px-3" : "justify-between px-5",
+          )}
+        >
+          {!collapsed && (
+            <Link to="/" className="flex items-center overflow-hidden" aria-label="Pop Organize">
+              <span className="truncate font-display text-base font-bold text-sidebar-foreground">
+                Pop Organize
+              </span>
+            </Link>
+          )}
           <button
             type="button"
             onClick={toggleCollapsed}
@@ -320,6 +332,7 @@ export function AppShell({
 
         <nav
           className={cn("flex-1 space-y-1.5 overflow-y-auto py-2", collapsed ? "px-3.5" : "px-5")}
+          style={{ overscrollBehavior: "contain" }}
         >
           {visibleNav.map((item) => {
             const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
@@ -333,7 +346,7 @@ export function AppShell({
                   "flex items-center rounded-2xl text-sm font-medium soft-transition transition-all duration-300",
                   collapsed ? "justify-center px-0 py-3" : "gap-3.5 px-4 py-2.5",
                   active
-                    ? "text-primary-foreground shadow-[var(--shadow-elegant)]"
+                    ? "text-primary-foreground"
                     : cn(
                         "text-sidebar-foreground/65 hover:bg-white/70 hover:text-sidebar-accent-foreground",
                         !collapsed && "hover:translate-x-0.5",
@@ -358,7 +371,7 @@ export function AppShell({
               collapsed ? "justify-center p-2" : "gap-3 p-2.5",
             )}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-semibold text-primary-foreground shadow-sm">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-semibold text-primary-foreground">
               {avatar ? (
                 <img src={avatar} alt={currentUser.name} className="h-full w-full object-cover" />
               ) : (
@@ -529,12 +542,7 @@ export function AppShell({
               className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full px-2 py-1.5"
               aria-label="Pop Organize"
             >
-              <span
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl shadow-[var(--shadow-elegant)]"
-                style={{ background: "var(--gradient-primary)" }}
-              >
-                <Sparkles className="h-4.5 w-4.5 text-primary-foreground" />
-              </span>
+              <img src={logo} alt="Pop Organize" className="h-9 w-9 shrink-0 object-contain" />
             </Link>
           )}
           <div className={cn("min-w-0 flex-1", showMobileTopLogo ? "max-w-[42vw]" : "max-w-full")}>
@@ -562,12 +570,7 @@ export function AppShell({
                 className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full px-2 py-1.5 md:hidden"
                 aria-label="Pop Organize"
               >
-                <span
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl shadow-[var(--shadow-elegant)]"
-                  style={{ background: "var(--gradient-primary)" }}
-                >
-                  <Sparkles className="h-4.5 w-4.5 text-primary-foreground" />
-                </span>
+                <img src={logo} alt="Pop Organize" className="h-9 w-9 shrink-0 object-contain" />
               </Link>
             )}
             <div
@@ -642,18 +645,18 @@ export function AppShell({
 
 export function StatusBadge({ status }: { status: TaskStatus }) {
   const map = {
-    pending: { label: "Pendente", cls: "bg-muted text-muted-foreground" },
-    in_progress: { label: "Em andamento", cls: "bg-primary/15 text-primary" },
-    waiting_review: { label: "Aguardando revisão", cls: "bg-warning/20 text-warning-foreground" },
-    reopened: { label: "Reaberta", cls: "bg-destructive/15 text-destructive" },
-    completed: { label: "Concluída", cls: "bg-success/20 text-success" },
+    pending: { label: "Pendente", cls: "bg-slate-500/10 text-slate-600" },
+    in_progress: { label: "Em andamento", cls: "bg-primary/14 text-primary" },
+    waiting_review: { label: "Aguardando revisão", cls: "bg-warning/22 text-warning-foreground" },
+    reopened: { label: "Reaberta", cls: "bg-destructive/14 text-destructive" },
+    completed: { label: "Concluída", cls: "bg-success/18 text-success" },
     canceled: { label: "Cancelada", cls: "bg-muted text-muted-foreground line-through" },
   } as const;
   const it = map[status];
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+        "inline-flex items-center gap-1.5 rounded-full border border-white/60 px-2.5 py-1 text-xs font-semibold backdrop-blur-sm",
         it.cls,
       )}
     >
@@ -665,21 +668,24 @@ export function StatusBadge({ status }: { status: TaskStatus }) {
 
 export function PriorityBadge({ priority }: { priority: Priority }) {
   const map = {
-    low: { label: "Baixa", cls: "bg-muted text-muted-foreground" },
-    medium: { label: "Média", cls: "bg-primary/15 text-primary" },
-    high: { label: "Alta", cls: "bg-warning/20 text-warning-foreground" },
-    urgent: { label: "Urgente", cls: "text-destructive-foreground" },
+    low: { label: "Baixa", cls: "bg-slate-500/10 text-slate-600" },
+    medium: { label: "Média", cls: "bg-primary/14 text-primary" },
+    high: { label: "Alta", cls: "bg-warning/22 text-warning-foreground" },
+    urgent: { label: "Urgente", cls: "text-destructive" },
   } as const;
   const it = map[priority];
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
+        "inline-flex items-center rounded-full border border-white/60 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide backdrop-blur-sm",
         it.cls,
       )}
       style={
         priority === "urgent"
-          ? { background: "linear-gradient(135deg, var(--destructive), oklch(0.68 0.2 15))" }
+          ? {
+              background:
+                "linear-gradient(135deg, color-mix(in oklab, var(--destructive) 9%, white), color-mix(in oklab, oklch(0.72 0.18 18) 13%, white), color-mix(in oklab, oklch(0.68 0.16 350) 8%, white))",
+            }
           : undefined
       }
     >

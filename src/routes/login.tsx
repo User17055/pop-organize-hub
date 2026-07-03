@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Building2, Mail, Lock, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Mail, Lock, ArrowRight, CheckCircle2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import logo from "@/assets/logo.png";
 import { login } from "@/lib/api/pop-organize.functions";
 import { workspaceQueryKey } from "@/lib/api/use-workspace";
 
@@ -45,9 +46,7 @@ function LoginPage() {
         />
         <div className="relative">
           <div className="flex items-center gap-2.5">
-            <div className="h-10 w-10 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center">
-              <Building2 className="h-5 w-5" />
-            </div>
+            <img src={logo} alt="Pop Organize" className="h-10 w-10 object-contain" />
             <span className="font-display font-bold text-xl">Pop Organize</span>
           </div>
         </div>
@@ -77,12 +76,7 @@ function LoginPage() {
       <div className="flex-1 flex items-center justify-center p-6 sm:p-12 bg-background">
         <div className="w-full max-w-sm">
           <div className="lg:hidden flex items-center gap-2.5 mb-8 justify-center">
-            <div
-              className="h-10 w-10 rounded-xl flex items-center justify-center"
-              style={{ background: "var(--gradient-primary)" }}
-            >
-              <Building2 className="h-5 w-5 text-primary-foreground" />
-            </div>
+            <img src={logo} alt="Pop Organize" className="h-10 w-10 object-contain" />
             <span className="font-display font-bold text-xl">Pop Organize</span>
           </div>
 

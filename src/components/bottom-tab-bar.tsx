@@ -61,13 +61,14 @@ export function BottomTabBar({
                   {active && (
                     <motion.span
                       layoutId="bottom-tab-active"
-                      className="absolute inset-0 rounded-2xl bg-primary shadow-[var(--shadow-elegant)]"
+                      className="absolute inset-0 rounded-2xl"
+                      style={{ background: "var(--gradient-primary)" }}
                       transition={{ type: "spring", stiffness: 280, damping: 32, mass: 0.9 }}
                     />
                   )}
                   <span className="relative z-10 flex flex-col items-center gap-1">
-                <Icon className="h-[19px] w-[19px]" />
-                <span className="max-w-full truncate">{item.label}</span>
+                    <Icon className="h-[19px] w-[19px]" />
+                    <span className="max-w-full truncate">{item.label}</span>
                   </span>
                 </motion.span>
               </Link>
@@ -88,7 +89,8 @@ export function BottomTabBar({
               {moreActive && (
                 <motion.span
                   layoutId="bottom-tab-active"
-                  className="absolute inset-0 rounded-2xl bg-primary shadow-[var(--shadow-elegant)]"
+                  className="absolute inset-0 rounded-2xl"
+                  style={{ background: "var(--gradient-primary)" }}
                   transition={{ type: "spring", stiffness: 280, damping: 32, mass: 0.9 }}
                 />
               )}
@@ -122,9 +124,14 @@ export function BottomTabBar({
                   className={cn(
                     "pressable flex flex-col items-center gap-2 rounded-2xl border p-3 text-center text-xs font-semibold",
                     active
-                      ? "border-primary/40 bg-primary/10 text-primary"
+                      ? "border-primary/35 text-primary"
                       : "border-border bg-white/75 text-foreground/80 hover:bg-white",
                   )}
+                  style={
+                    active
+                      ? { background: "color-mix(in oklab, var(--primary) 12%, white)" }
+                      : undefined
+                  }
                 >
                   <Icon className="h-5 w-5" />
                   {item.label}
@@ -141,7 +148,10 @@ export function BottomTabBar({
               }}
               className="pressable flex w-full items-center gap-3 rounded-2xl p-2 text-left hover:bg-white/75"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground"
+                style={{ background: "var(--gradient-primary)" }}
+              >
                 {userName
                   .split(" ")
                   .map((n) => n[0])

@@ -47,6 +47,7 @@ function Dashboard() {
 
   const { tasks, departments, employees, groups, currentUser, permissionGroups } = data;
   const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
+  const canCreateTask = hasPermission(permissionSet, "tasks.create");
   const canSeePeopleContext =
     isAdminUser({ currentUser, employees }) ||
     (["pages.employees", "pages.reports", "manage.employees"] as PermissionKey[]).some((key) =>
@@ -111,13 +112,15 @@ function Dashboard() {
       title={`${greeting}, ${currentUser.name.split(" ")[0]}`}
       subtitle="Aqui está o que está acontecendo na sua empresa hoje."
       actions={
-        <Link
-          to="/tarefas"
-          style={{ background: "var(--gradient-primary)" }}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
-        >
-          <Plus className="h-4 w-4" /> Nova tarefa
-        </Link>
+        canCreateTask ? (
+          <Link
+            to="/tarefas"
+            style={{ background: "var(--gradient-primary)" }}
+            className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
+          >
+            <Plus className="h-4 w-4" /> Nova tarefa
+          </Link>
+        ) : undefined
       }
     >
       {/* Stats */}

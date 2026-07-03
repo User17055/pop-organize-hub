@@ -518,13 +518,13 @@ export function TaskDetailDrawer({
 
       {/* Sticky footer */}
       {(permissions.canEditContent || permissions.canDelete) && (
-        <footer className="task-create-footer sticky bottom-0 border-t px-5 py-3 flex gap-2">
+        <footer className="task-detail-footer flex shrink-0 gap-2 border-t px-5 py-3">
           {permissions.canDelete && (
             <button
               type="button"
               onClick={onDelete}
               disabled={isDeleting}
-              className="h-9 w-9 rounded-md border border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 transition disabled:opacity-60 inline-flex items-center justify-center shrink-0"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-destructive/25 bg-destructive/5 text-destructive transition hover:bg-destructive/10 disabled:opacity-60"
               aria-label="Excluir tarefa"
             >
               <Trash2 className="h-4 w-4" />
@@ -534,7 +534,7 @@ export function TaskDetailDrawer({
             <button
               type="submit"
               disabled={isSaving}
-              className="task-create-primary-button flex-1 h-9 rounded-md text-sm font-semibold transition disabled:opacity-60"
+              className="h-11 flex-1 rounded-[14px] bg-foreground text-sm font-bold text-background transition hover:bg-foreground/90 disabled:opacity-60"
             >
               {isSaving ? "Salvando..." : "Salvar alterações"}
             </button>

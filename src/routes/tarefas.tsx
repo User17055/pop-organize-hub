@@ -20,10 +20,7 @@ import { TaskCreateDrawer } from "@/components/tasks/task-create-drawer";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { TaskList } from "@/components/tasks/task-list";
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
-import {
-  emptyTaskFilters,
-  taskMatchesFilters,
-} from "@/components/tasks/task-filter-bar";
+import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import { PriorityBadge } from "@/components/app-shell";
 import {
   getDefaultDueDate,
@@ -188,6 +185,7 @@ function TasksPage() {
     (["pages.employees", "pages.reports", "manage.employees"] as PermissionKey[]).some((key) =>
       hasPermission(permissionSet, key),
     );
+  const canCreateTask = hasPermission(permissionSet, "tasks.create");
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
   const selectedPermissions = selectedTask
     ? getTaskPermissions({
@@ -337,32 +335,40 @@ function TasksPage() {
       title="Tarefas"
       subtitle="Acompanhe e organize todas as demandas da empresa"
       actions={
-        <button
-          onClick={openForm}
-          style={{ background: "var(--gradient-primary)" }}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
-        >
-          <Plus className="h-4 w-4" /> Nova tarefa
-        </button>
+        canCreateTask ? (
+          <button
+            onClick={openForm}
+            className="hidden h-11 items-center gap-2 rounded-full bg-foreground px-5 text-sm font-bold text-background transition hover:-translate-y-0.5 hover:bg-foreground/90 md:inline-flex"
+          >
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
+              <Plus className="h-4 w-4" />
+            </span>
+            Nova tarefa
+          </button>
+        ) : undefined
       }
     >
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="app-surface flex h-11 min-w-[240px] flex-1 items-center gap-2 rounded-2xl px-3 transition-colors focus-within:border-primary/40 md:h-9 md:rounded-xl">
-          <Search className="h-4 w-4 text-muted-foreground" />
+        <div className="task-glass-control flex h-12 min-w-[240px] flex-1 items-center gap-2 rounded-[18px] px-4 transition-colors focus-within:border-primary/45 md:h-11">
+          <Search className="h-4 w-4 text-primary" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar por título ou descrição..."
-            className="flex-1 bg-transparent outline-none text-sm"
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/75"
           />
         </div>
-        <button
-          onClick={openForm}
-          style={{ background: "var(--gradient-primary)" }}
-          className="pressable inline-flex h-11 items-center gap-2 rounded-2xl px-4 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-elegant)] md:hidden"
-        >
-          <Plus className="h-4 w-4" /> Nova
-        </button>
+        {canCreateTask && (
+          <button
+            onClick={openForm}
+            className="pressable inline-flex h-12 items-center gap-2 rounded-full bg-foreground px-4 text-sm font-bold text-background transition hover:bg-foreground/90 md:hidden"
+          >
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
+              <Plus className="h-4 w-4" />
+            </span>
+            Nova
+          </button>
+        )}
       </div>
 
       <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
@@ -376,19 +382,18 @@ function TasksPage() {
             <button
               key={f.key}
               onClick={() => setActive(f.key)}
-              style={isActive ? { background: "var(--gradient-primary)" } : undefined}
               className={cn(
                 "pressable inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-all",
                 isActive
-                  ? "text-primary-foreground shadow-[var(--shadow-elegant)]"
-                  : "app-surface text-foreground/70 hover:border-primary/40",
+                  ? "border border-primary/18 bg-primary/10 text-primary"
+                  : "task-glass-control text-foreground/70 hover:border-primary/50 hover:text-primary",
               )}
             >
               {f.label}
               <span
                 className={cn(
-                  "text-[11px] px-1.5 rounded-md",
-                  isActive ? "bg-white/20" : "bg-muted",
+                  "rounded-md px-1.5 text-[11px]",
+                  isActive ? "bg-white/60 text-primary" : "task-vivid-chip",
                 )}
               >
                 {count}
@@ -420,17 +425,17 @@ function TasksPage() {
       )}
 
       {completedTasks.length > 0 && (
-        <section className="mobile-card mt-6 rounded-[24px] border-dashed md:rounded-2xl">
+        <section className="task-glass-panel mt-6 overflow-hidden rounded-[22px] md:rounded-[22px]">
           <button
             type="button"
             onClick={() => setShowCompleted((current) => !current)}
-            className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+            className="group flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-foreground/[0.025] md:px-6"
           >
-            <span className="inline-flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+            <span className="inline-flex min-w-0 items-center gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-border/70 bg-background/70 text-primary transition-colors group-hover:text-primary">
                 <Archive className="h-4 w-4" />
               </span>
-              <span>
+              <span className="min-w-0">
                 <span className="block text-sm font-semibold text-foreground">
                   Tarefas concluídas
                 </span>
@@ -442,14 +447,14 @@ function TasksPage() {
             </span>
             <ChevronDown
               className={cn(
-                "h-4 w-4 text-muted-foreground transition-transform",
+                "h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:text-primary",
                 showCompleted && "rotate-180",
               )}
             />
           </button>
 
           {showCompleted && (
-            <div className="grid grid-cols-1 gap-3 border-t border-border/70 p-4 animate-in fade-in slide-in-from-top-1 duration-150 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 border-t border-border/60 bg-background/35 p-4 animate-in fade-in slide-in-from-top-1 duration-150 md:grid-cols-2 md:p-5 xl:grid-cols-3">
               {completedTasks.map((task) => {
                 const emp = employees.find((employee) => employee.id === task.responsibleId);
                 return (
@@ -457,7 +462,7 @@ function TasksPage() {
                     key={task.id}
                     type="button"
                     onClick={() => openTask(task)}
-                    className="pressable rounded-2xl border border-border/70 bg-background/80 p-4 text-left opacity-70 hover:border-primary/30 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+                    className="task-glass-control pressable rounded-[16px] p-4 text-left opacity-80 hover:border-primary/35 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -501,7 +506,7 @@ function TasksPage() {
       {/* Overlay */}
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-slate-900/20 backdrop-blur-[2px] transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+          "fixed inset-0 z-[190] bg-slate-900/20 backdrop-blur-[2px] transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
           selectedTask ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
         onClick={() => setSelectedTaskId(null)}
@@ -510,7 +515,7 @@ function TasksPage() {
       {/* Sliding right sidebar (drawer) */}
       <aside
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-screen w-[94vw] flex-col rounded-l-[28px] border-l border-white/70 bg-background shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:w-[50vw] sm:min-w-[420px] sm:max-w-[680px]",
+          "fixed inset-y-0 right-0 z-[200] flex h-dvh w-[94vw] flex-col overflow-hidden rounded-l-[28px] border-l border-white/70 bg-background transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:w-[50vw] sm:min-w-[420px] sm:max-w-[680px]",
           selectedTask ? "translate-x-0" : "translate-x-full",
         )}
         aria-hidden={!selectedTask}

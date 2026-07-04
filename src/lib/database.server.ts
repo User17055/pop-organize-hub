@@ -1,9 +1,8 @@
 import crypto from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
 import process from "node:process";
+import mysql from "mysql2/promise";
 
-import { DEMO_PASSWORD, nextId, type Database, type SessionRecord } from "./database";
+import { nextId, type Database, type SessionRecord } from "./database";
 import {
   allPermissionKeys,
   departmentColors,
@@ -15,14 +14,26 @@ import {
   type Task,
 } from "./domain";
 
-const PASSWORD_PEPPER = "pop-organize-local-demo";
-const DATA_DIR = path.resolve(process.cwd(), ".data");
-const DB_FILE = path.join(DATA_DIR, "pop-organize-db.json");
-let memoryDatabase: Database | undefined;
-let didWarnMemoryFallback = false;
+const DEFAULT_PASSWORD_PEPPER = "pop-organize-local-demo";
+const MYSQL_STATE_ID = "default";
+let mysqlPool: mysql.Pool | undefined;
+
+function getBootstrapAdmin() {
+  const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+  if (!password) {
+    throw new Error("BOOTSTRAP_ADMIN_PASSWORD is required to initialize an empty database.");
+  }
+
+  return {
+    name: process.env.BOOTSTRAP_ADMIN_NAME || "Administrador",
+    email: (process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@poporganize.com").toLowerCase(),
+    password,
+  };
+}
 
 export function hashPassword(password: string) {
-  return crypto.createHash("sha256").update(`${PASSWORD_PEPPER}:${password}`).digest("hex");
+  const pepper = process.env.AUTH_PASSWORD_PEPPER || DEFAULT_PASSWORD_PEPPER;
+  return crypto.createHash("sha256").update(`${pepper}:${password}`).digest("hex");
 }
 
 export function hashToken(token: string) {
@@ -55,7 +66,8 @@ function initialPermissionGroups(): PermissionGroup[] {
     {
       id: "pg2",
       name: "Gestor",
-      description: "Gerencia tarefas da equipe, setores e grupos. Sem acesso a cadastros da empresa.",
+      description:
+        "Gerencia tarefas da equipe, setores e grupos. Sem acesso a cadastros da empresa.",
       permissions: [
         "tasks.create",
         "tasks.edit",
@@ -102,7 +114,8 @@ function defaultPermissionGroupId(
 }
 
 function initialDatabase(): Database {
-  const passwordHash = hashPassword(DEMO_PASSWORD);
+  const bootstrapAdmin = getBootstrapAdmin();
+  const passwordHash = hashPassword(bootstrapAdmin.password);
   const departments: Department[] = [
     {
       id: "d1",
@@ -162,9 +175,9 @@ function initialDatabase(): Database {
     },
     {
       id: "u3",
-      name: "João Pereira",
-      email: "joao@poporganize.com",
-      role: "Admin da Empresa",
+      name: bootstrapAdmin.name,
+      email: bootstrapAdmin.email,
+      role: "Administrador",
       departmentId: "d5",
       status: "active",
       passwordHash,
@@ -388,7 +401,7 @@ function initialDatabase(): Database {
   return {
     company: {
       id: "c1",
-      name: "Pop Organize Demo",
+      name: process.env.BOOTSTRAP_COMPANY_NAME || "Pop Organize",
       document: "00.000.000/0001-00",
       status: "active",
     },
@@ -434,90 +447,73 @@ function cloneDatabase(db: Database): Database {
   return JSON.parse(JSON.stringify(db)) as Database;
 }
 
-function isMissingFileError(error: unknown) {
-  return (error as { code?: string }).code === "ENOENT";
+function getDatabaseUrl() {
+  return process.env.DATABASE_URL || process.env.MYSQL_URL;
 }
 
-function canUseMemoryFallback(error: unknown) {
-  const code = (error as { code?: string }).code;
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  return (
-    code === "EROFS" ||
-    code === "EACCES" ||
-    code === "EPERM" ||
-    code === "ENOSYS" ||
-    code === "ENOTSUP" ||
-    code === "ERR_NOT_IMPLEMENTED" ||
-    code === "ERR_UNSUPPORTED_ESM_URL_SCHEME" ||
-    message.includes("not implemented") ||
-    message.includes("read-only") ||
-    error instanceof TypeError
+function getMysqlPool() {
+  const databaseUrl = getDatabaseUrl();
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required. Configure a MySQL connection string.");
+  }
+  mysqlPool ??= mysql.createPool({
+    uri: databaseUrl,
+    waitForConnections: true,
+    connectionLimit: 10,
+    namedPlaceholders: true,
+    enableKeepAlive: true,
+  });
+  return mysqlPool;
+}
+
+async function ensureMysqlSchema(pool: mysql.Pool) {
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS app_state (
+      id VARCHAR(64) NOT NULL PRIMARY KEY,
+      data JSON NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+async function readMysqlDatabase(pool: mysql.Pool) {
+  await ensureMysqlSchema(pool);
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    "SELECT data FROM app_state WHERE id = ? LIMIT 1",
+    [MYSQL_STATE_ID],
   );
-}
 
-function rememberDatabase(db: Database) {
-  memoryDatabase = cloneDatabase(normalizeDatabase(db));
-  return cloneDatabase(memoryDatabase);
-}
-
-function readMemoryDatabase(reason?: unknown) {
-  if (!didWarnMemoryFallback) {
-    console.info(
-      "Using in-memory demo database because local filesystem storage is unavailable.",
-      reason,
-    );
-    didWarnMemoryFallback = true;
-  }
-
-  if (!memoryDatabase) {
-    memoryDatabase = initialDatabase();
-  }
-
-  return cloneDatabase(memoryDatabase);
-}
-
-export async function readDatabase(): Promise<Database> {
-  if (memoryDatabase) {
-    return readMemoryDatabase();
-  }
-
-  let raw: string;
-  try {
-    raw = await readFile(DB_FILE, "utf8");
-  } catch (error) {
-    if (!isMissingFileError(error)) {
-      if (canUseMemoryFallback(error)) return readMemoryDatabase(error);
-      throw error;
-    }
-
+  if (rows.length === 0) {
     const db = initialDatabase();
-    try {
-      await saveDatabase(db);
-    } catch (saveError) {
-      if (canUseMemoryFallback(saveError)) return rememberDatabase(db);
-      throw saveError;
-    }
+    await saveMysqlDatabase(pool, db);
     return cloneDatabase(db);
   }
 
-  return normalizeDatabase(JSON.parse(raw) as Database);
+  const raw = rows[0]?.data;
+  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+  return normalizeDatabase(parsed as Database);
+}
+
+async function saveMysqlDatabase(pool: mysql.Pool, db: Database) {
+  await ensureMysqlSchema(pool);
+  await pool.execute(
+    `
+      INSERT INTO app_state (id, data)
+      VALUES (?, CAST(? AS JSON))
+      ON DUPLICATE KEY UPDATE data = VALUES(data)
+    `,
+    [MYSQL_STATE_ID, JSON.stringify(normalizeDatabase(db))],
+  );
+}
+
+export async function readDatabase(): Promise<Database> {
+  const mysql = getMysqlPool();
+  return readMysqlDatabase(mysql);
 }
 
 export async function saveDatabase(db: Database) {
-  if (memoryDatabase) {
-    rememberDatabase(db);
-    return;
-  }
-
-  try {
-    await mkdir(DATA_DIR, { recursive: true });
-    const tempFile = `${DB_FILE}.${process.pid}.tmp`;
-    await writeFile(tempFile, `${JSON.stringify(db, null, 2)}\n`, "utf8");
-    await rename(tempFile, DB_FILE);
-  } catch (error) {
-    if (!canUseMemoryFallback(error)) throw error;
-    rememberDatabase(db);
-  }
+  const mysql = getMysqlPool();
+  await saveMysqlDatabase(mysql, db);
 }
 
 export async function mutateDatabase<T>(mutator: (db: Database) => T | Promise<T>) {

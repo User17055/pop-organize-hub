@@ -101,13 +101,21 @@ export const permissionCatalog: Array<{
     items: [
       { key: "tasks.create", label: "Criar tarefas", hint: "Pode abrir novas tarefas" },
       { key: "tasks.edit", label: "Editar tarefas", hint: "Título, descrição, prazo e tags" },
-      { key: "tasks.changeStatus", label: "Alterar status", hint: "Mover entre pendente/andamento/revisão" },
+      {
+        key: "tasks.changeStatus",
+        label: "Alterar status",
+        hint: "Mover entre pendente/andamento/revisão",
+      },
       { key: "tasks.complete", label: "Concluir tarefas", hint: "Marcar tarefas como concluídas" },
       { key: "tasks.reopen", label: "Reabrir tarefas", hint: "Reabrir tarefas concluídas" },
       { key: "tasks.delete", label: "Excluir tarefas", hint: "Remover tarefas permanentemente" },
       { key: "tasks.comment", label: "Comentar", hint: "Escrever comentários nas tarefas" },
       { key: "tasks.attach", label: "Anexar arquivos", hint: "Adicionar anexos nas tarefas" },
-      { key: "tasks.checklist", label: "Gerenciar checklist", hint: "Adicionar e marcar itens do checklist" },
+      {
+        key: "tasks.checklist",
+        label: "Gerenciar checklist",
+        hint: "Adicionar e marcar itens do checklist",
+      },
     ],
   },
   {
@@ -115,16 +123,28 @@ export const permissionCatalog: Array<{
     items: [
       { key: "pages.departments", label: "Ver Setores", hint: "Acessa a página de setores" },
       { key: "pages.reports", label: "Ver Relatórios", hint: "Acessa indicadores e relatórios" },
-      { key: "pages.employees", label: "Ver Funcionários", hint: "Acessa a lista de colaboradores" },
+      {
+        key: "pages.employees",
+        label: "Ver Funcionários",
+        hint: "Acessa a lista de colaboradores",
+      },
       { key: "pages.company", label: "Ver Empresas", hint: "Acessa o cadastro da empresa" },
     ],
   },
   {
     category: "Gestão",
     items: [
-      { key: "manage.departments", label: "Criar/editar setores", hint: "Gerencia setores da empresa" },
+      {
+        key: "manage.departments",
+        label: "Criar/editar setores",
+        hint: "Gerencia setores da empresa",
+      },
       { key: "manage.groups", label: "Criar/editar grupos", hint: "Gerencia grupos de trabalho" },
-      { key: "manage.employees", label: "Cadastrar funcionários", hint: "Adiciona novos colaboradores" },
+      {
+        key: "manage.employees",
+        label: "Cadastrar funcionários",
+        hint: "Adiciona novos colaboradores",
+      },
       { key: "manage.company", label: "Editar empresa", hint: "Altera dados da empresa" },
     ],
   },

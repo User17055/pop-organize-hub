@@ -12,6 +12,11 @@ export function useWorkspaceData() {
     refetchInterval: 30_000,
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: false,
+    retry: (failureCount, error) => {
+      const typedError = error as Error & { statusCode?: number; status?: number };
+      if (typedError.statusCode === 401 || typedError.status === 401) return false;
+      return failureCount < 2;
+    },
     staleTime: 20_000,
   });
 }

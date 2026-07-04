@@ -40,7 +40,7 @@ export function TaskSubtaskChecklist({
   }
 
   return (
-    <section className="rounded-md border border-border bg-card p-3.5">
+    <section className="rounded-[16px] bg-muted/24 p-3.5">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
           <ListChecks className="h-3.5 w-3.5" />

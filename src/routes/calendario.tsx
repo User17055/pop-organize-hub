@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { addMonths, format, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -43,6 +44,7 @@ function CalendarPage() {
   const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const filters = emptyTaskFilters;
+  const [isMounted, setIsMounted] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [commentBody, setCommentBody] = useState("");
   const [editForm, setEditForm] = useState<TaskEditState>({
@@ -75,6 +77,10 @@ function CalendarPage() {
     onDeleted: () => setSelectedTaskId(null),
     onCommented: () => setCommentBody(""),
   });
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const filteredTasks = useMemo(() => {
     if (!data) return [];
@@ -184,6 +190,72 @@ function CalendarPage() {
   const attachmentError =
     attachmentMutation.error instanceof Error ? attachmentMutation.error.message : null;
 
+  const taskDetailLayer = isMounted
+    ? createPortal(
+        <>
+          <div
+            className={cn(
+              "fixed inset-0 z-[190] bg-slate-900/20 backdrop-blur-[2px] transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              selectedTask ? "opacity-100" : "pointer-events-none opacity-0",
+            )}
+            onClick={() => setSelectedTaskId(null)}
+            aria-hidden={!selectedTask}
+          />
+          <aside
+            className={cn(
+              "fixed inset-y-0 right-0 z-[200] flex h-dvh w-[94vw] flex-col overflow-hidden rounded-l-[28px] border-l border-white/70 bg-background transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:w-[50vw] sm:min-w-[420px] sm:max-w-[680px]",
+              selectedTask ? "translate-x-0" : "translate-x-full",
+            )}
+            aria-hidden={!selectedTask}
+          >
+            {selectedTask && selectedPermissions && (
+              <TaskDetailDrawer
+                task={selectedTask}
+                permissions={selectedPermissions}
+                employees={employees}
+                departments={departments}
+                editForm={editForm}
+                onEditFormChange={setEditForm}
+                onSubmit={handleEditSubmit}
+                onClose={() => setSelectedTaskId(null)}
+                onToggleComplete={() =>
+                  statusMutation.mutate({
+                    id: selectedTask.id,
+                    status: selectedTask.status === "completed" ? "in_progress" : "completed",
+                  })
+                }
+                onDelete={handleDeleteSelectedTask}
+                isSaving={updateTaskMutation.isPending}
+                isDeleting={deleteTaskMutation.isPending}
+                isStatusPending={statusMutation.isPending}
+                commentBody={commentBody}
+                onCommentBodyChange={setCommentBody}
+                onCommentSubmit={handleCommentSubmit}
+                isCommenting={commentMutation.isPending}
+                onAttachmentFile={handleAttachmentFile}
+                isAttaching={attachmentMutation.isPending}
+                subtasks={selectedTask.subtasks}
+                onAddSubtask={(title) =>
+                  addSubtaskMutation.mutate({ taskId: selectedTask.id, title })
+                }
+                onToggleSubtask={(subtaskId, done) =>
+                  toggleSubtaskMutation.mutate({ taskId: selectedTask.id, subtaskId, done })
+                }
+                onDeleteSubtask={(subtaskId) =>
+                  deleteSubtaskMutation.mutate({ taskId: selectedTask.id, subtaskId })
+                }
+                isAddingSubtask={addSubtaskMutation.isPending}
+                errorMessage={
+                  updateError ?? statusError ?? deleteError ?? commentError ?? attachmentError
+                }
+              />
+            )}
+          </aside>
+        </>,
+        document.body,
+      )
+    : null;
+
   return (
     <AppShell
       title="Calendário"
@@ -191,11 +263,11 @@ function CalendarPage() {
       contentClassName="flex min-h-0 flex-col md:min-h-[calc(100dvh-96px)]"
     >
       <div className="mb-4 flex justify-center md:mb-5 md:justify-between">
-        <div className="app-surface flex w-full items-center justify-between gap-2 rounded-[24px] px-2 py-2 md:w-auto md:rounded-2xl">
+        <div className="task-glass-control flex w-full items-center justify-between gap-2 rounded-[22px] px-2 py-2 md:w-auto md:rounded-full">
           <button
             type="button"
             onClick={() => setVisibleMonth((current) => startOfMonth(subMonths(current, 1)))}
-            className="glass-icon-button flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-foreground md:h-9 md:w-9"
+            className="pressable flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/70 text-foreground transition hover:border-primary/30 hover:text-primary md:h-9 md:w-9"
             aria-label="Mês anterior"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -206,7 +278,7 @@ function CalendarPage() {
           <button
             type="button"
             onClick={() => setVisibleMonth((current) => startOfMonth(addMonths(current, 1)))}
-            className="glass-icon-button flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-foreground md:h-9 md:w-9"
+            className="pressable flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/70 text-foreground transition hover:border-primary/30 hover:text-primary md:h-9 md:w-9"
             aria-label="Próximo mês"
           >
             <ChevronRight className="h-4 w-4" />
@@ -219,7 +291,7 @@ function CalendarPage() {
               setSelectedDay(today);
             }}
             className={cn(
-              "pressable hidden h-9 rounded-full border border-border bg-white/70 px-3 text-sm font-semibold hover:bg-white md:inline-flex md:items-center",
+              "pressable hidden h-9 rounded-full border border-border/70 bg-background/70 px-3 text-sm font-semibold hover:border-primary/30 hover:text-primary md:inline-flex md:items-center",
             )}
           >
             Hoje
@@ -252,63 +324,7 @@ function CalendarPage() {
         onOpenTask={openTask}
       />
 
-      {/* Task detail overlay */}
-      <div
-        className={cn(
-          "fixed inset-0 z-[190] bg-slate-950/18 backdrop-blur-[1.5px] transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
-          selectedTask ? "opacity-100" : "opacity-0 pointer-events-none",
-        )}
-        onClick={() => setSelectedTaskId(null)}
-        aria-hidden={!selectedTask}
-      />
-      <aside
-        className={cn(
-          "calendar-detail-drawer fixed inset-y-0 right-0 z-[200] flex h-dvh w-full flex-col overflow-hidden rounded-none border transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:inset-y-3 sm:right-3 sm:h-[calc(100dvh-1.5rem)] sm:w-[50vw] sm:min-w-[420px] sm:max-w-[680px] sm:rounded-lg",
-          selectedTask ? "translate-x-0" : "translate-x-full",
-        )}
-        aria-hidden={!selectedTask}
-      >
-        {selectedTask && selectedPermissions && (
-          <TaskDetailDrawer
-            task={selectedTask}
-            permissions={selectedPermissions}
-            employees={employees}
-            departments={departments}
-            editForm={editForm}
-            onEditFormChange={setEditForm}
-            onSubmit={handleEditSubmit}
-            onClose={() => setSelectedTaskId(null)}
-            onToggleComplete={() =>
-              statusMutation.mutate({
-                id: selectedTask.id,
-                status: selectedTask.status === "completed" ? "in_progress" : "completed",
-              })
-            }
-            onDelete={handleDeleteSelectedTask}
-            isSaving={updateTaskMutation.isPending}
-            isDeleting={deleteTaskMutation.isPending}
-            isStatusPending={statusMutation.isPending}
-            commentBody={commentBody}
-            onCommentBodyChange={setCommentBody}
-            onCommentSubmit={handleCommentSubmit}
-            isCommenting={commentMutation.isPending}
-            onAttachmentFile={handleAttachmentFile}
-            isAttaching={attachmentMutation.isPending}
-            subtasks={selectedTask.subtasks}
-            onAddSubtask={(title) => addSubtaskMutation.mutate({ taskId: selectedTask.id, title })}
-            onToggleSubtask={(subtaskId, done) =>
-              toggleSubtaskMutation.mutate({ taskId: selectedTask.id, subtaskId, done })
-            }
-            onDeleteSubtask={(subtaskId) =>
-              deleteSubtaskMutation.mutate({ taskId: selectedTask.id, subtaskId })
-            }
-            isAddingSubtask={addSubtaskMutation.isPending}
-            errorMessage={
-              updateError ?? statusError ?? deleteError ?? commentError ?? attachmentError
-            }
-          />
-        )}
-      </aside>
+      {taskDetailLayer}
     </AppShell>
   );
 }

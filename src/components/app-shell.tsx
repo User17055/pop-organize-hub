@@ -29,7 +29,6 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "@/lib/utils";
-import logo from "@/assets/logo.png";
 import { logout, updateProfile } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import type { PermissionKey, Priority, TaskStatus } from "@/lib/domain";
@@ -64,6 +63,14 @@ const nav: Array<NavItem & { visibility: NavVisibility }> = [
 const SIDEBAR_COLLAPSED_KEY = "pop-organize:sidebar-collapsed";
 
 type ScrollEdge = "top" | "bottom" | null;
+
+function isAuthError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const typedError = error as Error & { statusCode?: number; status?: number };
+  return (
+    typedError.statusCode === 401 || typedError.status === 401 || error.message.includes("Sess")
+  );
+}
 
 function getScrollableElement(target: EventTarget | null) {
   let node = target instanceof Element ? target : null;
@@ -171,19 +178,14 @@ export function AppShell({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data } = useWorkspaceData();
-  const currentUser = data?.currentUser ?? {
-    id: "u3",
-    name: "João Pereira",
-    email: "joao@poporganize.com",
-    role: "Admin da Empresa",
-  };
-  const currentEmployee = data?.employees.find((employee) => employee.id === currentUser.id);
+  const { data, error } = useWorkspaceData();
+  const currentUser = data?.currentUser;
+  const currentEmployee = data?.employees.find((employee) => employee.id === currentUser?.id);
   const currentDepartment = data?.departments.find(
     (department) => department.id === currentEmployee?.departmentId,
   );
   const avatar = currentEmployee?.avatar;
-  const initials = currentUser.name
+  const initials = (currentUser?.name ?? "")
     .split(" ")
     .map((n) => n[0])
     .slice(0, 2)
@@ -203,13 +205,18 @@ export function AppShell({
     ["/", "/tarefas", "/calendario"].includes(item.to),
   );
   const moreMobileNav = visibleNav.filter((item) => !primaryMobileNav.includes(item));
-  const showMobileTopLogo = pathname === "/";
-
   const [profileOpen, setProfileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
   });
+
+  useEffect(() => {
+    if (error && isAuthError(error) && pathname !== "/login") {
+      queryClient.removeQueries({ queryKey: workspaceQueryKey });
+      navigate({ to: "/login" });
+    }
+  }, [error, navigate, pathname, queryClient]);
 
   function toggleCollapsed() {
     setCollapsed((current) => {
@@ -225,7 +232,7 @@ export function AppShell({
 
   useTaskAlerts(data?.tasks, data?.currentUser.id);
   const [profileForm, setProfileForm] = useState({
-    name: currentEmployee?.name ?? currentUser.name,
+    name: currentEmployee?.name ?? currentUser?.name ?? "",
     avatar: avatar ?? "",
     currentPassword: "",
     newPassword: "",
@@ -264,7 +271,7 @@ export function AppShell({
 
   function openProfile() {
     setProfileForm({
-      name: currentEmployee?.name ?? currentUser.name,
+      name: currentEmployee?.name ?? currentUser?.name ?? "",
       avatar: currentEmployee?.avatar ?? "",
       currentPassword: "",
       newPassword: "",
@@ -297,6 +304,34 @@ export function AppShell({
 
   const profileError =
     profileMutation.error instanceof Error ? profileMutation.error.message : null;
+
+  if (!data || !currentUser) {
+    return (
+      <div className="native-viewport flex w-full bg-background">
+        <main className="app-main-shell flex min-w-0 flex-1 flex-col">
+          <header className="glass-header safe-top sticky top-0 z-30 border-b border-white/70">
+            <div className="relative flex items-center gap-3 px-4 py-3 md:px-10 md:py-3.5 lg:px-12">
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground md:text-xl md:font-semibold">
+                  {title}
+                </h1>
+                {subtitle && (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground md:text-sm">
+                    {subtitle}
+                  </p>
+                )}
+              </div>
+              {actions}
+            </div>
+          </header>
+          <div className={cn("flex-1 px-4 py-7 md:px-10 lg:px-12", contentClassName)}>
+            {children}
+          </div>
+        </main>
+        <Toaster position="top-center" closeButton richColors />
+      </div>
+    );
+  }
 
   return (
     <div className="native-viewport flex w-full bg-background">
@@ -536,16 +571,7 @@ export function AppShell({
       {/* Mobile fixed header */}
       <header className="mobile-fixed-header glass-header safe-top fixed left-0 right-0 top-0 z-[70] border-b border-white/70 md:hidden">
         <div className="relative flex items-center gap-3 px-4 py-3">
-          {showMobileTopLogo && (
-            <Link
-              to="/"
-              className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full px-2 py-1.5"
-              aria-label="Pop Organize"
-            >
-              <img src={logo} alt="Pop Organize" className="h-9 w-9 shrink-0 object-contain" />
-            </Link>
-          )}
-          <div className={cn("min-w-0 flex-1", showMobileTopLogo ? "max-w-[42vw]" : "max-w-full")}>
+          <div className="min-w-0 flex-1">
             <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground">
               {title}
             </h1>
@@ -564,21 +590,7 @@ export function AppShell({
       <main className="app-main-shell flex min-w-0 flex-1 flex-col">
         <header className="glass-header safe-top sticky top-0 z-30 hidden border-b border-white/70 md:block">
           <div className="relative flex items-center gap-3 px-4 py-3 md:px-10 md:py-3.5 lg:px-12">
-            {showMobileTopLogo && (
-              <Link
-                to="/"
-                className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full px-2 py-1.5 md:hidden"
-                aria-label="Pop Organize"
-              >
-                <img src={logo} alt="Pop Organize" className="h-9 w-9 shrink-0 object-contain" />
-              </Link>
-            )}
-            <div
-              className={cn(
-                "min-w-0 flex-1",
-                showMobileTopLogo ? "max-w-[42vw] md:max-w-none" : "max-w-full",
-              )}
-            >
+            <div className="min-w-0 flex-1">
               <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground md:text-xl md:font-semibold">
                 {title}
               </h1>

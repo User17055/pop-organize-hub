@@ -95,14 +95,16 @@ function Dashboard() {
     },
   ];
 
-  const byDept = departments.map((d) => {
-    const dt = tasks.filter((t) => t.target.type === "department" && t.target.id === d.id);
-    return {
-      ...d,
-      total: dt.length,
-      done: dt.filter((t) => t.status === "completed").length,
-    };
-  }).filter((department) => canSeePeopleContext || department.total > 0);
+  const byDept = departments
+    .map((d) => {
+      const dt = tasks.filter((t) => t.target.type === "department" && t.target.id === d.id);
+      return {
+        ...d,
+        total: dt.length,
+        done: dt.filter((t) => t.status === "completed").length,
+      };
+    })
+    .filter((department) => canSeePeopleContext || department.total > 0);
 
   const recent = tasks.slice(0, 5);
   const greeting = getGreeting();
@@ -246,33 +248,33 @@ function Dashboard() {
           </div>
 
           {canSeePeopleContext && (
-          <div className="mobile-card hover-lift rounded-[24px] p-5 md:rounded-2xl">
-            <h2 className="text-base font-display font-semibold mb-1">Equipe</h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              {employees.length} funcionários • {groups.length} grupos
-            </p>
-            <div className="flex -space-x-2">
-              {employees.slice(0, 6).map((e) => (
-                <div
-                  key={e.id}
-                  className="h-8 w-8 rounded-full ring-2 ring-card flex items-center justify-center text-[11px] font-semibold text-primary-foreground"
-                  style={{ background: "var(--gradient-primary)" }}
-                  title={e.name}
-                >
-                  {e.name
-                    .split(" ")
-                    .map((n) => n[0])
-                    .slice(0, 2)
-                    .join("")}
-                </div>
-              ))}
-              {employees.length > 6 && (
-                <div className="h-8 w-8 rounded-full ring-2 ring-card bg-muted text-muted-foreground flex items-center justify-center text-[11px] font-semibold">
-                  +{employees.length - 6}
-                </div>
-              )}
+            <div className="mobile-card hover-lift rounded-[24px] p-5 md:rounded-2xl">
+              <h2 className="text-base font-display font-semibold mb-1">Equipe</h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                {employees.length} funcionários • {groups.length} grupos
+              </p>
+              <div className="flex -space-x-2">
+                {employees.slice(0, 6).map((e) => (
+                  <div
+                    key={e.id}
+                    className="h-8 w-8 rounded-full ring-2 ring-card flex items-center justify-center text-[11px] font-semibold text-primary-foreground"
+                    style={{ background: "var(--gradient-primary)" }}
+                    title={e.name}
+                  >
+                    {e.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .slice(0, 2)
+                      .join("")}
+                  </div>
+                ))}
+                {employees.length > 6 && (
+                  <div className="h-8 w-8 rounded-full ring-2 ring-card bg-muted text-muted-foreground flex items-center justify-center text-[11px] font-semibold">
+                    +{employees.length - 6}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
           )}
         </div>
       </div>

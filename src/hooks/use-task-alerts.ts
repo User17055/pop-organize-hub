@@ -78,9 +78,7 @@ export function useTaskAlerts(tasks: Task[] | undefined, currentUserId: string |
       checkedOverdueRef.current = true;
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const overdue = myOpenTasks.filter(
-        (task) => new Date(`${task.dueDate}T00:00:00`) < today,
-      );
+      const overdue = myOpenTasks.filter((task) => new Date(`${task.dueDate}T00:00:00`) < today);
       const overdueKey = `${OVERDUE_KEY_PREFIX}${currentUserId}:${todayStamp()}`;
       if (overdue.length > 0 && !sessionStorage.getItem(overdueKey)) {
         sessionStorage.setItem(overdueKey, "1");

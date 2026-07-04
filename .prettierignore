@@ -2,6 +2,11 @@ node_modules
 dist
 .output
 .vinxi
+.tanstack
+.data
+android/**/build
+ios/**/build
+native-shell/**/build
 pnpm-lock.yaml
 package-lock.json
 bun.lock

@@ -2,7 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Mail, Lock, ArrowRight, CheckCircle2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import logo from "@/assets/logo.png";
 import { login } from "@/lib/api/pop-organize.functions";
 import { workspaceQueryKey } from "@/lib/api/use-workspace";
 
@@ -14,8 +13,8 @@ export const Route = createFileRoute("/login")({
 function LoginPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [email, setEmail] = useState("joao@poporganize.com");
-  const [password, setPassword] = useState("demo1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const loginMutation = useMutation({
     mutationFn: (payload: { email: string; password: string }) => login({ data: payload }),
     onSuccess: () => {
@@ -46,7 +45,6 @@ function LoginPage() {
         />
         <div className="relative">
           <div className="flex items-center gap-2.5">
-            <img src={logo} alt="Pop Organize" className="h-10 w-10 object-contain" />
             <span className="font-display font-bold text-xl">Pop Organize</span>
           </div>
         </div>
@@ -76,7 +74,6 @@ function LoginPage() {
       <div className="flex-1 flex items-center justify-center p-6 sm:p-12 bg-background">
         <div className="w-full max-w-sm">
           <div className="lg:hidden flex items-center gap-2.5 mb-8 justify-center">
-            <img src={logo} alt="Pop Organize" className="h-10 w-10 object-contain" />
             <span className="font-display font-bold text-xl">Pop Organize</span>
           </div>
 
@@ -136,8 +133,7 @@ function LoginPage() {
           </form>
 
           <p className="text-center text-sm text-muted-foreground mt-8">
-            Demo: use <span className="font-medium text-foreground">joao@poporganize.com</span> e
-            senha <span className="font-medium text-foreground">demo1234</span>.
+            Acesso exclusivo para colaboradores cadastrados.
           </p>
         </div>
       </div>

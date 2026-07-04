@@ -41,7 +41,7 @@ function FuncionariosPage() {
     role: "",
     departmentId: "",
     status: "active" as "active" | "inactive",
-    password: "demo1234",
+    password: "",
     permissionGroupId: "",
   });
 
@@ -52,7 +52,7 @@ function FuncionariosPage() {
       role: string;
       departmentId: string;
       status: "active" | "inactive";
-      password?: string;
+      password: string;
       permissionGroupId?: string;
     }) => createEmployee({ data: payload }),
     onSuccess: () => {
@@ -89,8 +89,7 @@ function FuncionariosPage() {
   const canManage = hasPermission(permissionSet, "manage.employees");
 
   const getDepartment = (id: string) => departments.find((department) => department.id === id);
-  const getPermissionGroup = (id?: string) =>
-    permissionGroups.find((group) => group.id === id);
+  const getPermissionGroup = (id?: string) => permissionGroups.find((group) => group.id === id);
   const mutationError = createMutation.error instanceof Error ? createMutation.error.message : null;
 
   function openForm() {
@@ -100,7 +99,7 @@ function FuncionariosPage() {
       role: "",
       departmentId: departments[0]?.id ?? "",
       status: "active",
-      password: "demo1234",
+      password: "",
       permissionGroupId: "",
     });
     createMutation.reset();
@@ -273,7 +272,8 @@ function FuncionariosPage() {
                       setForm((current) => ({ ...current, password: e.target.value }))
                     }
                     className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
-                    minLength={6}
+                    minLength={8}
+                    required
                   />
                 </Field>
               </div>

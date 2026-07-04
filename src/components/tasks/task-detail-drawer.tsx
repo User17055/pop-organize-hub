@@ -9,7 +9,6 @@ import {
   Pencil,
   Repeat,
   Send,
-  ShieldCheck,
   Tag,
   Target,
   Trash2,
@@ -91,11 +90,7 @@ export function TaskDetailDrawer({
     <form onSubmit={onSubmit} className="flex h-full flex-col overflow-hidden rounded-lg">
       {/* Sticky header */}
       <header className="glass-header sticky top-0 z-[60] border-b border-white/70 px-5 pb-4 pt-5">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            {permissions.roleLabel}
-          </div>
+        <div className="mb-3 flex items-center justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
@@ -179,8 +174,8 @@ export function TaskDetailDrawer({
           </div>
           <div className="grid grid-cols-2 gap-2">
             {/* Due date */}
-            <div className="col-span-2 sm:col-span-1 rounded-md border border-border bg-card p-3 flex items-center gap-3">
-              <div className="h-8 w-8 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-primary">
                 <Calendar className="h-4 w-4" />
               </div>
               <div className="flex-1 min-w-0">
@@ -204,8 +199,8 @@ export function TaskDetailDrawer({
             </div>
 
             {/* Recurrence */}
-            <div className="col-span-2 sm:col-span-1 rounded-md border border-border bg-card p-3 flex items-center gap-3">
-              <div className="h-8 w-8 rounded-md bg-success/10 text-success flex items-center justify-center shrink-0">
+            <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-success/10 text-success">
                 <Repeat className="h-4 w-4" />
               </div>
               <div className="flex-1 min-w-0">
@@ -238,8 +233,8 @@ export function TaskDetailDrawer({
             </div>
 
             {/* Priority */}
-            <div className="col-span-2 sm:col-span-1 rounded-md border border-border bg-card p-3 flex items-center gap-3">
-              <div className="h-8 w-8 rounded-md bg-destructive/10 text-destructive flex items-center justify-center shrink-0">
+            <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-destructive/10 text-destructive">
                 <Flag className="h-4 w-4" />
               </div>
               <div className="flex-1 min-w-0">
@@ -270,8 +265,8 @@ export function TaskDetailDrawer({
             </div>
 
             {/* Target */}
-            <div className="col-span-2 sm:col-span-1 rounded-md border border-border bg-card p-3 flex items-center gap-3">
-              <div className="h-8 w-8 rounded-md bg-accent/50 text-accent-foreground flex items-center justify-center shrink-0">
+            <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-accent/50 text-accent-foreground">
                 <Target className="h-4 w-4" />
               </div>
               <div className="flex-1 min-w-0">
@@ -285,7 +280,7 @@ export function TaskDetailDrawer({
             </div>
 
             {/* Responsible */}
-            <div className="col-span-2 sm:col-span-1 rounded-md border border-border bg-card p-3 flex items-center gap-3">
+            <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
               <EmployeeAvatar
                 employee={getEmployee(task.responsibleId)}
                 departments={departments}
@@ -302,7 +297,7 @@ export function TaskDetailDrawer({
 
             {/* Reviewer */}
             {task.reviewerId && (
-              <div className="col-span-2 sm:col-span-1 rounded-md border border-border bg-card p-3 flex items-center gap-3">
+              <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
                 <EmployeeAvatar employee={getEmployee(task.reviewerId)} departments={departments} />
                 <div className="flex-1 min-w-0">
                   <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
@@ -317,7 +312,7 @@ export function TaskDetailDrawer({
           </div>
 
           {permissions.canEditContent && editForm.recurrence.frequency !== "none" && (
-            <div className="rounded-md border border-border bg-card p-3 mt-2">
+            <div className="mt-2 rounded-[14px] bg-muted/28 p-3">
               <RecurrenceFields
                 compact
                 value={editForm.recurrence}
@@ -376,7 +371,7 @@ export function TaskDetailDrawer({
             isAdding={isAddingSubtask}
           />
 
-          <section className="rounded-md border border-border bg-card p-3.5">
+          <section className="rounded-[16px] bg-muted/24 p-3.5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                 <MessageSquare className="h-3.5 w-3.5" />
@@ -413,7 +408,7 @@ export function TaskDetailDrawer({
                 );
               })}
               {task.comments > (task.commentItems?.length ?? 0) && (
-                <div className="rounded-md border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground text-center">
+                <div className="rounded-[12px] bg-background/58 px-3 py-2.5 text-center text-xs text-muted-foreground">
                   {task.comments - (task.commentItems?.length ?? 0)} comentário
                   {task.comments - (task.commentItems?.length ?? 0) === 1 ? "" : "s"} no histórico.
                 </div>
@@ -447,7 +442,7 @@ export function TaskDetailDrawer({
             )}
           </section>
 
-          <section className="rounded-md border border-border bg-card p-3.5">
+          <section className="rounded-[16px] bg-muted/24 p-3.5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                 <Paperclip className="h-3.5 w-3.5" />
@@ -464,9 +459,9 @@ export function TaskDetailDrawer({
                 return (
                   <div
                     key={attachment.id}
-                    className="flex items-center gap-3 rounded-md bg-muted/30 p-3"
+                    className="flex items-center gap-3 rounded-[12px] bg-background/58 p-3"
                   >
-                    <div className="h-8 w-8 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-primary">
                       <FileText className="h-4 w-4" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -479,7 +474,7 @@ export function TaskDetailDrawer({
                 );
               })}
               {task.attachments > (task.attachmentItems?.length ?? 0) && (
-                <div className="rounded-md border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground text-center">
+                <div className="rounded-[12px] bg-background/58 px-3 py-2.5 text-center text-xs text-muted-foreground">
                   {task.attachments - (task.attachmentItems?.length ?? 0)} anexo
                   {task.attachments - (task.attachmentItems?.length ?? 0) === 1 ? "" : "s"} no
                   histórico.
@@ -491,7 +486,7 @@ export function TaskDetailDrawer({
               <div className="mt-3">
                 <label
                   className={cn(
-                    "flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 text-xs font-medium transition hover:bg-muted hover:border-primary/50 hover:text-primary",
+                    "flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[12px] bg-background/64 px-3 text-xs font-medium transition hover:bg-background hover:text-primary",
                     isAttaching && "pointer-events-none opacity-60",
                   )}
                 >

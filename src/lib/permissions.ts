@@ -177,8 +177,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
     canDelete: base.canDelete && allowed("tasks.delete"),
     canComment: base.canChangeStatus && allowed("tasks.comment"),
     canAttach: base.canChangeStatus && allowed("tasks.attach"),
-    canManageChecklist:
-      (base.canChangeStatus || base.canEditContent) && allowed("tasks.checklist"),
+    canManageChecklist: (base.canChangeStatus || base.canEditContent) && allowed("tasks.checklist"),
     roleLabel: base.roleLabel,
   };
 }

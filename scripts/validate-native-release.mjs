@@ -64,14 +64,20 @@ if (mode === "store") {
 const generatedAndroidConfig = resolve("android/app/src/main/assets/capacitor.config.json");
 if (validateGeneratedAssets && existsSync(generatedAndroidConfig)) {
   const contents = readFileSync(generatedAndroidConfig, "utf8");
-  if (/https?:\/\/(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.|192\.168\.|0\.)/i.test(contents)) {
-    fail("Android generated assets still contain a local development server URL. Run cap sync with store env vars.");
+  if (
+    /https?:\/\/(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.|192\.168\.|0\.)/i.test(contents)
+  ) {
+    fail(
+      "Android generated assets still contain a local development server URL. Run cap sync with store env vars.",
+    );
   }
 
   if (mode === "store") {
     const config = JSON.parse(contents);
     if (config.server?.url !== appUrl) {
-      fail("Android generated assets do not match CAPACITOR_APP_URL. Run android:sync:store again.");
+      fail(
+        "Android generated assets do not match CAPACITOR_APP_URL. Run android:sync:store again.",
+      );
     }
   }
 }

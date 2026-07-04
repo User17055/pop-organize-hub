@@ -6,6 +6,20 @@ import tsConfigPaths from "vite-tsconfig-paths";
 import { nitro } from "nitro/vite";
 
 export default defineConfig(({ mode, command }) => {
+  const serverEnv = loadEnv(mode, process.cwd(), "");
+  for (const key of [
+    "DATABASE_URL",
+    "MYSQL_URL",
+    "BOOTSTRAP_COMPANY_NAME",
+    "BOOTSTRAP_ADMIN_NAME",
+    "BOOTSTRAP_ADMIN_EMAIL",
+    "BOOTSTRAP_ADMIN_PASSWORD",
+  ]) {
+    if (!process.env[key] && serverEnv[key]) {
+      process.env[key] = serverEnv[key];
+    }
+  }
+
   const env = loadEnv(mode, process.cwd(), "VITE_");
   const envDefine = Object.fromEntries(
     Object.entries(env).map(([key, value]) => [`import.meta.env.${key}`, JSON.stringify(value)]),

@@ -42,15 +42,15 @@ export function MonthGrid({
   return (
     <div
       className={cn(
-        "mobile-card overflow-hidden rounded-[28px] md:rounded-[26px]",
-        fullHeight && "flex h-full min-h-[620px] flex-col md:min-h-0",
+        "task-glass-panel overflow-hidden rounded-[22px] p-2 md:rounded-[24px] md:p-3",
+        fullHeight && "md:flex md:h-full md:min-h-0 md:flex-col",
       )}
     >
-      <div className="grid grid-cols-7 border-b border-white/70 bg-white/55">
+      <div className="grid grid-cols-7 px-1 pb-2">
         {weekdayLabels.map((label) => (
           <div
             key={label}
-            className="px-1 py-3 text-center text-[10px] font-bold uppercase tracking-wide text-muted-foreground md:px-2 md:py-3 md:text-[11px]"
+            className="px-1 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-muted-foreground/75 md:px-2 md:text-[11px]"
           >
             {label}
           </div>
@@ -58,8 +58,8 @@ export function MonthGrid({
       </div>
       <div
         className={cn(
-          "grid grid-cols-7 gap-px bg-border/35 p-px",
-          fullHeight && "flex-1 auto-rows-fr",
+          "grid grid-cols-7 gap-1.5 md:gap-2",
+          fullHeight && "md:flex-1 md:auto-rows-fr",
         )}
       >
         {days.map((day) => {
@@ -77,37 +77,32 @@ export function MonthGrid({
               type="button"
               onClick={() => onSelectDay(day)}
               className={cn(
-                "pressable flex min-h-[72px] flex-col rounded-[18px] bg-white/68 p-1.5 text-left align-top outline-none hover:bg-white/95 focus-visible:ring-2 focus-visible:ring-primary/25 sm:min-h-[112px] sm:p-2.5",
+                "pressable flex min-h-[66px] flex-col rounded-[15px] border border-border/45 bg-background/62 p-1.5 text-left align-top outline-none hover:border-primary/24 hover:bg-background/90 focus-visible:ring-2 focus-visible:ring-primary/20 sm:min-h-[112px] sm:rounded-[18px] sm:p-2.5",
                 fullHeight && "sm:min-h-0",
-                !inMonth && "bg-white/38 text-muted-foreground/60",
-                selected && "bg-primary/10 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--primary)_40%,transparent)] ring-2 ring-inset ring-primary/35",
+                !inMonth && "bg-muted/24 text-muted-foreground/55",
+                selected && "border-primary/30 bg-primary/8 ring-2 ring-inset ring-primary/18",
               )}
             >
               <div className="flex items-center justify-between gap-1">
                 <span
                   className={cn(
-                    "inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold sm:h-7 sm:w-7 sm:text-xs",
-                    today ? "bg-primary text-primary-foreground shadow-[var(--shadow-elegant)]" : "text-foreground",
+                    "inline-flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold sm:h-7 sm:w-7 sm:text-xs",
+                    today ? "bg-foreground text-background" : "text-foreground",
                     !inMonth && "text-muted-foreground/50",
                   )}
                 >
                   {format(day, "d", { locale: ptBR })}
                 </span>
-                {dayTasks.length > 0 && (
-                  <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary sm:hidden">
-                    {dayTasks.length}
-                  </span>
-                )}
               </div>
 
               {/* Mobile: dots only */}
               {dayTasks.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1 sm:hidden">
+                <div className="mt-1.5 flex flex-wrap gap-0.5 sm:hidden">
                   {dayTasks.slice(0, 4).map((task) => (
                     <span
                       key={task.id}
                       className={cn(
-                        "h-1.5 w-3 shrink-0 rounded-full",
+                        "h-1.5 w-2.5 shrink-0 rounded-full",
                         priorityDotClass[task.priority],
                       )}
                     />
@@ -120,7 +115,7 @@ export function MonthGrid({
                 {visibleTasks.map((task) => (
                   <div
                     key={task.id}
-                    className="rounded-full bg-white/70 px-2 py-1 text-[11px] text-foreground/80 shadow-[0_1px_0_oklch(1_0_0/0.65)_inset]"
+                    className="rounded-full border border-border/50 bg-white/68 px-2 py-1 text-[11px] font-medium text-foreground/72"
                     title={task.title}
                   >
                     <span className="flex min-w-0 items-center gap-1.5">

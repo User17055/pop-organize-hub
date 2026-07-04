@@ -28,7 +28,8 @@ export function resolvePermissionSet(input: {
   const employee = input.employees.find((item) => item.id === userId);
   if (isAdminRole(employee?.role)) return "all";
 
-  const groupId = (input.currentUser as PermissionEmployee)?.permissionGroupId ?? employee?.permissionGroupId;
+  const groupId =
+    (input.currentUser as PermissionEmployee)?.permissionGroupId ?? employee?.permissionGroupId;
   if (!groupId) return "all";
 
   const group = input.permissionGroups.find((item) => item.id === groupId);

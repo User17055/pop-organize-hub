@@ -222,9 +222,7 @@ function PermissoesPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {permissionGroups.map((group) => {
-          const members = employees.filter(
-            (employee) => employee.permissionGroupId === group.id,
-          );
+          const members = employees.filter((employee) => employee.permissionGroupId === group.id);
           return (
             <div key={group.id} className="hover-lift bg-card border border-border rounded-2xl p-5">
               <div className="flex items-start justify-between gap-3">
@@ -390,9 +388,7 @@ function PermissoesPage() {
                             key={item.key}
                             className={cn(
                               "flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors",
-                              form.isSystem
-                                ? "opacity-60"
-                                : "cursor-pointer hover:bg-muted/60",
+                              form.isSystem ? "opacity-60" : "cursor-pointer hover:bg-muted/60",
                             )}
                           >
                             <Checkbox

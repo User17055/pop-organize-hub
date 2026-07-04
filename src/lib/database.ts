@@ -9,8 +9,6 @@ import type {
 } from "./domain";
 import { canViewTask } from "./permissions";
 
-export const DEMO_PASSWORD = "demo1234";
-
 export type EmployeeRecord = Employee & {
   passwordHash: string;
 };
@@ -47,10 +45,12 @@ export function toCurrentUser(employee: Employee): CurrentUser {
   };
 }
 
-export function sanitizeDatabase(db: Database, currentUserId = "u3") {
+export function sanitizeDatabase(db: Database, currentUserId: string) {
   const employees = db.employees.map(withoutPassword);
-  const currentEmployee =
-    employees.find((employee) => employee.id === currentUserId) ?? employees[0];
+  const currentEmployee = employees.find((employee) => employee.id === currentUserId);
+  if (!currentEmployee) {
+    throw Object.assign(new Error("Usuário da sessão não encontrado."), { statusCode: 401 });
+  }
   const visibleTasks = db.tasks.filter((task) =>
     canViewTask({
       task,

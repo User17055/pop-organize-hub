@@ -109,13 +109,13 @@ function GruposPage() {
       subtitle="Equipes flexíveis para projetos e campanhas"
       actions={
         canManageGroups ? (
-        <button
-          onClick={openForm}
-          style={{ background: "var(--gradient-primary)" }}
-          className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
-        >
-          <Plus className="h-4 w-4" /> Novo grupo
-        </button>
+          <button
+            onClick={openForm}
+            style={{ background: "var(--gradient-primary)" }}
+            className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
+          >
+            <Plus className="h-4 w-4" /> Novo grupo
+          </button>
         ) : null
       }
     >
@@ -151,26 +151,28 @@ function GruposPage() {
               )}
 
               {canManageGroups && (
-              <div className="mt-4">
-                <div className="text-xs text-muted-foreground mb-2">Membros ({members.length})</div>
-                <div className="flex flex-wrap gap-2">
-                  {members.map((m) => (
-                    <div
-                      key={m!.id}
-                      className="inline-flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-muted"
-                    >
-                      <div className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-semibold text-primary-foreground bg-primary">
-                        {m!.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .slice(0, 2)
-                          .join("")}
+                <div className="mt-4">
+                  <div className="text-xs text-muted-foreground mb-2">
+                    Membros ({members.length})
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {members.map((m) => (
+                      <div
+                        key={m!.id}
+                        className="inline-flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-muted"
+                      >
+                        <div className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-semibold text-primary-foreground bg-primary">
+                          {m!.name
+                            .split(" ")
+                            .map((n) => n[0])
+                            .slice(0, 2)
+                            .join("")}
+                        </div>
+                        <span className="text-xs font-medium">{m!.name.split(" ")[0]}</span>
                       </div>
-                      <span className="text-xs font-medium">{m!.name.split(" ")[0]}</span>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
               )}
             </div>
           );

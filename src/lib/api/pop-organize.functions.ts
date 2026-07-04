@@ -8,7 +8,6 @@ import {
 import { z } from "zod";
 
 import {
-  DEMO_PASSWORD,
   defaultDueDate,
   nextId,
   sanitizeDatabase,
@@ -94,7 +93,7 @@ const createEmployeeSchema = z.object({
   role: z.string().trim().min(2),
   departmentId: z.string().min(1),
   status: z.enum(["active", "inactive"]).default("active"),
-  password: z.string().min(6).optional(),
+  password: z.string().min(8, "A senha inicial deve ter pelo menos 8 caracteres."),
   permissionGroupId: z
     .union([z.literal(""), z.string().min(1)])
     .optional()
@@ -239,6 +238,12 @@ async function getSessionUserId() {
   );
 
   return session?.userId ?? null;
+}
+
+async function requireSessionUserId() {
+  const userId = await getSessionUserId();
+  if (!userId) throw createHttpError("Sessão expirada. Faça login novamente.", 401);
+  return userId;
 }
 
 function resolveTargetLabel(
@@ -418,7 +423,7 @@ function requireAdmin(
 export const getWorkspaceData = createServerFn({ method: "GET" }).handler(async () => {
   const { readDatabase } = await dbServer();
   const db = await readDatabase();
-  const currentUserId = (await getSessionUserId()) ?? "u3";
+  const currentUserId = await requireSessionUserId();
   return sanitizeDatabase(db, currentUserId);
 });
 
@@ -433,7 +438,7 @@ export const getSessionUser = createServerFn({ method: "GET" }).handler(async ()
 });
 
 export const login = createServerFn({ method: "POST" })
-  .inputValidator((data) => loginSchema.parse(data))
+  .validator((data) => loginSchema.parse(data))
   .handler(async ({ data }) => {
     const { hashPassword, mutateDatabase, createSessionToken, hashToken } = await dbServer();
     const email = data.email.toLowerCase();
@@ -460,7 +465,6 @@ export const login = createServerFn({ method: "POST" })
       return {
         ok: true,
         user: toCurrentUser(employee),
-        demoPassword: DEMO_PASSWORD,
       };
     });
   });
@@ -480,9 +484,9 @@ export const logout = createServerFn({ method: "POST" }).handler(async () => {
 });
 
 export const updateProfile = createServerFn({ method: "POST" })
-  .inputValidator((data) => updateProfileSchema.parse(data))
+  .validator((data) => updateProfileSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase, hashPassword } = await dbServer();
 
     return mutateDatabase((db) => {
@@ -507,9 +511,9 @@ export const updateProfile = createServerFn({ method: "POST" })
   });
 
 export const createTask = createServerFn({ method: "POST" })
-  .inputValidator((data) => createTaskSchema.parse(data))
+  .validator((data) => createTaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       requireGroupPermission(
@@ -555,9 +559,9 @@ export const createTask = createServerFn({ method: "POST" })
   });
 
 export const updateTaskStatus = createServerFn({ method: "POST" })
-  .inputValidator((data) => updateTaskStatusSchema.parse(data))
+  .validator((data) => updateTaskStatusSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       const task = db.tasks.find((item) => item.id === data.id);
@@ -592,9 +596,9 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
   });
 
 export const updateTaskDetails = createServerFn({ method: "POST" })
-  .inputValidator((data) => updateTaskDetailsSchema.parse(data))
+  .validator((data) => updateTaskDetailsSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       const task = db.tasks.find((item) => item.id === data.id);
@@ -623,9 +627,9 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
   });
 
 export const addTaskComment = createServerFn({ method: "POST" })
-  .inputValidator((data) => addTaskCommentSchema.parse(data))
+  .validator((data) => addTaskCommentSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
 
     return mutateDatabase((db) => {
@@ -648,9 +652,9 @@ export const addTaskComment = createServerFn({ method: "POST" })
   });
 
 export const addTaskAttachment = createServerFn({ method: "POST" })
-  .inputValidator((data) => addTaskAttachmentSchema.parse(data))
+  .validator((data) => addTaskAttachmentSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
 
     return mutateDatabase((db) => {
@@ -674,9 +678,9 @@ export const addTaskAttachment = createServerFn({ method: "POST" })
   });
 
 export const addTaskSubtask = createServerFn({ method: "POST" })
-  .inputValidator((data) => addTaskSubtaskSchema.parse(data))
+  .validator((data) => addTaskSubtaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
 
     return mutateDatabase((db) => {
@@ -697,9 +701,9 @@ export const addTaskSubtask = createServerFn({ method: "POST" })
   });
 
 export const toggleTaskSubtask = createServerFn({ method: "POST" })
-  .inputValidator((data) => toggleTaskSubtaskSchema.parse(data))
+  .validator((data) => toggleTaskSubtaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
 
     return mutateDatabase((db) => {
@@ -718,9 +722,9 @@ export const toggleTaskSubtask = createServerFn({ method: "POST" })
   });
 
 export const updateTaskSubtask = createServerFn({ method: "POST" })
-  .inputValidator((data) => updateTaskSubtaskSchema.parse(data))
+  .validator((data) => updateTaskSubtaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
 
     return mutateDatabase((db) => {
@@ -738,9 +742,9 @@ export const updateTaskSubtask = createServerFn({ method: "POST" })
   });
 
 export const deleteTaskSubtask = createServerFn({ method: "POST" })
-  .inputValidator((data) => deleteTaskSubtaskSchema.parse(data))
+  .validator((data) => deleteTaskSubtaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
 
     return mutateDatabase((db) => {
@@ -755,9 +759,9 @@ export const deleteTaskSubtask = createServerFn({ method: "POST" })
   });
 
 export const deleteTask = createServerFn({ method: "POST" })
-  .inputValidator((data) => deleteTaskSchema.parse(data))
+  .validator((data) => deleteTaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       const taskIndex = db.tasks.findIndex((item) => item.id === data.id);
@@ -783,9 +787,9 @@ export const deleteTask = createServerFn({ method: "POST" })
   });
 
 export const createDepartment = createServerFn({ method: "POST" })
-  .inputValidator((data) => createDepartmentSchema.parse(data))
+  .validator((data) => createDepartmentSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       requireGroupPermission(
@@ -812,9 +816,9 @@ export const createDepartment = createServerFn({ method: "POST" })
   });
 
 export const createEmployee = createServerFn({ method: "POST" })
-  .inputValidator((data) => createEmployeeSchema.parse(data))
+  .validator((data) => createEmployeeSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase, hashPassword } = await dbServer();
     return mutateDatabase((db) => {
       requireGroupPermission(
@@ -848,7 +852,7 @@ export const createEmployee = createServerFn({ method: "POST" })
         departmentId: data.departmentId,
         status: data.status,
         permissionGroupId: data.permissionGroupId,
-        passwordHash: hashPassword(data.password ?? DEMO_PASSWORD),
+        passwordHash: hashPassword(data.password),
       };
 
       db.employees.push(employee);
@@ -858,9 +862,9 @@ export const createEmployee = createServerFn({ method: "POST" })
   });
 
 export const createGroup = createServerFn({ method: "POST" })
-  .inputValidator((data) => createGroupSchema.parse(data))
+  .validator((data) => createGroupSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       requireGroupPermission(
@@ -895,9 +899,9 @@ export const createGroup = createServerFn({ method: "POST" })
   });
 
 export const updateCompany = createServerFn({ method: "POST" })
-  .inputValidator((data) => updateCompanySchema.parse(data))
+  .validator((data) => updateCompanySchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       requireGroupPermission(
@@ -936,9 +940,9 @@ function applyPermissionGroupMembers(
 }
 
 export const createPermissionGroup = createServerFn({ method: "POST" })
-  .inputValidator((data) => createPermissionGroupSchema.parse(data))
+  .validator((data) => createPermissionGroupSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       requireAdmin(db, currentUserId);
@@ -956,9 +960,9 @@ export const createPermissionGroup = createServerFn({ method: "POST" })
   });
 
 export const updatePermissionGroup = createServerFn({ method: "POST" })
-  .inputValidator((data) => updatePermissionGroupSchema.parse(data))
+  .validator((data) => updatePermissionGroupSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       requireAdmin(db, currentUserId);
@@ -977,9 +981,9 @@ export const updatePermissionGroup = createServerFn({ method: "POST" })
   });
 
 export const deletePermissionGroup = createServerFn({ method: "POST" })
-  .inputValidator((data) => deletePermissionGroupSchema.parse(data))
+  .validator((data) => deletePermissionGroupSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = (await getSessionUserId()) ?? "u3";
+    const currentUserId = await requireSessionUserId();
     const { mutateDatabase } = await dbServer();
     return mutateDatabase((db) => {
       requireAdmin(db, currentUserId);

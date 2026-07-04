@@ -178,9 +178,7 @@ export function TaskFilterBar({
   );
   const departmentOptions = useMemo(() => {
     const ids = new Set(
-      tasks
-        .filter((task) => task.target.type === "department")
-        .map((task) => task.target.id),
+      tasks.filter((task) => task.target.type === "department").map((task) => task.target.id),
     );
     return departments
       .filter((department) => ids.has(department.id))
@@ -200,10 +198,7 @@ export function TaskFilterBar({
       .filter((employee) => ids.has(employee.id))
       .map((employee) => ({ value: employee.id, label: employee.name }));
   }, [employees, tasks]);
-  const allTags = useMemo(
-    () => uniqueValues(tasks.flatMap((task) => task.tags)).sort(),
-    [tasks],
-  );
+  const allTags = useMemo(() => uniqueValues(tasks.flatMap((task) => task.tags)).sort(), [tasks]);
 
   const active = hasActiveTaskFilters(filters);
 

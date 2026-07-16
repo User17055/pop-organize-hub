@@ -1,5 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import {
+  Capacitor,
+  SystemBars,
+  SystemBarsStyle,
+  SystemBarType,
+} from "@capacitor/core";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   LayoutDashboard,
@@ -233,7 +239,15 @@ export function AppShell({
     document.documentElement.style.colorScheme = theme;
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute("content", isDark ? "#15171d" : "#f7f8fb");
+      ?.setAttribute("content", isDark ? "#071727" : "#1687f8");
+    if (Capacitor.isNativePlatform()) {
+      void SystemBars.setStyle({
+        style: isDark ? SystemBarsStyle.Dark : SystemBarsStyle.Light,
+        bar: SystemBarType.StatusBar,
+      }).catch(() => {
+        // O tema visual continua funcional caso o sistema não permita alterar os ícones.
+      });
+    }
     try {
       localStorage.setItem(THEME_KEY, theme);
     } catch {
@@ -629,7 +643,7 @@ export function AppShell({
       {/* Mobile fixed header */}
       <header className="mobile-fixed-header glass-header safe-top fixed left-0 right-0 top-0 z-[70] border-b border-white/70 md:hidden">
         <div className="relative mx-auto flex w-full max-w-[1440px] items-center gap-3 px-4 py-3">
-          <div className="min-w-0 flex-1">
+          <div className="app-page-heading min-w-0 flex-1">
             <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground">
               {title}
             </h1>
@@ -677,7 +691,7 @@ export function AppShell({
       <main className="app-main-shell flex min-w-0 flex-1 flex-col">
         <header className="glass-header safe-top sticky top-0 z-30 hidden border-b border-white/70 md:block">
           <div className="relative mx-auto flex w-full max-w-[1440px] items-center gap-3 px-4 py-3 md:px-10 md:py-3.5 lg:px-12">
-            <div className="min-w-0 flex-1">
+            <div className="app-page-heading min-w-0 flex-1">
               <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground md:text-xl md:font-semibold">
                 {title}
               </h1>

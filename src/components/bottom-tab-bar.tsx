@@ -63,7 +63,7 @@ export function BottomTabBar({
                   {active && (
                     <motion.span
                       layoutId="bottom-tab-active"
-                      className="absolute inset-0 rounded-2xl"
+                      className="bottom-tab-active-indicator absolute inset-0 rounded-2xl"
                       style={{ background: "var(--gradient-primary)" }}
                       transition={{ type: "spring", stiffness: 280, damping: 32, mass: 0.9 }}
                     />
@@ -91,7 +91,7 @@ export function BottomTabBar({
               {moreActive && (
                 <motion.span
                   layoutId="bottom-tab-active"
-                  className="absolute inset-0 rounded-2xl"
+                  className="bottom-tab-active-indicator absolute inset-0 rounded-2xl"
                   style={{ background: "var(--gradient-primary)" }}
                   transition={{ type: "spring", stiffness: 280, damping: 32, mass: 0.9 }}
                 />

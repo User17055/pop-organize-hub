@@ -1,50 +1,38 @@
-# Pop Organize Android
+# Pop Organize Android nativo
 
-Este projeto ja esta preparado para virar um app Android real usando Capacitor.
+O aplicativo Android usa Kotlin e Jetpack Compose. A interface não depende de
+Capacitor, servidor local ou WebView.
 
-## Requisitos na maquina
+## Estrutura
 
-- Android Studio instalado
-- JDK 17 ou mais novo
-- Android SDK configurado pelo Android Studio
+- `android/app/src/main/java/br/com/poporganize/app/MainActivity.kt`: Activity nativa.
+- `android/app/src/main/java/br/com/poporganize/app/ui/PopTheme.kt`: cores e tema.
+- `android/app/src/main/java/br/com/poporganize/app/ui/PopOrganizeApp.kt`: telas e navegação.
 
-## Configurar a URL de producao
+## Executar no celular
 
-Como o app usa TanStack Start com funcoes de servidor, o app nativo precisa apontar para uma versao publicada do sistema em HTTPS. Para Play Store, use `CAPACITOR_APP_URL`.
+Abra a pasta `android` no Android Studio, selecione o celular e clique em **Run**.
 
-No PowerShell:
-
-```powershell
-$env:CAPACITOR_APP_URL="https://seu-dominio.com"
-npm run android:sync:store
-```
-
-Para testar com live reload na rede local, use uma variavel separada. Nao use isto para loja:
+Também é possível compilar e instalar pelo PowerShell:
 
 ```powershell
-$env:CAPACITOR_LIVE_RELOAD_URL="http://192.168.0.10:5173"
-npm run android:sync
+$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+npm run android:apk
+npm run android:install
 ```
 
-## Abrir no Android Studio
-
-```bash
-npm run android:open
-```
-
-Depois clique em Run para instalar no celular conectado por USB.
-
-## Gerar AAB para Play Store
-
-```powershell
-$env:CAPACITOR_APP_URL="https://seu-dominio.com"
-npm run android:aab
-```
-
-O AAB de release fica em:
+O APK de desenvolvimento fica em:
 
 ```text
-android/app/build/outputs/bundle/release/app-release.aab
+android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Antes de publicar, configure a assinatura de release no Android Studio/Gradle. Para teste manual, `npm run android:apk` ainda gera APK debug.
+A variante de desenvolvimento usa o pacote `br.com.poporganize.app.native` para
+ficar instalada ao lado da versão antiga sem apagar seus dados. A variante de
+release mantém o pacote oficial `br.com.poporganize.app`.
+
+## Próxima etapa
+
+As telas atuais usam dados demonstrativos locais. Para login, tarefas e calendário
+reais, o servidor TanStack deverá expor uma API HTTPS/JSON, consumida pelo app com
+um cliente Kotlin.

@@ -1,17 +1,19 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import useEmblaCarousel from "embla-carousel-react";
 import {
-  ArrowLeft,
   ArrowRight,
-  CheckCircle2,
+  BellRing,
+  Building2,
+  CalendarDays,
+  Check,
   CircleAlert,
-  Eye,
-  EyeOff,
-  Loader2,
-  Sparkles,
+  ListTodo,
+  Users,
+  type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { login, loginWithGoogle } from "@/lib/api/pop-organize.functions";
+import { useEffect, useRef, useState } from "react";
+import { loginWithGoogle } from "@/lib/api/pop-organize.functions";
 import { workspaceQueryKey } from "@/lib/api/use-workspace";
 
 type GoogleIdentityApi = {
@@ -65,7 +67,7 @@ function GoogleLoginButton({
         shape: "pill",
         logo_alignment: "left",
         locale: "pt-BR",
-        width: Math.min(buttonRef.current.clientWidth || 352, 352),
+        width: Math.min(buttonRef.current.clientWidth || 370, 370),
       });
     }
 
@@ -91,21 +93,19 @@ function GoogleLoginButton({
 
   if (!clientId) {
     return (
-      <div>
-        <button
-          type="button"
-          disabled
-          className="flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-black/10 bg-white text-sm font-semibold text-[#202124] opacity-70 shadow-sm"
+      <button
+        type="button"
+        disabled
+        className="flex h-14 w-full items-center justify-center gap-3 rounded-[18px] bg-white text-sm font-bold text-[#202124] opacity-70"
+      >
+        <span
+          className="bg-[conic-gradient(from_-45deg,#4285f4_0_25%,#34a853_0_40%,#fbbc05_0_65%,#ea4335_0_82%,#4285f4_0)] bg-clip-text font-sans text-xl font-black text-transparent"
+          aria-hidden="true"
         >
-          <span className="flex items-center gap-0.5" aria-hidden="true">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#4285F4]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#EA4335]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#FBBC05]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#34A853]" />
-          </span>
-          Continuar com Google
-        </button>
-      </div>
+          G
+        </span>
+        Continuar com Google
+      </button>
     );
   }
 
@@ -121,19 +121,158 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
+const ONBOARDING_STORAGE_KEY = "pop-organize:onboarding-completed";
+
+const onboardingSlides: Array<{
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  detailIcon: LucideIcon;
+}> = [
+  {
+    title: "Organize tudo em um só lugar",
+    description: "Crie tarefas, defina prazos e acompanhe suas atividades com facilidade.",
+    icon: ListTodo,
+    detailIcon: CalendarDays,
+  },
+  {
+    title: "Trabalhe junto com sua equipe",
+    description: "Distribua tarefas entre empresas, setores, grupos e colaboradores.",
+    icon: Users,
+    detailIcon: Building2,
+  },
+  {
+    title: "Acompanhe cada etapa",
+    description: "Receba notificações, revise atividades e nunca perca um prazo.",
+    icon: BellRing,
+    detailIcon: Check,
+  },
+];
+
+function OnboardingFlow({ onFinish }: { onFinish: () => void }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [carouselRef, carouselApi] = useEmblaCarousel({
+    align: "start",
+    containScroll: "trimSnaps",
+    duration: 24,
+    loop: false,
+  });
+  const isLastSlide = currentIndex === onboardingSlides.length - 1;
+
+  const goToSlide = (nextIndex: number) => {
+    if (nextIndex < 0 || nextIndex >= onboardingSlides.length || nextIndex === currentIndex) return;
+    carouselApi?.scrollTo(nextIndex);
+  };
+
+  useEffect(() => {
+    if (!carouselApi) return;
+    const updateSelectedSlide = () => setCurrentIndex(carouselApi.selectedScrollSnap());
+    updateSelectedSlide();
+    carouselApi.on("select", updateSelectedSlide);
+    carouselApi.on("reInit", updateSelectedSlide);
+    return () => {
+      carouselApi.off("select", updateSelectedSlide);
+      carouselApi.off("reInit", updateSelectedSlide);
+    };
+  }, [carouselApi]);
+
+  return (
+    <main className="flex min-h-screen justify-center bg-[#2c2c2c]">
+      <section className="flex min-h-screen w-full max-w-[460px] flex-col overflow-hidden bg-[#2c2c2c] px-7 pb-[max(1.75rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-white sm:min-h-[820px] sm:px-8">
+        <div className="flex items-center justify-center font-display text-[28px] font-bold tracking-[-0.05em]">
+          P<span className="mx-[2px] h-[18px] w-[18px] rounded-full bg-[#1687f8]" />pOrganize
+        </div>
+
+        <div ref={carouselRef} className="-mx-7 flex-1 overflow-hidden sm:-mx-8">
+          <div className="flex h-full cursor-grab touch-pan-y active:cursor-grabbing">
+            {onboardingSlides.map((item) => {
+              const Icon = item.icon;
+              const DetailIcon = item.detailIcon;
+              return (
+                <article
+                  key={item.title}
+                  className="flex min-w-0 flex-[0_0_100%] select-none flex-col items-center justify-center px-7 text-center sm:px-8"
+                >
+                <div className="relative flex h-[220px] w-[220px] shrink-0 items-center justify-center rounded-full bg-[#f7f7f7] shadow-[0_24px_55px_-32px_rgba(0,0,0,0.9)]">
+                  <div className="absolute left-7 top-8 h-20 w-20 rounded-full bg-[#1687f8]/12" />
+                  <div className="absolute bottom-6 right-7 h-16 w-16 rounded-full bg-[#d9dde3]" />
+                  <div className="relative flex h-28 w-28 items-center justify-center rounded-[30px] bg-[#2c2c2c] shadow-[0_22px_34px_-18px_rgba(0,0,0,0.65)]">
+                    <Icon className="h-14 w-14 text-[#1687f8]" strokeWidth={1.8} />
+                  </div>
+                  <div className="absolute -right-1 bottom-10 flex h-12 w-12 items-center justify-center rounded-full bg-[#1687f8] shadow-lg">
+                    <DetailIcon className="h-5 w-5 text-white" strokeWidth={2.4} />
+                  </div>
+                </div>
+
+                <h1 className="mt-10 max-w-[320px] font-display text-[29px] font-bold leading-[1.16] tracking-[-0.035em]">
+                  {item.title}
+                </h1>
+                <p className="mt-4 max-w-[310px] text-[15px] leading-6 text-white/58">
+                  {item.description}
+                </p>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-9 flex items-center justify-center gap-2.5">
+            {onboardingSlides.map((item, index) => (
+              <span
+                key={item.title}
+                className={`h-2.5 rounded-full transition-all duration-300 ${
+                  index === currentIndex ? "w-8 bg-[#1687f8]" : "w-2.5 bg-white"
+                }`}
+              />
+            ))}
+          </div>
+
+          {isLastSlide ? (
+            <div className="grid grid-cols-[auto_1fr] items-center gap-5">
+              <button
+                type="button"
+                onClick={() => goToSlide(currentIndex - 1)}
+                className="flex h-14 items-center justify-center rounded-[18px] bg-white/10 px-5 text-sm font-bold text-white backdrop-blur-xl transition hover:bg-white/15 active:scale-[0.98]"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={onFinish}
+                className="flex h-14 items-center justify-center gap-2 rounded-[18px] bg-white text-sm font-bold text-[#1687f8] shadow-[0_14px_30px_-18px_rgba(255,255,255,0.65)] transition active:scale-[0.98]"
+              >
+                Começar <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={currentIndex === 0 ? onFinish : () => goToSlide(currentIndex - 1)}
+                className="flex h-14 items-center justify-center rounded-[18px] bg-white/10 text-sm font-bold text-white backdrop-blur-xl transition hover:bg-white/15 active:scale-[0.98]"
+              >
+                {currentIndex === 0 ? "Pular" : "Voltar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => goToSlide(currentIndex + 1)}
+                className="flex h-14 items-center justify-center gap-2 rounded-[18px] bg-[#378edc] text-sm font-bold text-white shadow-[0_10px_22px_-16px_rgba(55,142,220,0.42)] transition hover:bg-[#4195df] active:scale-[0.98]"
+              >
+                Próximo <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function LoginPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const loginMutation = useMutation({
-    mutationFn: (payload: { email: string; password: string }) => login({ data: payload }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
-      navigate({ to: "/" });
-    },
-  });
+  const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const googleMutation = useMutation({
     mutationFn: (credential: string) => loginWithGoogle({ data: { credential } }),
     onSuccess: () => {
@@ -142,185 +281,96 @@ function LoginPage() {
     },
   });
 
-  const handleSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    loginMutation.mutate({ email, password });
+  const errorMessage = googleMutation.error instanceof Error ? googleMutation.error.message : null;
+  const isPending = googleMutation.isPending;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setShowOnboarding(
+      params.get("onboarding") === "1" || localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "true",
+    );
+  }, []);
+
+  const finishOnboarding = () => {
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
+    setShowOnboarding(false);
   };
 
-  const errorMessage =
-    loginMutation.error instanceof Error
-      ? loginMutation.error.message
-      : googleMutation.error instanceof Error
-        ? googleMutation.error.message
-        : null;
-  const isPending = loginMutation.isPending || googleMutation.isPending;
+  if (showOnboarding === null) {
+    return <main className="min-h-screen bg-[#2c2c2c]" />;
+  }
+
+  if (showOnboarding) {
+    return <OnboardingFlow onFinish={finishOnboarding} />;
+  }
 
   return (
-    <main className="login-screen relative min-h-screen overflow-x-hidden bg-background px-4 py-5 sm:px-6 sm:py-8 lg:flex lg:items-center lg:justify-center">
-      <section className="login-card-enter relative mx-auto grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-border/70 bg-card/65 shadow-[0_28px_90px_-32px_hsl(var(--primary)/0.35)] backdrop-blur-2xl lg:grid-cols-[0.92fr_1.08fr]">
-        <aside className="relative hidden min-h-[660px] overflow-hidden border-r border-border/60 bg-primary/[0.08] p-10 text-foreground backdrop-blur-2xl lg:flex lg:flex-col lg:justify-between">
-          <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full border border-primary/10 bg-primary/5 blur-sm" />
-          <div className="absolute -bottom-20 -left-16 h-64 w-64 rounded-full bg-primary/10 blur-2xl" />
+    <main className="login-screen flex min-h-screen justify-center bg-[#2c2c2c] p-0">
+      <section className="login-card-enter flex min-h-screen w-full max-w-[460px] flex-col overflow-hidden bg-[#2c2c2c] px-7 pb-7 pt-[max(2rem,env(safe-area-inset-top))] text-white sm:min-h-[820px] sm:px-8">
+        <div className="flex items-center justify-center font-display text-xl font-bold tracking-[-0.04em]">
+          P
+          <span className="mx-px h-3.5 w-3.5 rounded-full bg-[#1687f8]" aria-label="o" />
+          pOrganize
+        </div>
 
-          <div className="relative flex items-center gap-3">
-            <span className="grid h-11 w-11 place-items-center rounded-2xl border border-primary/20 bg-background/45 text-primary shadow-lg backdrop-blur-md">
-              <CheckCircle2 className="h-6 w-6" />
-            </span>
-            <div>
-              <p className="font-display text-xl font-bold leading-none">Pop Organize</p>
-              <p className="mt-1 text-xs text-muted-foreground">Seu trabalho, em ordem.</p>
+        <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+          <div className="relative flex h-48 w-48 items-center justify-center rounded-full bg-[#f7f7f7] shadow-[0_24px_55px_-30px_rgba(0,0,0,0.8)]">
+            <div className="absolute left-5 top-10 h-20 w-20 rounded-full bg-[#1687f8]/12" />
+            <div className="absolute bottom-7 right-5 h-16 w-16 rounded-full bg-[#d9dde3]" />
+            <div className="relative w-28 rounded-[20px] bg-[#2c2c2c] p-4 text-left shadow-xl">
+              <div className="mb-3 flex items-center gap-2 text-white">
+                <ListTodo className="h-5 w-5 text-[#1687f8]" />
+                <span className="text-xs font-bold">Minhas tarefas</span>
+              </div>
+              {["Planejar", "Organizar", "Concluir"].map((item, index) => (
+                <div key={item} className="mt-2 flex items-center gap-2">
+                  <span
+                    className={`flex h-4 w-4 items-center justify-center rounded-full ${
+                      index < 2 ? "bg-[#1687f8]" : "bg-white/18"
+                    }`}
+                  >
+                    {index < 2 && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
+                  </span>
+                  <span className="text-[9px] font-semibold text-white/80">{item}</span>
+                </div>
+              ))}
+            </div>
+            <div className="absolute -right-1 bottom-8 flex h-10 w-10 items-center justify-center rounded-full bg-[#1687f8] text-white shadow-lg">
+              <Users className="h-5 w-5" />
             </div>
           </div>
 
-          <div className="relative">
-            <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-primary/15 bg-background/40 px-3 py-1.5 text-xs font-semibold text-primary backdrop-blur-md">
-              <Sparkles className="h-3.5 w-3.5" /> Simples, rápido e organizado
-            </span>
-            <h1 className="max-w-sm font-display text-4xl font-bold leading-[1.12]">
-              Tudo o que sua equipe precisa, em um só lugar.
-            </h1>
-            <p className="mt-4 max-w-sm text-sm leading-6 text-muted-foreground">
-              Acompanhe tarefas, prazos e pessoas com clareza — sem complicação.
-            </p>
-            <ul className="mt-8 space-y-4">
-              {[
-                "Rotina organizada por setores e grupos",
-                "Prazos e prioridades sempre visíveis",
-                "Acesso seguro para cada colaborador",
-              ].map((item) => (
-                <li
-                  key={item}
-                  className="flex items-center gap-3 text-sm font-medium text-foreground/85"
-                >
-                  <span className="grid h-7 w-7 place-items-center rounded-full bg-primary/10 text-primary">
-                    <CheckCircle2 className="h-4 w-4" />
-                  </span>
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </div>
+          <h1 className="mt-10 font-display text-[36px] font-bold leading-tight tracking-[-0.04em]">
+            Organize tudo.
+          </h1>
+          <p className="mt-3 max-w-[320px] text-sm leading-6 text-white/58">
+            Pessoas, tarefas e equipes em um só lugar, de um jeito simples.
+          </p>
+        </div>
 
-          <p className="relative text-xs text-muted-foreground">© 2026 Pop Organize</p>
-        </aside>
+        <div className="mx-auto w-full max-w-[380px]">
+          <GoogleLoginButton
+            onCredential={(credential) => googleMutation.mutate(credential)}
+            disabled={isPending}
+          />
 
-        <div className="relative flex min-h-[calc(100vh-2.5rem)] items-center justify-center p-5 pt-16 sm:min-h-[650px] sm:p-10 sm:pt-16 lg:min-h-[660px] lg:p-12 lg:pt-20">
           <Link
             to="/"
-            className="absolute left-5 top-5 inline-flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-muted-foreground transition hover:bg-primary/10 hover:text-primary sm:left-8 sm:top-7"
+            className="mt-4 flex h-14 w-full items-center justify-center rounded-[18px] bg-white text-sm font-bold text-[#191919] transition hover:bg-white/92 active:scale-[0.99]"
           >
-            <ArrowLeft className="h-4 w-4" />
-            Voltar
+            Continuar sem login
           </Link>
-          <div className="w-full max-w-[390px]">
-            <div className="text-center lg:text-left">
-              <p className="text-sm leading-6 text-muted-foreground">
-                Entre para acessar seu espaço de trabalho.
-              </p>
+
+          {errorMessage && (
+            <div className="mt-4 flex items-start justify-center gap-2 text-xs text-destructive">
+              <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{errorMessage}</span>
             </div>
+          )}
 
-            <div className="mt-7">
-              <GoogleLoginButton
-                onCredential={(credential) => googleMutation.mutate(credential)}
-                disabled={isPending}
-              />
-            </div>
-
-            <div className="my-6 flex items-center gap-3 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-              <span className="h-px flex-1 bg-border/80" />
-              ou use seu e-mail
-              <span className="h-px flex-1 bg-border/80" />
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-foreground">E-mail</span>
-                <div className="group flex h-12 items-center rounded-2xl border border-border/90 bg-background/65 px-4 shadow-sm backdrop-blur-xl transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
-                  <input
-                    type="email"
-                    autoComplete="email"
-                    placeholder="voce@empresa.com"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/65"
-                    required
-                  />
-                </div>
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-foreground">Senha</span>
-                <div className="group flex h-12 items-center gap-3 rounded-2xl border border-border/90 bg-background/65 px-4 shadow-sm backdrop-blur-xl transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    autoComplete="current-password"
-                    placeholder="Digite sua senha"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/65"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((current) => !current)}
-                    className="rounded-lg p-1 text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
-                    aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </label>
-
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <label className="inline-flex cursor-pointer items-center gap-2 text-muted-foreground">
-                  <input type="checkbox" className="h-4 w-4 rounded border-input accent-primary" />
-                  Lembrar de mim
-                </label>
-                <button
-                  type="button"
-                  className="font-semibold text-primary transition hover:text-primary/75"
-                >
-                  Esqueci a senha
-                </button>
-              </div>
-
-              {errorMessage && (
-                <div className="flex items-start gap-2.5 rounded-xl border border-destructive/20 bg-destructive/10 px-3.5 py-3 text-sm text-destructive">
-                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>{errorMessage}</span>
-                </div>
-              )}
-
-              <button
-                disabled={isPending}
-                style={{ background: "var(--gradient-login)" }}
-                className="group flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-primary-foreground shadow-[var(--shadow-elegant)] transition-all duration-200 hover:-translate-y-0.5 hover:brightness-105 hover:shadow-[0_14px_35px_-12px_hsl(var(--primary)/0.75)] active:translate-y-0 active:scale-[0.97] active:shadow-sm disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70 disabled:active:scale-100"
-              >
-                {loginMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" /> Entrando...
-                  </>
-                ) : (
-                  <>
-                    Entrar na minha conta
-                    <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5 group-active:translate-x-1" />
-                  </>
-                )}
-              </button>
-            </form>
-
-            <div className="mt-7 border-t border-border/70 pt-6 text-center">
-              <p className="text-xs leading-5 text-muted-foreground">
-                Não faz parte de uma equipe? Você pode usar o aplicativo normalmente.
-              </p>
-              <Link
-                to="/"
-                className="mt-3 inline-flex h-10 items-center justify-center rounded-xl border border-primary/20 bg-primary/5 px-5 text-sm font-semibold text-primary transition hover:bg-primary/10"
-              >
-                Continuar sem login
-              </Link>
-            </div>
-          </div>
+          <p className="mt-6 text-center text-[11px] leading-5 text-white/42">
+            Ao continuar, você aceita nossos Termos de Uso e Política de Privacidade.
+          </p>
         </div>
       </section>
     </main>

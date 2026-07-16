@@ -102,6 +102,58 @@
   }
 }
 
+/* Leitura confortável no painel aberto da tarefa. */
+.task-detail-readable {
+  color: hsl(var(--foreground));
+}
+
+.task-detail-readable header input {
+  font-size: 1.25rem;
+  line-height: 1.45;
+  font-weight: 700;
+}
+
+.task-detail-readable textarea {
+  min-height: 7rem;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: hsl(var(--foreground));
+}
+
+.task-detail-readable [class~="text-xs"],
+.task-detail-readable [class~="text-[11px]"],
+.task-detail-readable [class~="text-[10px]"] {
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.task-detail-readable [class~="text-[11px]"][class*="uppercase"],
+.task-detail-readable [class~="text-[10px]"][class*="uppercase"] {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: hsl(var(--foreground) / 0.7);
+}
+
+.task-detail-readable input:not([type="file"]):not([type="checkbox"]):not([type="radio"]),
+.task-detail-readable select {
+  min-height: 2.75rem;
+  font-size: 0.875rem;
+}
+
+.task-detail-readable section {
+  border-color: hsl(var(--border) / 0.7);
+}
+
+.task-detail-readable p {
+  line-height: 1.6;
+}
+
+@media (min-width: 640px) {
+  .task-detail-readable header input {
+    font-size: 1.375rem;
+  }
+}
+
 :root {
   --radius: 0.85rem;
 

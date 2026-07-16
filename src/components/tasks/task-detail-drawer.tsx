@@ -87,7 +87,10 @@ export function TaskDetailDrawer({
   const getEmployee = (id?: string) => employees.find((employee) => employee.id === id);
 
   return (
-    <form onSubmit={onSubmit} className="flex h-full flex-col overflow-hidden rounded-lg">
+    <form
+      onSubmit={onSubmit}
+      className="task-detail-readable flex h-full flex-col overflow-hidden rounded-lg"
+    >
       {/* Sticky header */}
       <header className="glass-header sticky top-0 z-[60] border-b border-white/70 px-5 pb-4 pt-5">
         <div className="mb-3 flex items-center justify-end gap-3">

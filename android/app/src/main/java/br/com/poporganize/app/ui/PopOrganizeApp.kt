@@ -344,20 +344,60 @@ private fun OnboardingScreen(onSkip: () -> Unit, onFinish: () -> Unit) {
                                 .background(Brush.horizontalGradient(listOf(Color.Transparent, Color(0xFF1C1E1E)))),
                         )
                     }
+                } else if (page == 2) {
+                    Box(Modifier.size(320.dp)) {
+                        Image(
+                            painter = painterResource(R.drawable.onboarding_track),
+                            contentDescription = "Pessoa acompanhando as etapas pelo tablet",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        Box(
+                            Modifier.align(Alignment.TopCenter).fillMaxWidth().height(24.dp)
+                                .background(Brush.verticalGradient(listOf(Color(0xFF1C1E1E), Color.Transparent))),
+                        )
+                        Box(
+                            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(24.dp)
+                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xFF1C1E1E)))),
+                        )
+                        Box(
+                            Modifier.align(Alignment.CenterStart).width(24.dp).fillMaxHeight()
+                                .background(Brush.horizontalGradient(listOf(Color(0xFF1C1E1E), Color.Transparent))),
+                        )
+                        Box(
+                            Modifier.align(Alignment.CenterEnd).width(24.dp).fillMaxHeight()
+                                .background(Brush.horizontalGradient(listOf(Color.Transparent, Color(0xFF1C1E1E)))),
+                        )
+                    }
                 } else {
                     Box(
                         modifier = Modifier.size(236.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Box(Modifier.fillMaxSize().clip(CircleShape).background(Color(0xFFF7F7F7)))
-                        Box(Modifier.align(Alignment.TopStart).padding(28.dp).size(80.dp).clip(CircleShape).background(PopBlue.copy(alpha = .12f)))
-                        Box(Modifier.align(Alignment.BottomEnd).padding(28.dp).size(64.dp).clip(CircleShape).background(Color(0xFFD9DDE3)))
                         Box(
-                            Modifier.size(112.dp).clip(RoundedCornerShape(30.dp)).background(Color(0xFF2C2C2C)),
+                            Modifier.fillMaxSize()
+                                .clip(RoundedCornerShape(topStart = 118.dp, topEnd = 118.dp, bottomEnd = 42.dp, bottomStart = 42.dp))
+                                .background(Color(0xFFF7F7F7)),
+                        )
+                        Box(
+                            Modifier.align(Alignment.TopEnd).padding(24.dp).width(64.dp).height(92.dp)
+                                .clip(RoundedCornerShape(topStart = 40.dp, topEnd = 40.dp, bottomEnd = 20.dp, bottomStart = 20.dp))
+                                .background(PopBlue.copy(alpha = .12f)),
+                        )
+                        Box(
+                            Modifier.align(Alignment.BottomStart).padding(24.dp).width(92.dp).height(56.dp)
+                                .clip(RoundedCornerShape(22.dp, 36.dp, 24.dp, 34.dp))
+                                .background(Color(0xFFD9DDE3)),
+                        )
+                        Box(
+                            Modifier.size(112.dp)
+                                .clip(RoundedCornerShape(topStart = 56.dp, topEnd = 56.dp, bottomEnd = 24.dp, bottomStart = 24.dp))
+                                .background(Color(0xFF2C2C2C)),
                             contentAlignment = Alignment.Center,
                         ) { Icon(slide.icon, null, tint = PopBlue, modifier = Modifier.size(56.dp)) }
                         Box(
-                            Modifier.align(Alignment.BottomEnd).padding(bottom = 34.dp).size(52.dp).clip(CircleShape).background(PopBlue),
+                            Modifier.align(Alignment.BottomEnd).padding(bottom = 32.dp).size(52.dp)
+                                .clip(RoundedCornerShape(16.dp, 24.dp, 18.dp, 22.dp)).background(PopBlue),
                             contentAlignment = Alignment.Center,
                         ) { Icon(slide.detailIcon, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
                     }

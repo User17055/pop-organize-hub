@@ -180,12 +180,13 @@ function OnboardingFlow({ onFinish }: { onFinish: () => void }) {
     <main className="flex min-h-screen justify-center bg-[#2c2c2c]">
       <section className="flex min-h-screen w-full max-w-[460px] flex-col overflow-hidden bg-[#2c2c2c] px-7 pb-[max(1.75rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-white sm:min-h-[820px] sm:px-8">
         <div className="flex items-center justify-center font-display text-[28px] font-bold tracking-[-0.05em]">
-          P<span className="mx-[2px] h-[18px] w-[18px] rounded-full bg-[#1687f8]" />pOrganize
+          P<span className="mx-[2px] h-[18px] w-[18px] rounded-full bg-[#1687f8]" />
+          pOrganize
         </div>
 
         <div ref={carouselRef} className="-mx-7 flex-1 overflow-hidden sm:-mx-8">
           <div className="flex h-full cursor-grab touch-pan-y active:cursor-grabbing">
-            {onboardingSlides.map((item) => {
+            {onboardingSlides.map((item, index) => {
               const Icon = item.icon;
               const DetailIcon = item.detailIcon;
               return (
@@ -193,23 +194,14 @@ function OnboardingFlow({ onFinish }: { onFinish: () => void }) {
                   key={item.title}
                   className="flex min-w-0 flex-[0_0_100%] select-none flex-col items-center justify-center px-7 text-center sm:px-8"
                 >
-                <div className="relative flex h-[220px] w-[220px] shrink-0 items-center justify-center rounded-full bg-[#f7f7f7] shadow-[0_24px_55px_-32px_rgba(0,0,0,0.9)]">
-                  <div className="absolute left-7 top-8 h-20 w-20 rounded-full bg-[#1687f8]/12" />
-                  <div className="absolute bottom-6 right-7 h-16 w-16 rounded-full bg-[#d9dde3]" />
-                  <div className="relative flex h-28 w-28 items-center justify-center rounded-[30px] bg-[#2c2c2c] shadow-[0_22px_34px_-18px_rgba(0,0,0,0.65)]">
-                    <Icon className="h-14 w-14 text-[#1687f8]" strokeWidth={1.8} />
-                  </div>
-                  <div className="absolute -right-1 bottom-10 flex h-12 w-12 items-center justify-center rounded-full bg-[#1687f8] shadow-lg">
-                    <DetailIcon className="h-5 w-5 text-white" strokeWidth={2.4} />
-                  </div>
-                </div>
+                  <OnboardingArtwork index={index} Icon={Icon} DetailIcon={DetailIcon} />
 
-                <h1 className="mt-10 max-w-[320px] font-display text-[29px] font-bold leading-[1.16] tracking-[-0.035em]">
-                  {item.title}
-                </h1>
-                <p className="mt-4 max-w-[310px] text-[15px] leading-6 text-white/58">
-                  {item.description}
-                </p>
+                  <h1 className="mt-10 max-w-[320px] font-display text-[29px] font-bold leading-[1.16] tracking-[-0.035em]">
+                    {item.title}
+                  </h1>
+                  <p className="mt-4 max-w-[310px] text-[15px] leading-6 text-white/58">
+                    {item.description}
+                  </p>
                 </article>
               );
             })}
@@ -266,6 +258,80 @@ function OnboardingFlow({ onFinish }: { onFinish: () => void }) {
         </div>
       </section>
     </main>
+  );
+}
+
+function OnboardingArtwork({
+  index,
+  Icon,
+  DetailIcon,
+}: {
+  index: number;
+  Icon: LucideIcon;
+  DetailIcon: LucideIcon;
+}) {
+  if (index === 2) {
+    return (
+      <div className="relative h-[300px] w-[300px] shrink-0" aria-hidden="true">
+        <img
+          src="/onboarding-track.png"
+          alt=""
+          className="h-full w-full object-contain"
+          draggable={false}
+        />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-[#2c2c2c] to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-[#2c2c2c] to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-[#2c2c2c] to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-[#2c2c2c] to-transparent" />
+      </div>
+    );
+  }
+
+  const isTeamSlide = index === 1;
+
+  return (
+    <div className="relative h-[220px] w-[238px] shrink-0" aria-hidden="true">
+      <div
+        className={`absolute inset-0 bg-[#f7f7f7] shadow-[0_24px_55px_-32px_rgba(0,0,0,0.9)] ${
+          isTeamSlide
+            ? "rounded-[110px_110px_42px_42px]"
+            : "rotate-[-3deg] rounded-[48px_82px_54px_74px]"
+        }`}
+      />
+      <div
+        className={`absolute bg-[#1687f8]/12 ${
+          isTeamSlide
+            ? "right-5 top-5 h-24 w-16 rounded-[999px_999px_24px_24px]"
+            : "left-5 top-7 h-20 w-20 rounded-[24px_42px_28px_44px]"
+        }`}
+      />
+      <div
+        className={`absolute bg-[#d9dde3] ${
+          isTeamSlide
+            ? "bottom-5 left-5 h-14 w-24 rounded-[22px_48px_26px_36px]"
+            : "bottom-5 right-5 h-14 w-14 rotate-12 rounded-[18px]"
+        }`}
+      />
+      <div
+        className={`absolute left-1/2 top-1/2 flex h-28 w-28 -translate-x-1/2 -translate-y-1/2 items-center justify-center bg-[#2c2c2c] shadow-[0_22px_34px_-18px_rgba(0,0,0,0.65)] ${
+          isTeamSlide ? "rounded-[56px_56px_24px_24px]" : "rotate-3 rounded-[34px_22px_38px_26px]"
+        }`}
+      >
+        <Icon
+          className={`h-14 w-14 text-[#1687f8] ${isTeamSlide ? "" : "-rotate-3"}`}
+          strokeWidth={1.8}
+        />
+      </div>
+      <div
+        className={`absolute flex h-12 w-12 items-center justify-center bg-[#1687f8] text-white shadow-lg ${
+          isTeamSlide
+            ? "-right-1 bottom-8 rounded-[16px_24px_18px_22px] rotate-6"
+            : "-right-1 top-8 rounded-[22px_16px_24px_18px] -rotate-6"
+        }`}
+      >
+        <DetailIcon className="h-5 w-5" strokeWidth={2.4} />
+      </div>
+    </div>
   );
 }
 

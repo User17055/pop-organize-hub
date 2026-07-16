@@ -2,6 +2,10 @@
 	"appId": "br.com.poporganize.app",
 	"appName": "Pop Organize",
 	"webDir": "native-shell",
+	"server": {
+		"url": "http://localhost:8080",
+		"cleartext": true
+	},
 	"android": {
 		"allowMixedContent": false
 	}

@@ -142,43 +142,43 @@ export function BottomTabBar({
             })}
           </div>
           <div className="mt-5 border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                setMoreOpen(false);
+                onOpenProfile();
+              }}
+              className="pressable flex w-full items-center gap-3 rounded-2xl p-2 text-left hover:bg-white/75"
+            >
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground"
+                style={{ background: "var(--gradient-primary)" }}
+              >
+                {userName
+                  .split(" ")
+                  .map((n) => n[0])
+                  .slice(0, 2)
+                  .join("")}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{userName}</div>
+                <div className="truncate text-xs text-muted-foreground">{userRole}</div>
+              </div>
+              <Settings className="h-4 w-4 text-muted-foreground" />
+            </button>
             {showLogout && (
               <button
                 type="button"
                 onClick={() => {
                   setMoreOpen(false);
-                  onOpenProfile();
+                  onLogout();
                 }}
-                className="pressable flex w-full items-center gap-3 rounded-2xl p-2 text-left hover:bg-white/75"
+                className="pressable mt-1 flex w-full items-center gap-3 rounded-2xl p-2 text-left text-destructive hover:bg-destructive/5"
               >
-                <div
-                  className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground"
-                  style={{ background: "var(--gradient-primary)" }}
-                >
-                  {userName
-                    .split(" ")
-                    .map((n) => n[0])
-                    .slice(0, 2)
-                    .join("")}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{userName}</div>
-                  <div className="truncate text-xs text-muted-foreground">{userRole}</div>
-                </div>
-                <Settings className="h-4 w-4 text-muted-foreground" />
+                <LogOut className="h-4 w-4" />
+                <span className="text-sm font-medium">Sair</span>
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                setMoreOpen(false);
-                onLogout();
-              }}
-              className="pressable mt-1 flex w-full items-center gap-3 rounded-2xl p-2 text-left text-destructive hover:bg-destructive/5"
-            >
-              <LogOut className="h-4 w-4" />
-              <span className="text-sm font-medium">Sair</span>
-            </button>
           </div>
         </SheetContent>
       </Sheet>

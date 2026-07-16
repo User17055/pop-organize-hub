@@ -19,6 +19,7 @@ import {
   BriefcaseBusiness,
   ShieldCheck,
   Menu,
+  UserRound,
 } from "lucide-react";
 import {
   useEffect,
@@ -547,15 +548,13 @@ export function AppShell({
             </div>
 
             <DialogFooter className="mt-5">
-              {data.accessMode === "team" && (
-                <button
-                  type="button"
-                  onClick={() => setProfileOpen(false)}
-                  className="h-9 flex-1 rounded-xl border border-border text-sm font-medium hover:bg-muted sm:flex-none sm:px-4"
-                >
-                  Cancelar
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setProfileOpen(false)}
+                className="h-9 flex-1 rounded-xl border border-border text-sm font-medium hover:bg-muted sm:flex-none sm:px-4"
+              >
+                Cancelar
+              </button>
               <button
                 type="submit"
                 disabled={profileMutation.isPending}
@@ -572,7 +571,7 @@ export function AppShell({
 
       {/* Mobile fixed header */}
       <header className="mobile-fixed-header glass-header safe-top fixed left-0 right-0 top-0 z-[70] border-b border-white/70 md:hidden">
-        <div className="relative flex items-center gap-3 px-4 py-3">
+        <div className="relative mx-auto flex w-full max-w-[1440px] items-center gap-3 px-4 py-3">
           <div className="min-w-0 flex-1">
             <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground">
               {title}
@@ -584,6 +583,35 @@ export function AppShell({
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <NotificationsMenu tasks={data?.tasks ?? []} currentUserId={data?.currentUser.id} />
             {actions}
+            {data.accessMode === "personal" ? (
+              <Link
+                to="/login"
+                className="glass-icon-button flex h-9 w-9 items-center justify-center rounded-xl text-foreground/70"
+                aria-label="Entrar"
+                title="Entrar"
+              >
+                <UserRound className="h-[18px] w-[18px]" />
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={openProfile}
+                className="glass-icon-button flex h-9 w-9 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-primary-foreground"
+                aria-label="Abrir perfil"
+                title="Perfil"
+              >
+                {avatar ? (
+                  <img src={avatar} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <span
+                    className="flex h-full w-full items-center justify-center"
+                    style={{ background: "var(--gradient-primary)" }}
+                  >
+                    {initials}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -591,7 +619,7 @@ export function AppShell({
       {/* Main */}
       <main className="app-main-shell flex min-w-0 flex-1 flex-col">
         <header className="glass-header safe-top sticky top-0 z-30 hidden border-b border-white/70 md:block">
-          <div className="relative flex items-center gap-3 px-4 py-3 md:px-10 md:py-3.5 lg:px-12">
+          <div className="relative mx-auto flex w-full max-w-[1440px] items-center gap-3 px-4 py-3 md:px-10 md:py-3.5 lg:px-12">
             <div className="min-w-0 flex-1">
               <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground md:text-xl md:font-semibold">
                 {title}
@@ -612,15 +640,45 @@ export function AppShell({
             <div className="ml-auto flex shrink-0 items-center gap-2">
               <NotificationsMenu tasks={data?.tasks ?? []} currentUserId={data?.currentUser.id} />
               {actions}
-              <button
-                type="button"
-                onClick={() => logoutMutation.mutate()}
-                disabled={logoutMutation.isPending}
-                className="glass-icon-button hidden h-9 w-9 items-center justify-center rounded-xl text-foreground/70 md:flex"
-                title="Sair"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
+              {data.accessMode === "personal" ? (
+                <Link
+                  to="/login"
+                  className="glass-surface hidden h-9 items-center gap-2 rounded-xl border border-white/70 bg-white/50 px-3 text-sm font-medium text-foreground/75 transition hover:text-primary md:inline-flex"
+                >
+                  <UserRound className="h-4 w-4" />
+                  Entrar
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={openProfile}
+                  className="glass-icon-button hidden h-9 w-9 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-primary-foreground md:flex"
+                  title="Abrir perfil"
+                  aria-label="Abrir perfil"
+                >
+                  {avatar ? (
+                    <img src={avatar} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <span
+                      className="flex h-full w-full items-center justify-center"
+                      style={{ background: "var(--gradient-primary)" }}
+                    >
+                      {initials}
+                    </span>
+                  )}
+                </button>
+              )}
+              {data.accessMode === "team" && (
+                <button
+                  type="button"
+                  onClick={() => logoutMutation.mutate()}
+                  disabled={logoutMutation.isPending}
+                  className="glass-icon-button hidden h-9 w-9 items-center justify-center rounded-xl text-foreground/70 md:flex"
+                  title="Sair"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              )}
             </div>
           </div>
         </header>
@@ -632,7 +690,7 @@ export function AppShell({
             exit={{ opacity: 0, y: -6, filter: "blur(3px)" }}
             transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
             className={cn(
-              "app-scroll-content flex-1 px-4 pb-32 pt-[calc(var(--safe-area-top)+5.25rem)] md:px-10 md:py-7 md:pb-7 lg:px-12",
+              "app-scroll-content mx-auto w-full max-w-[1440px] flex-1 px-4 pb-32 pt-[calc(var(--safe-area-top)+5.25rem)] md:px-10 md:py-7 md:pb-7 lg:px-12",
               contentClassName,
             )}
           >

@@ -1,9 +1,120 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Mail, Lock, ArrowRight, CheckCircle2 } from "lucide-react";
-import { useState, type FormEvent } from "react";
-import { login } from "@/lib/api/pop-organize.functions";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  CircleAlert,
+  Eye,
+  EyeOff,
+  Loader2,
+  Sparkles,
+} from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { login, loginWithGoogle } from "@/lib/api/pop-organize.functions";
 import { workspaceQueryKey } from "@/lib/api/use-workspace";
+
+type GoogleIdentityApi = {
+  accounts: {
+    id: {
+      initialize: (config: {
+        client_id: string;
+        callback: (response: { credential: string }) => void;
+      }) => void;
+      renderButton: (
+        element: HTMLElement,
+        options: Record<string, string | number | boolean>,
+      ) => void;
+    };
+  };
+};
+
+declare global {
+  interface Window {
+    google?: GoogleIdentityApi;
+  }
+}
+
+function GoogleLoginButton({
+  onCredential,
+  disabled,
+}: {
+  onCredential: (credential: string) => void;
+  disabled: boolean;
+}) {
+  const buttonRef = useRef<HTMLDivElement>(null);
+  const callbackRef = useRef(onCredential);
+  callbackRef.current = onCredential;
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+
+  useEffect(() => {
+    if (!clientId) return;
+
+    function renderButton() {
+      if (!window.google || !buttonRef.current) return;
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: ({ credential }) => callbackRef.current(credential),
+      });
+      buttonRef.current.replaceChildren();
+      window.google.accounts.id.renderButton(buttonRef.current, {
+        type: "standard",
+        theme: "outline",
+        size: "large",
+        text: "continue_with",
+        shape: "pill",
+        logo_alignment: "left",
+        locale: "pt-BR",
+        width: Math.min(buttonRef.current.clientWidth || 352, 352),
+      });
+    }
+
+    if (window.google) {
+      renderButton();
+      return;
+    }
+
+    const existing = document.querySelector<HTMLScriptElement>("script[data-google-identity]");
+    if (existing) {
+      existing.addEventListener("load", renderButton, { once: true });
+      return () => existing.removeEventListener("load", renderButton);
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.dataset.googleIdentity = "true";
+    script.addEventListener("load", renderButton, { once: true });
+    document.head.appendChild(script);
+    return () => script.removeEventListener("load", renderButton);
+  }, [clientId]);
+
+  if (!clientId) {
+    return (
+      <div>
+        <button
+          type="button"
+          disabled
+          className="flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-black/10 bg-white text-sm font-semibold text-[#202124] opacity-70 shadow-sm"
+        >
+          <span className="flex items-center gap-0.5" aria-hidden="true">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#4285F4]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#EA4335]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#FBBC05]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#34A853]" />
+          </span>
+          Continuar com Google
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
+      <div ref={buttonRef} className="flex min-h-12 w-full justify-center overflow-hidden" />
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/login")({
   head: () => ({ meta: [{ title: "Entrar - Pop Organize" }] }),
@@ -15,6 +126,7 @@ function LoginPage() {
   const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const loginMutation = useMutation({
     mutationFn: (payload: { email: string; password: string }) => login({ data: payload }),
     onSuccess: () => {
@@ -22,121 +134,208 @@ function LoginPage() {
       navigate({ to: "/" });
     },
   });
+  const googleMutation = useMutation({
+    mutationFn: (credential: string) => loginWithGoogle({ data: { credential } }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+      navigate({ to: "/" });
+    },
+  });
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault();
     loginMutation.mutate({ email, password });
   };
 
-  const errorMessage = loginMutation.error instanceof Error ? loginMutation.error.message : null;
+  const errorMessage =
+    loginMutation.error instanceof Error
+      ? loginMutation.error.message
+      : googleMutation.error instanceof Error
+        ? googleMutation.error.message
+        : null;
+  const isPending = loginMutation.isPending || googleMutation.isPending;
 
   return (
-    <div className="min-h-screen flex">
+    <main className="login-screen relative min-h-screen overflow-x-hidden bg-background px-4 py-5 sm:px-6 sm:py-8 lg:flex lg:items-center lg:justify-center">
       <div
-        className="hidden lg:flex flex-1 relative overflow-hidden p-12 flex-col justify-between text-primary-foreground"
-        style={{ background: "var(--gradient-hero)" }}
-      >
-        <div
-          className="absolute inset-0 opacity-25"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 15% 20%, white 0%, transparent 42%), radial-gradient(circle at 85% 80%, white 0%, transparent 42%)",
-          }}
-        />
-        <div className="relative">
-          <div className="flex items-center gap-2.5">
-            <span className="font-display font-bold text-xl">Pop Organize</span>
-          </div>
-        </div>
-        <div className="relative space-y-6">
-          <h1 className="text-4xl font-display font-bold leading-tight">
-            Organize sua empresa de ponta a ponta.
-          </h1>
-          <p className="text-lg text-primary-foreground/90 max-w-md">
-            Tarefas, setores, grupos e equipes em uma única plataforma, simples e poderosa.
-          </p>
-          <ul className="space-y-2.5 max-w-md">
-            {[
-              "Atribua tarefas para empresa, setores ou grupos",
-              "Filtros, checklist e calendário de vencimentos",
-              "Fluxo de revisão e aprovação completo",
-              "Dashboard com indicadores em tempo real",
-            ].map((f) => (
-              <li key={f} className="flex items-center gap-2.5 text-sm text-primary-foreground/95">
-                <CheckCircle2 className="h-5 w-5 shrink-0" /> {f}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="relative text-sm text-primary-foreground/70">© 2026 Pop Organize</div>
-      </div>
+        aria-hidden="true"
+        className="absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(circle at 12% 18%, hsl(var(--glow) / 0.35), transparent 34%), radial-gradient(circle at 88% 82%, hsl(var(--primary) / 0.26), transparent 38%), linear-gradient(145deg, hsl(var(--background)), hsl(var(--secondary) / 0.9))",
+        }}
+      />
+      <div className="absolute -left-20 top-1/3 h-64 w-64 rounded-full bg-primary/20 blur-3xl" />
+      <div className="absolute -right-20 top-12 h-72 w-72 rounded-full bg-cyan-400/20 blur-3xl" />
 
-      <div className="flex-1 flex items-center justify-center p-6 sm:p-12 bg-background">
-        <div className="w-full max-w-sm">
-          <div className="lg:hidden flex items-center gap-2.5 mb-8 justify-center">
-            <span className="font-display font-bold text-xl">Pop Organize</span>
+      <section className="login-card-enter relative mx-auto grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/60 bg-white/55 shadow-[0_28px_90px_-32px_hsl(var(--primary)/0.5)] backdrop-blur-2xl lg:grid-cols-[0.92fr_1.08fr]">
+        <aside
+          className="relative hidden min-h-[660px] overflow-hidden p-10 text-primary-foreground lg:flex lg:flex-col lg:justify-between"
+          style={{ background: "var(--gradient-hero)" }}
+        >
+          <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full border border-white/20 bg-white/10 blur-sm" />
+          <div className="absolute -bottom-20 -left-16 h-64 w-64 rounded-full bg-cyan-300/20 blur-2xl" />
+
+          <div className="relative flex items-center gap-3">
+            <span className="grid h-11 w-11 place-items-center rounded-2xl border border-white/30 bg-white/20 shadow-lg backdrop-blur-md">
+              <CheckCircle2 className="h-6 w-6" />
+            </span>
+            <div>
+              <p className="font-display text-xl font-bold leading-none">Pop Organize</p>
+              <p className="mt-1 text-xs text-white/70">Seu trabalho, em ordem.</p>
+            </div>
           </div>
 
-          <h2 className="text-2xl font-display font-bold">Bem-vindo de volta</h2>
-          <p className="text-sm text-muted-foreground mt-1.5">Entre na sua conta para continuar</p>
+          <div className="relative">
+            <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/15 px-3 py-1.5 text-xs font-semibold backdrop-blur-md">
+              <Sparkles className="h-3.5 w-3.5" /> Simples, rápido e organizado
+            </span>
+            <h1 className="max-w-sm font-display text-4xl font-bold leading-[1.12]">
+              Tudo o que sua equipe precisa, em um só lugar.
+            </h1>
+            <p className="mt-4 max-w-sm text-sm leading-6 text-white/80">
+              Acompanhe tarefas, prazos e pessoas com clareza — sem complicação.
+            </p>
+            <ul className="mt-8 space-y-4">
+              {[
+                "Rotina organizada por setores e grupos",
+                "Prazos e prioridades sempre visíveis",
+                "Acesso seguro para cada colaborador",
+              ].map((item) => (
+                <li
+                  key={item}
+                  className="flex items-center gap-3 text-sm font-medium text-white/90"
+                >
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-white/15">
+                    <CheckCircle2 className="h-4 w-4" />
+                  </span>
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-4">
-            <label className="block">
-              <span className="text-xs font-medium text-foreground/70 mb-1.5 block">E-mail</span>
-              <div className="flex items-center gap-2 px-3 h-10 rounded-md bg-background border border-input focus-within:border-primary transition-colors">
-                <Mail className="h-4 w-4 text-muted-foreground" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="flex-1 bg-transparent outline-none text-sm"
-                  required
-                />
-              </div>
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-foreground/70 mb-1.5 block">Senha</span>
-              <div className="flex items-center gap-2 px-3 h-10 rounded-md bg-background border border-input focus-within:border-primary transition-colors">
-                <Lock className="h-4 w-4 text-muted-foreground" />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="flex-1 bg-transparent outline-none text-sm"
-                  required
-                />
-              </div>
-            </label>
-            <div className="flex items-center justify-between text-sm">
-              <label className="inline-flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="rounded border-input accent-primary" />
-                <span className="text-muted-foreground">Lembrar de mim</span>
+          <p className="relative text-xs text-white/55">© 2026 Pop Organize</p>
+        </aside>
+
+        <div className="relative flex min-h-[calc(100vh-2.5rem)] items-center justify-center p-5 pt-16 sm:min-h-[650px] sm:p-10 sm:pt-16 lg:min-h-[660px] lg:p-12 lg:pt-20">
+          <Link
+            to="/"
+            className="absolute left-5 top-5 inline-flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-muted-foreground transition hover:bg-primary/10 hover:text-primary sm:left-8 sm:top-7"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Voltar
+          </Link>
+          <div className="w-full max-w-[390px]">
+            <div className="text-center lg:text-left">
+              <p className="text-sm leading-6 text-muted-foreground">
+                Entre para acessar seu espaço de trabalho.
+              </p>
+            </div>
+
+            <div className="mt-7">
+              <GoogleLoginButton
+                onCredential={(credential) => googleMutation.mutate(credential)}
+                disabled={isPending}
+              />
+            </div>
+
+            <div className="my-6 flex items-center gap-3 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              <span className="h-px flex-1 bg-border/80" />
+              ou use seu e-mail
+              <span className="h-px flex-1 bg-border/80" />
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-foreground">E-mail</span>
+                <div className="group flex h-12 items-center rounded-2xl border border-border/90 bg-white/70 px-4 shadow-sm transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    placeholder="voce@empresa.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/65"
+                    required
+                  />
+                </div>
               </label>
-              <Link to="/login" className="text-primary font-medium hover:underline">
-                Esqueci a senha
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-foreground">Senha</span>
+                <div className="group flex h-12 items-center gap-3 rounded-2xl border border-border/90 bg-white/70 px-4 shadow-sm transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    placeholder="Digite sua senha"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/65"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((current) => !current)}
+                    className="rounded-lg p-1 text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+                    aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </label>
+
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <label className="inline-flex cursor-pointer items-center gap-2 text-muted-foreground">
+                  <input type="checkbox" className="h-4 w-4 rounded border-input accent-primary" />
+                  Lembrar de mim
+                </label>
+                <button
+                  type="button"
+                  className="font-semibold text-primary transition hover:text-primary/75"
+                >
+                  Esqueci a senha
+                </button>
+              </div>
+
+              {errorMessage && (
+                <div className="flex items-start gap-2.5 rounded-xl border border-destructive/20 bg-destructive/10 px-3.5 py-3 text-sm text-destructive">
+                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              <button
+                disabled={isPending}
+                style={{ background: "var(--gradient-primary)" }}
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-primary-foreground shadow-[var(--shadow-elegant)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_35px_-12px_hsl(var(--primary)/0.75)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {loginMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" /> Entrando...
+                  </>
+                ) : (
+                  <>
+                    Entrar na minha conta <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+            </form>
+
+            <div className="mt-7 border-t border-border/70 pt-6 text-center">
+              <p className="text-xs leading-5 text-muted-foreground">
+                Não faz parte de uma equipe? Você pode usar o aplicativo normalmente.
+              </p>
+              <Link
+                to="/"
+                className="mt-3 inline-flex h-10 items-center justify-center rounded-xl border border-primary/20 bg-primary/5 px-5 text-sm font-semibold text-primary transition hover:bg-primary/10"
+              >
+                Continuar sem login
               </Link>
             </div>
-            {errorMessage && <div className="text-sm text-destructive">{errorMessage}</div>}
-            <button
-              disabled={loginMutation.isPending}
-              style={{ background: "var(--gradient-primary)" }}
-              className="w-full h-10 rounded-xl text-primary-foreground font-medium text-sm hover:opacity-90 transition inline-flex items-center justify-center gap-2 disabled:opacity-70 shadow-[var(--shadow-elegant)]"
-            >
-              {loginMutation.isPending ? (
-                "Entrando..."
-              ) : (
-                <>
-                  Entrar <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </button>
-          </form>
-
-          <p className="text-center text-sm text-muted-foreground mt-8">
-            Acesso exclusivo para colaboradores cadastrados.
-          </p>
+          </div>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

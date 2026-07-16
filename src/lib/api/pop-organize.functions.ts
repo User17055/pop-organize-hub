@@ -214,6 +214,10 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const googleLoginSchema = z.object({
+  credential: z.string().min(20, "Credencial do Google inválida."),
+});
+
 function createHttpError(message: string, status = 400) {
   return Object.assign(new Error(message), { statusCode: status });
 }
@@ -485,6 +489,72 @@ export const login = createServerFn({ method: "POST" })
         user: toCurrentUser(employee),
       };
     });
+  });
+
+export const loginWithGoogle = createServerFn({ method: "POST" })
+  .validator((data) => googleLoginSchema.parse(data))
+  .handler(async ({ data }) => {
+    const { verifyGoogleCredential, mutateDatabase, createSessionToken, hashToken, hashPassword } =
+      await dbServer();
+    const googleUser = await verifyGoogleCredential(data.credential);
+    const sessionToken = createSessionToken();
+
+    const user = await mutateDatabase((db) => {
+      let employee =
+        db.employees.find((item) => item.googleSubject === googleUser.subject) ??
+        db.employees.find((item) => item.email.toLowerCase() === googleUser.email);
+
+      if (!employee) {
+        const invitation = db.invitations.find(
+          (item) =>
+            item.email.toLowerCase() === googleUser.email &&
+            new Date(item.expiresAt).getTime() > Date.now(),
+        );
+        if (!invitation) {
+          throw createHttpError(
+            "Esta conta Google ainda não foi cadastrada ou convidada para a equipe.",
+            403,
+          );
+        }
+        employee = {
+          id: nextId("u", db.employees),
+          name: googleUser.name || invitation.name,
+          email: googleUser.email,
+          role: invitation.role,
+          departmentId: invitation.departmentId,
+          status: invitation.status,
+          permissionGroupId: invitation.permissionGroupId,
+          avatar: googleUser.picture,
+          passwordHash: hashPassword(createSessionToken()),
+          googleSubject: googleUser.subject,
+        };
+        db.employees.push(employee);
+        db.invitations = db.invitations.filter((item) => item.id !== invitation.id);
+      }
+
+      if (employee.status !== "active") {
+        throw createHttpError("Esta conta está inativa.", 403);
+      }
+      if (employee.googleSubject && employee.googleSubject !== googleUser.subject) {
+        throw createHttpError("Este e-mail já está vinculado a outra conta Google.", 409);
+      }
+
+      employee.googleSubject = googleUser.subject;
+      employee.avatar ||= googleUser.picture;
+      db.sessions = db.sessions.filter((session) => session.userId !== employee.id);
+      db.sessions.push({
+        id: nextId("s", db.sessions),
+        tokenHash: hashToken(sessionToken),
+        userId: employee.id,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString(),
+      });
+
+      return toCurrentUser(employee);
+    });
+
+    setCookie(SESSION_COOKIE, sessionToken, getCookieOptions());
+    return { ok: true, user };
   });
 
 export const logout = createServerFn({ method: "POST" }).handler(async () => {

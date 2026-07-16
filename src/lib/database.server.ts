@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import process from "node:process";
 import mysql from "mysql2/promise";
+import { OAuth2Client } from "google-auth-library";
 
 import { nextId, type Database, type SessionRecord } from "./database";
 import {
@@ -17,6 +18,27 @@ import {
 const DEFAULT_PASSWORD_PEPPER = "pop-organize-local-demo";
 const MYSQL_STATE_ID = "default";
 let mysqlPool: mysql.Pool | undefined;
+const googleOAuthClient = new OAuth2Client();
+
+export async function verifyGoogleCredential(credential: string) {
+  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    throw new Error("Login com Google não configurado. Defina GOOGLE_CLIENT_ID.");
+  }
+
+  const ticket = await googleOAuthClient.verifyIdToken({ idToken: credential, audience: clientId });
+  const payload = ticket.getPayload();
+  if (!payload?.sub || !payload.email || !payload.email_verified) {
+    throw new Error("Não foi possível confirmar o e-mail da conta Google.");
+  }
+
+  return {
+    subject: payload.sub,
+    email: payload.email.toLowerCase(),
+    name: payload.name,
+    picture: payload.picture,
+  };
+}
 
 function getBootstrapAdmin() {
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;

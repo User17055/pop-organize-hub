@@ -14,6 +14,8 @@ export default defineConfig(({ mode, command }) => {
     "BOOTSTRAP_ADMIN_NAME",
     "BOOTSTRAP_ADMIN_EMAIL",
     "BOOTSTRAP_ADMIN_PASSWORD",
+    "GOOGLE_CLIENT_ID",
+    "VITE_GOOGLE_CLIENT_ID",
   ]) {
     if (!process.env[key] && serverEnv[key]) {
       process.env[key] = serverEnv[key];

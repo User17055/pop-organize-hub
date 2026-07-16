@@ -11,6 +11,7 @@ import { canViewTask } from "./permissions";
 
 export type EmployeeRecord = Employee & {
   passwordHash: string;
+  googleSubject?: string;
 };
 
 export type SessionRecord = {
@@ -48,7 +49,7 @@ export type Database = {
 };
 
 export function withoutPassword(employee: EmployeeRecord): Employee {
-  const { passwordHash, ...safeEmployee } = employee;
+  const { passwordHash, googleSubject, ...safeEmployee } = employee;
   return safeEmployee;
 }
 

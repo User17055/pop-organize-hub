@@ -16,6 +16,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
@@ -85,6 +87,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
@@ -98,7 +101,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.core.view.WindowCompat
+import br.com.poporganize.app.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -287,7 +292,7 @@ private fun OnboardingScreen(onSkip: () -> Unit, onFinish: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF2C2C2C))
+            .background(Color(0xFF1C1E1E))
             .padding(WindowInsets.statusBars.asPaddingValues())
             .padding(vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -314,21 +319,48 @@ private fun OnboardingScreen(onSkip: () -> Unit, onFinish: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Box(
-                    modifier = Modifier.size(236.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Box(Modifier.fillMaxSize().clip(CircleShape).background(Color(0xFFF7F7F7)))
-                    Box(Modifier.align(Alignment.TopStart).padding(28.dp).size(80.dp).clip(CircleShape).background(PopBlue.copy(alpha = .12f)))
-                    Box(Modifier.align(Alignment.BottomEnd).padding(28.dp).size(64.dp).clip(CircleShape).background(Color(0xFFD9DDE3)))
+                if (page == 0) {
+                    Box(Modifier.size(320.dp)) {
+                        Image(
+                            painter = painterResource(R.drawable.onboarding_organize),
+                            contentDescription = "Pessoa organizando tarefas",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        Box(
+                            Modifier.align(Alignment.TopCenter).fillMaxWidth().height(24.dp)
+                                .background(Brush.verticalGradient(listOf(Color(0xFF1C1E1E), Color.Transparent))),
+                        )
+                        Box(
+                            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(24.dp)
+                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xFF1C1E1E)))),
+                        )
+                        Box(
+                            Modifier.align(Alignment.CenterStart).width(24.dp).fillMaxHeight()
+                                .background(Brush.horizontalGradient(listOf(Color(0xFF1C1E1E), Color.Transparent))),
+                        )
+                        Box(
+                            Modifier.align(Alignment.CenterEnd).width(24.dp).fillMaxHeight()
+                                .background(Brush.horizontalGradient(listOf(Color.Transparent, Color(0xFF1C1E1E)))),
+                        )
+                    }
+                } else {
                     Box(
-                        Modifier.size(112.dp).clip(RoundedCornerShape(30.dp)).background(Color(0xFF2C2C2C)),
+                        modifier = Modifier.size(236.dp),
                         contentAlignment = Alignment.Center,
-                    ) { Icon(slide.icon, null, tint = PopBlue, modifier = Modifier.size(56.dp)) }
-                    Box(
-                        Modifier.align(Alignment.BottomEnd).padding(bottom = 34.dp).size(52.dp).clip(CircleShape).background(PopBlue),
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(slide.detailIcon, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
+                    ) {
+                        Box(Modifier.fillMaxSize().clip(CircleShape).background(Color(0xFFF7F7F7)))
+                        Box(Modifier.align(Alignment.TopStart).padding(28.dp).size(80.dp).clip(CircleShape).background(PopBlue.copy(alpha = .12f)))
+                        Box(Modifier.align(Alignment.BottomEnd).padding(28.dp).size(64.dp).clip(CircleShape).background(Color(0xFFD9DDE3)))
+                        Box(
+                            Modifier.size(112.dp).clip(RoundedCornerShape(30.dp)).background(Color(0xFF2C2C2C)),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(slide.icon, null, tint = PopBlue, modifier = Modifier.size(56.dp)) }
+                        Box(
+                            Modifier.align(Alignment.BottomEnd).padding(bottom = 34.dp).size(52.dp).clip(CircleShape).background(PopBlue),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(slide.detailIcon, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
+                    }
                 }
                 Spacer(Modifier.height(38.dp))
                 Text(slide.title, color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 34.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)

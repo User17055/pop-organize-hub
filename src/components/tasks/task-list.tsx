@@ -1,5 +1,6 @@
 import { Calendar, Check, ListChecks, MessageSquare, Paperclip } from "lucide-react";
 import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { PriorityBadge, StatusBadge } from "@/components/app-shell";
 import {
@@ -45,6 +46,24 @@ export function TaskList({
   isCompleting: boolean;
 }) {
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
+  const [celebratingTaskId, setCelebratingTaskId] = useState<string | null>(null);
+  const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
+    },
+    [],
+  );
+
+  function completeFromMobile(task: Task) {
+    if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
+    setCelebratingTaskId(task.id);
+    completionTimerRef.current = setTimeout(() => {
+      onComplete(task);
+      setCelebratingTaskId(null);
+    }, 520);
+  }
 
   return (
     <>
@@ -222,60 +241,75 @@ export function TaskList({
                 }
               }}
               className={cn(
-                "task-glass-panel pressable group flex cursor-pointer items-start gap-3 rounded-[22px] p-4 outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/15",
-                overdue && "border-destructive/40 bg-destructive/[0.04]",
-                selectedTaskId === task.id &&
-                  "border-primary/60 bg-primary/[0.05] ring-1 ring-primary/15",
+                "pressable group flex cursor-pointer items-start gap-3 rounded-[20px] bg-card/65 p-4 shadow-none outline-none backdrop-blur-xl transition-colors focus-visible:ring-2 focus-visible:ring-primary/20",
+                overdue && "bg-destructive/[0.055]",
+                selectedTaskId === task.id && "bg-primary/[0.075]",
               )}
             >
               <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  if (!permissions.canChangeStatus || isCompleting) return;
-                  onComplete(task);
+                  if (!permissions.canChangeStatus || isCompleting || celebratingTaskId !== null)
+                    return;
+                  completeFromMobile(task);
                 }}
-                disabled={!permissions.canChangeStatus || isCompleting}
+                disabled={
+                  !permissions.canChangeStatus || isCompleting || celebratingTaskId !== null
+                }
                 className={cn(
-                  "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] border-2 bg-white/70 transition disabled:opacity-40",
-                  overdue
-                    ? "border-destructive/50 text-destructive hover:border-destructive hover:bg-destructive/15"
-                    : "border-primary/30 text-primary hover:border-primary hover:bg-primary/15",
+                  "task-mobile-complete relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-visible rounded-full bg-primary/10 text-primary transition-all disabled:opacity-50",
+                  overdue && "bg-destructive/10 text-destructive",
+                  celebratingTaskId === task.id &&
+                    "task-mobile-complete-active bg-success text-white",
                 )}
                 aria-label="Concluir tarefa"
               >
-                <Check className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition" />
+                {celebratingTaskId === task.id && (
+                  <span className="task-complete-burst" aria-hidden="true">
+                    {Array.from({ length: 6 }, (_, particleIndex) => (
+                      <span key={particleIndex} />
+                    ))}
+                  </span>
+                )}
+                <Check
+                  className={cn(
+                    "h-4 w-4 opacity-65 transition",
+                    celebratingTaskId === task.id && "task-complete-check opacity-100",
+                  )}
+                />
               </button>
 
               <div className="min-w-0 flex-1">
                 <h3 className="line-clamp-2 font-display text-[15px] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
                   {task.title}
                 </h3>
-                <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
-                  <span className="task-chip inline-flex items-center gap-1 rounded-full px-2 py-1">
+                <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1.5 font-medium">
                     <Calendar className="h-3.5 w-3.5" />
                     {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                   </span>
                   <PriorityBadge priority={task.priority} />
                   {overdue && (
-                    <span className="rounded-full bg-destructive/15 px-2 py-1 text-[10px] font-semibold text-destructive">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-destructive">
+                      <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
                       Atrasada
                     </span>
                   )}
                   {progress && (
-                    <span className="task-vivid-chip inline-flex items-center gap-1 rounded-full px-2 py-1 font-semibold">
+                    <span className="inline-flex items-center gap-1 font-semibold text-primary">
                       <ListChecks className="h-3.5 w-3.5" />
                       {progress.done}/{progress.total}
                     </span>
                   )}
                   {task.comments > 0 && (
-                    <span className="task-chip inline-flex items-center gap-1 rounded-full px-2 py-1">
+                    <span className="inline-flex items-center gap-1">
                       <MessageSquare className="h-3.5 w-3.5" />
                       {task.comments}
                     </span>
                   )}
                   {task.attachments > 0 && (
-                    <span className="task-chip inline-flex items-center gap-1 rounded-full px-2 py-1">
+                    <span className="inline-flex items-center gap-1">
                       <Paperclip className="h-3.5 w-3.5" />
                       {task.attachments}
                     </span>

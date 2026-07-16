@@ -33,7 +33,7 @@ export function DaySheet({
     <Sheet open={day !== null} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="safe-bottom-bar flex max-h-[78vh] flex-col gap-0 rounded-t-[28px] border-white/70 bg-white/94 p-0 backdrop-blur-2xl sm:left-1/2 sm:max-w-lg sm:-translate-x-1/2"
+        className="safe-bottom-bar flex max-h-[78vh] flex-col gap-0 rounded-t-[28px] border-border/70 bg-card/95 p-0 backdrop-blur-2xl sm:left-1/2 sm:max-w-lg sm:-translate-x-1/2"
       >
         <SheetHeader className="border-b border-border/55 px-5 pb-4 pt-5 text-left">
           <SheetTitle className="font-display text-xl font-bold">

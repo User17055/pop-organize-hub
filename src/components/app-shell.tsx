@@ -19,6 +19,8 @@ import {
   BriefcaseBusiness,
   ShieldCheck,
   Menu,
+  Moon,
+  Sun,
   UserRound,
 } from "lucide-react";
 import {
@@ -62,6 +64,7 @@ const nav: Array<NavItem & { visibility: NavVisibility }> = [
 ];
 
 const SIDEBAR_COLLAPSED_KEY = "pop-organize:sidebar-collapsed";
+const THEME_KEY = "pop-organize:theme";
 
 type ScrollEdge = "top" | "bottom" | null;
 
@@ -207,6 +210,10 @@ export function AppShell({
   );
   const moreMobileNav = visibleNav.filter((item) => !primaryMobileNav.includes(item));
   const [profileOpen, setProfileOpen] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof document === "undefined") return "light";
+    return document.documentElement.classList.contains("dark") ? "dark" : "light";
+  });
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
@@ -218,6 +225,20 @@ export function AppShell({
       navigate({ to: "/login" });
     }
   }, [error, navigate, pathname, queryClient]);
+
+  useEffect(() => {
+    const isDark = theme === "dark";
+    document.documentElement.classList.toggle("dark", isDark);
+    document.documentElement.style.colorScheme = theme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", isDark ? "#15171d" : "#f7f8fb");
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      // O tema continua ativo durante a sessão quando o armazenamento não está disponível.
+    }
+  }, [theme]);
 
   function toggleCollapsed() {
     setCollapsed((current) => {
@@ -384,7 +405,7 @@ export function AppShell({
                   active
                     ? "text-primary-foreground"
                     : cn(
-                        "text-sidebar-foreground/65 hover:bg-white/70 hover:text-sidebar-accent-foreground",
+                        "text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                         !collapsed && "hover:translate-x-0.5",
                       ),
                 )}
@@ -403,7 +424,7 @@ export function AppShell({
             onClick={openProfile}
             title={collapsed ? currentUser.name : undefined}
             className={cn(
-              "flex w-full items-center rounded-2xl text-left soft-transition transition-colors hover:bg-white/70",
+              "flex w-full items-center rounded-2xl text-left soft-transition transition-colors hover:bg-sidebar-accent",
               collapsed ? "justify-center p-2" : "gap-3 p-2.5",
             )}
           >
@@ -470,6 +491,41 @@ export function AppShell({
                   <div className="mt-1 text-xs text-muted-foreground">
                     Setor: {currentDepartment?.name ?? "Sem setor"}
                   </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border/70 bg-muted/30 p-3.5">
+                <div className="mb-3">
+                  <div className="text-sm font-semibold text-foreground">Aparência</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    Escolha como o aplicativo aparece para você.
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTheme("light")}
+                    className={cn(
+                      "flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-semibold transition active:scale-[0.98]",
+                      theme === "light"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Sun className="h-4 w-4" /> Claro
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTheme("dark")}
+                    className={cn(
+                      "flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-semibold transition active:scale-[0.98]",
+                      theme === "dark"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Moon className="h-4 w-4" /> Escuro
+                  </button>
                 </div>
               </div>
 
@@ -729,7 +785,7 @@ export function StatusBadge({ status }: { status: TaskStatus }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border border-white/60 px-2.5 py-1 text-xs font-semibold backdrop-blur-sm",
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold",
         it.cls,
       )}
     >
@@ -744,23 +800,15 @@ export function PriorityBadge({ priority }: { priority: Priority }) {
     low: { label: "Baixa", cls: "bg-slate-500/10 text-slate-600" },
     medium: { label: "Média", cls: "bg-primary/14 text-primary" },
     high: { label: "Alta", cls: "bg-warning/22 text-warning-foreground" },
-    urgent: { label: "Urgente", cls: "text-destructive" },
+    urgent: { label: "Urgente", cls: "bg-destructive/10 text-destructive" },
   } as const;
   const it = map[priority];
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border border-white/60 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide backdrop-blur-sm",
+        "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide",
         it.cls,
       )}
-      style={
-        priority === "urgent"
-          ? {
-              background:
-                "linear-gradient(135deg, color-mix(in oklab, var(--destructive) 9%, white), color-mix(in oklab, oklch(0.72 0.18 18) 13%, white), color-mix(in oklab, oklch(0.68 0.16 350) 8%, white))",
-            }
-          : undefined
-      }
     >
       {it.label}
     </span>

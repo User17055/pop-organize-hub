@@ -1,4 +1,4 @@
-import type { ChangeEvent, FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   Calendar,
   Check,
@@ -85,6 +85,24 @@ export function TaskDetailDrawer({
   errorMessage?: string | null;
 }) {
   const getEmployee = (id?: string) => employees.find((employee) => employee.id === id);
+  const [isCelebrating, setIsCelebrating] = useState(false);
+  const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
+    },
+    [],
+  );
+
+  function handleToggleComplete() {
+    if (task.status !== "completed") {
+      setIsCelebrating(true);
+      if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
+      celebrationTimerRef.current = setTimeout(() => setIsCelebrating(false), 900);
+    }
+    onToggleComplete();
+  }
 
   return (
     <form
@@ -108,16 +126,30 @@ export function TaskDetailDrawer({
           <button
             type="button"
             disabled={!permissions.canComplete || isStatusPending}
-            onClick={onToggleComplete}
+            onClick={handleToggleComplete}
             className={cn(
-              "mt-1 h-6 w-6 rounded-full border-2 flex items-center justify-center transition shrink-0 disabled:opacity-50",
-              task.status === "completed"
-                ? "bg-success border-success text-white"
+              "task-complete-toggle relative mt-1 flex h-7 w-7 shrink-0 items-center justify-center overflow-visible rounded-full border-2 transition disabled:opacity-50",
+              task.status === "completed" || isCelebrating
+                ? cn(
+                    "border-success bg-success text-white",
+                    isCelebrating && "task-complete-toggle-done",
+                  )
                 : "border-muted-foreground/40 hover:border-foreground",
             )}
             aria-label={task.status === "completed" ? "Reabrir" : "Concluir"}
           >
-            {task.status === "completed" && <Check className="h-3.5 w-3.5" />}
+            {(task.status === "completed" || isCelebrating) && (
+              <>
+                {isCelebrating && (
+                  <span className="task-complete-burst" aria-hidden="true">
+                    {Array.from({ length: 6 }, (_, index) => (
+                      <span key={index} />
+                    ))}
+                  </span>
+                )}
+                <Check className={cn("h-4 w-4", isCelebrating && "task-complete-check")} />
+              </>
+            )}
           </button>
           <div className="flex-1 min-w-0">
             <input

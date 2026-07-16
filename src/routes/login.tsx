@@ -157,32 +157,29 @@ function LoginPage() {
 
   return (
     <main className="login-screen relative min-h-screen overflow-x-hidden bg-background px-4 py-5 sm:px-6 sm:py-8 lg:flex lg:items-center lg:justify-center">
-      <section className="login-card-enter relative mx-auto grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/60 bg-white/55 shadow-[0_28px_90px_-32px_hsl(var(--primary)/0.5)] backdrop-blur-2xl lg:grid-cols-[0.92fr_1.08fr]">
-        <aside
-          className="relative hidden min-h-[660px] overflow-hidden p-10 text-primary-foreground lg:flex lg:flex-col lg:justify-between"
-          style={{ background: "var(--gradient-hero)" }}
-        >
-          <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full border border-white/20 bg-white/10 blur-sm" />
-          <div className="absolute -bottom-20 -left-16 h-64 w-64 rounded-full bg-cyan-300/20 blur-2xl" />
+      <section className="login-card-enter relative mx-auto grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-border/70 bg-card/65 shadow-[0_28px_90px_-32px_hsl(var(--primary)/0.35)] backdrop-blur-2xl lg:grid-cols-[0.92fr_1.08fr]">
+        <aside className="relative hidden min-h-[660px] overflow-hidden border-r border-border/60 bg-primary/[0.08] p-10 text-foreground backdrop-blur-2xl lg:flex lg:flex-col lg:justify-between">
+          <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full border border-primary/10 bg-primary/5 blur-sm" />
+          <div className="absolute -bottom-20 -left-16 h-64 w-64 rounded-full bg-primary/10 blur-2xl" />
 
           <div className="relative flex items-center gap-3">
-            <span className="grid h-11 w-11 place-items-center rounded-2xl border border-white/30 bg-white/20 shadow-lg backdrop-blur-md">
+            <span className="grid h-11 w-11 place-items-center rounded-2xl border border-primary/20 bg-background/45 text-primary shadow-lg backdrop-blur-md">
               <CheckCircle2 className="h-6 w-6" />
             </span>
             <div>
               <p className="font-display text-xl font-bold leading-none">Pop Organize</p>
-              <p className="mt-1 text-xs text-white/70">Seu trabalho, em ordem.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Seu trabalho, em ordem.</p>
             </div>
           </div>
 
           <div className="relative">
-            <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/15 px-3 py-1.5 text-xs font-semibold backdrop-blur-md">
+            <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-primary/15 bg-background/40 px-3 py-1.5 text-xs font-semibold text-primary backdrop-blur-md">
               <Sparkles className="h-3.5 w-3.5" /> Simples, rápido e organizado
             </span>
             <h1 className="max-w-sm font-display text-4xl font-bold leading-[1.12]">
               Tudo o que sua equipe precisa, em um só lugar.
             </h1>
-            <p className="mt-4 max-w-sm text-sm leading-6 text-white/80">
+            <p className="mt-4 max-w-sm text-sm leading-6 text-muted-foreground">
               Acompanhe tarefas, prazos e pessoas com clareza — sem complicação.
             </p>
             <ul className="mt-8 space-y-4">
@@ -193,9 +190,9 @@ function LoginPage() {
               ].map((item) => (
                 <li
                   key={item}
-                  className="flex items-center gap-3 text-sm font-medium text-white/90"
+                  className="flex items-center gap-3 text-sm font-medium text-foreground/85"
                 >
-                  <span className="grid h-7 w-7 place-items-center rounded-full bg-white/15">
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-primary/10 text-primary">
                     <CheckCircle2 className="h-4 w-4" />
                   </span>
                   {item}
@@ -204,7 +201,7 @@ function LoginPage() {
             </ul>
           </div>
 
-          <p className="relative text-xs text-white/55">© 2026 Pop Organize</p>
+          <p className="relative text-xs text-muted-foreground">© 2026 Pop Organize</p>
         </aside>
 
         <div className="relative flex min-h-[calc(100vh-2.5rem)] items-center justify-center p-5 pt-16 sm:min-h-[650px] sm:p-10 sm:pt-16 lg:min-h-[660px] lg:p-12 lg:pt-20">
@@ -238,7 +235,7 @@ function LoginPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <label className="block">
                 <span className="mb-2 block text-sm font-semibold text-foreground">E-mail</span>
-                <div className="group flex h-12 items-center rounded-2xl border border-border/90 bg-white/70 px-4 shadow-sm transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+                <div className="group flex h-12 items-center rounded-2xl border border-border/90 bg-background/65 px-4 shadow-sm backdrop-blur-xl transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
                   <input
                     type="email"
                     autoComplete="email"
@@ -253,7 +250,7 @@ function LoginPage() {
 
               <label className="block">
                 <span className="mb-2 block text-sm font-semibold text-foreground">Senha</span>
-                <div className="group flex h-12 items-center gap-3 rounded-2xl border border-border/90 bg-white/70 px-4 shadow-sm transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+                <div className="group flex h-12 items-center gap-3 rounded-2xl border border-border/90 bg-background/65 px-4 shadow-sm backdrop-blur-xl transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
                   <input
                     type={showPassword ? "text" : "password"}
                     autoComplete="current-password"
@@ -296,7 +293,8 @@ function LoginPage() {
 
               <button
                 disabled={isPending}
-                className="group flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-primary text-sm font-semibold text-primary-foreground shadow-[var(--shadow-elegant)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-[0_14px_35px_-12px_hsl(var(--primary)/0.75)] active:translate-y-0 active:scale-[0.97] active:shadow-sm disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70 disabled:active:scale-100"
+                style={{ background: "var(--gradient-login)" }}
+                className="group flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-primary-foreground shadow-[var(--shadow-elegant)] transition-all duration-200 hover:-translate-y-0.5 hover:brightness-105 hover:shadow-[0_14px_35px_-12px_hsl(var(--primary)/0.75)] active:translate-y-0 active:scale-[0.97] active:shadow-sm disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70 disabled:active:scale-100"
               >
                 {loginMutation.isPending ? (
                   <>

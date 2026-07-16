@@ -4,6 +4,7 @@ import android.app.Activity
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -85,9 +87,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -101,6 +105,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlin.math.absoluteValue
 
 private enum class PopDestination(
     val label: String,
@@ -159,7 +164,7 @@ fun PopOrganizeApp() {
 
         LaunchedEffect(Unit) {
             logoEntered = true
-            delay(2_800)
+            delay(1_500)
             stage = AppStage.Onboarding
         }
 
@@ -238,7 +243,6 @@ private fun PopSplashScreen(entered: Boolean) {
             )
             Box(
                 modifier = Modifier
-                    .padding(horizontal = 3.dp)
                     .size(36.dp)
                     .scale(alpha.coerceAtLeast(.01f))
                     .clip(CircleShape)
@@ -257,7 +261,7 @@ private fun PopSplashScreen(entered: Boolean) {
                 fontSize = 58.sp,
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = (-3).sp,
-                modifier = Modifier.padding(start = 4.dp),
+                modifier = Modifier.padding(start = 7.dp),
             )
         }
     }
@@ -268,9 +272,9 @@ private fun PopWordmark(modifier: Modifier = Modifier, large: Boolean = false) {
     val mainSize = if (large) 29.sp else 22.sp
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Text("P", color = Color.White, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
-        Box(Modifier.padding(horizontal = 2.dp).size(if (large) 19.dp else 14.dp).clip(CircleShape).background(PopBlue))
+        Box(Modifier.size(if (large) 19.dp else 14.dp).clip(CircleShape).background(PopBlue))
         Text("p", color = Color.White, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
-        Text("Organize", color = Color.White, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp, modifier = Modifier.padding(start = 2.dp))
+        Text("Organize", color = Color.White, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp, modifier = Modifier.padding(start = if (large) 5.dp else 4.dp))
     }
 }
 
@@ -285,24 +289,36 @@ private fun OnboardingScreen(onSkip: () -> Unit, onFinish: () -> Unit) {
             .fillMaxSize()
             .background(Color(0xFF2C2C2C))
             .padding(WindowInsets.statusBars.asPaddingValues())
-            .padding(horizontal = 28.dp, vertical = 18.dp),
+            .padding(vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         PopWordmark(large = true)
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
+            beyondViewportPageCount = 1,
         ) { page ->
             val slide = onboardingSlides[page]
+            val pageOffset = (
+                (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+                ).absoluteValue.coerceIn(0f, 1f)
             Column(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 28.dp)
+                    .graphicsLayer {
+                        alpha = 1f - (pageOffset * .22f)
+                        scaleX = 1f - (pageOffset * .045f)
+                        scaleY = 1f - (pageOffset * .045f)
+                    },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
                 Box(
-                    modifier = Modifier.size(220.dp).clip(CircleShape).background(Color(0xFFF7F7F7)),
+                    modifier = Modifier.size(236.dp),
                     contentAlignment = Alignment.Center,
                 ) {
+                    Box(Modifier.fillMaxSize().clip(CircleShape).background(Color(0xFFF7F7F7)))
                     Box(Modifier.align(Alignment.TopStart).padding(28.dp).size(80.dp).clip(CircleShape).background(PopBlue.copy(alpha = .12f)))
                     Box(Modifier.align(Alignment.BottomEnd).padding(28.dp).size(64.dp).clip(CircleShape).background(Color(0xFFD9DDE3)))
                     Box(
@@ -310,7 +326,7 @@ private fun OnboardingScreen(onSkip: () -> Unit, onFinish: () -> Unit) {
                         contentAlignment = Alignment.Center,
                     ) { Icon(slide.icon, null, tint = PopBlue, modifier = Modifier.size(56.dp)) }
                     Box(
-                        Modifier.align(Alignment.BottomEnd).padding(bottom = 38.dp).size(48.dp).clip(CircleShape).background(PopBlue),
+                        Modifier.align(Alignment.BottomEnd).padding(bottom = 34.dp).size(52.dp).clip(CircleShape).background(PopBlue),
                         contentAlignment = Alignment.Center,
                     ) { Icon(slide.detailIcon, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
                 }
@@ -320,19 +336,32 @@ private fun OnboardingScreen(onSkip: () -> Unit, onFinish: () -> Unit) {
                 Text(slide.description, color = Color.White.copy(alpha = .58f), fontSize = 15.sp, lineHeight = 24.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        val indicatorPosition = (
+            pagerState.currentPage.toFloat() + pagerState.currentPageOffsetFraction
+            ).coerceIn(0f, onboardingSlides.lastIndex.toFloat())
+        Box(Modifier.width(90.dp).height(14.dp)) {
             onboardingSlides.indices.forEach { index ->
+                val selectedAmount = (
+                    1f - (indicatorPosition - index.toFloat()).absoluteValue
+                    ).coerceIn(0f, 1f)
+                val indicatorWidth = 10f + (22f * selectedAmount)
+                val indicatorLeft = 16f + (index * 29f) - (indicatorWidth / 2f)
+                val indicatorColor = lerp(Color.White, PopBlue, selectedAmount)
                 Box(
                     Modifier
-                        .width(if (index == pagerState.currentPage) 32.dp else 10.dp)
+                        .offset(x = indicatorLeft.dp, y = 2.dp)
+                        .width(indicatorWidth.dp)
                         .height(10.dp)
                         .clip(CircleShape)
-                        .background(if (index == pagerState.currentPage) PopBlue else Color.White),
+                        .background(indicatorColor),
                 )
             }
         }
         Spacer(Modifier.height(30.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 28.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             EntryButton(
                 text = if (pagerState.currentPage == 0) "Pular" else "Voltar",
                 background = Color.White.copy(alpha = .1f),
@@ -340,7 +369,12 @@ private fun OnboardingScreen(onSkip: () -> Unit, onFinish: () -> Unit) {
                 modifier = Modifier.weight(1f),
                 onClick = {
                     if (pagerState.currentPage == 0) onSkip()
-                    else scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+                    else scope.launch {
+                        pagerState.animateScrollToPage(
+                            pagerState.currentPage - 1,
+                            animationSpec = tween(680, easing = FastOutSlowInEasing),
+                        )
+                    }
                 },
             )
             EntryButton(
@@ -350,7 +384,12 @@ private fun OnboardingScreen(onSkip: () -> Unit, onFinish: () -> Unit) {
                 modifier = Modifier.weight(1f),
                 onClick = {
                     if (isLast) onFinish()
-                    else scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                    else scope.launch {
+                        pagerState.animateScrollToPage(
+                            pagerState.currentPage + 1,
+                            animationSpec = tween(680, easing = FastOutSlowInEasing),
+                        )
+                    }
                 },
             )
         }

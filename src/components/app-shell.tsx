@@ -547,13 +547,15 @@ export function AppShell({
             </div>
 
             <DialogFooter className="mt-5">
-              <button
-                type="button"
-                onClick={() => setProfileOpen(false)}
-                className="h-9 flex-1 rounded-xl border border-border text-sm font-medium hover:bg-muted sm:flex-none sm:px-4"
-              >
-                Cancelar
-              </button>
+              {data.accessMode === "team" && (
+                <button
+                  type="button"
+                  onClick={() => setProfileOpen(false)}
+                  className="h-9 flex-1 rounded-xl border border-border text-sm font-medium hover:bg-muted sm:flex-none sm:px-4"
+                >
+                  Cancelar
+                </button>
+              )}
               <button
                 type="submit"
                 disabled={profileMutation.isPending}
@@ -647,6 +649,7 @@ export function AppShell({
         userRole={currentUser.role}
         onOpenProfile={openProfile}
         onLogout={() => logoutMutation.mutate()}
+        showLogout={data.accessMode === "team"}
       />
 
       <Toaster position="top-center" closeButton richColors />

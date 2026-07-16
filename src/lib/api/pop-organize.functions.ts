@@ -27,6 +27,7 @@ import { getTaskPermissions } from "../permissions";
 
 const SESSION_COOKIE = "pop_organize_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+const INVITATION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 
 const prioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 const statusSchema = z.enum([
@@ -93,11 +94,17 @@ const createEmployeeSchema = z.object({
   role: z.string().trim().min(2),
   departmentId: z.string().min(1),
   status: z.enum(["active", "inactive"]).default("active"),
-  password: z.string().min(8, "A senha inicial deve ter pelo menos 8 caracteres."),
+  ownerEmail: z.string().trim().email().optional(),
+  ownerPassword: z.string().min(8, "Sua senha deve ter pelo menos 8 caracteres.").optional(),
   permissionGroupId: z
     .union([z.literal(""), z.string().min(1)])
     .optional()
     .transform((value) => value || undefined),
+});
+
+const acceptInvitationSchema = z.object({
+  token: z.string().min(20, "Convite inválido."),
+  password: z.string().min(8, "A senha deve ter pelo menos 8 caracteres."),
 });
 
 const permissionKeySchema = z.enum(allPermissionKeys as [PermissionKey, ...PermissionKey[]]);
@@ -225,19 +232,30 @@ async function dbServer() {
   return import("../database.server");
 }
 
-async function getSessionUserId() {
-  const token = getCookie(SESSION_COOKIE);
-  if (!token) return null;
-
+async function getSessionUserId(
+  database?: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
+) {
   const { hashToken, readDatabase } = await dbServer();
-  const tokenHash = hashToken(token);
-  const db = await readDatabase();
-  const now = Date.now();
-  const session = db.sessions.find(
-    (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > now,
-  );
+  const db = database ?? (await readDatabase());
+  const token = getCookie(SESSION_COOKIE);
+  if (token) {
+    const tokenHash = hashToken(token);
+    const now = Date.now();
+    const session = db.sessions.find(
+      (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > now,
+    );
+    if (session) return session.userId;
+  }
 
-  return session?.userId ?? null;
+  if (db.accessMode === "personal") {
+    return (
+      db.employees.find((employee) => employee.role.toLowerCase().includes("admin"))?.id ??
+      db.employees[0]?.id ??
+      null
+    );
+  }
+
+  return null;
 }
 
 async function requireSessionUserId() {
@@ -423,16 +441,16 @@ function requireAdmin(
 export const getWorkspaceData = createServerFn({ method: "GET" }).handler(async () => {
   const { readDatabase } = await dbServer();
   const db = await readDatabase();
-  const currentUserId = await requireSessionUserId();
+  const currentUserId = await getSessionUserId(db);
+  if (!currentUserId) throw createHttpError("Sessão expirada. Faça login novamente.", 401);
   return sanitizeDatabase(db, currentUserId);
 });
 
 export const getSessionUser = createServerFn({ method: "GET" }).handler(async () => {
-  const userId = await getSessionUserId();
-  if (!userId) return null;
-
   const { readDatabase } = await dbServer();
   const db = await readDatabase();
+  const userId = await getSessionUserId(db);
+  if (!userId) return null;
   const employee = db.employees.find((item) => item.id === userId);
   return employee ? toCurrentUser(employee) : null;
 });
@@ -819,8 +837,10 @@ export const createEmployee = createServerFn({ method: "POST" })
   .validator((data) => createEmployeeSchema.parse(data))
   .handler(async ({ data }) => {
     const currentUserId = await requireSessionUserId();
-    const { mutateDatabase, hashPassword } = await dbServer();
-    return mutateDatabase((db) => {
+    const { mutateDatabase, hashPassword, createSessionToken, hashToken } = await dbServer();
+    const invitationToken = createSessionToken();
+    const ownerSessionToken = createSessionToken();
+    const result = await mutateDatabase((db) => {
       requireGroupPermission(
         db,
         currentUserId,
@@ -832,9 +852,14 @@ export const createEmployee = createServerFn({ method: "POST" })
       }
 
       if (
-        db.employees.some((employee) => employee.email.toLowerCase() === data.email.toLowerCase())
+        db.employees.some(
+          (employee) => employee.email.toLowerCase() === data.email.toLowerCase(),
+        ) ||
+        db.invitations.some(
+          (invitation) => invitation.email.toLowerCase() === data.email.toLowerCase(),
+        )
       ) {
-        throw createHttpError("Já existe um funcionário com este e-mail.");
+        throw createHttpError("Já existe um funcionário ou convite com este e-mail.");
       }
 
       if (
@@ -844,21 +869,102 @@ export const createEmployee = createServerFn({ method: "POST" })
         throw createHttpError("Grupo de permissão não encontrado.");
       }
 
-      const employee = {
-        id: nextId("u", db.employees),
+      if (db.accessMode === "personal") {
+        if (!data.ownerEmail || !data.ownerPassword) {
+          throw createHttpError(
+            "Crie sua conta de administrador para ativar o trabalho em equipe.",
+          );
+        }
+        const owner = db.employees.find((employee) => employee.id === currentUserId);
+        if (!owner) throw createHttpError("Administrador não encontrado.", 404);
+        const ownerEmail = data.ownerEmail.toLowerCase();
+        if (
+          db.employees.some(
+            (employee) => employee.id !== owner.id && employee.email.toLowerCase() === ownerEmail,
+          )
+        ) {
+          throw createHttpError("Este e-mail já está em uso.");
+        }
+        owner.email = ownerEmail;
+        owner.passwordHash = hashPassword(data.ownerPassword);
+        db.accessMode = "team";
+        db.sessions = db.sessions.filter((session) => session.userId !== owner.id);
+        db.sessions.push({
+          id: nextId("s", db.sessions),
+          tokenHash: hashToken(ownerSessionToken),
+          userId: owner.id,
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString(),
+        });
+      }
+
+      const invitation = {
+        id: nextId("i", db.invitations),
+        tokenHash: hashToken(invitationToken),
         name: data.name,
         email: data.email.toLowerCase(),
         role: data.role,
         departmentId: data.departmentId,
         status: data.status,
         permissionGroupId: data.permissionGroupId,
-        passwordHash: hashPassword(data.password),
+        invitedById: currentUserId,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + INVITATION_MAX_AGE_SECONDS * 1000).toISOString(),
       };
 
-      db.employees.push(employee);
-      const { passwordHash, ...safeEmployee } = employee;
-      return safeEmployee;
+      db.invitations.push(invitation);
+      const { tokenHash, ...safeInvitation } = invitation;
+      return { invitation: safeInvitation, activatedTeamMode: db.accessMode === "team" };
     });
+
+    if (data.ownerEmail && data.ownerPassword) {
+      setCookie(SESSION_COOKIE, ownerSessionToken, getCookieOptions());
+    }
+
+    return { ...result, invitationToken };
+  });
+
+export const acceptInvitation = createServerFn({ method: "POST" })
+  .validator((data) => acceptInvitationSchema.parse(data))
+  .handler(async ({ data }) => {
+    const { mutateDatabase, hashPassword, hashToken, createSessionToken } = await dbServer();
+    const invitationTokenHash = hashToken(data.token);
+    const sessionToken = createSessionToken();
+
+    const user = await mutateDatabase((db) => {
+      const invitation = db.invitations.find(
+        (item) =>
+          item.tokenHash === invitationTokenHash && new Date(item.expiresAt).getTime() > Date.now(),
+      );
+      if (!invitation) throw createHttpError("Este convite é inválido ou expirou.", 410);
+      if (db.employees.some((employee) => employee.email.toLowerCase() === invitation.email)) {
+        throw createHttpError("Já existe uma conta com este e-mail.");
+      }
+
+      const employee = {
+        id: nextId("u", db.employees),
+        name: invitation.name,
+        email: invitation.email,
+        role: invitation.role,
+        departmentId: invitation.departmentId,
+        status: invitation.status,
+        permissionGroupId: invitation.permissionGroupId,
+        passwordHash: hashPassword(data.password),
+      };
+      db.employees.push(employee);
+      db.invitations = db.invitations.filter((item) => item.id !== invitation.id);
+      db.sessions.push({
+        id: nextId("s", db.sessions),
+        tokenHash: hashToken(sessionToken),
+        userId: employee.id,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString(),
+      });
+      return toCurrentUser(employee);
+    });
+
+    setCookie(SESSION_COOKIE, sessionToken, getCookieOptions());
+    return { ok: true, user };
   });
 
 export const createGroup = createServerFn({ method: "POST" })

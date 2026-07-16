@@ -21,7 +21,22 @@ export type SessionRecord = {
   expiresAt: string;
 };
 
+export type InvitationRecord = {
+  id: string;
+  tokenHash: string;
+  name: string;
+  email: string;
+  role: string;
+  departmentId: string;
+  status: "active" | "inactive";
+  permissionGroupId?: string;
+  invitedById: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
 export type Database = {
+  accessMode: "personal" | "team";
   company: Company;
   employees: EmployeeRecord[];
   departments: Department[];
@@ -29,6 +44,7 @@ export type Database = {
   tasks: Task[];
   permissionGroups: PermissionGroup[];
   sessions: SessionRecord[];
+  invitations: InvitationRecord[];
 };
 
 export function withoutPassword(employee: EmployeeRecord): Employee {
@@ -63,6 +79,7 @@ export function sanitizeDatabase(db: Database, currentUserId: string) {
   );
 
   return {
+    accessMode: db.accessMode,
     company: db.company,
     currentUser: toCurrentUser(currentEmployee),
     departments: db.departments,
@@ -70,6 +87,7 @@ export function sanitizeDatabase(db: Database, currentUserId: string) {
     groups: db.groups,
     tasks: visibleTasks,
     permissionGroups: db.permissionGroups,
+    invitations: db.invitations.map(({ tokenHash, ...invitation }) => invitation),
   };
 }
 

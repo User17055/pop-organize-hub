@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/table";
 import { createEmployee } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
-import { Plus, Mail } from "lucide-react";
+import { Check, Copy, Link2, Mail, Plus } from "lucide-react";
 
 export const Route = createFileRoute("/funcionarios")({
   head: () => ({ meta: [{ title: "Funcionários - Pop Organize" }] }),
@@ -35,14 +35,17 @@ function FuncionariosPage() {
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useWorkspaceData();
   const [showForm, setShowForm] = useState(false);
+  const [inviteLink, setInviteLink] = useState("");
+  const [copied, setCopied] = useState(false);
   const [form, setForm] = useState({
     name: "",
     email: "",
     role: "",
     departmentId: "",
     status: "active" as "active" | "inactive",
-    password: "",
     permissionGroupId: "",
+    ownerEmail: "",
+    ownerPassword: "",
   });
 
   const createMutation = useMutation({
@@ -52,11 +55,12 @@ function FuncionariosPage() {
       role: string;
       departmentId: string;
       status: "active" | "inactive";
-      password: string;
       permissionGroupId?: string;
+      ownerEmail?: string;
+      ownerPassword?: string;
     }) => createEmployee({ data: payload }),
-    onSuccess: () => {
-      setShowForm(false);
+    onSuccess: ({ invitationToken }) => {
+      setInviteLink(`${window.location.origin}/aceitar-convite?token=${invitationToken}`);
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
@@ -77,7 +81,8 @@ function FuncionariosPage() {
     );
   }
 
-  const { employees, departments, tasks, currentUser, permissionGroups } = data;
+  const { accessMode, employees, departments, invitations, tasks, currentUser, permissionGroups } =
+    data;
   const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
   if (!hasPermission(permissionSet, "pages.employees")) {
     return (
@@ -99,16 +104,28 @@ function FuncionariosPage() {
       role: "",
       departmentId: departments[0]?.id ?? "",
       status: "active",
-      password: "",
       permissionGroupId: "",
+      ownerEmail: "",
+      ownerPassword: "",
     });
+    setInviteLink("");
+    setCopied(false);
     createMutation.reset();
     setShowForm(true);
   }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    createMutation.mutate(form);
+    createMutation.mutate({
+      ...form,
+      ownerEmail: accessMode === "personal" ? form.ownerEmail : undefined,
+      ownerPassword: accessMode === "personal" ? form.ownerPassword : undefined,
+    });
+  }
+
+  async function copyInviteLink() {
+    await navigator.clipboard.writeText(inviteLink);
+    setCopied(true);
   }
 
   return (
@@ -127,6 +144,26 @@ function FuncionariosPage() {
         ) : undefined
       }
     >
+      {invitations.length > 0 && (
+        <div className="mb-4 rounded-2xl border border-primary/20 bg-primary/5 p-4">
+          <div className="flex items-center gap-2 font-medium">
+            <Link2 className="h-4 w-4 text-primary" /> Convites pendentes
+          </div>
+          <div className="mt-3 space-y-2">
+            {invitations.map((invitation) => (
+              <div
+                key={invitation.id}
+                className="flex flex-col gap-1 rounded-xl bg-background/80 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+              >
+                <span className="font-medium">{invitation.name}</span>
+                <span className="text-muted-foreground">
+                  {invitation.email} · aguardando aceite
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="bg-card border border-border rounded-2xl overflow-x-auto">
         <Table className="min-w-[820px]">
           <TableHeader>
@@ -201,100 +238,140 @@ function FuncionariosPage() {
         <DialogContent className="max-w-lg">
           <form onSubmit={handleSubmit}>
             <DialogHeader>
-              <DialogTitle>Novo funcionário</DialogTitle>
+              <DialogTitle>{inviteLink ? "Convite pronto" : "Convidar funcionário"}</DialogTitle>
               <DialogDescription>
-                Cadastre um colaborador para receber tarefas e participar de grupos.
+                {inviteLink
+                  ? "Envie este link ao funcionário. Ele definirá a própria senha ao aceitar."
+                  : "Informe os dados do colaborador. A senha será criada por ele no aceite."}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3.5 mt-4">
-              <Field label="Nome">
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
-                  className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
-                  required
-                />
-              </Field>
-              <Field label="E-mail">
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm((current) => ({ ...current, email: e.target.value }))}
-                  className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
-                  required
-                />
-              </Field>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Cargo">
+            {inviteLink ? (
+              <div className="mt-5 space-y-3">
+                <div className="break-all rounded-xl border border-border bg-muted/40 p-3 text-sm">
+                  {inviteLink}
+                </div>
+                <button
+                  type="button"
+                  onClick={copyInviteLink}
+                  className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground"
+                >
+                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {copied ? "Link copiado" : "Copiar link do convite"}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3.5 mt-4">
+                {accessMode === "personal" && (
+                  <div className="space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-3">
+                    <div>
+                      <div className="text-sm font-medium">Ative seu espaço compartilhado</div>
+                      <div className="text-xs text-muted-foreground">
+                        Crie sua conta de administrador antes do primeiro convite.
+                      </div>
+                    </div>
+                    <Field label="Seu e-mail">
+                      <input
+                        type="email"
+                        value={form.ownerEmail}
+                        onChange={(e) =>
+                          setForm((current) => ({ ...current, ownerEmail: e.target.value }))
+                        }
+                        className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                        required
+                      />
+                    </Field>
+                    <Field label="Sua senha">
+                      <input
+                        type="password"
+                        value={form.ownerPassword}
+                        onChange={(e) =>
+                          setForm((current) => ({ ...current, ownerPassword: e.target.value }))
+                        }
+                        className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                        minLength={8}
+                        required
+                      />
+                    </Field>
+                  </div>
+                )}
+                <Field label="Nome">
                   <input
-                    value={form.role}
-                    onChange={(e) => setForm((current) => ({ ...current, role: e.target.value }))}
+                    value={form.name}
+                    onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
                     className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
                     required
                   />
                 </Field>
-                <Field label="Setor">
+                <Field label="E-mail">
+                  <input
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm((current) => ({ ...current, email: e.target.value }))}
+                    className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                    required
+                  />
+                </Field>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Field label="Cargo">
+                    <input
+                      value={form.role}
+                      onChange={(e) => setForm((current) => ({ ...current, role: e.target.value }))}
+                      className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                      required
+                    />
+                  </Field>
+                  <Field label="Setor">
+                    <select
+                      value={form.departmentId}
+                      onChange={(e) =>
+                        setForm((current) => ({ ...current, departmentId: e.target.value }))
+                      }
+                      className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                    >
+                      {departments.map((department) => (
+                        <option key={department.id} value={department.id}>
+                          {department.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Field label="Status">
+                    <select
+                      value={form.status}
+                      onChange={(e) =>
+                        setForm((current) => ({
+                          ...current,
+                          status: e.target.value as "active" | "inactive",
+                        }))
+                      }
+                      className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                    >
+                      <option value="active">Ativo</option>
+                      <option value="inactive">Inativo</option>
+                    </select>
+                  </Field>
+                </div>
+                <Field label="Grupo de permissão">
                   <select
-                    value={form.departmentId}
+                    value={form.permissionGroupId}
                     onChange={(e) =>
-                      setForm((current) => ({ ...current, departmentId: e.target.value }))
+                      setForm((current) => ({ ...current, permissionGroupId: e.target.value }))
                     }
                     className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
                   >
-                    {departments.map((department) => (
-                      <option key={department.id} value={department.id}>
-                        {department.name}
+                    <option value="">Padrão (sem restrições)</option>
+                    {permissionGroups.map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {group.name}
                       </option>
                     ))}
                   </select>
                 </Field>
+                {mutationError && <div className="text-sm text-destructive">{mutationError}</div>}
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Status">
-                  <select
-                    value={form.status}
-                    onChange={(e) =>
-                      setForm((current) => ({
-                        ...current,
-                        status: e.target.value as "active" | "inactive",
-                      }))
-                    }
-                    className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
-                  >
-                    <option value="active">Ativo</option>
-                    <option value="inactive">Inativo</option>
-                  </select>
-                </Field>
-                <Field label="Senha inicial">
-                  <input
-                    value={form.password}
-                    onChange={(e) =>
-                      setForm((current) => ({ ...current, password: e.target.value }))
-                    }
-                    className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
-                    minLength={8}
-                    required
-                  />
-                </Field>
-              </div>
-              <Field label="Grupo de permissão">
-                <select
-                  value={form.permissionGroupId}
-                  onChange={(e) =>
-                    setForm((current) => ({ ...current, permissionGroupId: e.target.value }))
-                  }
-                  className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
-                >
-                  <option value="">Padrão (sem restrições)</option>
-                  {permissionGroups.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              {mutationError && <div className="text-sm text-destructive">{mutationError}</div>}
-            </div>
+            )}
             <DialogFooter className="mt-6">
               <button
                 type="button"
@@ -303,14 +380,16 @@ function FuncionariosPage() {
               >
                 Cancelar
               </button>
-              <button
-                type="submit"
-                disabled={createMutation.isPending}
-                style={{ background: "var(--gradient-primary)" }}
-                className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
-              >
-                {createMutation.isPending ? "Criando..." : "Criar funcionário"}
-              </button>
+              {!inviteLink && (
+                <button
+                  type="submit"
+                  disabled={createMutation.isPending}
+                  style={{ background: "var(--gradient-primary)" }}
+                  className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
+                >
+                  {createMutation.isPending ? "Criando convite..." : "Criar convite"}
+                </button>
+              )}
             </DialogFooter>
           </form>
         </DialogContent>

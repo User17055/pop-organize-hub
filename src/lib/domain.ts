@@ -199,6 +199,7 @@ export interface CurrentUser {
 }
 
 export interface WorkspaceData {
+  accessMode: "personal" | "team";
   company: Company;
   currentUser: CurrentUser;
   departments: Department[];
@@ -206,6 +207,18 @@ export interface WorkspaceData {
   groups: Group[];
   tasks: Task[];
   permissionGroups: PermissionGroup[];
+  invitations: Array<{
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    departmentId: string;
+    status: "active" | "inactive";
+    permissionGroupId?: string;
+    invitedById: string;
+    createdAt: string;
+    expiresAt: string;
+  }>;
 }
 
 export const statusLabels: Record<TaskStatus, string> = {

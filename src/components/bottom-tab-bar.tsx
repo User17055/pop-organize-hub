@@ -26,6 +26,7 @@ export function BottomTabBar({
   userRole,
   onOpenProfile,
   onLogout,
+  showLogout = true,
 }: {
   primaryItems: NavItem[];
   moreItems: NavItem[];
@@ -34,6 +35,7 @@ export function BottomTabBar({
   userRole: string;
   onOpenProfile: () => void;
   onLogout: () => void;
+  showLogout?: boolean;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreActive = moreItems.some((item) =>
@@ -140,30 +142,32 @@ export function BottomTabBar({
             })}
           </div>
           <div className="mt-5 border-t border-border pt-4">
-            <button
-              type="button"
-              onClick={() => {
-                setMoreOpen(false);
-                onOpenProfile();
-              }}
-              className="pressable flex w-full items-center gap-3 rounded-2xl p-2 text-left hover:bg-white/75"
-            >
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground"
-                style={{ background: "var(--gradient-primary)" }}
+            {showLogout && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMoreOpen(false);
+                  onOpenProfile();
+                }}
+                className="pressable flex w-full items-center gap-3 rounded-2xl p-2 text-left hover:bg-white/75"
               >
-                {userName
-                  .split(" ")
-                  .map((n) => n[0])
-                  .slice(0, 2)
-                  .join("")}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{userName}</div>
-                <div className="truncate text-xs text-muted-foreground">{userRole}</div>
-              </div>
-              <Settings className="h-4 w-4 text-muted-foreground" />
-            </button>
+                <div
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground"
+                  style={{ background: "var(--gradient-primary)" }}
+                >
+                  {userName
+                    .split(" ")
+                    .map((n) => n[0])
+                    .slice(0, 2)
+                    .join("")}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">{userName}</div>
+                  <div className="truncate text-xs text-muted-foreground">{userRole}</div>
+                </div>
+                <Settings className="h-4 w-4 text-muted-foreground" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {

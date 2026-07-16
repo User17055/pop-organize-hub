@@ -18,6 +18,7 @@ import { Route as GruposRouteImport } from './routes/grupos'
 import { Route as FuncionariosRouteImport } from './routes/funcionarios'
 import { Route as EmpresasRouteImport } from './routes/empresas'
 import { Route as CalendarioRouteImport } from './routes/calendario'
+import { Route as AceitarConviteRouteImport } from './routes/aceitar-convite'
 import { Route as IndexRouteImport } from './routes/index'
 
 const TarefasRoute = TarefasRouteImport.update({
@@ -65,6 +66,11 @@ const CalendarioRoute = CalendarioRouteImport.update({
   path: '/calendario',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AceitarConviteRoute = AceitarConviteRouteImport.update({
+  id: '/aceitar-convite',
+  path: '/aceitar-convite',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -73,6 +79,7 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/aceitar-convite': typeof AceitarConviteRoute
   '/calendario': typeof CalendarioRoute
   '/empresas': typeof EmpresasRoute
   '/funcionarios': typeof FuncionariosRoute
@@ -85,6 +92,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/aceitar-convite': typeof AceitarConviteRoute
   '/calendario': typeof CalendarioRoute
   '/empresas': typeof EmpresasRoute
   '/funcionarios': typeof FuncionariosRoute
@@ -98,6 +106,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/aceitar-convite': typeof AceitarConviteRoute
   '/calendario': typeof CalendarioRoute
   '/empresas': typeof EmpresasRoute
   '/funcionarios': typeof FuncionariosRoute
@@ -112,6 +121,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/aceitar-convite'
     | '/calendario'
     | '/empresas'
     | '/funcionarios'
@@ -124,6 +134,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/aceitar-convite'
     | '/calendario'
     | '/empresas'
     | '/funcionarios'
@@ -136,6 +147,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/aceitar-convite'
     | '/calendario'
     | '/empresas'
     | '/funcionarios'
@@ -149,6 +161,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AceitarConviteRoute: typeof AceitarConviteRoute
   CalendarioRoute: typeof CalendarioRoute
   EmpresasRoute: typeof EmpresasRoute
   FuncionariosRoute: typeof FuncionariosRoute
@@ -225,6 +238,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CalendarioRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/aceitar-convite': {
+      id: '/aceitar-convite'
+      path: '/aceitar-convite'
+      fullPath: '/aceitar-convite'
+      preLoaderRoute: typeof AceitarConviteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -237,6 +257,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AceitarConviteRoute: AceitarConviteRoute,
   CalendarioRoute: CalendarioRoute,
   EmpresasRoute: EmpresasRoute,
   FuncionariosRoute: FuncionariosRoute,

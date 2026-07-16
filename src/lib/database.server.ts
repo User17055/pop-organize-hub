@@ -399,6 +399,7 @@ function initialDatabase(): Database {
   ];
 
   return {
+    accessMode: "personal",
     company: {
       id: "c1",
       name: process.env.BOOTSTRAP_COMPANY_NAME || "Pop Organize",
@@ -414,6 +415,7 @@ function initialDatabase(): Database {
     tasks,
     permissionGroups: initialPermissionGroups(),
     sessions: [],
+    invitations: [],
   };
 }
 
@@ -433,6 +435,7 @@ function normalizeDatabase(value: Database): Database {
   return {
     ...initialDatabase(),
     ...value,
+    accessMode: value.accessMode ?? "personal",
     company: { ...initialDatabase().company, ...value.company },
     employees,
     departments,
@@ -440,6 +443,7 @@ function normalizeDatabase(value: Database): Database {
     tasks: value.tasks ?? [],
     permissionGroups,
     sessions: value.sessions ?? [],
+    invitations: value.invitations ?? [],
   };
 }
 

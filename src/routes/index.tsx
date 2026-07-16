@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell, StatusBadge, PriorityBadge } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
+import { getAvatarGradient } from "@/lib/avatar-colors";
 import { statusLabels, type PermissionKey } from "@/lib/domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { Plus, TrendingUp, Clock, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
@@ -69,29 +70,25 @@ function Dashboard() {
       label: "Total de tarefas",
       value: total,
       icon: TrendingUp,
-      accent: "text-primary",
-      bg: "bg-primary/10",
+      accent: "text-violet-500 dark:text-violet-400",
     },
     {
       label: "Concluídas",
       value: completed,
       icon: CheckCircle2,
-      accent: "text-success",
-      bg: "bg-success/15",
+      accent: "text-emerald-500 dark:text-emerald-400",
     },
     {
       label: "Em andamento",
       value: pending,
       icon: Clock,
-      accent: "text-primary",
-      bg: "bg-primary/10",
+      accent: "text-sky-500 dark:text-sky-400",
     },
     {
       label: "Atrasadas",
       value: overdue,
       icon: AlertTriangle,
-      accent: "text-destructive",
-      bg: "bg-destructive/10",
+      accent: "text-rose-500 dark:text-rose-400",
     },
   ];
 
@@ -138,8 +135,8 @@ function Dashboard() {
                     {s.value}
                   </div>
                 </div>
-                <div className={`h-9 w-9 rounded-xl ${s.bg} flex items-center justify-center`}>
-                  <Icon className={`h-4.5 w-4.5 ${s.accent}`} />
+                <div className="flex h-9 w-9 items-center justify-center">
+                  <Icon className={`h-5.5 w-5.5 ${s.accent}`} strokeWidth={2.25} />
                 </div>
               </div>
             </div>
@@ -173,7 +170,7 @@ function Dashboard() {
                   {canSeePeopleContext && (
                     <div
                       className="h-9 w-9 rounded-xl flex items-center justify-center text-primary-foreground font-semibold text-xs shrink-0"
-                      style={{ background: "var(--gradient-primary)" }}
+                      style={{ background: getAvatarGradient(emp?.id ?? t.responsibleId) }}
                     >
                       {emp?.name
                         .split(" ")
@@ -258,7 +255,7 @@ function Dashboard() {
                   <div
                     key={e.id}
                     className="h-8 w-8 rounded-full ring-2 ring-card flex items-center justify-center text-[11px] font-semibold text-primary-foreground"
-                    style={{ background: "var(--gradient-primary)" }}
+                    style={{ background: getAvatarGradient(e.id) }}
                     title={e.name}
                   >
                     {e.name

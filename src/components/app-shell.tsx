@@ -34,6 +34,7 @@ import {
 import { cn } from "@/lib/utils";
 import { logout, updateProfile } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
+import { getAvatarGradient } from "@/lib/avatar-colors";
 import type { PermissionKey, Priority, TaskStatus } from "@/lib/domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { useTaskAlerts } from "@/hooks/use-task-alerts";
@@ -434,7 +435,7 @@ export function AppShell({
               ) : (
                 <span
                   className="flex h-full w-full items-center justify-center"
-                  style={{ background: "var(--gradient-primary)" }}
+                  style={{ background: getAvatarGradient(currentUser.id) }}
                 >
                   {initials}
                 </span>
@@ -476,7 +477,7 @@ export function AppShell({
                   ) : (
                     <div
                       className="flex h-full w-full items-center justify-center text-base font-semibold text-primary-foreground"
-                      style={{ background: "var(--gradient-primary)" }}
+                      style={{ background: getAvatarGradient(currentUser.id) }}
                     >
                       {initials}
                     </div>
@@ -661,7 +662,7 @@ export function AppShell({
                 ) : (
                   <span
                     className="flex h-full w-full items-center justify-center"
-                    style={{ background: "var(--gradient-primary)" }}
+                    style={{ background: getAvatarGradient(currentUser.id) }}
                   >
                     {initials}
                   </span>
@@ -717,7 +718,7 @@ export function AppShell({
                   ) : (
                     <span
                       className="flex h-full w-full items-center justify-center"
-                      style={{ background: "var(--gradient-primary)" }}
+                      style={{ background: getAvatarGradient(currentUser.id) }}
                     >
                       {initials}
                     </span>

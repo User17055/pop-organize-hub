@@ -15,7 +15,7 @@ import { useWorkspaceData } from "@/lib/api/use-workspace";
 import type { PermissionKey, TargetType, Task, TaskStatus } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
-import { Plus, Search, Check, ChevronDown, Archive, Repeat } from "lucide-react";
+import { Plus, Search, ChevronDown, Archive, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskCreateDrawer } from "@/components/tasks/task-create-drawer";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
@@ -543,12 +543,9 @@ function TasksPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Check className="h-4 w-4 shrink-0 text-success" />
-                          <h3 className="truncate text-sm font-semibold text-foreground line-through">
-                            {task.title}
-                          </h3>
-                        </div>
+                        <h3 className="truncate text-sm font-semibold text-foreground line-through">
+                          {task.title}
+                        </h3>
                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                           {task.description}
                         </p>

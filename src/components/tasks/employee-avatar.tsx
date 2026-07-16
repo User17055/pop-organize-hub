@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { getAvatarGradient } from "@/lib/avatar-colors";
 import type { Department, Employee } from "@/lib/domain";
 
 export function EmployeeAvatar({
@@ -27,7 +28,11 @@ export function EmployeeAvatar({
         "shrink-0 overflow-hidden rounded-full text-white flex items-center justify-center font-semibold ring-2 ring-background",
         sizeClass,
       )}
-      style={employee?.avatar ? undefined : { background: department?.color ?? "var(--primary)" }}
+      style={
+        employee?.avatar
+          ? undefined
+          : { background: department?.color ?? getAvatarGradient(employee?.id ?? "unassigned") }
+      }
       title={employee?.name}
     >
       {employee?.avatar ? (

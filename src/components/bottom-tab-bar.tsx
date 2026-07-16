@@ -45,7 +45,7 @@ export function BottomTabBar({
   return (
     <>
       <div className="app-bottom-tabs fixed bottom-0 left-0 right-0 z-40 px-3 md:hidden">
-        <nav className="app-surface mx-auto flex max-w-md items-center gap-1 rounded-[28px] px-2 py-2">
+        <nav className="app-surface bottom-tab-glass mx-auto flex max-w-md items-center gap-1 rounded-[28px] px-2 py-2">
           {primaryItems.map((item) => {
             const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
             const Icon = item.icon;

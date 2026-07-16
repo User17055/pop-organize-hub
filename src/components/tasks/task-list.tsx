@@ -241,9 +241,9 @@ export function TaskList({
                 }
               }}
               className={cn(
-                "pressable group flex cursor-pointer items-start gap-3 rounded-[20px] bg-card/65 p-4 shadow-none outline-none backdrop-blur-xl transition-colors focus-visible:ring-2 focus-visible:ring-primary/20",
-                overdue && "bg-destructive/[0.055]",
-                selectedTaskId === task.id && "bg-primary/[0.075]",
+                "pressable group flex cursor-pointer items-start gap-3 rounded-[20px] border border-border/60 bg-card/65 p-4 shadow-none outline-none backdrop-blur-xl transition-colors focus-visible:ring-2 focus-visible:ring-primary/20",
+                overdue && "border-destructive/20 bg-destructive/[0.055]",
+                selectedTaskId === task.id && "border-primary/25 bg-primary/[0.075]",
               )}
             >
               <button
@@ -258,10 +258,12 @@ export function TaskList({
                   !permissions.canChangeStatus || isCompleting || celebratingTaskId !== null
                 }
                 className={cn(
-                  "task-mobile-complete relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-visible rounded-full bg-primary/10 text-primary transition-all disabled:opacity-50",
-                  overdue && "bg-destructive/10 text-destructive",
-                  celebratingTaskId === task.id &&
-                    "task-mobile-complete-active bg-success text-white",
+                  "task-mobile-complete relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-visible rounded-full transition-all disabled:opacity-50",
+                  celebratingTaskId === task.id
+                    ? "task-mobile-complete-active bg-success text-white"
+                    : overdue
+                      ? "bg-destructive text-destructive-foreground shadow-sm"
+                      : "bg-primary/10 text-primary",
                 )}
                 aria-label="Concluir tarefa"
               >

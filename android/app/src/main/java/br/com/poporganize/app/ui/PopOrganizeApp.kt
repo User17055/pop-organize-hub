@@ -125,6 +125,7 @@ import br.com.poporganize.app.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
@@ -166,6 +167,22 @@ private fun defaultGuestTasks() = listOf(
     PopTask(3, "Revisar minhas prioridades", "Pessoal", "Esta semana", "Baixa", LocalDate.now().plusDays(3).toString()),
 )
 
+private fun normalizedDueDate(dueLabel: String, storedDate: String?): String {
+    val today = LocalDate.now()
+    val normalizedLabel = dueLabel.lowercase(Locale("pt", "BR"))
+    val inferred = when {
+        normalizedLabel.startsWith("hoje") -> today
+        normalizedLabel.startsWith("amanhã") -> today.plusDays(1)
+        normalizedLabel.startsWith("em 7") -> today.plusDays(7)
+        normalizedLabel.startsWith("sex") -> {
+            val daysUntilFriday = (5 - today.dayOfWeek.value + 7) % 7
+            today.plusDays(daysUntilFriday.toLong())
+        }
+        else -> null
+    }
+    return (inferred ?: runCatching { storedDate?.let(LocalDate::parse) }.getOrNull() ?: today).toString()
+}
+
 private fun loadGuestTasks(context: Context): List<PopTask> {
     val raw = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
         .getString(GUEST_TASKS_STORAGE, null) ?: return defaultGuestTasks()
@@ -173,13 +190,15 @@ private fun loadGuestTasks(context: Context): List<PopTask> {
         val items = JSONArray(raw)
         List(items.length()) { index ->
             val item = items.getJSONObject(index)
+            val dueLabel = item.getString("dueLabel")
+            val storedDueDate = if (item.has("dueDate") && !item.isNull("dueDate")) item.getString("dueDate") else null
             PopTask(
                 id = item.getInt("id"),
                 title = item.getString("title"),
                 department = "Pessoal",
-                dueLabel = item.getString("dueLabel"),
+                dueLabel = dueLabel,
                 priority = item.getString("priority"),
-                dueDate = item.optString("dueDate", LocalDate.now().toString()),
+                dueDate = normalizedDueDate(dueLabel, storedDueDate),
                 completed = item.optBoolean("completed"),
             )
         }
@@ -1173,7 +1192,7 @@ private fun DashboardScreen(
         }
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                HeroCard(tasks.count { !it.completed })
+                HeroCard(tasks)
                 Spacer(Modifier.height(18.dp))
                 Text("Visão geral", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(10.dp))
@@ -1194,7 +1213,21 @@ private fun DashboardScreen(
 }
 
 @Composable
-private fun HeroCard(pending: Int) {
+private fun HeroCard(tasks: List<PopTask>) {
+    val today = LocalDate.now()
+    val pendingToday = tasks.count { task ->
+        !task.completed && runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == today
+    }
+    val greeting = when (LocalTime.now().hour) {
+        in 5..11 -> "Bom dia"
+        in 12..17 -> "Boa tarde"
+        else -> "Boa noite"
+    }
+    val summary = when (pendingToday) {
+        0 -> "Nenhuma tarefa\npara hoje"
+        1 -> "1 tarefa para\nhoje"
+        else -> "$pendingToday tarefas para\nhoje"
+    }
     Card(
         shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
@@ -1207,9 +1240,9 @@ private fun HeroCard(pending: Int) {
                 .background(Brush.linearGradient(listOf(Color(0xFF45ADFF), PopBlue, PopBlueDark)))
                 .padding(22.dp),
         ) {
-            Text("ORGANIZAÇÃO DO DIA", color = Color.White.copy(alpha = .78f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(greeting.uppercase(), color = Color.White.copy(alpha = .78f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
-            Text("$pending tarefas pedem\nsua atenção", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp)
+            Text(summary, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp)
             Spacer(Modifier.height(16.dp))
             Surface(color = Color.White.copy(alpha = .18f), shape = RoundedCornerShape(14.dp), onClick = {}) {
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1454,7 +1487,7 @@ private fun TaskRow(task: PopTask) {
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
             Text(task.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(task.department, fontSize = 11.sp, color = PopMuted)
+            Text("${task.department}  •  ${task.dueLabel}", fontSize = 11.sp, color = PopMuted)
         }
         PriorityPill(task.priority)
     }
@@ -1483,38 +1516,84 @@ private fun CalendarScreen(
     onCreateCompany: () -> Unit,
 ) {
     var month by remember { mutableStateOf(YearMonth.now()) }
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     val locale = remember { Locale("pt", "BR") }
-    Column(Modifier.fillMaxSize()) {
-        WorkSpaceHeader(
-            subtitle = if (workSpace == WorkSpace.Personal) "Seu calendário pessoal" else "Calendário e prazos da empresa",
-            selected = workSpace,
-            companyNames = companyNames,
-            selectedCompanyIndex = selectedCompanyIndex,
-            onSelect = onWorkSpaceChange,
-            onCompanySelect = onCompanySelect,
-            onCreateCompany = onCreateCompany,
-        )
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { month = month.minusMonths(1) }) { Icon(Icons.Rounded.ChevronLeft, "Mês anterior") }
-            Text(
-                "${month.month.getDisplayName(TextStyle.FULL, locale).replaceFirstChar { it.uppercase() }} ${month.year}",
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.weight(1f),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
-            IconButton(onClick = { month = month.plusMonths(1) }) { Icon(Icons.Rounded.ChevronRight, "Próximo mês") }
+    val today = LocalDate.now()
+    val selectedDayTasks = tasks.filter { task ->
+        runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == selectedDate
+    }.sortedWith(compareBy<PopTask> { it.completed }.thenBy {
+        when (it.priority) {
+            "Alta" -> 0
+            "Média" -> 1
+            else -> 2
         }
-        CalendarGrid(month, tasks)
-        Column(Modifier.padding(20.dp)) {
-            SectionTitle("Próximas tarefas")
-            Spacer(Modifier.height(6.dp))
-            tasks.take(3).forEach { TaskRow(it) }
+    })
+    val selectedDateLabel = if (selectedDate == today) {
+        "Tarefas de hoje"
+    } else {
+        val monthName = selectedDate.month.getDisplayName(TextStyle.FULL, locale)
+        "${selectedDate.dayOfMonth} de $monthName"
+    }
+    val selectedCountLabel = if (selectedDayTasks.size == 1) "1 tarefa" else "${selectedDayTasks.size} tarefas"
+
+    fun selectMonth(newMonth: YearMonth) {
+        month = newMonth
+        selectedDate = newMonth.atDay(minOf(selectedDate.dayOfMonth, newMonth.lengthOfMonth()))
+    }
+
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item {
+            WorkSpaceHeader(
+                subtitle = if (workSpace == WorkSpace.Personal) "Seu calendário pessoal" else "Calendário e prazos da empresa",
+                selected = workSpace,
+                companyNames = companyNames,
+                selectedCompanyIndex = selectedCompanyIndex,
+                onSelect = onWorkSpaceChange,
+                onCompanySelect = onCompanySelect,
+                onCreateCompany = onCreateCompany,
+            )
+        }
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { selectMonth(month.minusMonths(1)) }) { Icon(Icons.Rounded.ChevronLeft, "Mês anterior") }
+                Text(
+                    "${month.month.getDisplayName(TextStyle.FULL, locale).replaceFirstChar { it.uppercase() }} ${month.year}",
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.weight(1f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                IconButton(onClick = { selectMonth(month.plusMonths(1)) }) { Icon(Icons.Rounded.ChevronRight, "Próximo mês") }
+            }
+        }
+        item {
+            CalendarGrid(
+                month = month,
+                tasks = tasks,
+                selectedDate = selectedDate,
+                onDateSelected = { selectedDate = it },
+            )
+        }
+        item {
+            Column(Modifier.padding(20.dp)) {
+                SectionTitle(selectedDateLabel, selectedCountLabel)
+                Spacer(Modifier.height(6.dp))
+                if (selectedDayTasks.isEmpty()) {
+                    Text("Nenhuma tarefa para este dia.", color = PopMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
+                } else {
+                    selectedDayTasks.forEach { TaskRow(it) }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun CalendarGrid(month: YearMonth, tasks: List<PopTask>) {
+private fun CalendarGrid(
+    month: YearMonth,
+    tasks: List<PopTask>,
+    selectedDate: LocalDate,
+    onDateSelected: (LocalDate) -> Unit,
+) {
     val firstOffset = month.atDay(1).dayOfWeek.value - 1
     val cells = List(firstOffset) { null } + (1..month.lengthOfMonth()).map { it }
     val today = LocalDate.now()
@@ -1528,29 +1607,61 @@ private fun CalendarGrid(month: YearMonth, tasks: List<PopTask>) {
         cells.chunked(7).forEach { week ->
             Row(Modifier.fillMaxWidth()) {
                 (week + List(7 - week.size) { null }).forEach { day ->
-                    val selected = day != null && today.year == month.year && today.month == month.month && today.dayOfMonth == day
-                    val hasTask = day != null && tasks.any { task ->
-                        runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == month.atDay(day)
+                    val date = day?.let(month::atDay)
+                    val selected = date == selectedDate
+                    val isToday = date == today
+                    val dayTasks = if (day == null) emptyList() else tasks.filter { task ->
+                        !task.completed && runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == month.atDay(day)
                     }
                     Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
                         if (day != null) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Box(
-                                    Modifier.size(30.dp).clip(CircleShape).background(if (selected) PopBlue else Color.Transparent),
+                                    Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(if (selected) PopBlue else Color.Transparent)
+                                        .then(
+                                            if (isToday && !selected) Modifier.border(1.dp, PopBlue, CircleShape)
+                                            else Modifier,
+                                        )
+                                        .clickable { date?.let(onDateSelected) },
                                     contentAlignment = Alignment.Center,
                                 ) { Text(day.toString(), color = if (selected) Color.White else PopText, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) }
-                                Box(
-                                    Modifier
-                                        .size(4.dp)
-                                        .clip(CircleShape)
-                                        .background(if (hasTask) PopBlue else Color.Transparent),
-                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier.height(5.dp),
+                                ) {
+                                    dayTasks.take(4).forEach { task ->
+                                        val dotColor = when (task.priority) {
+                                            "Alta" -> Color(0xFFE5484D)
+                                            "Média" -> Color(0xFFFF9F1C)
+                                            else -> PopBlue
+                                        }
+                                        Box(Modifier.size(4.dp).clip(CircleShape).background(dotColor))
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
         }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
+            PriorityLegend("Urgente", Color(0xFFE5484D))
+            PriorityLegend("Média", Color(0xFFFF9F1C))
+            PriorityLegend("Baixa", PopBlue)
+        }
+    }
+}
+
+@Composable
+private fun PriorityLegend(label: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(6.dp).clip(CircleShape).background(color))
+        Spacer(Modifier.width(5.dp))
+        Text(label, color = PopMuted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

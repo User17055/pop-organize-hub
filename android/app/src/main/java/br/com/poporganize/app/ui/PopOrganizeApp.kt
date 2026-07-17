@@ -1192,7 +1192,7 @@ private fun DashboardScreen(
         }
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                HeroCard(tasks)
+                HeroCard(tasks, if (isGuest) "Visitante" else "Usuário")
                 Spacer(Modifier.height(18.dp))
                 Text("Visão geral", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(10.dp))
@@ -1213,12 +1213,13 @@ private fun DashboardScreen(
 }
 
 @Composable
-private fun HeroCard(tasks: List<PopTask>) {
+private fun HeroCard(tasks: List<PopTask>, displayName: String) {
     val today = LocalDate.now()
     val pendingToday = tasks.count { task ->
         !task.completed && runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == today
     }
-    val greeting = when (LocalTime.now().hour) {
+    val currentHour = LocalTime.now().hour
+    val greeting = when (currentHour) {
         in 5..11 -> "Bom dia"
         in 12..17 -> "Boa tarde"
         else -> "Boa noite"
@@ -1240,15 +1241,33 @@ private fun HeroCard(tasks: List<PopTask>) {
                 .background(Brush.linearGradient(listOf(Color(0xFF45ADFF), PopBlue, PopBlueDark)))
                 .padding(22.dp),
         ) {
-            Text(greeting.uppercase(), color = Color.White.copy(alpha = .78f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            Text(summary, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp)
-            Spacer(Modifier.height(16.dp))
-            Surface(color = Color.White.copy(alpha = .18f), shape = RoundedCornerShape(14.dp), onClick = {}) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Começar agora", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    Spacer(Modifier.width(6.dp))
-                    Icon(Icons.Rounded.ArrowForward, null, tint = Color.White, modifier = Modifier.size(17.dp))
+            Text(
+                "$greeting, $displayName",
+                color = Color.White.copy(alpha = .9f),
+                fontSize = 17.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(summary, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp)
+                    Spacer(Modifier.height(16.dp))
+                    Surface(color = Color.White.copy(alpha = .18f), shape = RoundedCornerShape(14.dp), onClick = {}) {
+                        Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Começar agora", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(Modifier.width(6.dp))
+                            Icon(Icons.Rounded.ArrowForward, null, tint = Color.White, modifier = Modifier.size(17.dp))
+                        }
+                    }
+                }
+                if (currentHour in 5..11) {
+                    Spacer(Modifier.width(8.dp))
+                    Image(
+                        painter = painterResource(R.drawable.greeting_clock),
+                        contentDescription = "Relógio da saudação",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(142.dp),
+                    )
                 }
             }
         }

@@ -1,6 +1,7 @@
 package br.com.poporganize.app.ui
 
 import android.app.Activity
+import android.content.Context
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -67,6 +68,7 @@ import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -76,6 +78,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -110,6 +113,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.core.view.WindowCompat
 import br.com.poporganize.app.R
@@ -120,6 +124,8 @@ import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.absoluteValue
+import org.json.JSONArray
+import org.json.JSONObject
 
 private enum class PopDestination(
     val label: String,
@@ -139,6 +145,51 @@ private data class PopTask(
     val priority: String,
     val completed: Boolean = false,
 )
+
+private enum class SessionMode { Guest, Email, Google }
+
+private const val GUEST_TASKS_STORAGE = "pop_organize_guest_tasks"
+
+private fun defaultGuestTasks() = listOf(
+    PopTask(1, "Planejar minha semana", "Pessoal", "Hoje, 18:00", "Alta"),
+    PopTask(2, "Organizar documentos", "Pessoal", "Amanhã, 10:00", "Média"),
+    PopTask(3, "Revisar minhas prioridades", "Pessoal", "Sex, 16:30", "Baixa"),
+)
+
+private fun loadGuestTasks(context: Context): List<PopTask> {
+    val raw = context.getSharedPreferences("pop_organize_local", Context.MODE_PRIVATE)
+        .getString(GUEST_TASKS_STORAGE, null) ?: return defaultGuestTasks()
+    return runCatching {
+        val items = JSONArray(raw)
+        List(items.length()) { index ->
+            val item = items.getJSONObject(index)
+            PopTask(
+                id = item.getInt("id"),
+                title = item.getString("title"),
+                department = "Pessoal",
+                dueLabel = item.getString("dueLabel"),
+                priority = item.getString("priority"),
+                completed = item.optBoolean("completed"),
+            )
+        }
+    }.getOrElse { defaultGuestTasks() }
+}
+
+private fun saveGuestTasks(context: Context, tasks: List<PopTask>) {
+    val items = JSONArray()
+    tasks.forEach { task ->
+        items.put(
+            JSONObject()
+                .put("id", task.id)
+                .put("title", task.title)
+                .put("dueLabel", task.dueLabel)
+                .put("priority", task.priority)
+                .put("completed", task.completed),
+        )
+    }
+    context.getSharedPreferences("pop_organize_local", Context.MODE_PRIVATE)
+        .edit().putString(GUEST_TASKS_STORAGE, items.toString()).apply()
+}
 
 private enum class AppStage { Splash, Onboarding, Login, Main }
 
@@ -175,6 +226,7 @@ fun PopOrganizeApp() {
     PopTheme {
         var stage by remember { mutableStateOf(AppStage.Splash) }
         var logoEntered by remember { mutableStateOf(false) }
+        var sessionMode by remember { mutableStateOf<SessionMode?>(null) }
 
         LaunchedEffect(Unit) {
             logoEntered = true
@@ -210,8 +262,16 @@ fun PopOrganizeApp() {
                     onSkip = { stage = AppStage.Login },
                     onFinish = { stage = AppStage.Login },
                 )
-                AppStage.Login -> LoginScreen(onEnter = { stage = AppStage.Main })
-                AppStage.Main -> PopMainContent()
+                AppStage.Login -> LoginScreen(
+                    onGuest = {
+                        sessionMode = SessionMode.Guest
+                        stage = AppStage.Main
+                    },
+                )
+                AppStage.Main -> PopMainContent(
+                    sessionMode = sessionMode ?: SessionMode.Guest,
+                    onRequireLogin = { stage = AppStage.Login },
+                )
             }
         }
     }
@@ -509,10 +569,11 @@ private fun EntryButton(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LoginScreen(onEnter: () -> Unit) {
+private fun LoginScreen(onGuest: () -> Unit) {
     var showEmail by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var cloudNotice by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -523,7 +584,7 @@ private fun LoginScreen(onEnter: () -> Unit) {
             .padding(horizontal = 28.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        PopWordmark()
+        PopWordmark(large = true)
         Column(
             Modifier.weight(1f),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -560,10 +621,12 @@ private fun LoginScreen(onEnter: () -> Unit) {
             }
             Spacer(Modifier.height(if (showEmail) 20.dp else 28.dp))
             Text(
-                if (showEmail) "Entre com seu e-mail" else "Bem-vindo de volta",
+                if (showEmail) "Entre com seu e-mail" else "Comece por aqui",
                 color = Color.White,
                 fontSize = if (showEmail) 28.sp else 34.sp,
                 fontWeight = FontWeight.ExtraBold,
+                lineHeight = if (showEmail) 34.sp else 41.sp,
+                letterSpacing = (-0.35).sp,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
             Text(
@@ -571,7 +634,8 @@ private fun LoginScreen(onEnter: () -> Unit) {
                 else "Escolha como você quer continuar.",
                 color = Color.White.copy(alpha = .56f),
                 fontSize = 14.sp,
-                modifier = Modifier.padding(top = 8.dp),
+                lineHeight = 21.sp,
+                modifier = Modifier.padding(top = 12.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
         }
@@ -601,7 +665,9 @@ private fun LoginScreen(onEnter: () -> Unit) {
                     text = "Entrar",
                     background = PopBlue,
                     foreground = Color.White,
-                    onClick = onEnter,
+                    onClick = {
+                        cloudNotice = "O acesso em nuvem será liberado quando a API segura estiver configurada."
+                    },
                 )
                 Surface(
                     onClick = { showEmail = false },
@@ -623,7 +689,9 @@ private fun LoginScreen(onEnter: () -> Unit) {
                 background = Color.White,
                 foreground = Color(0xFF202124),
                 googleLogo = true,
-                onClick = onEnter,
+                onClick = {
+                    cloudNotice = "Configure o Google e a API em nuvem para entrar com esta conta."
+                },
             )
             Spacer(Modifier.height(12.dp))
             LoginActionButton(
@@ -642,7 +710,7 @@ private fun LoginScreen(onEnter: () -> Unit) {
                 HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(alpha = .12f))
             }
             Surface(
-                onClick = onEnter,
+                onClick = onGuest,
                 color = Color.Transparent,
                 contentColor = Color.White.copy(alpha = .76f),
                 shape = RoundedCornerShape(18.dp),
@@ -653,6 +721,16 @@ private fun LoginScreen(onEnter: () -> Unit) {
                     Text("Continuar sem uma conta", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
+        }
+        cloudNotice?.let {
+            Text(
+                it,
+                color = PopBlue,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.padding(top = 12.dp),
+            )
         }
         Spacer(Modifier.height(18.dp))
         Text(
@@ -696,7 +774,12 @@ private fun LoginActionButton(
                     modifier = Modifier.align(Alignment.CenterStart).padding(start = 20.dp).size(21.dp),
                 )
             }
-            Text(text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = .15.sp,
+            )
         }
     }
 }
@@ -738,15 +821,17 @@ private fun DarkLoginField(
 }
 
 @Composable
-private fun PopMainContent() {
+private fun PopMainContent(sessionMode: SessionMode, onRequireLogin: () -> Unit) {
+        val context = LocalContext.current
         var destination by remember { mutableStateOf(PopDestination.Dashboard) }
-        val tasks = remember {
-            mutableStateListOf(
-                PopTask(1, "Revisar campanha de lançamento", "Marketing", "Hoje, 18:00", "Alta"),
-                PopTask(2, "Conferir relatório financeiro", "Financeiro", "Amanhã, 10:00", "Média"),
-                PopTask(3, "Atualizar documentos da equipe", "Pessoas", "Sex, 16:30", "Baixa"),
-                PopTask(4, "Aprovar proposta comercial", "Comercial", "20 jul, 09:00", "Alta"),
-            )
+        val tasks = remember(sessionMode) {
+            mutableStateListOf<PopTask>().apply {
+                addAll(if (sessionMode == SessionMode.Guest) loadGuestTasks(context) else emptyList())
+            }
+        }
+
+        LaunchedEffect(tasks.toList(), sessionMode) {
+            if (sessionMode == SessionMode.Guest) saveGuestTasks(context, tasks)
         }
 
     Scaffold(
@@ -781,10 +866,10 @@ private fun PopMainContent() {
                     .padding(bottom = innerPadding.calculateBottomPadding()),
             ) { page ->
                 when (page) {
-                    PopDestination.Dashboard -> DashboardScreen(tasks)
+                    PopDestination.Dashboard -> DashboardScreen(tasks, sessionMode == SessionMode.Guest)
                     PopDestination.Tasks -> TasksScreen(tasks)
                     PopDestination.Calendar -> CalendarScreen(tasks)
-                    PopDestination.More -> MoreScreen()
+                    PopDestination.More -> MoreScreen(sessionMode, onRequireLogin)
                 }
             }
     }
@@ -823,12 +908,17 @@ private fun ScreenHeader(title: String, subtitle: String) {
 }
 
 @Composable
-private fun DashboardScreen(tasks: List<PopTask>) {
+private fun DashboardScreen(tasks: List<PopTask>, isGuest: Boolean) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 28.dp),
     ) {
-        item { ScreenHeader("Boa tarde, André", "Veja o que acontece hoje na empresa") }
+        item {
+            ScreenHeader(
+                if (isGuest) "Minhas atividades" else "Boa tarde",
+                if (isGuest) "Salvas somente neste aparelho" else "Veja o que acontece hoje na empresa",
+            )
+        }
         item {
             Column(modifier = Modifier.padding(horizontal = 20.dp)) {
                 HeroCard(tasks.count { !it.completed })
@@ -836,7 +926,7 @@ private fun DashboardScreen(tasks: List<PopTask>) {
                 Text("Visão geral", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MetricCard("Concluídas", "12", Icons.Rounded.CheckCircle, Color(0xFF18A66A), Modifier.weight(1f))
+                    MetricCard("Concluídas", tasks.count { it.completed }.toString(), Icons.Rounded.CheckCircle, Color(0xFF18A66A), Modifier.weight(1f))
                     MetricCard("Pendentes", tasks.count { !it.completed }.toString(), Icons.Rounded.PendingActions, Color(0xFFFF9F1C), Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(20.dp))
@@ -907,6 +997,8 @@ private fun SectionTitle(title: String, action: String? = null) {
 @Composable
 private fun TasksScreen(tasks: MutableList<PopTask>) {
     var query by remember { mutableStateOf("") }
+    var showCreate by remember { mutableStateOf(false) }
+    var newTaskTitle by remember { mutableStateOf("") }
     val filtered = tasks.filter { it.title.contains(query, ignoreCase = true) }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(contentPadding = PaddingValues(bottom = 92.dp)) {
@@ -945,12 +1037,58 @@ private fun TasksScreen(tasks: MutableList<PopTask>) {
             }
         }
         FloatingActionButton(
-            onClick = {},
+            onClick = { showCreate = true },
             containerColor = PopBlue,
             contentColor = Color.White,
             shape = CircleShape,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
         ) { Icon(Icons.Rounded.Add, "Nova tarefa") }
+    }
+
+    if (showCreate) {
+        AlertDialog(
+            onDismissRequest = { showCreate = false },
+            title = { Text("Nova atividade pessoal", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                TextField(
+                    value = newTaskTitle,
+                    onValueChange = { newTaskTitle = it },
+                    placeholder = { Text("O que você precisa fazer?") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = PopBlueSoft,
+                        unfocusedContainerColor = Color(0xFFF5FAFF),
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newTaskTitle.trim().length >= 3,
+                    onClick = {
+                        tasks.add(
+                            0,
+                            PopTask(
+                                id = (tasks.maxOfOrNull { it.id } ?: 0) + 1,
+                                title = newTaskTitle.trim(),
+                                department = "Pessoal",
+                                dueLabel = "Hoje",
+                                priority = "Média",
+                            ),
+                        )
+                        newTaskTitle = ""
+                        showCreate = false
+                    },
+                ) { Text("Criar", color = PopBlue, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreate = false }) { Text("Cancelar") }
+            },
+            shape = RoundedCornerShape(26.dp),
+            containerColor = Color.White,
+        )
     }
 }
 
@@ -1074,21 +1212,65 @@ private fun CalendarGrid(month: YearMonth) {
 }
 
 @Composable
-private fun MoreScreen() {
+private fun MoreScreen(sessionMode: SessionMode, onRequireLogin: () -> Unit) {
+    val isGuest = sessionMode == SessionMode.Guest
     LazyColumn(Modifier.fillMaxSize()) {
-        item { ScreenHeader("Mais", "Conta, equipe e configurações") }
+        item {
+            ScreenHeader(
+                "Mais",
+                if (isGuest) "Dados locais e configurações" else "Conta, equipe e configurações",
+            )
+        }
         item {
             Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(58.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFF45ADFF), PopBlue))), contentAlignment = Alignment.Center) {
-                    Text("AJ", color = Color.White, fontWeight = FontWeight.ExtraBold)
+                    Icon(
+                        if (isGuest) Icons.Rounded.PersonOutline else Icons.Rounded.Groups,
+                        null,
+                        tint = Color.White,
+                    )
                 }
                 Spacer(Modifier.width(14.dp))
-                Column { Text("André Junior", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp); Text("Administrador", color = PopMuted, fontSize = 12.sp) }
+                Column {
+                    Text(if (isGuest) "Modo sem conta" else "Conta conectada", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                    Text(if (isGuest) "Dados salvos neste celular" else "Sincronização em nuvem", color = PopMuted, fontSize = 12.sp)
+                }
             }
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MoreItem(Icons.Rounded.Business, "Empresa", "Dados e setores da organização")
-                MoreItem(Icons.Rounded.Groups, "Equipe", "Funcionários e grupos")
-                MoreItem(Icons.Rounded.PersonOutline, "Meu perfil", "Conta e preferências")
+                if (isGuest) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = PopBlueSoft),
+                        shape = RoundedCornerShape(22.dp),
+                        modifier = Modifier.fillMaxWidth().border(1.dp, PopBlue.copy(alpha = .18f), RoundedCornerShape(22.dp)),
+                    ) {
+                        Column(Modifier.padding(18.dp)) {
+                            Icon(Icons.Rounded.Lock, null, tint = PopBlue)
+                            Spacer(Modifier.height(10.dp))
+                            Text("Equipe e convites precisam de login", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                            Text(
+                                "Sem conta, você cria somente suas atividades pessoais e elas ficam neste aparelho.",
+                                color = PopMuted,
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp,
+                                modifier = Modifier.padding(top = 5.dp),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Surface(
+                                onClick = onRequireLogin,
+                                color = PopBlue,
+                                contentColor = Color.White,
+                                shape = RoundedCornerShape(14.dp),
+                            ) {
+                                Text("Fazer login", fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                            }
+                        }
+                    }
+                    MoreItem(Icons.Rounded.PersonOutline, "Minhas atividades", "Conteúdo pessoal salvo localmente")
+                } else {
+                    MoreItem(Icons.Rounded.Business, "Empresa", "Dados e setores da organização")
+                    MoreItem(Icons.Rounded.Groups, "Equipe", "Funcionários, grupos e convites")
+                    MoreItem(Icons.Rounded.PersonOutline, "Meu perfil", "Conta e preferências")
+                }
                 MoreItem(Icons.Rounded.Settings, "Configurações", "Notificações e aplicativo")
             }
         }

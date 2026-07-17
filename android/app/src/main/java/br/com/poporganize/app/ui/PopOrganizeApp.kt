@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -63,6 +64,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -100,7 +102,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.withStyle
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalView
@@ -513,53 +519,207 @@ private fun LoginScreen(onEnter: () -> Unit) {
             .fillMaxSize()
             .background(Color(0xFF2C2C2C))
             .padding(WindowInsets.statusBars.asPaddingValues())
+            .imePadding()
             .padding(horizontal = 28.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         PopWordmark()
-        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Box(Modifier.size(190.dp).clip(CircleShape).background(Color(0xFFF7F7F7)), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(112.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFF2C2C2C)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.TaskAlt, null, tint = PopBlue, modifier = Modifier.size(55.dp))
+        Column(
+            Modifier.weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Box(
+                Modifier.size(if (showEmail) 118.dp else 166.dp)
+                    .clip(RoundedCornerShape(48.dp, 72.dp, 54.dp, 68.dp))
+                    .background(Color(0xFFF7F7F7)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier.size(if (showEmail) 72.dp else 98.dp)
+                        .clip(RoundedCornerShape(28.dp, 20.dp, 30.dp, 22.dp))
+                        .background(Color(0xFF202222)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (showEmail) Icons.Rounded.Email else Icons.Rounded.TaskAlt,
+                        null,
+                        tint = PopBlue,
+                        modifier = Modifier.size(if (showEmail) 34.dp else 48.dp),
+                    )
                 }
-                Box(Modifier.align(Alignment.BottomEnd).padding(24.dp).size(42.dp).clip(CircleShape).background(PopBlue), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Groups, null, tint = Color.White, modifier = Modifier.size(21.dp))
+                if (!showEmail) {
+                    Box(
+                        Modifier.align(Alignment.BottomEnd).padding(18.dp).size(38.dp)
+                            .clip(CircleShape).background(PopBlue),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.Groups, null, tint = Color.White, modifier = Modifier.size(19.dp))
+                    }
                 }
             }
-            Spacer(Modifier.height(30.dp))
-            Text("Organize tudo.", color = Color.White, fontSize = 35.sp, fontWeight = FontWeight.ExtraBold)
-            Text("Pessoas, tarefas e equipes em um só lugar.", color = Color.White.copy(alpha = .58f), fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
+            Spacer(Modifier.height(if (showEmail) 20.dp else 28.dp))
+            Text(
+                if (showEmail) "Entre com seu e-mail" else "Bem-vindo de volta",
+                color = Color.White,
+                fontSize = if (showEmail) 28.sp else 34.sp,
+                fontWeight = FontWeight.ExtraBold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            Text(
+                if (showEmail) "Use seus dados para acessar o Pop Organize."
+                else "Escolha como você quer continuar.",
+                color = Color.White.copy(alpha = .56f),
+                fontSize = 14.sp,
+                modifier = Modifier.padding(top = 8.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
         }
 
-        AnimatedVisibility(showEmail) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 12.dp)) {
-                DarkLoginField(email, { email = it }, "E-mail", Icons.Rounded.Email)
-                DarkLoginField(password, { password = it }, "Senha", Icons.Rounded.PersonOutline)
-                EntryButton("Entrar", PopBlue, Color.White, Modifier.fillMaxWidth(), onEnter)
+        AnimatedVisibility(visible = showEmail) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(bottom = 4.dp),
+            ) {
+                DarkLoginField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = "E-mail",
+                    icon = Icons.Rounded.Email,
+                    keyboardType = KeyboardType.Email,
+                    imeAction = ImeAction.Next,
+                )
+                DarkLoginField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = "Senha",
+                    icon = Icons.Rounded.Lock,
+                    isPassword = true,
+                    imeAction = ImeAction.Done,
+                )
+                LoginActionButton(
+                    text = "Entrar",
+                    background = PopBlue,
+                    foreground = Color.White,
+                    onClick = onEnter,
+                )
+                Surface(
+                    onClick = { showEmail = false },
+                    color = Color.Transparent,
+                    contentColor = Color.White.copy(alpha = .68f),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("Voltar para outras opções", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
         }
 
         if (!showEmail) {
-            EntryButton("G   Continuar com Google", Color.White, Color(0xFF202124), Modifier.fillMaxWidth(), onEnter)
-            Spacer(Modifier.height(10.dp))
-            EntryButton("Entrar com e-mail", Color.White.copy(alpha = .1f), Color.White, Modifier.fillMaxWidth()) { showEmail = true }
-            Spacer(Modifier.height(10.dp))
-            EntryButton("Continuar sem login", PopBlue, Color.White, Modifier.fillMaxWidth(), onEnter)
+            LoginActionButton(
+                text = "Continuar com Google",
+                background = Color.White,
+                foreground = Color(0xFF202124),
+                googleLogo = true,
+                onClick = onEnter,
+            )
+            Spacer(Modifier.height(12.dp))
+            LoginActionButton(
+                text = "Entrar com e-mail",
+                background = Color.White.copy(alpha = .1f),
+                foreground = Color.White,
+                icon = Icons.Rounded.Email,
+                onClick = { showEmail = true },
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(alpha = .12f))
+                Text("ou", color = Color.White.copy(alpha = .38f), fontSize = 12.sp, modifier = Modifier.padding(horizontal = 12.dp))
+                HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(alpha = .12f))
+            }
+            Surface(
+                onClick = onEnter,
+                color = Color.Transparent,
+                contentColor = Color.White.copy(alpha = .76f),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+                    .border(1.dp, Color.White.copy(alpha = .14f), RoundedCornerShape(18.dp)),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text("Continuar sem uma conta", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
-        Spacer(Modifier.height(14.dp))
-        Text("Ao continuar, você concorda com os termos de uso.", color = Color.White.copy(alpha = .38f), fontSize = 10.sp)
+        Spacer(Modifier.height(18.dp))
+        Text(
+            "Ao continuar, você concorda com os Termos de Uso e a Política de Privacidade.",
+            color = Color.White.copy(alpha = .36f),
+            fontSize = 10.sp,
+            lineHeight = 15.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+    }
+}
+
+@Composable
+private fun LoginActionButton(
+    text: String,
+    background: Color,
+    foreground: Color,
+    onClick: () -> Unit,
+    icon: ImageVector? = null,
+    googleLogo: Boolean = false,
+) {
+    Surface(
+        onClick = onClick,
+        color = background,
+        contentColor = foreground,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth().height(56.dp),
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (googleLogo) {
+                Image(
+                    painter = painterResource(R.drawable.google_logo),
+                    contentDescription = null,
+                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 20.dp).size(22.dp),
+                )
+            } else if (icon != null) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = foreground.copy(alpha = .82f),
+                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 20.dp).size(21.dp),
+                )
+            }
+            Text(text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DarkLoginField(value: String, onValueChange: (String) -> Unit, label: String, icon: ImageVector) {
+private fun DarkLoginField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    icon: ImageVector,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    imeAction: ImeAction = ImeAction.Next,
+    isPassword: Boolean = false,
+) {
     TextField(
         value = value,
         onValueChange = onValueChange,
         placeholder = { Text(label) },
         leadingIcon = { Icon(icon, null) },
         singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
+        visualTransformation = if (isPassword) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         shape = RoundedCornerShape(18.dp),
         colors = TextFieldDefaults.colors(
             focusedContainerColor = Color.White.copy(alpha = .1f),

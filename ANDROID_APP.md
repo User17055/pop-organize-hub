@@ -27,9 +27,9 @@ O APK de desenvolvimento fica em:
 android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-A variante de desenvolvimento usa o pacote `br.com.poporganize.app.native` para
-ficar instalada ao lado da versão antiga sem apagar seus dados. A variante de
-release mantém o pacote oficial `br.com.poporganize.app`.
+As variantes de desenvolvimento e release usam o pacote
+`br.com.poporganize.app`, mantendo a execução pelo Android Studio alinhada com a
+`MainActivity` declarada no aplicativo.
 
 ## Próxima etapa
 

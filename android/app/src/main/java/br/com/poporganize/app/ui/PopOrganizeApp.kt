@@ -2,11 +2,13 @@ package br.com.poporganize.app.ui
 
 import android.app.Activity
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -66,9 +68,12 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -143,21 +148,26 @@ private data class PopTask(
     val department: String,
     val dueLabel: String,
     val priority: String,
+    val dueDate: String = LocalDate.now().toString(),
     val completed: Boolean = false,
 )
 
 private enum class SessionMode { Guest, Email, Google }
+private enum class WorkSpace { Personal, Company }
 
 private const val GUEST_TASKS_STORAGE = "pop_organize_guest_tasks"
+private const val ONBOARDING_COMPLETED_STORAGE = "pop_organize_onboarding_completed"
+private const val SESSION_MODE_STORAGE = "pop_organize_session_mode"
+private const val LOCAL_PREFERENCES = "pop_organize_local"
 
 private fun defaultGuestTasks() = listOf(
-    PopTask(1, "Planejar minha semana", "Pessoal", "Hoje, 18:00", "Alta"),
-    PopTask(2, "Organizar documentos", "Pessoal", "Amanhã, 10:00", "Média"),
-    PopTask(3, "Revisar minhas prioridades", "Pessoal", "Sex, 16:30", "Baixa"),
+    PopTask(1, "Planejar minha semana", "Pessoal", "Hoje, 18:00", "Alta", LocalDate.now().toString()),
+    PopTask(2, "Organizar documentos", "Pessoal", "Amanhã, 10:00", "Média", LocalDate.now().plusDays(1).toString()),
+    PopTask(3, "Revisar minhas prioridades", "Pessoal", "Esta semana", "Baixa", LocalDate.now().plusDays(3).toString()),
 )
 
 private fun loadGuestTasks(context: Context): List<PopTask> {
-    val raw = context.getSharedPreferences("pop_organize_local", Context.MODE_PRIVATE)
+    val raw = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
         .getString(GUEST_TASKS_STORAGE, null) ?: return defaultGuestTasks()
     return runCatching {
         val items = JSONArray(raw)
@@ -169,6 +179,7 @@ private fun loadGuestTasks(context: Context): List<PopTask> {
                 department = "Pessoal",
                 dueLabel = item.getString("dueLabel"),
                 priority = item.getString("priority"),
+                dueDate = item.optString("dueDate", LocalDate.now().toString()),
                 completed = item.optBoolean("completed"),
             )
         }
@@ -184,10 +195,11 @@ private fun saveGuestTasks(context: Context, tasks: List<PopTask>) {
                 .put("title", task.title)
                 .put("dueLabel", task.dueLabel)
                 .put("priority", task.priority)
+                .put("dueDate", task.dueDate)
                 .put("completed", task.completed),
         )
     }
-    context.getSharedPreferences("pop_organize_local", Context.MODE_PRIVATE)
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
         .edit().putString(GUEST_TASKS_STORAGE, items.toString()).apply()
 }
 
@@ -224,14 +236,34 @@ private val onboardingSlides = listOf(
 @Composable
 fun PopOrganizeApp() {
     PopTheme {
+        val context = LocalContext.current
         var stage by remember { mutableStateOf(AppStage.Splash) }
         var logoEntered by remember { mutableStateOf(false) }
-        var sessionMode by remember { mutableStateOf<SessionMode?>(null) }
+        var sessionMode by remember {
+            val storedMode = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+                .getString(SESSION_MODE_STORAGE, null)
+            mutableStateOf(storedMode?.let { value -> runCatching { SessionMode.valueOf(value) }.getOrNull() })
+        }
+        val onboardingCompleted = remember {
+            context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+                .getBoolean(ONBOARDING_COMPLETED_STORAGE, false)
+        }
+
+        fun completeOnboarding() {
+            context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(ONBOARDING_COMPLETED_STORAGE, true)
+                .apply()
+        }
 
         LaunchedEffect(Unit) {
             logoEntered = true
             delay(1_500)
-            stage = AppStage.Onboarding
+            stage = when {
+                !onboardingCompleted -> AppStage.Onboarding
+                sessionMode != null -> AppStage.Main
+                else -> AppStage.Login
+            }
         }
 
         SystemBarAppearance(darkBackground = stage != AppStage.Main)
@@ -239,20 +271,24 @@ fun PopOrganizeApp() {
         AnimatedContent(
             targetState = stage,
             transitionSpec = {
-                (
-                    fadeIn(tween(620)) +
-                        slideInHorizontally(
-                            animationSpec = spring(
-                                dampingRatio = .86f,
-                                stiffness = 190f,
-                            ),
-                        ) { it / 7 } +
-                        scaleIn(tween(620), initialScale = .975f)
-                    ) togetherWith (
-                    fadeOut(tween(480)) +
-                        slideOutHorizontally(tween(580)) { -it / 10 } +
-                        scaleOut(tween(520), targetScale = 1.015f)
-                    )
+                if (targetState == AppStage.Main || initialState == AppStage.Main) {
+                    fadeIn(tween(150)) togetherWith fadeOut(tween(90))
+                } else {
+                    (
+                        fadeIn(tween(620)) +
+                            slideInHorizontally(
+                                animationSpec = spring(
+                                    dampingRatio = .86f,
+                                    stiffness = 190f,
+                                ),
+                            ) { it / 7 } +
+                            scaleIn(tween(620), initialScale = .975f)
+                        ) togetherWith (
+                        fadeOut(tween(480)) +
+                            slideOutHorizontally(tween(580)) { -it / 10 } +
+                            scaleOut(tween(520), targetScale = 1.015f)
+                        )
+                }
             },
             label = "entry-flow-transition",
         ) { currentStage ->
@@ -264,7 +300,12 @@ fun PopOrganizeApp() {
                 )
                 AppStage.Login -> LoginScreen(
                     onGuest = {
+                        completeOnboarding()
                         sessionMode = SessionMode.Guest
+                        context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+                            .edit()
+                            .putString(SESSION_MODE_STORAGE, SessionMode.Guest.name)
+                            .apply()
                         stage = AppStage.Main
                     },
                 )
@@ -570,10 +611,10 @@ private fun EntryButton(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LoginScreen(onGuest: () -> Unit) {
+    val context = LocalContext.current
     var showEmail by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var cloudNotice by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -666,7 +707,11 @@ private fun LoginScreen(onGuest: () -> Unit) {
                     background = PopBlue,
                     foreground = Color.White,
                     onClick = {
-                        cloudNotice = "O acesso em nuvem será liberado quando a API segura estiver configurada."
+                        Toast.makeText(
+                            context,
+                            "Não foi possível acessar a nuvem. Verifique a configuração da API.",
+                            Toast.LENGTH_LONG,
+                        ).show()
                     },
                 )
                 Surface(
@@ -690,7 +735,11 @@ private fun LoginScreen(onGuest: () -> Unit) {
                 foreground = Color(0xFF202124),
                 googleLogo = true,
                 onClick = {
-                    cloudNotice = "Configure o Google e a API em nuvem para entrar com esta conta."
+                    Toast.makeText(
+                        context,
+                        "Login com Google indisponível. Verifique a conexão e tente novamente.",
+                        Toast.LENGTH_LONG,
+                    ).show()
                 },
             )
             Spacer(Modifier.height(12.dp))
@@ -721,16 +770,6 @@ private fun LoginScreen(onGuest: () -> Unit) {
                     Text("Continuar sem uma conta", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
-        }
-        cloudNotice?.let {
-            Text(
-                it,
-                color = PopBlue,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.padding(top = 12.dp),
-            )
         }
         Spacer(Modifier.height(18.dp))
         Text(
@@ -822,17 +861,65 @@ private fun DarkLoginField(
 
 @Composable
 private fun PopMainContent(sessionMode: SessionMode, onRequireLogin: () -> Unit) {
-        val context = LocalContext.current
-        var destination by remember { mutableStateOf(PopDestination.Dashboard) }
-        val tasks = remember(sessionMode) {
-            mutableStateListOf<PopTask>().apply {
-                addAll(if (sessionMode == SessionMode.Guest) loadGuestTasks(context) else emptyList())
-            }
+    val context = LocalContext.current
+    var destination by remember { mutableStateOf(PopDestination.Dashboard) }
+    var workSpace by remember { mutableStateOf(WorkSpace.Personal) }
+    var selectedCompanyIndex by remember { mutableIntStateOf(0) }
+    var showCreateCompany by remember { mutableStateOf(false) }
+    var newCompanyName by remember { mutableStateOf("") }
+    val companyNames = remember { mutableStateListOf("Minha empresa") }
+    val personalTasks = remember(sessionMode) {
+        mutableStateListOf<PopTask>().apply {
+            addAll(if (sessionMode == SessionMode.Guest) loadGuestTasks(context) else emptyList())
         }
+    }
+    val companyTaskGroups = remember(sessionMode) {
+        mutableStateListOf<MutableList<PopTask>>(mutableStateListOf())
+    }
+    val tasks = if (workSpace == WorkSpace.Personal) {
+        personalTasks
+    } else {
+        companyTaskGroups.getOrElse(selectedCompanyIndex) { companyTaskGroups.first() }
+    }
 
-        LaunchedEffect(tasks.toList(), sessionMode) {
-            if (sessionMode == SessionMode.Guest) saveGuestTasks(context, tasks)
+    fun selectWorkSpace(next: WorkSpace) {
+        if (next == WorkSpace.Company && sessionMode == SessionMode.Guest) {
+            Toast.makeText(
+                context,
+                "Para acessar Empresa e convidar a equipe, faça login.",
+                Toast.LENGTH_LONG,
+            ).show()
+            onRequireLogin()
+        } else {
+            workSpace = next
         }
+    }
+
+    fun selectCompany(index: Int) {
+        if (sessionMode == SessionMode.Guest) {
+            selectWorkSpace(WorkSpace.Company)
+        } else {
+            selectedCompanyIndex = index
+            workSpace = WorkSpace.Company
+        }
+    }
+
+    fun requestCreateCompany() {
+        if (sessionMode == SessionMode.Guest) {
+            Toast.makeText(
+                context,
+                "Faça login para criar e gerenciar uma empresa.",
+                Toast.LENGTH_LONG,
+            ).show()
+            onRequireLogin()
+        } else {
+            showCreateCompany = true
+        }
+    }
+
+    LaunchedEffect(personalTasks.toList(), sessionMode) {
+        if (sessionMode == SessionMode.Guest) saveGuestTasks(context, personalTasks)
+    }
 
     Scaffold(
             containerColor = PopBackground,
@@ -843,40 +930,174 @@ private fun PopMainContent(sessionMode: SessionMode, onRequireLogin: () -> Unit)
                 )
             },
         ) { innerPadding ->
-            AnimatedContent(
-                targetState = destination,
-                transitionSpec = {
-                    (
-                        fadeIn(tween(460)) +
-                            slideInHorizontally(
-                                animationSpec = spring(
-                                    dampingRatio = .88f,
-                                    stiffness = 210f,
-                                ),
-                            ) { it / 8 } +
-                            scaleIn(tween(480), initialScale = .985f)
-                        ) togetherWith (
-                        fadeOut(tween(320)) +
-                            slideOutHorizontally(tween(440)) { -it / 12 }
-                        )
-                },
-                label = "page-transition",
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(bottom = innerPadding.calculateBottomPadding()),
-            ) { page ->
-                when (page) {
-                    PopDestination.Dashboard -> DashboardScreen(tasks, sessionMode == SessionMode.Guest)
-                    PopDestination.Tasks -> TasksScreen(tasks)
-                    PopDestination.Calendar -> CalendarScreen(tasks)
-                    PopDestination.More -> MoreScreen(sessionMode, onRequireLogin)
+            ) {
+                when (destination) {
+                    PopDestination.Dashboard -> DashboardScreen(
+                        tasks = tasks,
+                        isGuest = sessionMode == SessionMode.Guest,
+                        workSpace = workSpace,
+                        onWorkSpaceChange = ::selectWorkSpace,
+                        companyNames = companyNames,
+                        selectedCompanyIndex = selectedCompanyIndex,
+                        onCompanySelect = ::selectCompany,
+                        onCreateCompany = ::requestCreateCompany,
+                    )
+                    PopDestination.Tasks -> TasksScreen(tasks, workSpace, ::selectWorkSpace, companyNames, selectedCompanyIndex, ::selectCompany, ::requestCreateCompany)
+                    PopDestination.Calendar -> CalendarScreen(tasks, workSpace, ::selectWorkSpace, companyNames, selectedCompanyIndex, ::selectCompany, ::requestCreateCompany)
+                    PopDestination.More -> MoreScreen(sessionMode, workSpace, ::selectWorkSpace, companyNames, selectedCompanyIndex, ::selectCompany, ::requestCreateCompany, onRequireLogin)
                 }
             }
+    }
+
+    if (showCreateCompany) {
+        AlertDialog(
+            onDismissRequest = { showCreateCompany = false },
+            title = { Text("Criar nova empresa", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                TextField(
+                    value = newCompanyName,
+                    onValueChange = { newCompanyName = it },
+                    placeholder = { Text("Nome da empresa") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = PopBlueSoft,
+                        unfocusedContainerColor = Color(0xFFF5FAFF),
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newCompanyName.trim().length >= 3,
+                    onClick = {
+                        companyNames.add(newCompanyName.trim())
+                        companyTaskGroups.add(mutableStateListOf())
+                        selectedCompanyIndex = companyNames.lastIndex
+                        workSpace = WorkSpace.Company
+                        newCompanyName = ""
+                        showCreateCompany = false
+                    },
+                ) { Text("Criar", color = PopBlue, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateCompany = false }) { Text("Cancelar") }
+            },
+            shape = RoundedCornerShape(26.dp),
+            containerColor = Color.White,
+        )
     }
 }
 
 @Composable
-private fun ScreenHeader(title: String, subtitle: String) {
+private fun WorkSpaceSelector(
+    selected: WorkSpace,
+    companyNames: List<String>,
+    selectedCompanyIndex: Int,
+    onSelect: (WorkSpace) -> Unit,
+    onCompanySelect: (Int) -> Unit,
+    onCreateCompany: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Surface(
+            onClick = { expanded = true },
+            color = Color.Transparent,
+            contentColor = PopText,
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(end = 5.dp, top = 2.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (selected == WorkSpace.Personal) "Meu espaço" else companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.5).sp,
+                )
+                Spacer(Modifier.width(4.dp))
+                Icon(Icons.Rounded.KeyboardArrowDown, "Trocar espaço", tint = PopBlue, modifier = Modifier.size(25.dp))
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = Color.White,
+        ) {
+            Text(
+                "SEUS ESPAÇOS",
+                color = PopMuted,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            DropdownMenuItem(
+                text = {
+                    Column {
+                        Text("Meu espaço", fontWeight = FontWeight.Bold)
+                        Text("Tarefas pessoais", color = PopMuted, fontSize = 11.sp)
+                    }
+                },
+                leadingIcon = { Icon(Icons.Rounded.PersonOutline, null, tint = PopBlue) },
+                trailingIcon = {
+                    if (selected == WorkSpace.Personal) Icon(Icons.Rounded.Check, null, tint = PopBlue)
+                },
+                onClick = {
+                    expanded = false
+                    onSelect(WorkSpace.Personal)
+                },
+            )
+            companyNames.forEachIndexed { index, companyName ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(companyName, fontWeight = FontWeight.Bold)
+                            Text("Empresa e equipe", color = PopMuted, fontSize = 11.sp)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.Rounded.Business, null, tint = PopBlue) },
+                    trailingIcon = {
+                        if (selected == WorkSpace.Company && selectedCompanyIndex == index) {
+                            Icon(Icons.Rounded.Check, null, tint = PopBlue)
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onCompanySelect(index)
+                    },
+                )
+            }
+            HorizontalDivider(color = PopBorder, modifier = Modifier.padding(vertical = 5.dp))
+            DropdownMenuItem(
+                text = { Text("Criar nova empresa", color = PopBlue, fontWeight = FontWeight.ExtraBold) },
+                leadingIcon = { Icon(Icons.Rounded.Add, null, tint = PopBlue) },
+                onClick = {
+                    expanded = false
+                    onCreateCompany()
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun WorkSpaceHeader(
+    subtitle: String,
+    selected: WorkSpace,
+    companyNames: List<String>,
+    selectedCompanyIndex: Int,
+    onSelect: (WorkSpace) -> Unit,
+    onCompanySelect: (Int) -> Unit,
+    onCreateCompany: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -884,22 +1105,16 @@ private fun ScreenHeader(title: String, subtitle: String) {
             .padding(WindowInsets.statusBars.asPaddingValues())
             .padding(horizontal = 20.dp, vertical = 14.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = PopText,
-                    fontSize = 25.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.5).sp,
-                )
+                WorkSpaceSelector(selected, companyNames, selectedCompanyIndex, onSelect, onCompanySelect, onCreateCompany)
                 Text(text = subtitle, color = PopMuted, fontSize = 13.sp)
             }
             IconButton(
                 onClick = {},
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(PopBlueSoft),
+                modifier = Modifier.clip(CircleShape).background(PopBlueSoft),
             ) {
                 Icon(Icons.Rounded.NotificationsNone, "Notificações", tint = PopBlue)
             }
@@ -908,15 +1123,33 @@ private fun ScreenHeader(title: String, subtitle: String) {
 }
 
 @Composable
-private fun DashboardScreen(tasks: List<PopTask>, isGuest: Boolean) {
+private fun DashboardScreen(
+    tasks: List<PopTask>,
+    isGuest: Boolean,
+    workSpace: WorkSpace,
+    onWorkSpaceChange: (WorkSpace) -> Unit,
+    companyNames: List<String>,
+    selectedCompanyIndex: Int,
+    onCompanySelect: (Int) -> Unit,
+    onCreateCompany: () -> Unit,
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 28.dp),
     ) {
         item {
-            ScreenHeader(
-                if (isGuest) "Minhas atividades" else "Boa tarde",
-                if (isGuest) "Salvas somente neste aparelho" else "Veja o que acontece hoje na empresa",
+            WorkSpaceHeader(
+                subtitle = when {
+                    workSpace == WorkSpace.Company -> "Atividades e equipe da empresa"
+                    isGuest -> "Suas tarefas salvas somente neste aparelho"
+                    else -> "Suas tarefas pessoais sincronizadas na nuvem"
+                },
+                selected = workSpace,
+                companyNames = companyNames,
+                selectedCompanyIndex = selectedCompanyIndex,
+                onSelect = onWorkSpaceChange,
+                onCompanySelect = onCompanySelect,
+                onCreateCompany = onCreateCompany,
             )
         }
         item {
@@ -995,14 +1228,34 @@ private fun SectionTitle(title: String, action: String? = null) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TasksScreen(tasks: MutableList<PopTask>) {
+private fun TasksScreen(
+    tasks: MutableList<PopTask>,
+    workSpace: WorkSpace,
+    onWorkSpaceChange: (WorkSpace) -> Unit,
+    companyNames: List<String>,
+    selectedCompanyIndex: Int,
+    onCompanySelect: (Int) -> Unit,
+    onCreateCompany: () -> Unit,
+) {
     var query by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
     var newTaskTitle by remember { mutableStateOf("") }
+    var newTaskPriority by remember { mutableStateOf("Média") }
+    var newTaskDateOffset by remember { mutableIntStateOf(0) }
     val filtered = tasks.filter { it.title.contains(query, ignoreCase = true) }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(contentPadding = PaddingValues(bottom = 92.dp)) {
-            item { ScreenHeader("Tarefas", "Organize e acompanhe suas atividades") }
+            item {
+                WorkSpaceHeader(
+                    subtitle = if (workSpace == WorkSpace.Personal) "Tarefas pessoais • só você pode visualizar" else "Tarefas e prioridades da empresa",
+                    selected = workSpace,
+                    companyNames = companyNames,
+                    selectedCompanyIndex = selectedCompanyIndex,
+                    onSelect = onWorkSpaceChange,
+                    onCompanySelect = onCompanySelect,
+                    onCreateCompany = onCreateCompany,
+                )
+            }
             item {
                 TextField(
                     value = query,
@@ -1048,21 +1301,40 @@ private fun TasksScreen(tasks: MutableList<PopTask>) {
     if (showCreate) {
         AlertDialog(
             onDismissRequest = { showCreate = false },
-            title = { Text("Nova atividade pessoal", fontWeight = FontWeight.ExtraBold) },
-            text = {
-                TextField(
-                    value = newTaskTitle,
-                    onValueChange = { newTaskTitle = it },
-                    placeholder = { Text("O que você precisa fazer?") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = PopBlueSoft,
-                        unfocusedContainerColor = Color(0xFFF5FAFF),
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
+            title = {
+                Text(
+                    if (workSpace == WorkSpace.Personal) "Nova tarefa pessoal" else "Nova tarefa da empresa",
+                    fontWeight = FontWeight.ExtraBold,
                 )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    TextField(
+                        value = newTaskTitle,
+                        onValueChange = { newTaskTitle = it },
+                        placeholder = { Text("O que você precisa fazer?") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = PopBlueSoft,
+                            unfocusedContainerColor = Color(0xFFF5FAFF),
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                        ),
+                    )
+                    Text("Prioridade", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("Baixa", "Média", "Alta").forEach { priority ->
+                            ChoicePill(priority, newTaskPriority == priority) { newTaskPriority = priority }
+                        }
+                    }
+                    Text("Data", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("Hoje" to 0, "Amanhã" to 1, "+7 dias" to 7).forEach { (label, offset) ->
+                            ChoicePill(label, newTaskDateOffset == offset) { newTaskDateOffset = offset }
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(
@@ -1073,12 +1345,19 @@ private fun TasksScreen(tasks: MutableList<PopTask>) {
                             PopTask(
                                 id = (tasks.maxOfOrNull { it.id } ?: 0) + 1,
                                 title = newTaskTitle.trim(),
-                                department = "Pessoal",
-                                dueLabel = "Hoje",
-                                priority = "Média",
+                                department = if (workSpace == WorkSpace.Personal) "Pessoal" else "Empresa",
+                                dueLabel = when (newTaskDateOffset) {
+                                    0 -> "Hoje"
+                                    1 -> "Amanhã"
+                                    else -> "Em 7 dias"
+                                },
+                                priority = newTaskPriority,
+                                dueDate = LocalDate.now().plusDays(newTaskDateOffset.toLong()).toString(),
                             ),
                         )
                         newTaskTitle = ""
+                        newTaskPriority = "Média"
+                        newTaskDateOffset = 0
                         showCreate = false
                     },
                 ) { Text("Criar", color = PopBlue, fontWeight = FontWeight.Bold) }
@@ -1088,6 +1367,23 @@ private fun TasksScreen(tasks: MutableList<PopTask>) {
             },
             shape = RoundedCornerShape(26.dp),
             containerColor = Color.White,
+        )
+    }
+}
+
+@Composable
+private fun ChoicePill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = if (selected) PopBlue else PopBlueSoft,
+        contentColor = if (selected) Color.White else PopBlueDark,
+        shape = CircleShape,
+    ) {
+        Text(
+            label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         )
     }
 }
@@ -1157,11 +1453,27 @@ private fun PriorityPill(priority: String) {
 }
 
 @Composable
-private fun CalendarScreen(tasks: List<PopTask>) {
+private fun CalendarScreen(
+    tasks: List<PopTask>,
+    workSpace: WorkSpace,
+    onWorkSpaceChange: (WorkSpace) -> Unit,
+    companyNames: List<String>,
+    selectedCompanyIndex: Int,
+    onCompanySelect: (Int) -> Unit,
+    onCreateCompany: () -> Unit,
+) {
     var month by remember { mutableStateOf(YearMonth.now()) }
     val locale = remember { Locale("pt", "BR") }
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("Calendário", "Visualize suas tarefas por data")
+        WorkSpaceHeader(
+            subtitle = if (workSpace == WorkSpace.Personal) "Seu calendário pessoal" else "Calendário e prazos da empresa",
+            selected = workSpace,
+            companyNames = companyNames,
+            selectedCompanyIndex = selectedCompanyIndex,
+            onSelect = onWorkSpaceChange,
+            onCompanySelect = onCompanySelect,
+            onCreateCompany = onCreateCompany,
+        )
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { month = month.minusMonths(1) }) { Icon(Icons.Rounded.ChevronLeft, "Mês anterior") }
             Text(
@@ -1172,7 +1484,7 @@ private fun CalendarScreen(tasks: List<PopTask>) {
             )
             IconButton(onClick = { month = month.plusMonths(1) }) { Icon(Icons.Rounded.ChevronRight, "Próximo mês") }
         }
-        CalendarGrid(month)
+        CalendarGrid(month, tasks)
         Column(Modifier.padding(20.dp)) {
             SectionTitle("Próximas tarefas")
             Spacer(Modifier.height(6.dp))
@@ -1182,7 +1494,7 @@ private fun CalendarScreen(tasks: List<PopTask>) {
 }
 
 @Composable
-private fun CalendarGrid(month: YearMonth) {
+private fun CalendarGrid(month: YearMonth, tasks: List<PopTask>) {
     val firstOffset = month.atDay(1).dayOfWeek.value - 1
     val cells = List(firstOffset) { null } + (1..month.lengthOfMonth()).map { it }
     val today = LocalDate.now()
@@ -1197,12 +1509,23 @@ private fun CalendarGrid(month: YearMonth) {
             Row(Modifier.fillMaxWidth()) {
                 (week + List(7 - week.size) { null }).forEach { day ->
                     val selected = day != null && today.year == month.year && today.month == month.month && today.dayOfMonth == day
+                    val hasTask = day != null && tasks.any { task ->
+                        runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == month.atDay(day)
+                    }
                     Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
                         if (day != null) {
-                            Box(
-                                Modifier.size(34.dp).clip(CircleShape).background(if (selected) PopBlue else Color.Transparent),
-                                contentAlignment = Alignment.Center,
-                            ) { Text(day.toString(), color = if (selected) Color.White else PopText, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(
+                                    Modifier.size(30.dp).clip(CircleShape).background(if (selected) PopBlue else Color.Transparent),
+                                    contentAlignment = Alignment.Center,
+                                ) { Text(day.toString(), color = if (selected) Color.White else PopText, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) }
+                                Box(
+                                    Modifier
+                                        .size(4.dp)
+                                        .clip(CircleShape)
+                                        .background(if (hasTask) PopBlue else Color.Transparent),
+                                )
+                            }
                         }
                     }
                 }
@@ -1212,13 +1535,27 @@ private fun CalendarGrid(month: YearMonth) {
 }
 
 @Composable
-private fun MoreScreen(sessionMode: SessionMode, onRequireLogin: () -> Unit) {
+private fun MoreScreen(
+    sessionMode: SessionMode,
+    workSpace: WorkSpace,
+    onWorkSpaceChange: (WorkSpace) -> Unit,
+    companyNames: List<String>,
+    selectedCompanyIndex: Int,
+    onCompanySelect: (Int) -> Unit,
+    onCreateCompany: () -> Unit,
+    onRequireLogin: () -> Unit,
+) {
     val isGuest = sessionMode == SessionMode.Guest
     LazyColumn(Modifier.fillMaxSize()) {
         item {
-            ScreenHeader(
-                "Mais",
-                if (isGuest) "Dados locais e configurações" else "Conta, equipe e configurações",
+            WorkSpaceHeader(
+                subtitle = if (isGuest) "Dados locais e configurações" else "Conta, equipe e configurações",
+                selected = workSpace,
+                companyNames = companyNames,
+                selectedCompanyIndex = selectedCompanyIndex,
+                onSelect = onWorkSpaceChange,
+                onCompanySelect = onCompanySelect,
+                onCreateCompany = onCreateCompany,
             )
         }
         item {
@@ -1296,31 +1633,67 @@ private fun PopBottomBar(selected: PopDestination, onSelect: (PopDestination) ->
         Modifier
             .fillMaxWidth()
             .background(Color.Transparent)
-            .padding(horizontal = 14.dp)
-            .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().coerceAtLeast(10.dp)),
+            .padding(horizontal = 12.dp)
+            .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().coerceAtLeast(8.dp)),
     ) {
         Surface(
-            color = Color.White.copy(alpha = .94f),
-            shadowElevation = 18.dp,
-            tonalElevation = 4.dp,
-            shape = RoundedCornerShape(28.dp),
-            modifier = Modifier.fillMaxWidth().border(1.dp, PopBlue.copy(alpha = .14f), RoundedCornerShape(28.dp)),
+            color = Color.White.copy(alpha = .98f),
+            shadowElevation = 22.dp,
+            tonalElevation = 3.dp,
+            shape = RoundedCornerShape(32.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, PopBlue.copy(alpha = .16f), RoundedCornerShape(32.dp)),
         ) {
-            Row(Modifier.padding(7.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(
+                Modifier.padding(horizontal = 7.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 PopDestination.entries.forEach { item ->
                     val active = selected == item
-                    val scale by animateFloatAsState(if (active) 1.03f else 1f, spring(stiffness = Spring.StiffnessMediumLow), label = "nav-scale")
-                    Box(
-                        Modifier.weight(1f).scale(scale).clip(RoundedCornerShape(19.dp))
-                            .background(if (active) PopBlue else Color.Transparent)
-                            .clickable { onSelect(item) }.padding(vertical = 9.dp),
-                        contentAlignment = Alignment.Center,
+                    val scale by animateFloatAsState(
+                        targetValue = if (active) 1.07f else 1f,
+                        animationSpec = spring(dampingRatio = .72f, stiffness = 420f),
+                        label = "nav-scale",
+                    )
+                    val itemColor by animateColorAsState(
+                        targetValue = if (active) PopBlue else Color.Transparent,
+                        animationSpec = tween(180),
+                        label = "nav-background",
+                    )
+                    val contentColor by animateColorAsState(
+                        targetValue = if (active) Color.White else PopMuted,
+                        animationSpec = tween(160),
+                        label = "nav-content",
+                    )
+                    Surface(
+                        onClick = { if (!active) onSelect(item) },
+                        color = itemColor,
+                        contentColor = contentColor,
+                        shape = RoundedCornerShape(23.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(64.dp)
+                            .scale(scale),
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                            Icon(item.icon, item.label, tint = if (active) Color.White else PopMuted, modifier = Modifier.size(20.dp))
-                            AnimatedVisibility(active, enter = fadeIn() + scaleIn(), exit = fadeOut()) {
-                                Row { Spacer(Modifier.width(5.dp)); Text(item.label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                            }
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(
+                                item.icon,
+                                item.label,
+                                tint = contentColor,
+                                modifier = Modifier.size(if (active) 25.dp else 24.dp),
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                item.label,
+                                color = contentColor,
+                                fontSize = 10.sp,
+                                fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
                         }
                     }
                 }

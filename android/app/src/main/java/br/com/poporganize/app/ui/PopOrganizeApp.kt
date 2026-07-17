@@ -5,6 +5,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -59,7 +60,6 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PendingActions
 import androidx.compose.material.icons.rounded.PersonOutline
@@ -266,12 +266,19 @@ fun PopOrganizeApp() {
             }
         }
 
-        SystemBarAppearance(darkBackground = stage != AppStage.Main)
+        SystemBarAppearance(darkBackground = true)
 
         AnimatedContent(
             targetState = stage,
             transitionSpec = {
-                if (targetState == AppStage.Main || initialState == AppStage.Main) {
+                if (initialState == AppStage.Splash) {
+                    fadeIn(
+                        animationSpec = tween(420, delayMillis = 90, easing = FastOutSlowInEasing),
+                    ) togetherWith (
+                        fadeOut(tween(520, easing = FastOutSlowInEasing)) +
+                            scaleOut(tween(520, easing = FastOutSlowInEasing), targetScale = .94f)
+                        )
+                } else if (targetState == AppStage.Main || initialState == AppStage.Main) {
                     fadeIn(tween(150)) togetherWith fadeOut(tween(90))
                 } else {
                     (
@@ -930,12 +937,15 @@ private fun PopMainContent(sessionMode: SessionMode, onRequireLogin: () -> Unit)
                 )
             },
         ) { innerPadding ->
-            Box(
+            Crossfade(
+                targetState = destination,
+                animationSpec = tween(170, easing = FastOutSlowInEasing),
+                label = "page-crossfade",
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(bottom = innerPadding.calculateBottomPadding()),
-            ) {
-                when (destination) {
+            ) { page ->
+                when (page) {
                     PopDestination.Dashboard -> DashboardScreen(
                         tasks = tasks,
                         isGuest = sessionMode == SessionMode.Guest,
@@ -966,7 +976,7 @@ private fun PopMainContent(sessionMode: SessionMode, onRequireLogin: () -> Unit)
                     shape = RoundedCornerShape(16.dp),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = PopBlueSoft,
-                        unfocusedContainerColor = Color(0xFFF5FAFF),
+                        unfocusedContainerColor = PopSurfaceAlt,
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
                     ),
@@ -989,7 +999,7 @@ private fun PopMainContent(sessionMode: SessionMode, onRequireLogin: () -> Unit)
                 TextButton(onClick = { showCreateCompany = false }) { Text("Cancelar") }
             },
             shape = RoundedCornerShape(26.dp),
-            containerColor = Color.White,
+            containerColor = PopSurface,
         )
     }
 }
@@ -1030,7 +1040,7 @@ private fun WorkSpaceSelector(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             shape = RoundedCornerShape(20.dp),
-            containerColor = Color.White,
+            containerColor = PopSurface,
         ) {
             Text(
                 "SEUS ESPAÇOS",
@@ -1101,7 +1111,7 @@ private fun WorkSpaceHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White)
+            .background(PopBackground)
             .padding(WindowInsets.statusBars.asPaddingValues())
             .padding(horizontal = 20.dp, vertical = 14.dp),
     ) {
@@ -1110,13 +1120,22 @@ private fun WorkSpaceHeader(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 WorkSpaceSelector(selected, companyNames, selectedCompanyIndex, onSelect, onCompanySelect, onCreateCompany)
-                Text(text = subtitle, color = PopMuted, fontSize = 13.sp)
             }
-            IconButton(
-                onClick = {},
-                modifier = Modifier.clip(CircleShape).background(PopBlueSoft),
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(PopSurfaceAlt)
+                    .border(1.dp, PopBorder, CircleShape)
+                    .clickable { },
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Rounded.NotificationsNone, "Notificações", tint = PopBlue)
+                Icon(
+                    Icons.Rounded.PersonOutline,
+                    "Conta",
+                    tint = PopText,
+                    modifier = Modifier.size(25.dp),
+                )
             }
         }
     }
@@ -1153,7 +1172,7 @@ private fun DashboardScreen(
             )
         }
         item {
-            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                 HeroCard(tasks.count { !it.completed })
                 Spacer(Modifier.height(18.dp))
                 Text("Visão geral", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -1184,6 +1203,7 @@ private fun HeroCard(pending: Int) {
     ) {
         Column(
             modifier = Modifier
+                .fillMaxWidth()
                 .background(Brush.linearGradient(listOf(Color(0xFF45ADFF), PopBlue, PopBlueDark)))
                 .padding(22.dp),
         ) {
@@ -1207,7 +1227,7 @@ private fun MetricCard(label: String, value: String, icon: ImageVector, tint: Co
     Card(
         modifier = modifier.border(1.dp, PopBorder, RoundedCornerShape(22.dp)),
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = PopSurface),
     ) {
         Column(Modifier.padding(16.dp)) {
             Icon(icon, null, tint = tint, modifier = Modifier.size(23.dp))
@@ -1266,7 +1286,7 @@ private fun TasksScreen(
                     shape = RoundedCornerShape(18.dp),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = PopBlueSoft,
-                        unfocusedContainerColor = Color(0xFFF5FAFF),
+                        unfocusedContainerColor = PopSurfaceAlt,
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
                     ),
@@ -1317,7 +1337,7 @@ private fun TasksScreen(
                         shape = RoundedCornerShape(16.dp),
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = PopBlueSoft,
-                            unfocusedContainerColor = Color(0xFFF5FAFF),
+                            unfocusedContainerColor = PopSurfaceAlt,
                             focusedIndicatorColor = Color.Transparent,
                             unfocusedIndicatorColor = Color.Transparent,
                         ),
@@ -1366,7 +1386,7 @@ private fun TasksScreen(
                 TextButton(onClick = { showCreate = false }) { Text("Cancelar") }
             },
             shape = RoundedCornerShape(26.dp),
-            containerColor = Color.White,
+            containerColor = PopSurface,
         )
     }
 }
@@ -1376,7 +1396,7 @@ private fun ChoicePill(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         color = if (selected) PopBlue else PopBlueSoft,
-        contentColor = if (selected) Color.White else PopBlueDark,
+        contentColor = if (selected) Color.White else PopBlue,
         shape = CircleShape,
     ) {
         Text(
@@ -1392,7 +1412,7 @@ private fun ChoicePill(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun FilterChip(label: String, selected: Boolean) {
     Surface(
         color = if (selected) PopBlue else PopBlueSoft,
-        contentColor = if (selected) Color.White else PopBlueDark,
+        contentColor = if (selected) Color.White else PopBlue,
         shape = CircleShape,
     ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp)) }
 }
@@ -1401,7 +1421,7 @@ private fun FilterChip(label: String, selected: Boolean) {
 private fun TaskCard(task: PopTask, onComplete: () -> Unit) {
     Card(
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = if (task.completed) Color(0xFFF7FAFC) else Color.White),
+        colors = CardDefaults.cardColors(containerColor = if (task.completed) PopSurfaceAlt else PopSurface),
         modifier = Modifier.fillMaxWidth().border(1.dp, PopBorder, RoundedCornerShape(22.dp)),
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1617,7 +1637,7 @@ private fun MoreScreen(
 @Composable
 private fun MoreItem(icon: ImageVector, title: String, subtitle: String) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color(0xFFF7FBFF)).clickable { }.padding(15.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(PopSurface).clickable { }.padding(15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(PopBlueSoft), contentAlignment = Alignment.Center) { Icon(icon, null, tint = PopBlue) }
@@ -1634,25 +1654,25 @@ private fun PopBottomBar(selected: PopDestination, onSelect: (PopDestination) ->
             .fillMaxWidth()
             .background(Color.Transparent)
             .padding(horizontal = 12.dp)
-            .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().coerceAtLeast(8.dp)),
+            .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().coerceAtLeast(7.dp)),
     ) {
         Surface(
-            color = Color.White.copy(alpha = .98f),
-            shadowElevation = 22.dp,
+            color = PopSurface.copy(alpha = .98f),
+            shadowElevation = 18.dp,
             tonalElevation = 3.dp,
-            shape = RoundedCornerShape(32.dp),
+            shape = RoundedCornerShape(29.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, PopBlue.copy(alpha = .16f), RoundedCornerShape(32.dp)),
+                .border(1.dp, PopBlue.copy(alpha = .22f), RoundedCornerShape(29.dp)),
         ) {
             Row(
-                Modifier.padding(horizontal = 7.dp, vertical = 8.dp),
+                Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 PopDestination.entries.forEach { item ->
                     val active = selected == item
                     val scale by animateFloatAsState(
-                        targetValue = if (active) 1.07f else 1f,
+                        targetValue = if (active) 1.045f else 1f,
                         animationSpec = spring(dampingRatio = .72f, stiffness = 420f),
                         label = "nav-scale",
                     )
@@ -1670,10 +1690,10 @@ private fun PopBottomBar(selected: PopDestination, onSelect: (PopDestination) ->
                         onClick = { if (!active) onSelect(item) },
                         color = itemColor,
                         contentColor = contentColor,
-                        shape = RoundedCornerShape(23.dp),
+                        shape = RoundedCornerShape(21.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .height(64.dp)
+                            .height(57.dp)
                             .scale(scale),
                     ) {
                         Column(
@@ -1684,9 +1704,9 @@ private fun PopBottomBar(selected: PopDestination, onSelect: (PopDestination) ->
                                 item.icon,
                                 item.label,
                                 tint = contentColor,
-                                modifier = Modifier.size(if (active) 25.dp else 24.dp),
+                                modifier = Modifier.size(if (active) 23.dp else 22.dp),
                             )
-                            Spacer(Modifier.height(3.dp))
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 item.label,
                                 color = contentColor,

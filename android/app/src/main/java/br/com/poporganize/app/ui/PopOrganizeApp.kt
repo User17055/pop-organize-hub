@@ -97,7 +97,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalView
@@ -370,40 +373,57 @@ private fun OnboardingScreen(onSkip: () -> Unit, onFinish: () -> Unit) {
                         )
                     }
                 } else {
-                    Box(
-                        modifier = Modifier.size(236.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(
-                            Modifier.fillMaxSize()
-                                .clip(RoundedCornerShape(topStart = 118.dp, topEnd = 118.dp, bottomEnd = 42.dp, bottomStart = 42.dp))
-                                .background(Color(0xFFF7F7F7)),
+                    Box(Modifier.size(320.dp)) {
+                        Image(
+                            painter = painterResource(R.drawable.onboarding_team),
+                            contentDescription = "Profissionais conversando e trabalhando em equipe",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
                         )
                         Box(
-                            Modifier.align(Alignment.TopEnd).padding(24.dp).width(64.dp).height(92.dp)
-                                .clip(RoundedCornerShape(topStart = 40.dp, topEnd = 40.dp, bottomEnd = 20.dp, bottomStart = 20.dp))
-                                .background(PopBlue.copy(alpha = .12f)),
+                            Modifier.align(Alignment.TopCenter).fillMaxWidth().height(24.dp)
+                                .background(Brush.verticalGradient(listOf(Color(0xFF1C1E1E), Color.Transparent))),
                         )
                         Box(
-                            Modifier.align(Alignment.BottomStart).padding(24.dp).width(92.dp).height(56.dp)
-                                .clip(RoundedCornerShape(22.dp, 36.dp, 24.dp, 34.dp))
-                                .background(Color(0xFFD9DDE3)),
+                            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(24.dp)
+                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xFF1C1E1E)))),
                         )
                         Box(
-                            Modifier.size(112.dp)
-                                .clip(RoundedCornerShape(topStart = 56.dp, topEnd = 56.dp, bottomEnd = 24.dp, bottomStart = 24.dp))
-                                .background(Color(0xFF2C2C2C)),
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(slide.icon, null, tint = PopBlue, modifier = Modifier.size(56.dp)) }
+                            Modifier.align(Alignment.CenterStart).width(24.dp).fillMaxHeight()
+                                .background(Brush.horizontalGradient(listOf(Color(0xFF1C1E1E), Color.Transparent))),
+                        )
                         Box(
-                            Modifier.align(Alignment.BottomEnd).padding(bottom = 32.dp).size(52.dp)
-                                .clip(RoundedCornerShape(16.dp, 24.dp, 18.dp, 22.dp)).background(PopBlue),
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(slide.detailIcon, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
+                            Modifier.align(Alignment.CenterEnd).width(24.dp).fillMaxHeight()
+                                .background(Brush.horizontalGradient(listOf(Color.Transparent, Color(0xFF1C1E1E)))),
+                        )
                     }
                 }
                 Spacer(Modifier.height(38.dp))
-                Text(slide.title, color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 34.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text(
+                    buildAnnotatedString {
+                        when (page) {
+                            0 -> {
+                                append("Organize ")
+                                withStyle(SpanStyle(color = PopBlue)) { append("tudo") }
+                                append(" em um só lugar")
+                            }
+                            1 -> {
+                                append("Trabalhe junto com sua ")
+                                withStyle(SpanStyle(color = PopBlue)) { append("equipe") }
+                            }
+                            else -> {
+                                append("Acompanhe ")
+                                withStyle(SpanStyle(color = PopBlue)) { append("cada") }
+                                append(" etapa")
+                            }
+                        }
+                    },
+                    color = Color.White,
+                    fontSize = 29.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    lineHeight = 34.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
                 Spacer(Modifier.height(14.dp))
                 Text(slide.description, color = Color.White.copy(alpha = .58f), fontSize = 15.sp, lineHeight = 24.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }

@@ -197,7 +197,21 @@ function OnboardingFlow({ onFinish }: { onFinish: () => void }) {
                   <OnboardingArtwork index={index} Icon={Icon} DetailIcon={DetailIcon} />
 
                   <h1 className="mt-10 max-w-[320px] font-display text-[29px] font-bold leading-[1.16] tracking-[-0.035em]">
-                    {item.title}
+                    {index === 0 && (
+                      <>
+                        Organize <span className="text-[#1687f8]">tudo</span> em um só lugar
+                      </>
+                    )}
+                    {index === 1 && (
+                      <>
+                        Trabalhe junto com sua <span className="text-[#1687f8]">equipe</span>
+                      </>
+                    )}
+                    {index === 2 && (
+                      <>
+                        Acompanhe <span className="text-[#1687f8]">cada</span> etapa
+                      </>
+                    )}
                   </h1>
                   <p className="mt-4 max-w-[310px] text-[15px] leading-6 text-white/58">
                     {item.description}
@@ -270,6 +284,23 @@ function OnboardingArtwork({
   Icon: LucideIcon;
   DetailIcon: LucideIcon;
 }) {
+  if (index === 1) {
+    return (
+      <div className="relative h-[300px] w-[300px] shrink-0" aria-hidden="true">
+        <img
+          src="/onboarding-team.png"
+          alt=""
+          className="h-full w-full object-contain"
+          draggable={false}
+        />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-[#2c2c2c] to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-[#2c2c2c] to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-[#2c2c2c] to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-[#2c2c2c] to-transparent" />
+      </div>
+    );
+  }
+
   if (index === 2) {
     return (
       <div className="relative h-[300px] w-[300px] shrink-0" aria-hidden="true">

@@ -1269,7 +1269,7 @@ private fun HeroCard(tasks: List<PopTask>, displayName: String) {
 @Composable
 private fun MetricCard(label: String, value: Int, total: Int, icon: ImageVector, tint: Color, modifier: Modifier = Modifier) {
     Card(
-        modifier = modifier.border(1.dp, tint.copy(alpha = .3f), RoundedCornerShape(22.dp)),
+        modifier = modifier,
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = tint.copy(alpha = .07f)),
     ) {

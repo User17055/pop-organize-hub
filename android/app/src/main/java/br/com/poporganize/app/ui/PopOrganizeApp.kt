@@ -79,6 +79,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -1197,8 +1198,8 @@ private fun DashboardScreen(
                 Text("Visão geral", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MetricCard("Concluídas", tasks.count { it.completed }.toString(), Icons.Rounded.CheckCircle, Color(0xFF18A66A), Modifier.weight(1f))
-                    MetricCard("Pendentes", tasks.count { !it.completed }.toString(), Icons.Rounded.PendingActions, Color(0xFFFF9F1C), Modifier.weight(1f))
+                    MetricCard("Concluídas", tasks.count { it.completed }, tasks.size, Icons.Rounded.CheckCircle, Color(0xFF18A66A), Modifier.weight(1f))
+                    MetricCard("Pendentes", tasks.count { !it.completed }, tasks.size, Icons.Rounded.PendingActions, Color(0xFFFF9F1C), Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(20.dp))
                 SectionTitle("Tarefas recentes", "Ver todas")
@@ -1260,32 +1261,39 @@ private fun HeroCard(tasks: List<PopTask>, displayName: String) {
                         }
                     }
                 }
-                if (currentHour in 5..11) {
-                    Spacer(Modifier.width(8.dp))
-                    Image(
-                        painter = painterResource(R.drawable.greeting_clock),
-                        contentDescription = "Relógio da saudação",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.size(142.dp),
-                    )
-                }
             }
         }
     }
 }
 
 @Composable
-private fun MetricCard(label: String, value: String, icon: ImageVector, tint: Color, modifier: Modifier = Modifier) {
+private fun MetricCard(label: String, value: Int, total: Int, icon: ImageVector, tint: Color, modifier: Modifier = Modifier) {
     Card(
-        modifier = modifier.border(1.dp, PopBorder, RoundedCornerShape(22.dp)),
+        modifier = modifier.border(1.dp, tint.copy(alpha = .3f), RoundedCornerShape(22.dp)),
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = PopSurface),
+        colors = CardDefaults.cardColors(containerColor = tint.copy(alpha = .07f)),
     ) {
         Column(Modifier.padding(16.dp)) {
-            Icon(icon, null, tint = tint, modifier = Modifier.size(23.dp))
-            Spacer(Modifier.height(12.dp))
-            Text(value, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
-            Text(label, fontSize = 12.sp, color = PopMuted)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = tint.copy(alpha = .16f), shape = RoundedCornerShape(11.dp)) {
+                    Icon(icon, null, tint = tint, modifier = Modifier.padding(7.dp).size(20.dp))
+                }
+                Spacer(Modifier.width(9.dp))
+                Text(label, fontSize = 12.sp, color = PopMuted, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(13.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(value.toString(), fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.width(5.dp))
+                Text("de $total", fontSize = 11.sp, color = PopMuted, modifier = Modifier.padding(bottom = 4.dp))
+            }
+            Spacer(Modifier.height(10.dp))
+            LinearProgressIndicator(
+                progress = if (total == 0) 0f else value.toFloat() / total,
+                modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
+                color = tint,
+                trackColor = PopBorder.copy(alpha = .5f),
+            )
         }
     }
 }
@@ -1500,10 +1508,6 @@ private fun TaskCard(task: PopTask, onComplete: () -> Unit) {
 @Composable
 private fun TaskRow(task: PopTask) {
     Row(Modifier.fillMaxWidth().padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(38.dp).clip(RoundedCornerShape(13.dp)).background(PopBlueSoft), contentAlignment = Alignment.Center) {
-            Icon(Icons.Rounded.TaskAlt, null, tint = PopBlue, modifier = Modifier.size(20.dp))
-        }
-        Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
             Text(task.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("${task.department}  •  ${task.dueLabel}", fontSize = 11.sp, color = PopMuted)

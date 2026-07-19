@@ -2,6 +2,7 @@ package br.com.poporganize.app.ui
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.drawable.ColorDrawable
 import android.provider.OpenableColumns
 import android.media.RingtoneManager
 import android.widget.Toast
@@ -25,7 +26,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -80,7 +80,6 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Email
-import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -145,6 +144,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
 import br.com.poporganize.app.R
@@ -1460,6 +1460,7 @@ private fun TasksScreen(
     var showCompleted by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf("Todas") }
     var editingTaskId by remember { mutableStateOf<Int?>(null) }
+    var completingTaskId by remember { mutableStateOf<Int?>(null) }
     var showDeleteTaskConfirmation by remember { mutableStateOf(false) }
     var expandedDetailSection by remember { mutableStateOf<String?>(null) }
     var editTitle by remember { mutableStateOf("") }
@@ -1480,6 +1481,7 @@ private fun TasksScreen(
     val taskDateSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val taskTimePickerState = rememberTimePickerState(initialHour = 9, initialMinute = 0, is24Hour = true)
     val newTaskTitleFocusRequester = remember { FocusRequester() }
+    val taskActionScope = rememberCoroutineScope()
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             newTaskAttachment = context.contentResolver
@@ -1546,25 +1548,35 @@ private fun TasksScreen(
             Toast.makeText(context, "Somente o responsável pode concluir esta tarefa", Toast.LENGTH_SHORT).show()
             return
         }
-        val index = tasks.indexOfFirst { it.id == task.id }
-        if (index < 0) return
         val markingCompleted = !task.completed
-        tasks[index] = task.copy(completed = markingCompleted)
         if (markingCompleted) {
+            if (completingTaskId == task.id) return
+            completingTaskId = task.id
             playActionSound()
-            val nextDate = nextRecurrenceDate(task)
-            if (nextDate != null && tasks.none { it.title == task.title && it.dueDate == nextDate.toString() && !it.completed }) {
-                tasks.add(
-                    (index + 1).coerceAtMost(tasks.size),
-                    task.copy(
-                        id = (tasks.maxOfOrNull { it.id } ?: 0) + 1,
-                        dueDate = nextDate.toString(),
-                        dueLabel = dueLabelForDate(nextDate),
-                        completed = false,
-                        recurrenceOccurrence = task.recurrenceOccurrence + 1,
-                    ),
-                )
+            taskActionScope.launch {
+                delay(380)
+                val currentIndex = tasks.indexOfFirst { it.id == task.id }
+                if (currentIndex >= 0) {
+                    tasks[currentIndex] = task.copy(completed = true)
+                    val nextDate = nextRecurrenceDate(task)
+                    if (nextDate != null && tasks.none { it.title == task.title && it.dueDate == nextDate.toString() && !it.completed }) {
+                        tasks.add(
+                            (currentIndex + 1).coerceAtMost(tasks.size),
+                            task.copy(
+                                id = (tasks.maxOfOrNull { it.id } ?: 0) + 1,
+                                dueDate = nextDate.toString(),
+                                dueLabel = dueLabelForDate(nextDate),
+                                completed = false,
+                                recurrenceOccurrence = task.recurrenceOccurrence + 1,
+                            ),
+                        )
+                    }
+                }
+                completingTaskId = null
             }
+        } else {
+            val index = tasks.indexOfFirst { it.id == task.id }
+            if (index >= 0) tasks[index] = task.copy(completed = false)
         }
     }
 
@@ -1762,7 +1774,7 @@ private fun TasksScreen(
             items(pendingTasks, key = { it.id }) { task ->
                 val scale by animateFloatAsState(1f, label = "task-scale")
                 Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).scale(scale)) {
-                    TaskCard(task, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
+                    TaskCard(task, isCompleting = completingTaskId == task.id, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
                 }
             }
             if (completedTasks.isNotEmpty()) {
@@ -1796,7 +1808,7 @@ private fun TasksScreen(
                             Column {
                                 completedTasks.forEach { task ->
                                     Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-                                        TaskCard(task, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
+                                        TaskCard(task, isCompleting = false, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
                                     }
                                 }
                             }
@@ -1983,7 +1995,24 @@ private fun TasksScreen(
             onDismissRequest = { editingTaskId = null },
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
         ) {
-            Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
+            val dialogView = LocalView.current
+            SideEffect {
+                (dialogView.parent as? DialogWindowProvider)?.window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+            }
+            var detailVisible by remember(editingTaskId) { mutableStateOf(false) }
+            LaunchedEffect(editingTaskId) { detailVisible = true }
+            val detailAlpha by animateFloatAsState(
+                targetValue = if (detailVisible) 1f else 0f,
+                animationSpec = tween(240, easing = FastOutSlowInEasing),
+                label = "taskDetailEntrance",
+            )
+            Surface(
+                color = PopBackground,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    alpha = detailAlpha
+                    translationY = (1f - detailAlpha) * 28f
+                },
+            ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2305,12 +2334,9 @@ private fun TasksScreen(
                                 },
                                 color = Color.Transparent,
                                 contentColor = Color(0xFFD87373),
-                                border = BorderStroke(1.dp, Color(0xFFE5484D).copy(alpha = .28f)),
                                 shape = RoundedCornerShape(14.dp),
                             ) {
                                 Row(Modifier.padding(horizontal = 13.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Rounded.DeleteOutline, null, modifier = Modifier.size(17.dp))
-                                    Spacer(Modifier.width(7.dp))
                                     Text("Excluir tarefa", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                 }
                             }
@@ -3108,7 +3134,6 @@ private fun DetailChoicePill(label: String, selected: Boolean, onClick: () -> Un
         onClick = onClick,
         color = backgroundColor,
         contentColor = foregroundColor,
-        border = BorderStroke(1.dp, if (selected) PopBlue else PopBorder),
         shape = CircleShape,
     ) {
         Text(
@@ -3136,7 +3161,6 @@ private fun PriorityChoicePill(label: String, selected: Boolean, onClick: () -> 
         onClick = onClick,
         color = backgroundColor,
         contentColor = if (selected) Color.White else priorityColor,
-        border = BorderStroke(1.dp, priorityColor.copy(alpha = if (selected) 1f else .45f)),
         shape = CircleShape,
     ) {
         Text(
@@ -3150,27 +3174,54 @@ private fun PriorityChoicePill(label: String, selected: Boolean, onClick: () -> 
 
 @Composable
 private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        color = if (selected) PopBlue else PopBlueSoft,
-        contentColor = if (selected) Color.White else PopBlue,
-        shape = CircleShape,
-    ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp)) }
+    val textColor by animateColorAsState(
+        targetValue = if (selected) PopBlue else PopMuted,
+        animationSpec = tween(200),
+        label = "taskFilterColor",
+    )
+    val indicatorWidth by animateDpAsState(
+        targetValue = if (selected) 22.dp else 0.dp,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "taskFilterIndicator",
+    )
+    Column(
+        modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 7.dp, vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(label, color = textColor, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Box(Modifier.height(2.dp).width(indicatorWidth).background(PopBlue, CircleShape))
+    }
 }
 
 @Composable
-private fun TaskCard(task: PopTask, onComplete: () -> Unit, onOpen: () -> Unit) {
-    val indicators = buildList<Pair<ImageVector, String>> {
-        if (task.recurrenceRule != "Não repetir") add(Icons.Rounded.Repeat to "Tarefa recorrente")
-        if (task.attachmentName.isNotBlank()) add(Icons.Rounded.AttachFile to "Possui anexo")
-        if (task.description.isNotBlank()) add(Icons.Rounded.Description to "Possui descrição")
-        if (task.reminder != "Sem lembrete") add(Icons.Rounded.NotificationsActive to "Possui lembrete")
-    }
+private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Unit, onOpen: () -> Unit) {
+    val completedVisual = task.completed || isCompleting
+    val cardColor by animateColorAsState(
+        targetValue = if (completedVisual) Color(0xFF141717) else PopSurface,
+        animationSpec = tween(260),
+        label = "taskCardCompletionColor",
+    )
+    val cardScale by animateFloatAsState(
+        targetValue = if (isCompleting) .97f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "taskCardCompletionScale",
+    )
+    val checkScale by animateFloatAsState(
+        targetValue = if (completedVisual) 1f else .55f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "taskCheckScale",
+    )
+    val checkColor by animateColorAsState(
+        targetValue = if (completedVisual) PopBlue else Color.Transparent,
+        animationSpec = tween(180),
+        label = "taskCheckColor",
+    )
     Card(
         onClick = onOpen,
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = if (task.completed) PopSurfaceAlt else PopSurface),
-        modifier = Modifier.fillMaxWidth().height(82.dp).border(1.dp, PopBorder, RoundedCornerShape(22.dp)),
+        colors = CardDefaults.cardColors(containerColor = cardColor),
+        modifier = Modifier.fillMaxWidth().height(82.dp).scale(cardScale),
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -3179,33 +3230,58 @@ private fun TaskCard(task: PopTask, onComplete: () -> Unit, onOpen: () -> Unit) 
                     .clickable(onClick = onComplete),
                 contentAlignment = Alignment.Center,
             ) {
-                if (task.completed) {
-                    Box(
-                        Modifier
-                            .size(22.dp)
-                            .background(PopBlue, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Rounded.Check, "Tarefa concluída", tint = Color.White, modifier = Modifier.size(15.dp))
-                    }
-                } else {
-                    Box(
-                        Modifier
-                            .size(21.dp)
-                            .border(2.dp, PopMuted.copy(alpha = .55f), CircleShape),
+                Box(
+                    Modifier
+                        .size(22.dp)
+                        .background(checkColor, CircleShape)
+                        .border(2.dp, if (completedVisual) PopBlue else PopMuted.copy(alpha = .55f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.Check,
+                        "Tarefa concluída",
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp).graphicsLayer {
+                            alpha = if (completedVisual) 1f else 0f
+                            scaleX = checkScale
+                            scaleY = checkScale
+                        },
                     )
                 }
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(task.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    indicators.take(4).forEach { (icon, description) ->
-                        Icon(icon, description, tint = PopBlue.copy(alpha = .82f), modifier = Modifier.padding(start = 5.dp).size(14.dp))
-                    }
-                }
+                Text(task.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val dueText = if (task.dueTime.isBlank()) task.dueLabel else "${task.dueLabel}, ${task.dueTime}"
-                Text("${task.department}  •  $dueText  •  ${task.assignee}", color = PopMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (task.recurrenceRule != "Não repetir") {
+                        Icon(
+                            Icons.Rounded.Repeat,
+                            "Tarefa recorrente",
+                            tint = PopMuted,
+                            modifier = Modifier.padding(start = 5.dp).size(14.dp),
+                        )
+                    }
+                    if (task.description.isNotBlank()) {
+                        Icon(
+                            Icons.Rounded.Description,
+                            "Possui anotação",
+                            tint = PopMuted,
+                            modifier = Modifier.padding(start = 5.dp).size(14.dp),
+                        )
+                    }
+                    if (task.recurrenceRule != "Não repetir" || task.description.isNotBlank()) {
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(
+                        "$dueText  •  ${task.assignee}",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
             PriorityPill(task.priority)
         }
@@ -3267,9 +3343,13 @@ private fun PriorityPill(priority: String) {
         "Média" -> Color(0xFFFF9F1C)
         else -> Color(0xFF18A66A)
     }
-    Surface(color = color.copy(alpha = .1f), shape = CircleShape) {
-        Text(priority, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
-    }
+    Text(
+        priority,
+        color = color,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+    )
 }
 
 @Composable

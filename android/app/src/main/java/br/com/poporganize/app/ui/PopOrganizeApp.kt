@@ -3253,8 +3253,11 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
             Column(Modifier.weight(1f)) {
                 Text(task.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val dueText = if (task.dueTime.isBlank()) task.dueLabel else "${task.dueLabel}, ${task.dueTime}"
+                val hasRecurrence = task.recurrenceRule != "Não repetir"
+                val hasDescription = task.description.isNotBlank()
+                val showAssignee = task.assignee.isNotBlank() && task.assignee != "Eu" && task.assignee != "Sem responsável"
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (task.recurrenceRule != "Não repetir") {
+                    if (hasRecurrence) {
                         Icon(
                             Icons.Rounded.Repeat,
                             "Tarefa recorrente",
@@ -3262,19 +3265,22 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                             modifier = Modifier.padding(start = 5.dp).size(14.dp),
                         )
                     }
-                    if (task.description.isNotBlank()) {
+                    if (hasRecurrence && hasDescription) {
+                        Text("•", color = PopMuted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 5.dp))
+                    }
+                    if (hasDescription) {
                         Icon(
                             Icons.Rounded.Description,
                             "Possui anotação",
                             tint = PopMuted,
-                            modifier = Modifier.padding(start = 5.dp).size(14.dp),
+                            modifier = Modifier.size(14.dp),
                         )
                     }
-                    if (task.recurrenceRule != "Não repetir" || task.description.isNotBlank()) {
-                        Spacer(Modifier.width(6.dp))
+                    if (hasRecurrence || hasDescription) {
+                        Text("•", color = PopMuted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 5.dp))
                     }
                     Text(
-                        "$dueText  •  ${task.assignee}",
+                        if (showAssignee) "$dueText  •  ${task.assignee}" else dueText,
                         color = PopMuted,
                         fontSize = 11.sp,
                         maxLines = 1,

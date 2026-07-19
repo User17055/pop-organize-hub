@@ -26,6 +26,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -124,6 +125,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -158,6 +160,8 @@ import java.time.format.TextStyle
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.absoluteValue
+import kotlin.math.cos
+import kotlin.math.sin
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -1088,6 +1092,7 @@ private fun PopMainContent(sessionMode: SessionMode, onRequireLogin: () -> Unit)
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
+                        onViewTasks = { destination = PopDestination.Tasks },
                     )
                     PopDestination.Tasks -> TasksScreen(tasks, workSpace, ::selectWorkSpace, companyNames, selectedCompanyIndex, ::selectCompany, ::requestCreateCompany)
                     PopDestination.Calendar -> CalendarScreen(tasks, workSpace, ::selectWorkSpace, companyNames, selectedCompanyIndex, ::selectCompany, ::requestCreateCompany)
@@ -1284,6 +1289,7 @@ private fun DashboardScreen(
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
+    onViewTasks: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1294,7 +1300,7 @@ private fun DashboardScreen(
                 subtitle = when {
                     workSpace == WorkSpace.Company -> "Atividades e equipe da empresa"
                     isGuest -> "Suas tarefas salvas somente neste aparelho"
-                    else -> "Suas tarefas pessoais sincronizadas na nuvem"
+                    else -> "Suas tarefas sincronizadas na nuvem"
                 },
                 selected = workSpace,
                 companyNames = companyNames,
@@ -1306,7 +1312,7 @@ private fun DashboardScreen(
         }
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                HeroCard(tasks, if (isGuest) "Visitante" else "Usuário")
+                HeroCard(tasks, if (isGuest) "Visitante" else "Usuário", onViewTasks)
                 Spacer(Modifier.height(18.dp))
                 Text("Visão geral", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(10.dp))
@@ -1315,10 +1321,10 @@ private fun DashboardScreen(
                     MetricCard("Pendentes", tasks.count { !it.completed }, tasks.size, Icons.Rounded.PendingActions, Color(0xFFFF9F1C), Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(20.dp))
-                SectionTitle("Tarefas recentes", "Ver todas")
+                SectionTitle("Tarefas recentes", "Ver todas", onViewTasks)
                 Spacer(Modifier.height(8.dp))
                 tasks.take(3).forEachIndexed { index, task ->
-                    TaskRow(task = task)
+                    TaskRow(task = task, onClick = onViewTasks)
                     if (index < 2) HorizontalDivider(color = PopBorder.copy(alpha = .65f))
                 }
             }
@@ -1327,7 +1333,7 @@ private fun DashboardScreen(
 }
 
 @Composable
-private fun HeroCard(tasks: List<PopTask>, displayName: String) {
+private fun HeroCard(tasks: List<PopTask>, displayName: String, onStartNow: () -> Unit) {
     val today = LocalDate.now()
     val pendingToday = tasks.count { task ->
         !task.completed && runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == today
@@ -1366,7 +1372,7 @@ private fun HeroCard(tasks: List<PopTask>, displayName: String) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(summary, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp)
                     Spacer(Modifier.height(16.dp))
-                    Surface(color = Color.White.copy(alpha = .18f), shape = RoundedCornerShape(14.dp), onClick = {}) {
+                    Surface(color = Color.White.copy(alpha = .18f), shape = RoundedCornerShape(14.dp), onClick = onStartNow) {
                         Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("Começar agora", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Spacer(Modifier.width(6.dp))
@@ -1412,10 +1418,18 @@ private fun MetricCard(label: String, value: Int, total: Int, icon: ImageVector,
 }
 
 @Composable
-private fun SectionTitle(title: String, action: String? = null) {
+private fun SectionTitle(title: String, action: String? = null, onAction: (() -> Unit)? = null) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(title, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
-        action?.let { Text(it, color = PopBlue, fontWeight = FontWeight.SemiBold, fontSize = 13.sp) }
+        action?.let {
+            Text(
+                it,
+                color = PopBlue,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                modifier = if (onAction != null) Modifier.clickable(onClick = onAction).padding(vertical = 6.dp) else Modifier,
+            )
+        }
     }
 }
 
@@ -1554,7 +1568,7 @@ private fun TasksScreen(
             completingTaskId = task.id
             playActionSound()
             taskActionScope.launch {
-                delay(380)
+                delay(620)
                 val currentIndex = tasks.indexOfFirst { it.id == task.id }
                 if (currentIndex >= 0) {
                     tasks[currentIndex] = task.copy(completed = true)
@@ -1772,9 +1786,14 @@ private fun TasksScreen(
                 Text("${pendingTasks.size} atividades pendentes", color = PopMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
             }
             items(pendingTasks, key = { it.id }) { task ->
-                val scale by animateFloatAsState(1f, label = "task-scale")
-                Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).scale(scale)) {
-                    TaskCard(task, isCompleting = completingTaskId == task.id, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
+                val isCompleting = completingTaskId == task.id
+                val taskSlotHeight by animateDpAsState(
+                    targetValue = if (isCompleting) 0.dp else 94.dp,
+                    animationSpec = tween(580, easing = FastOutSlowInEasing),
+                    label = "taskSlotHeight",
+                )
+                Box(Modifier.fillMaxWidth().height(taskSlotHeight).clipToBounds().padding(horizontal = 20.dp, vertical = 6.dp)) {
+                    TaskCard(task, isCompleting = isCompleting, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
                 }
             }
             if (completedTasks.isNotEmpty()) {
@@ -3203,9 +3222,14 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
         label = "taskCardCompletionColor",
     )
     val cardScale by animateFloatAsState(
-        targetValue = if (isCompleting) .97f else 1f,
+        targetValue = if (isCompleting) .94f else 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "taskCardCompletionScale",
+    )
+    val completionProgress by animateFloatAsState(
+        targetValue = if (isCompleting) 1f else 0f,
+        animationSpec = tween(560, easing = FastOutSlowInEasing),
+        label = "taskCompletionProgress",
     )
     val checkScale by animateFloatAsState(
         targetValue = if (completedVisual) 1f else .55f,
@@ -3221,15 +3245,34 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
         onClick = onOpen,
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor),
-        modifier = Modifier.fillMaxWidth().height(82.dp).scale(cardScale),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(82.dp)
+            .graphicsLayer {
+                scaleX = cardScale
+                scaleY = cardScale
+                translationX = -34f * completionProgress
+                alpha = 1f - completionProgress
+            },
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
                     .size(42.dp)
+                    .clip(CircleShape)
                     .clickable(onClick = onComplete),
                 contentAlignment = Alignment.Center,
             ) {
+                Box(
+                    Modifier
+                        .size(22.dp)
+                        .graphicsLayer {
+                            scaleX = 1f + completionProgress
+                            scaleY = 1f + completionProgress
+                            alpha = if (isCompleting) .22f * (1f - completionProgress) else 0f
+                        }
+                        .background(PopBlue, CircleShape),
+                )
                 Box(
                     Modifier
                         .size(22.dp)
@@ -3266,7 +3309,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                         )
                     }
                     if (hasRecurrence && hasDescription) {
-                        Text("•", color = PopMuted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 5.dp))
+                        Spacer(Modifier.width(5.dp))
                     }
                     if (hasDescription) {
                         Icon(
@@ -3295,11 +3338,35 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
 }
 
 @Composable
-private fun TaskRow(task: PopTask) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun TaskRow(task: PopTask, onClick: (() -> Unit)? = null) {
+    val rowModifier = if (onClick != null) {
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 13.dp)
+    } else {
+        Modifier.fillMaxWidth().padding(vertical = 13.dp)
+    }
+    Row(rowModifier, verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(task.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${task.department}  •  ${task.dueLabel}  •  ${task.assignee}", fontSize = 11.sp, color = PopMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val showAssignee = task.assignee.isNotBlank() && task.assignee != "Eu" && task.assignee != "Sem responsável"
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (task.recurrenceRule != "Não repetir") {
+                    Icon(Icons.Rounded.Repeat, "Recorrente", tint = PopMuted, modifier = Modifier.size(13.dp))
+                }
+                if (task.description.isNotBlank()) {
+                    if (task.recurrenceRule != "Não repetir") Spacer(Modifier.width(5.dp))
+                    Icon(Icons.Rounded.Description, "Possui anotação", tint = PopMuted, modifier = Modifier.size(13.dp))
+                }
+                if (task.recurrenceRule != "Não repetir" || task.description.isNotBlank()) {
+                    Text("•", color = PopMuted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 5.dp))
+                }
+                Text(
+                    if (showAssignee) "${task.dueLabel}  •  ${task.assignee}" else task.dueLabel,
+                    fontSize = 11.sp,
+                    color = PopMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         PriorityPill(task.priority)
     }
@@ -3370,6 +3437,7 @@ private fun CalendarScreen(
 ) {
     var month by remember { mutableStateOf(YearMonth.now()) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var openedCalendarTask by remember { mutableStateOf<PopTask?>(null) }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
     val selectedDayTasks = tasks.filter { task ->
@@ -3397,7 +3465,7 @@ private fun CalendarScreen(
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
             WorkSpaceHeader(
-                subtitle = if (workSpace == WorkSpace.Personal) "Seu calendário pessoal" else "Calendário e prazos da empresa",
+                subtitle = if (workSpace == WorkSpace.Personal) "Seus prazos e tarefas" else "Calendário e prazos da empresa",
                 selected = workSpace,
                 companyNames = companyNames,
                 selectedCompanyIndex = selectedCompanyIndex,
@@ -3433,9 +3501,104 @@ private fun CalendarScreen(
                 if (selectedDayTasks.isEmpty()) {
                     Text("Nenhuma tarefa para este dia.", color = PopMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
                 } else {
-                    selectedDayTasks.forEach { TaskRow(it) }
+                    selectedDayTasks.forEach { task ->
+                        TaskRow(task, onClick = { openedCalendarTask = task })
+                    }
                 }
             }
+        }
+    }
+    openedCalendarTask?.let { task ->
+        CalendarTaskDetails(task = task, onDismiss = { openedCalendarTask = null })
+    }
+}
+
+@Composable
+private fun CalendarTaskDetails(task: PopTask, onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        val dialogView = LocalView.current
+        SideEffect {
+            (dialogView.parent as? DialogWindowProvider)?.window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+        }
+        Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(WindowInsets.statusBars.asPaddingValues())
+                    .padding(WindowInsets.navigationBars.asPaddingValues())
+                    .padding(horizontal = 20.dp),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Rounded.ArrowBack, "Voltar", modifier = Modifier.size(27.dp))
+                    }
+                    Text("Detalhes da tarefa", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentPadding = PaddingValues(bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    item {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier.size(30.dp).border(2.dp, if (task.completed) PopBlue else PopMuted, CircleShape).background(if (task.completed) PopBlue else Color.Transparent, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (task.completed) Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(19.dp))
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Text(task.title, fontSize = 22.sp, lineHeight = 29.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                        }
+                    }
+                    if (task.description.isNotBlank()) {
+                        item {
+                            Surface(color = PopSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Rounded.Description, null, tint = PopMuted, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("O que fazer", color = PopMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Text(task.description, color = PopText, fontSize = 14.sp, lineHeight = 21.sp)
+                                }
+                            }
+                        }
+                    }
+                    item { CalendarTaskInfoRow(Icons.Rounded.CalendarMonth, "Data", task.dueLabel + task.dueTime.takeIf { it.isNotBlank() }?.let { ", $it" }.orEmpty()) }
+                    item { CalendarTaskInfoRow(Icons.Rounded.TaskAlt, "Prioridade", task.priority) }
+                    if (task.recurrenceRule != "Não repetir") {
+                        item { CalendarTaskInfoRow(Icons.Rounded.Repeat, "Recorrência", task.recurrence) }
+                    }
+                    if (task.reminder != "Sem lembrete") {
+                        item { CalendarTaskInfoRow(Icons.Rounded.NotificationsActive, "Lembrete", task.reminder) }
+                    }
+                    if (task.assignee.isNotBlank() && task.assignee != "Eu" && task.assignee != "Sem responsável") {
+                        item { CalendarTaskInfoRow(Icons.Rounded.PersonOutline, "Responsável", task.assignee) }
+                    }
+                    if (task.attachmentName.isNotBlank()) {
+                        item { CalendarTaskInfoRow(Icons.Rounded.AttachFile, "Anexo", task.attachmentName) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarTaskInfoRow(icon: ImageVector, label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().background(PopSurfaceAlt, RoundedCornerShape(16.dp)).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = PopMuted, modifier = Modifier.size(21.dp))
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, color = PopMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(value, color = PopText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -3465,36 +3628,49 @@ private fun CalendarGrid(
                     val selected = date == selectedDate
                     val isToday = date == today
                     val dayTasks = if (day == null) emptyList() else tasks.filter { task ->
-                        !task.completed && runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == month.atDay(day)
+                        runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == month.atDay(day)
                     }
                     Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
                         if (day != null) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                Modifier.size(38.dp).clip(CircleShape).clickable { date?.let(onDateSelected) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Canvas(Modifier.fillMaxSize()) {
+                                    val visibleTasks = dayTasks.take(6)
+                                    if (visibleTasks.isNotEmpty()) {
+                                        val angleStep = 18f
+                                        val startAngle = 90f - (angleStep * visibleTasks.lastIndex / 2f)
+                                        val orbitRadius = size.minDimension / 2f - 2.4.dp.toPx()
+                                        visibleTasks.forEachIndexed { index, task ->
+                                            val angle = Math.toRadians((startAngle + angleStep * index).toDouble())
+                                            val dotColor = when (task.priority) {
+                                                "Alta" -> Color(0xFFE5484D)
+                                                "Média" -> Color(0xFFFF9F1C)
+                                                else -> Color(0xFF18A66A)
+                                            }
+                                            drawCircle(
+                                                color = dotColor,
+                                                radius = 2.dp.toPx(),
+                                                center = Offset(
+                                                    x = center.x + cos(angle).toFloat() * orbitRadius,
+                                                    y = center.y + sin(angle).toFloat() * orbitRadius,
+                                                ),
+                                            )
+                                        }
+                                    }
+                                }
                                 Box(
                                     Modifier
-                                        .size(30.dp)
+                                        .size(29.dp)
                                         .clip(CircleShape)
                                         .background(if (selected) PopBlue else Color.Transparent)
                                         .then(
                                             if (isToday && !selected) Modifier.border(1.dp, PopBlue, CircleShape)
                                             else Modifier,
-                                        )
-                                        .clickable { date?.let(onDateSelected) },
+                                        ),
                                     contentAlignment = Alignment.Center,
                                 ) { Text(day.toString(), color = if (selected) Color.White else PopText, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) }
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                    modifier = Modifier.height(5.dp),
-                                ) {
-                                    dayTasks.take(4).forEach { task ->
-                                        val dotColor = when (task.priority) {
-                                            "Alta" -> Color(0xFFE5484D)
-                                            "Média" -> Color(0xFFFF9F1C)
-                                            else -> Color(0xFF18A66A)
-                                        }
-                                        Box(Modifier.size(4.dp).clip(CircleShape).background(dotColor))
-                                    }
-                                }
                             }
                         }
                     }

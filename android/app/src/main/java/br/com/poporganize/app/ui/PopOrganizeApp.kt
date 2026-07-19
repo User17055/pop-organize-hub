@@ -2,6 +2,8 @@ package br.com.poporganize.app.ui
 
 import android.app.Activity
 import android.content.Context
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -11,6 +13,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
@@ -23,6 +26,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,6 +61,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Business
@@ -76,6 +81,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
@@ -97,8 +103,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -112,6 +121,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -135,6 +145,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
 import br.com.poporganize.app.R
 import kotlinx.coroutines.delay
@@ -144,6 +156,7 @@ import java.time.LocalTime
 import java.time.YearMonth
 import java.time.temporal.ChronoUnit
 import java.time.format.TextStyle
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.absoluteValue
 import org.json.JSONArray
@@ -174,6 +187,12 @@ private data class PopTask(
     val attachmentName: String = "",
     val dueTime: String = "",
     val duration: String = "Sem duração",
+    val recurrenceRule: String = "Não repetir",
+    val recurrenceDetail: String = "",
+    val recurrenceInterval: Int = 1,
+    val recurrenceEndMode: String = "Nunca",
+    val recurrenceEndValue: String = "",
+    val recurrenceOccurrence: Int = 1,
 )
 
 private enum class SessionMode { Guest, Email, Google }
@@ -206,6 +225,53 @@ private fun normalizedDueDate(dueLabel: String, storedDate: String?): String {
     return (inferred ?: runCatching { storedDate?.let(LocalDate::parse) }.getOrNull() ?: today).toString()
 }
 
+private fun dueLabelForDate(date: LocalDate): String {
+    val today = LocalDate.now()
+    return when (date) {
+        today -> "Hoje"
+        today.plusDays(1) -> "Amanhã"
+        else -> "${date.dayOfMonth}/${date.monthValue}"
+    }
+}
+
+private fun nextRecurrenceDate(task: PopTask): LocalDate? {
+    val currentDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return null
+    val interval = task.recurrenceInterval.coerceAtLeast(1)
+    val nextDate = when (task.recurrenceRule) {
+        "Diária" -> currentDate.plusDays(interval.toLong())
+        "Semanal" -> {
+            val dayMap = mapOf("S" to 1, "T" to 2, "Q" to 3, "Q2" to 4, "S2" to 5, "Sá" to 6, "D" to 7)
+            val selectedDays = task.recurrenceDetail.split(",").mapNotNull(dayMap::get).sorted()
+                .ifEmpty { listOf(currentDate.dayOfWeek.value) }
+            val weekStart = currentDate.minusDays((currentDate.dayOfWeek.value - 1).toLong())
+            val laterThisWeek = selectedDays.firstOrNull { it > currentDate.dayOfWeek.value }
+            if (laterThisWeek != null) {
+                weekStart.plusDays((laterThisWeek - 1).toLong())
+            } else {
+                weekStart.plusWeeks(interval.toLong()).plusDays((selectedDays.first() - 1).toLong())
+            }
+        }
+        "Mensal" -> {
+            val targetMonth = currentDate.plusMonths(interval.toLong())
+            val targetDay = task.recurrenceDetail.toIntOrNull()?.coerceIn(1, targetMonth.lengthOfMonth())
+                ?: currentDate.dayOfMonth.coerceAtMost(targetMonth.lengthOfMonth())
+            targetMonth.withDayOfMonth(targetDay)
+        }
+        "Anual" -> currentDate.plusYears(interval.toLong())
+        else -> return null
+    }
+
+    val nextOccurrence = task.recurrenceOccurrence + 1
+    return when (task.recurrenceEndMode) {
+        "Após" -> if (nextOccurrence <= (task.recurrenceEndValue.toIntOrNull() ?: 1)) nextDate else null
+        "Em uma data" -> {
+            val endDate = runCatching { LocalDate.parse(task.recurrenceEndValue) }.getOrNull()
+            if (endDate == null || nextDate <= endDate) nextDate else null
+        }
+        else -> nextDate
+    }
+}
+
 private fun loadGuestTasks(context: Context): List<PopTask> {
     val raw = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
         .getString(GUEST_TASKS_STORAGE, null) ?: return defaultGuestTasks()
@@ -230,6 +296,12 @@ private fun loadGuestTasks(context: Context): List<PopTask> {
                 attachmentName = item.optString("attachmentName"),
                 dueTime = item.optString("dueTime"),
                 duration = item.optString("duration", "Sem duração"),
+                recurrenceRule = item.optString("recurrenceRule", "Não repetir"),
+                recurrenceDetail = item.optString("recurrenceDetail"),
+                recurrenceInterval = item.optInt("recurrenceInterval", 1).coerceAtLeast(1),
+                recurrenceEndMode = item.optString("recurrenceEndMode", "Nunca"),
+                recurrenceEndValue = item.optString("recurrenceEndValue"),
+                recurrenceOccurrence = item.optInt("recurrenceOccurrence", 1).coerceAtLeast(1),
             )
         }
     }.getOrElse { defaultGuestTasks() }
@@ -252,7 +324,13 @@ private fun saveGuestTasks(context: Context, tasks: List<PopTask>) {
                 .put("reminder", task.reminder)
                 .put("attachmentName", task.attachmentName)
                 .put("dueTime", task.dueTime)
-                .put("duration", task.duration),
+                .put("duration", task.duration)
+                .put("recurrenceRule", task.recurrenceRule)
+                .put("recurrenceDetail", task.recurrenceDetail)
+                .put("recurrenceInterval", task.recurrenceInterval)
+                .put("recurrenceEndMode", task.recurrenceEndMode)
+                .put("recurrenceEndValue", task.recurrenceEndValue)
+                .put("recurrenceOccurrence", task.recurrenceOccurrence),
         )
     }
     context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
@@ -1355,6 +1433,10 @@ private fun TasksScreen(
 ) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val actionTone = remember { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 70) }
+    DisposableEffect(Unit) {
+        onDispose { actionTone.release() }
+    }
     var query by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
     var newTaskTitle by remember { mutableStateOf("") }
@@ -1368,20 +1450,55 @@ private fun TasksScreen(
     var newTaskAttachment by remember { mutableStateOf("") }
     var newTaskTime by remember { mutableStateOf("") }
     var newTaskDuration by remember { mutableStateOf("Sem duração") }
+    var newTaskRecurrenceEnd by remember { mutableStateOf("Nunca") }
+    var newTaskRecurrenceInterval by remember { mutableIntStateOf(1) }
+    var newTaskRecurrenceCount by remember { mutableIntStateOf(10) }
+    var newTaskRecurrenceEndDate by remember { mutableStateOf(LocalDate.now().plusMonths(1).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
     var showAdvancedOptions by remember { mutableStateOf(false) }
     var showTaskDateSheet by remember { mutableStateOf(false) }
     var showPriorityMenu by remember { mutableStateOf(false) }
     var taskDateDraft by remember { mutableStateOf(LocalDate.now()) }
     var taskDateMonth by remember { mutableStateOf(YearMonth.now()) }
     var taskDateTab by remember { mutableStateOf("Data") }
+    var showTaskTimePicker by remember { mutableStateOf(false) }
+    var showTaskYearMenu by remember { mutableStateOf(false) }
     var showCompleted by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf("Todas") }
+    var editingTaskId by remember { mutableStateOf<Int?>(null) }
+    var showDeleteTaskConfirmation by remember { mutableStateOf(false) }
+    var editTitle by remember { mutableStateOf("") }
+    var editDescription by remember { mutableStateOf("") }
+    var editPriority by remember { mutableStateOf("Média") }
+    var editDueDate by remember { mutableStateOf("") }
+    var editDueTime by remember { mutableStateOf("") }
+    var editReminder by remember { mutableStateOf("Sem lembrete") }
+    var editRecurrence by remember { mutableStateOf("Não repetir") }
+    var editRecurrenceDetail by remember { mutableStateOf("") }
+    var editRecurrenceInterval by remember { mutableIntStateOf(1) }
+    var editRecurrenceEnd by remember { mutableStateOf("Nunca") }
+    var editRecurrenceEndValue by remember { mutableStateOf("") }
+    var editAssignee by remember { mutableStateOf("") }
+    var editAttachment by remember { mutableStateOf("") }
     val createTaskSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val taskDetailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val taskDateSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val taskTimePickerState = rememberTimePickerState(initialHour = 9, initialMinute = 0, is24Hour = true)
     val newTaskTitleFocusRequester = remember { FocusRequester() }
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             newTaskAttachment = context.contentResolver
+                .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+                }
+                ?: uri.lastPathSegment
+                ?: "Anexo selecionado"
+        }
+    }
+    val editAttachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            editAttachment = context.contentResolver
                 .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                 ?.use { cursor ->
                     val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -1420,12 +1537,115 @@ private fun TasksScreen(
 
     fun toggleTask(task: PopTask) {
         val index = tasks.indexOfFirst { it.id == task.id }
-        if (index >= 0) tasks[index] = task.copy(completed = !task.completed)
+        if (index < 0) return
+        val markingCompleted = !task.completed
+        tasks[index] = task.copy(completed = markingCompleted)
+        if (markingCompleted) {
+            actionTone.startTone(ToneGenerator.TONE_PROP_ACK, 140)
+            val nextDate = nextRecurrenceDate(task)
+            if (nextDate != null && tasks.none { it.title == task.title && it.dueDate == nextDate.toString() && !it.completed }) {
+                tasks.add(
+                    (index + 1).coerceAtMost(tasks.size),
+                    task.copy(
+                        id = (tasks.maxOfOrNull { it.id } ?: 0) + 1,
+                        dueDate = nextDate.toString(),
+                        dueLabel = dueLabelForDate(nextDate),
+                        completed = false,
+                        recurrenceOccurrence = task.recurrenceOccurrence + 1,
+                    ),
+                )
+            }
+        }
+    }
+
+    fun openTask(task: PopTask) {
+        editingTaskId = task.id
+        editTitle = task.title
+        editDescription = task.description
+        editPriority = task.priority
+        editDueDate = runCatching { LocalDate.parse(task.dueDate) }
+            .getOrNull()?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: task.dueDate
+        editDueTime = task.dueTime
+        editReminder = task.reminder
+        editRecurrence = task.recurrenceRule
+        editRecurrenceDetail = task.recurrenceDetail
+        editRecurrenceInterval = task.recurrenceInterval
+        editRecurrenceEnd = task.recurrenceEndMode
+        editRecurrenceEndValue = when (task.recurrenceEndMode) {
+            "Em uma data" -> runCatching { LocalDate.parse(task.recurrenceEndValue) }
+                .getOrNull()?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: task.recurrenceEndValue
+            else -> task.recurrenceEndValue
+        }
+        editAssignee = task.assignee
+        editAttachment = task.attachmentName
+    }
+
+    fun saveEditedTask() {
+        val taskId = editingTaskId ?: return
+        val index = tasks.indexOfFirst { it.id == taskId }
+        if (index < 0 || editTitle.trim().length < 3) return
+        val original = tasks[index]
+        val parsedDate = runCatching {
+            LocalDate.parse(editDueDate, DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+        }.getOrNull() ?: runCatching { LocalDate.parse(original.dueDate) }.getOrNull() ?: LocalDate.now()
+        val storedEndValue = when (editRecurrenceEnd) {
+            "Após" -> editRecurrenceEndValue.filter(Char::isDigit).ifBlank { "10" }
+            "Em uma data" -> runCatching {
+                LocalDate.parse(editRecurrenceEndValue, DateTimeFormatter.ofPattern("dd/MM/yyyy")).toString()
+            }.getOrElse { "" }
+            else -> ""
+        }
+        val recurrenceSummary = if (editRecurrence == "Não repetir") {
+            editRecurrence
+        } else {
+            buildList {
+                add(editRecurrence)
+                if (editRecurrenceInterval > 1) add("a cada $editRecurrenceInterval")
+                if (editRecurrenceDetail.isNotBlank()) add(editRecurrenceDetail.trim())
+                when (editRecurrenceEnd) {
+                    "Após" -> add("${storedEndValue} ocorrências")
+                    "Em uma data" -> add("até $editRecurrenceEndValue")
+                }
+            }.joinToString(" • ")
+        }
+        tasks[index] = original.copy(
+            title = editTitle.trim(),
+            description = editDescription.trim(),
+            priority = editPriority,
+            dueDate = parsedDate.toString(),
+            dueLabel = dueLabelForDate(parsedDate),
+            dueTime = editDueTime.trim(),
+            reminder = editReminder,
+            recurrence = recurrenceSummary,
+            recurrenceRule = editRecurrence,
+            recurrenceDetail = editRecurrenceDetail.trim(),
+            recurrenceInterval = editRecurrenceInterval.coerceAtLeast(1),
+            recurrenceEndMode = editRecurrenceEnd,
+            recurrenceEndValue = storedEndValue,
+            assignee = if (workSpace == WorkSpace.Personal) "Eu" else editAssignee.trim().ifBlank { "Sem responsável" },
+            attachmentName = editAttachment,
+        )
+        editingTaskId = null
     }
 
     fun addTask() {
         if (newTaskTitle.trim().length < 3) return
         val selectedDueDate = LocalDate.now().plusDays(newTaskDateOffset.toLong())
+        val recurrenceEndValue = when (newTaskRecurrenceEnd) {
+            "Após" -> newTaskRecurrenceCount.toString()
+            "Em uma data" -> runCatching {
+                LocalDate.parse(newTaskRecurrenceEndDate, DateTimeFormatter.ofPattern("dd/MM/yyyy")).toString()
+            }.getOrElse { "" }
+            else -> ""
+        }
+        val recurrenceDetailSummary = when (newTaskRecurrence) {
+            "Semanal" -> {
+                val labels = mapOf("S" to "Seg", "T" to "Ter", "Q" to "Qua", "Q2" to "Qui", "S2" to "Sex", "Sá" to "Sáb", "D" to "Dom")
+                newTaskRecurrenceDetail.split(",").mapNotNull(labels::get).joinToString(", ")
+            }
+            "Mensal" -> newTaskRecurrenceDetail.takeIf { it.isNotBlank() }?.let { "dia $it" }.orEmpty()
+            else -> ""
+        }
         tasks.add(
             0,
             PopTask(
@@ -1445,15 +1665,28 @@ private fun TasksScreen(
                 } else {
                     newTaskAssignee.trim().ifBlank { "Sem responsável" }
                 },
-                recurrence = if (newTaskRecurrenceDetail.isBlank()) {
+                recurrence = if (newTaskRecurrence == "Não repetir") {
                     newTaskRecurrence
                 } else {
-                    "$newTaskRecurrence • ${newTaskRecurrenceDetail.trim()}"
+                    buildList {
+                        add(newTaskRecurrence)
+                        if (newTaskRecurrenceInterval > 1) add("a cada $newTaskRecurrenceInterval")
+                        if (recurrenceDetailSummary.isNotBlank()) add(recurrenceDetailSummary)
+                        when (newTaskRecurrenceEnd) {
+                            "Após" -> add("$newTaskRecurrenceCount ocorrências")
+                            "Em uma data" -> add("até $newTaskRecurrenceEndDate")
+                        }
+                    }.joinToString(" • ")
                 },
                 reminder = newTaskReminder,
                 attachmentName = newTaskAttachment,
                 dueTime = newTaskTime,
                 duration = newTaskDuration,
+                recurrenceRule = newTaskRecurrence,
+                recurrenceDetail = newTaskRecurrenceDetail,
+                recurrenceInterval = newTaskRecurrenceInterval,
+                recurrenceEndMode = newTaskRecurrenceEnd,
+                recurrenceEndValue = recurrenceEndValue,
             ),
         )
         newTaskTitle = ""
@@ -1467,6 +1700,10 @@ private fun TasksScreen(
         newTaskAttachment = ""
         newTaskTime = ""
         newTaskDuration = "Sem duração"
+        newTaskRecurrenceEnd = "Nunca"
+        newTaskRecurrenceInterval = 1
+        newTaskRecurrenceCount = 10
+        newTaskRecurrenceEndDate = LocalDate.now().plusMonths(1).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
         showAdvancedOptions = false
         showCreate = false
     }
@@ -1510,7 +1747,7 @@ private fun TasksScreen(
             items(pendingTasks, key = { it.id }) { task ->
                 val scale by animateFloatAsState(1f, label = "task-scale")
                 Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).scale(scale)) {
-                    TaskCard(task) { toggleTask(task) }
+                    TaskCard(task, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
                 }
             }
             if (completedTasks.isNotEmpty()) {
@@ -1544,7 +1781,7 @@ private fun TasksScreen(
                             Column {
                                 completedTasks.forEach { task ->
                                     Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-                                        TaskCard(task) { toggleTask(task) }
+                                        TaskCard(task, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
                                     }
                                 }
                             }
@@ -1612,20 +1849,6 @@ private fun TasksScreen(
                         unfocusedIndicatorColor = Color.Transparent,
                     ),
                     modifier = Modifier.fillMaxWidth().focusRequester(newTaskTitleFocusRequester),
-                )
-                TextField(
-                    value = newTaskDescription,
-                    onValueChange = { newTaskDescription = it },
-                    placeholder = { Text("Descrição", color = PopMuted) },
-                    minLines = 1,
-                    maxLines = 3,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
                 )
                 HorizontalDivider(color = PopBorder.copy(alpha = .7f))
                 Row(
@@ -1740,6 +1963,301 @@ private fun TasksScreen(
         }
     }
 
+    if (editingTaskId != null) {
+        Dialog(
+            onDismissRequest = { editingTaskId = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        ) {
+            Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(WindowInsets.statusBars.asPaddingValues())
+                    .padding(WindowInsets.navigationBars.asPaddingValues())
+                    .imePadding()
+                    .padding(horizontal = 18.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { editingTaskId = null }) {
+                        Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText, modifier = Modifier.size(28.dp))
+                    }
+                    Text(
+                        tasks.firstOrNull { it.id == editingTaskId }?.department?.uppercase() ?: "DETALHES",
+                        color = PopMuted,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = ::saveEditedTask, enabled = editTitle.trim().length >= 3) {
+                        Text("Salvar", color = Color(0xFF94A8E8), fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentPadding = PaddingValues(bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item {
+                        val currentTask = tasks.firstOrNull { it.id == editingTaskId }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Box(
+                                modifier = Modifier.size(48.dp).clickable {
+                                    currentTask?.let(::toggleTask)
+                                },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(31.dp)
+                                        .background(if (currentTask?.completed == true) PopBlue else Color.Transparent, CircleShape)
+                                        .border(2.dp, if (currentTask?.completed == true) PopBlue else PopMuted, CircleShape),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (currentTask?.completed == true) {
+                                        Icon(Icons.Rounded.Check, "Concluída", tint = Color.White, modifier = Modifier.size(20.dp))
+                                    }
+                                }
+                            }
+                            TextField(
+                                value = editTitle,
+                                onValueChange = { editTitle = it },
+                                placeholder = { Text("Nome da tarefa") },
+                                minLines = 1,
+                                maxLines = 3,
+                                textStyle = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                ),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    item {
+                        Surface(color = PopSurfaceAlt, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("Data e hora", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                    TextField(
+                                        value = editDueDate,
+                                        onValueChange = { editDueDate = it.filter { char -> char.isDigit() || char == '/' }.take(10) },
+                                        label = { Text("Data") },
+                                        placeholder = { Text("dd/mm/aaaa") },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = taskEditorFieldColors(PopSurface),
+                                        modifier = Modifier.weight(1.25f),
+                                    )
+                                    TextField(
+                                        value = editDueTime,
+                                        onValueChange = { editDueTime = it.filter { char -> char.isDigit() || char == ':' }.take(5) },
+                                        label = { Text("Hora") },
+                                        placeholder = { Text("--:--") },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = taskEditorFieldColors(PopSurface),
+                                        modifier = Modifier.weight(.75f),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Prioridade", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Baixa", "Média", "Alta").forEach { option ->
+                                    DetailChoicePill(option, editPriority == option) { editPriority = option }
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Lembrete", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                listOf("Sem lembrete", "No horário").forEach { option ->
+                                    DetailChoicePill(option, editReminder == option) { editReminder = option }
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                listOf("15 min", "1 hora antes", "1 dia antes").forEach { option ->
+                                    DetailChoicePill(option, editReminder == option) { editReminder = option }
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Surface(color = PopSurfaceAlt, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("Recorrência", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    listOf("Não repetir", "Diária", "Semanal").forEach { option ->
+                                        DetailChoicePill(option, editRecurrence == option) {
+                                            editRecurrence = option
+                                            if (option == "Não repetir") editRecurrenceDetail = ""
+                                        }
+                                    }
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    listOf("Mensal", "Anual").forEach { option ->
+                                        DetailChoicePill(option, editRecurrence == option) { editRecurrence = option }
+                                    }
+                                }
+                                AnimatedVisibility(visible = editRecurrence != "Não repetir") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        RecurrenceNumberSelector(
+                                            label = "Repetir a cada $editRecurrenceInterval",
+                                            value = editRecurrenceInterval,
+                                            onValueChange = { editRecurrenceInterval = it.coerceIn(1, 99) },
+                                            accentColor = Color(0xFF59606A),
+                                        )
+                                        TextField(
+                                            value = editRecurrenceDetail,
+                                            onValueChange = { editRecurrenceDetail = it },
+                                            label = { Text("Dias ou regra personalizada") },
+                                            placeholder = { Text("Ex.: segunda e quarta") },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(14.dp),
+                                            colors = taskEditorFieldColors(PopSurface),
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                        Text("Quando termina?", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                            listOf("Nunca", "Após", "Em uma data").forEach { option ->
+                                                DetailChoicePill(option, editRecurrenceEnd == option) {
+                                                    editRecurrenceEnd = option
+                                                    editRecurrenceEndValue = when (option) {
+                                                        "Após" -> editRecurrenceEndValue.filter(Char::isDigit).ifBlank { "10" }
+                                                        "Em uma data" -> if ('/' in editRecurrenceEndValue) editRecurrenceEndValue else LocalDate.now().plusMonths(1).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                                                        else -> ""
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        AnimatedVisibility(visible = editRecurrenceEnd != "Nunca") {
+                                            TextField(
+                                                value = editRecurrenceEndValue,
+                                                onValueChange = { value ->
+                                                    editRecurrenceEndValue = if (editRecurrenceEnd == "Após") {
+                                                        value.filter(Char::isDigit).take(3)
+                                                    } else {
+                                                        value.filter { it.isDigit() || it == '/' }.take(10)
+                                                    }
+                                                },
+                                                label = { Text(if (editRecurrenceEnd == "Após") "Quantidade de ocorrências" else "Data final") },
+                                                singleLine = true,
+                                                shape = RoundedCornerShape(14.dp),
+                                                colors = taskEditorFieldColors(PopSurface),
+                                                modifier = Modifier.fillMaxWidth(),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (workSpace == WorkSpace.Company) {
+                        item {
+                            TextField(
+                                value = editAssignee,
+                                onValueChange = { editAssignee = it },
+                                label = { Text("Responsável") },
+                                leadingIcon = { Icon(Icons.Rounded.PersonOutline, null, tint = PopMuted) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(16.dp),
+                                colors = taskEditorFieldColors(),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                    item {
+                        Surface(color = PopSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Anotação", color = PopMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                TextField(
+                                    value = editDescription,
+                                    onValueChange = { editDescription = it },
+                                    placeholder = { Text("Adicionar descrição, links ou observações") },
+                                    minLines = 4,
+                                    maxLines = 8,
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = taskEditorFieldColors(PopSurfaceAlt),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        Surface(
+                            onClick = { editAttachmentPicker.launch(arrayOf("*/*")) },
+                            color = PopSurface,
+                            contentColor = if (editAttachment.isBlank()) PopMuted else PopText,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.AttachFile, null, modifier = Modifier.size(19.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(editAttachment.ifBlank { "Adicionar anexo" }, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider(color = PopBorder)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "As alterações são salvas ao tocar em Salvar",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = { showDeleteTaskConfirmation = true }) {
+                        Icon(Icons.Rounded.DeleteOutline, "Excluir tarefa", tint = Color(0xFFE5484D), modifier = Modifier.size(25.dp))
+                    }
+                }
+            }
+            }
+        }
+    }
+
+    if (showDeleteTaskConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteTaskConfirmation = false },
+            title = { Text("Excluir tarefa?", fontWeight = FontWeight.ExtraBold) },
+            text = { Text("Essa tarefa será removida da sua lista.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val taskId = editingTaskId
+                        if (taskId != null) {
+                            tasks.removeAll { it.id == taskId }
+                            actionTone.startTone(ToneGenerator.TONE_PROP_NACK, 180)
+                        }
+                        showDeleteTaskConfirmation = false
+                        editingTaskId = null
+                    },
+                ) { Text("Excluir", color = Color(0xFFE5484D), fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteTaskConfirmation = false }) { Text("Cancelar", color = PopMuted) }
+            },
+            containerColor = PopSurface,
+            shape = RoundedCornerShape(24.dp),
+        )
+    }
+
     if (showTaskDateSheet) {
         ModalBottomSheet(
             onDismissRequest = { showTaskDateSheet = false },
@@ -1749,7 +2267,7 @@ private fun TasksScreen(
             dragHandle = null,
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 16.dp, bottom = 28.dp),
+                modifier = Modifier.fillMaxWidth().height(650.dp).imePadding().padding(horizontal = 20.dp).padding(top = 16.dp, bottom = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1757,14 +2275,25 @@ private fun TasksScreen(
                         Text("×", fontSize = 34.sp, fontWeight = FontWeight.Light, color = PopText)
                     }
                     Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                        listOf("Data", "Duração").forEach { tab ->
+                        listOf("Data", "Recorrência").forEach { tab ->
+                            val tabSelected = taskDateTab == tab
+                            val tabColor by animateColorAsState(
+                                targetValue = if (tabSelected) PopBlue else PopMuted,
+                                animationSpec = tween(220),
+                                label = "taskDateTabColor",
+                            )
+                            val indicatorWidth by animateDpAsState(
+                                targetValue = if (tabSelected) 42.dp else 0.dp,
+                                animationSpec = tween(260, easing = FastOutSlowInEasing),
+                                label = "taskDateTabIndicator",
+                            )
                             Column(
                                 modifier = Modifier.clickable { taskDateTab = tab }.padding(horizontal = 4.dp, vertical = 8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
                                 Text(
                                     tab,
-                                    color = if (taskDateTab == tab) PopBlue else PopMuted,
+                                    color = tabColor,
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 16.sp,
                                 )
@@ -1772,7 +2301,7 @@ private fun TasksScreen(
                                 Box(
                                     Modifier
                                         .height(3.dp)
-                                        .width(if (taskDateTab == tab) 42.dp else 0.dp)
+                                        .width(indicatorWidth)
                                         .background(PopBlue, CircleShape),
                                 )
                             }
@@ -1786,35 +2315,74 @@ private fun TasksScreen(
                     ) { Icon(Icons.Rounded.Check, "Confirmar data", tint = PopText, modifier = Modifier.size(27.dp)) }
                 }
 
-                if (taskDateTab == "Data") {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            taskDateMonth.month.getDisplayName(TextStyle.FULL, Locale("pt", "BR")).replaceFirstChar { it.uppercase() },
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 18.sp,
-                            modifier = Modifier.weight(1f),
-                        )
+                Box(modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds()) {
+                    AnimatedContent(
+                        targetState = taskDateTab,
+                        transitionSpec = {
+                            val movingToRecurrence = targetState == "Recorrência"
+                            (slideInHorizontally(
+                                animationSpec = tween(300, easing = FastOutSlowInEasing),
+                                initialOffsetX = { if (movingToRecurrence) it / 4 else -it / 4 },
+                            ) + fadeIn(tween(220))) togetherWith
+                                (slideOutHorizontally(
+                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
+                                    targetOffsetX = { if (movingToRecurrence) -it / 4 else it / 4 },
+                                ) + fadeOut(tween(180)))
+                        },
+                        label = "taskDateSection",
+                    ) { visibleTab ->
+                    if (visibleTab == "Data") {
+                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { taskDateMonth = taskDateMonth.minusMonths(1) }) {
                             Icon(Icons.Rounded.ChevronLeft, "Mês anterior", tint = PopMuted)
+                        }
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            Text(
+                                "${taskDateMonth.month.getDisplayName(TextStyle.FULL, Locale("pt", "BR")).replaceFirstChar { it.uppercase() }} ${taskDateMonth.year}",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 18.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier.clickable { showTaskYearMenu = true }.padding(horizontal = 10.dp, vertical = 8.dp),
+                            )
+                            DropdownMenu(
+                                expanded = showTaskYearMenu,
+                                onDismissRequest = { showTaskYearMenu = false },
+                                shape = RoundedCornerShape(14.dp),
+                                containerColor = PopSurface,
+                            ) {
+                                ((LocalDate.now().year - 2)..(LocalDate.now().year + 15)).forEach { year ->
+                                    DropdownMenuItem(
+                                        text = { Text(year.toString(), fontWeight = if (year == taskDateMonth.year) FontWeight.Bold else FontWeight.Normal) },
+                                        trailingIcon = {
+                                            if (year == taskDateMonth.year) Icon(Icons.Rounded.Check, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+                                        },
+                                        onClick = {
+                                            taskDateMonth = YearMonth.of(year, taskDateMonth.month)
+                                            showTaskYearMenu = false
+                                        },
+                                    )
+                                }
+                            }
                         }
                         IconButton(onClick = { taskDateMonth = taskDateMonth.plusMonths(1) }) {
                             Icon(Icons.Rounded.ChevronRight, "Próximo mês", tint = PopMuted)
                         }
-                    }
-                    TaskDatePickerCalendar(
+                            }
+                            TaskDatePickerCalendar(
                         month = taskDateMonth,
                         selectedDate = taskDateDraft,
                         onDateSelected = { taskDateDraft = it },
-                    )
-                    Column(
+                            )
+                            Column(
                         modifier = Modifier.fillMaxWidth().background(PopSurfaceAlt, RoundedCornerShape(20.dp)).padding(vertical = 4.dp),
-                    ) {
+                            ) {
                         DateSettingRow(
                             icon = Icons.Rounded.AccessTime,
                             label = "Hora",
                             value = newTaskTime.ifBlank { "Nenhuma" },
                         ) {
-                            newTaskTime = when (newTaskTime) { "" -> "09:00"; "09:00" -> "18:00"; else -> "" }
+                            showTaskTimePicker = true
                         }
                         DateSettingRow(
                             icon = Icons.Rounded.NotificationsActive,
@@ -1829,50 +2397,33 @@ private fun TasksScreen(
                                 else -> "Sem lembrete"
                             }
                         }
-                        DateSettingRow(
-                            icon = Icons.Rounded.Repeat,
-                            label = "Repetir",
-                            value = if (newTaskRecurrence == "Não repetir") "Nenhum" else newTaskRecurrence,
-                        ) {
-                            newTaskRecurrence = when (newTaskRecurrence) {
-                                "Não repetir" -> "Diária"
-                                "Diária" -> "Semanal"
-                                "Semanal" -> "Mensal"
-                                "Mensal" -> "Personalizada"
-                                else -> "Não repetir"
                             }
-                            if (newTaskRecurrence != "Personalizada") newTaskRecurrenceDetail = ""
                         }
-                    }
-                    if (newTaskRecurrence == "Personalizada") {
-                        TextField(
-                            value = newTaskRecurrenceDetail,
-                            onValueChange = { newTaskRecurrenceDetail = it },
-                            placeholder = { Text("Ex.: a cada 2 semanas") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = PopBlueSoft,
-                                unfocusedContainerColor = PopSurfaceAlt,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                            ),
+                    } else {
+                        RecurrenceSettings(
+                            modifier = Modifier.fillMaxSize(),
+                        recurrence = newTaskRecurrence,
+                        detail = newTaskRecurrenceDetail,
+                        ends = newTaskRecurrenceEnd,
+                        interval = newTaskRecurrenceInterval,
+                        endCount = newTaskRecurrenceCount,
+                        endDate = newTaskRecurrenceEndDate,
+                        selectedDate = taskDateDraft,
+                        onRecurrenceChange = {
+                            newTaskRecurrence = it
+                            newTaskRecurrenceDetail = ""
+                        },
+                        onDetailChange = { newTaskRecurrenceDetail = it },
+                        onEndsChange = { newTaskRecurrenceEnd = it },
+                        onIntervalChange = { newTaskRecurrenceInterval = it.coerceIn(1, 99) },
+                        onEndCountChange = { newTaskRecurrenceCount = it.coerceIn(2, 999) },
+                        onEndDateChange = { newTaskRecurrenceEndDate = it },
                         )
                     }
-                } else {
-                    Text("Quanto tempo essa tarefa deve durar?", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Sem duração", "30 min", "1 hora").forEach { duration ->
-                            ChoicePill(duration, newTaskDuration == duration) { newTaskDuration = duration }
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("2 horas", "Dia inteiro").forEach { duration ->
-                            ChoicePill(duration, newTaskDuration == duration) { newTaskDuration = duration }
-                        }
                     }
                 }
 
+                HorizontalDivider(color = PopBorder.copy(alpha = .7f))
                 TextButton(
                     onClick = {
                         taskDateDraft = LocalDate.now()
@@ -1881,12 +2432,37 @@ private fun TasksScreen(
                         newTaskReminder = "Sem lembrete"
                         newTaskRecurrence = "Não repetir"
                         newTaskRecurrenceDetail = ""
+                        newTaskRecurrenceEnd = "Nunca"
+                        newTaskRecurrenceInterval = 1
+                        newTaskRecurrenceCount = 10
+                        newTaskRecurrenceEndDate = LocalDate.now().plusMonths(1).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
                         newTaskDuration = "Sem duração"
                     },
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                 ) { Text("Limpar", color = Color(0xFFE5484D), fontWeight = FontWeight.Bold) }
             }
         }
+    }
+
+    if (showTaskTimePicker) {
+        AlertDialog(
+            onDismissRequest = { showTaskTimePicker = false },
+            title = { Text("Escolher hora", fontWeight = FontWeight.ExtraBold) },
+            text = { TimePicker(state = taskTimePickerState) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        newTaskTime = String.format(Locale("pt", "BR"), "%02d:%02d", taskTimePickerState.hour, taskTimePickerState.minute)
+                        showTaskTimePicker = false
+                    },
+                ) { Text("Confirmar", color = PopBlue, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTaskTimePicker = false }) { Text("Cancelar", color = PopMuted) }
+            },
+            shape = RoundedCornerShape(24.dp),
+            containerColor = PopSurface,
+        )
     }
 
     if (false && showCreate) {
@@ -2118,20 +2694,211 @@ private fun TasksScreen(
 }
 
 @Composable
+private fun RecurrenceSettings(
+    modifier: Modifier = Modifier,
+    recurrence: String,
+    detail: String,
+    ends: String,
+    interval: Int,
+    endCount: Int,
+    endDate: String,
+    selectedDate: LocalDate,
+    onRecurrenceChange: (String) -> Unit,
+    onDetailChange: (String) -> Unit,
+    onEndsChange: (String) -> Unit,
+    onIntervalChange: (Int) -> Unit,
+    onEndCountChange: (Int) -> Unit,
+    onEndDateChange: (String) -> Unit,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState()).padding(bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("Como a tarefa deve se repetir?", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("Não repetir", "Diária", "Semanal").forEach { option ->
+                ChoicePill(option, recurrence == option) { onRecurrenceChange(option) }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("Mensal", "Anual").forEach { option ->
+                ChoicePill(option, recurrence == option) { onRecurrenceChange(option) }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = recurrence != "Não repetir",
+            enter = fadeIn(tween(240)) + slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { it / 6 },
+            exit = fadeOut(tween(180)) + slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { it / 6 },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(color = PopSurfaceAlt, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val unit = when (recurrence) {
+                        "Diária" -> if (interval == 1) "dia" else "dias"
+                        "Semanal" -> if (interval == 1) "semana" else "semanas"
+                        "Mensal" -> if (interval == 1) "mês" else "meses"
+                        else -> if (interval == 1) "ano" else "anos"
+                    }
+                    Text("Intervalo", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    RecurrenceNumberSelector(
+                        label = "A cada $interval $unit",
+                        value = interval,
+                        onValueChange = onIntervalChange,
+                    )
+
+                    AnimatedVisibility(
+                        visible = recurrence == "Semanal",
+                        enter = fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 8 },
+                        exit = fadeOut(tween(160)),
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Dias da semana", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        val selectedDays = detail.split(",").filter { it.isNotBlank() }.toSet()
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            listOf("S", "T", "Q", "Q2", "S2", "Sá", "D").forEach { day ->
+                                val label = day.removeSuffix("2")
+                                val selected = day in selectedDays
+                                Surface(
+                                    onClick = {
+                                        val updated = if (selected) selectedDays - day else selectedDays + day
+                                        onDetailChange(updated.joinToString(","))
+                                    },
+                                    color = if (selected) PopBlue else PopSurface,
+                                    contentColor = if (selected) Color.White else PopMuted,
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(34.dp),
+                                ) { Box(contentAlignment = Alignment.Center) { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) } }
+                            }
+                        }
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = recurrence == "Mensal",
+                        enter = fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 8 },
+                        exit = fadeOut(tween(160)),
+                    ) {
+                        TextField(
+                            value = detail,
+                            onValueChange = { value -> onDetailChange(value.filter { it.isDigit() }.take(2)) },
+                            label = { Text("Dia do mês") },
+                            placeholder = { Text(selectedDate.dayOfMonth.toString()) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = PopBlueSoft,
+                                unfocusedContainerColor = PopSurface,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                        )
+                    }
+                    AnimatedVisibility(
+                        visible = recurrence == "Anual",
+                        enter = fadeIn(tween(220)),
+                        exit = fadeOut(tween(160)),
+                    ) {
+                        Text(
+                            "Todo ano em ${selectedDate.dayOfMonth}/${selectedDate.monthValue}",
+                            color = PopMuted,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+
+            Surface(color = PopSurfaceAlt, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                    Text("Quando termina?", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf("Nunca", "Após", "Em uma data").forEach { option ->
+                            ChoicePill(option, ends == option) { onEndsChange(option) }
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = ends == "Após",
+                        enter = fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 8 },
+                        exit = fadeOut(tween(160)),
+                    ) {
+                        RecurrenceNumberSelector(
+                            label = "$endCount ocorrências",
+                            value = endCount,
+                            onValueChange = onEndCountChange,
+                        )
+                    }
+                    AnimatedVisibility(
+                        visible = ends == "Em uma data",
+                        enter = fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 8 },
+                        exit = fadeOut(tween(160)),
+                    ) {
+                        TextField(
+                            value = endDate,
+                            onValueChange = { value -> onEndDateChange(value.filter { it.isDigit() || it == '/' }.take(10)) },
+                            label = { Text("Data final") },
+                            placeholder = { Text("dd/mm/aaaa") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = PopBlueSoft,
+                                unfocusedContainerColor = PopSurface,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                        )
+                    }
+                }
+            }
+            Surface(color = PopBlueSoft, contentColor = PopBlue, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "A próxima ocorrência será criada automaticamente ao concluir a atual.",
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecurrenceNumberSelector(
+    label: String,
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    accentColor: Color = PopBlue,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().background(PopSurface, RoundedCornerShape(14.dp)).padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Surface(onClick = { onValueChange(value - 1) }, color = PopSurfaceAlt, shape = CircleShape) {
+            Text("−", fontSize = 20.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+        }
+        Text(value.toString(), fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 12.dp))
+        Surface(onClick = { onValueChange(value + 1) }, color = accentColor, contentColor = Color.White, shape = CircleShape) {
+            Text("+", fontSize = 20.sp, modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp))
+        }
+    }
+}
+
+@Composable
 private fun TaskDatePickerCalendar(
     month: YearMonth,
     selectedDate: LocalDate,
     onDateSelected: (LocalDate) -> Unit,
 ) {
     val firstOffset = month.atDay(1).dayOfWeek.value - 1
-    val cells = List(firstOffset) { null } + (1..month.lengthOfMonth()).map { it }
+    val monthCells = List(firstOffset) { null } + (1..month.lengthOfMonth()).map { it }
+    val cells = monthCells + List(42 - monthCells.size) { null }
     Column {
         Row(Modifier.fillMaxWidth()) {
-            listOf("seg.", "ter.", "qua.", "qui.", "sex.", "sáb.", "dom.").forEach { day ->
+            listOf("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom").forEach { day ->
                 Text(
                     day,
                     color = PopMuted,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier.weight(1f),
                 )
@@ -2210,10 +2977,48 @@ private fun TaskComposerIcon(
 
 @Composable
 private fun ChoicePill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val backgroundColor by animateColorAsState(
+        targetValue = if (selected) PopBlue else PopBlueSoft,
+        animationSpec = tween(220),
+        label = "choicePillBackground",
+    )
+    val foregroundColor by animateColorAsState(
+        targetValue = if (selected) Color.White else PopBlue,
+        animationSpec = tween(220),
+        label = "choicePillForeground",
+    )
     Surface(
         onClick = onClick,
-        color = if (selected) PopBlue else PopBlueSoft,
-        contentColor = if (selected) Color.White else PopBlue,
+        color = backgroundColor,
+        contentColor = foregroundColor,
+        shape = CircleShape,
+    ) {
+        Text(
+            label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        )
+    }
+}
+
+@Composable
+private fun DetailChoicePill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val backgroundColor by animateColorAsState(
+        targetValue = if (selected) Color(0xFF343942) else Color.Transparent,
+        animationSpec = tween(220),
+        label = "detailChoiceBackground",
+    )
+    val foregroundColor by animateColorAsState(
+        targetValue = if (selected) Color(0xFFA7B5DD) else PopMuted,
+        animationSpec = tween(220),
+        label = "detailChoiceForeground",
+    )
+    Surface(
+        onClick = onClick,
+        color = backgroundColor,
+        contentColor = foregroundColor,
+        border = BorderStroke(1.dp, if (selected) Color(0xFF545E72) else PopBorder),
         shape = CircleShape,
     ) {
         Text(
@@ -2236,7 +3041,7 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun TaskCard(task: PopTask, onComplete: () -> Unit) {
+private fun TaskCard(task: PopTask, onComplete: () -> Unit, onOpen: () -> Unit) {
     val extraDetails = buildList {
         if (task.dueTime.isNotBlank()) add(task.dueTime)
         if (task.duration != "Sem duração") add(task.duration)
@@ -2245,6 +3050,7 @@ private fun TaskCard(task: PopTask, onComplete: () -> Unit) {
         if (task.attachmentName.isNotBlank()) add("📎 ${task.attachmentName}")
     }.joinToString("  •  ")
     Card(
+        onClick = onOpen,
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = if (task.completed) PopSurfaceAlt else PopSurface),
         modifier = Modifier.fillMaxWidth().border(1.dp, PopBorder, RoundedCornerShape(22.dp)),
@@ -2276,9 +3082,6 @@ private fun TaskCard(task: PopTask, onComplete: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(task.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (task.description.isNotBlank()) {
-                    Text(task.description, color = PopText.copy(alpha = .72f), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
                 Text("${task.department}  •  ${task.dueLabel}  •  ${task.assignee}", color = PopMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (extraDetails.isNotBlank()) {
                     Text(extraDetails, color = PopBlue, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -2294,14 +3097,19 @@ private fun TaskRow(task: PopTask) {
     Row(Modifier.fillMaxWidth().padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(task.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (task.description.isNotBlank()) {
-                Text(task.description, fontSize = 11.sp, color = PopText.copy(alpha = .72f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
             Text("${task.department}  •  ${task.dueLabel}  •  ${task.assignee}", fontSize = 11.sp, color = PopMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         PriorityPill(task.priority)
     }
 }
+
+@Composable
+private fun taskEditorFieldColors(containerColor: Color = PopSurfaceAlt) = TextFieldDefaults.colors(
+    focusedContainerColor = containerColor,
+    unfocusedContainerColor = containerColor,
+    focusedIndicatorColor = Color.Transparent,
+    unfocusedIndicatorColor = Color.Transparent,
+)
 
 @Composable
 private fun PriorityPill(priority: String) {

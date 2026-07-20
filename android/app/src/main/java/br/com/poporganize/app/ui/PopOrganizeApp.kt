@@ -1,12 +1,15 @@
 package br.com.poporganize.app.ui
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.ColorDrawable
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.media.RingtoneManager
+import android.os.Build
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,8 +25,10 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -63,6 +68,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowForward
@@ -91,6 +97,8 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -121,6 +129,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -133,6 +142,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -157,6 +168,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import androidx.credentials.CredentialManager
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CustomCredential
@@ -165,12 +178,17 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
 import br.com.poporganize.app.R
+import br.com.poporganize.app.notifications.NotificationTaskSnapshot
+import br.com.poporganize.app.notifications.saveNotificationTaskSnapshot
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.security.SecureRandom
+import java.net.URL
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
@@ -218,7 +236,15 @@ private data class PopTask(
 )
 
 private enum class SessionMode { Guest, Email, Google }
-private data class GoogleAccount(val id: String, val name: String, val email: String)
+private data class GoogleAccount(
+    val id: String,
+    val name: String,
+    val email: String,
+    val photoUrl: String,
+)
+private data class CompanyMember(val name: String, val email: String, val role: String, val sector: String)
+private data class CompanySector(val name: String, val description: String)
+private data class CompanyGroup(val name: String, val description: String)
 private enum class WorkSpace { Personal, Company }
 
 private const val GUEST_TASKS_STORAGE = "pop_organize_guest_tasks"
@@ -227,7 +253,10 @@ private const val SESSION_MODE_STORAGE = "pop_organize_session_mode"
 private const val GOOGLE_ACCOUNT_ID_STORAGE = "pop_organize_google_account_id"
 private const val GOOGLE_ACCOUNT_NAME_STORAGE = "pop_organize_google_account_name"
 private const val GOOGLE_ACCOUNT_EMAIL_STORAGE = "pop_organize_google_account_email"
+private const val GOOGLE_ACCOUNT_PHOTO_STORAGE = "pop_organize_google_account_photo"
+private const val LIGHT_THEME_STORAGE = "pop_organize_light_theme"
 private const val LOCAL_PREFERENCES = "pop_organize_local"
+private val googleProfileImageCache = mutableMapOf<String, ImageBitmap>()
 
 private fun generateGoogleSignInNonce(byteLength: Int = 32): String {
     val bytes = ByteArray(byteLength)
@@ -401,10 +430,28 @@ private val onboardingSlides = listOf(
 
 @Composable
 fun PopOrganizeApp() {
-    PopTheme {
-        val context = LocalContext.current
+    val context = LocalContext.current
+    var lightTheme by remember {
+        mutableStateOf(
+            context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+                .getBoolean(LIGHT_THEME_STORAGE, false),
+        )
+    }
+    PopTheme(lightTheme = lightTheme) {
         val appScope = rememberCoroutineScope()
         var stage by remember { mutableStateOf(AppStage.Splash) }
+        val notificationPermissionLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { }
+        LaunchedEffect(stage) {
+            if (
+                stage == AppStage.Main &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         var logoEntered by remember { mutableStateOf(false) }
         var sessionMode by remember {
             val storedMode = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
@@ -416,9 +463,10 @@ fun PopOrganizeApp() {
             val id = preferences.getString(GOOGLE_ACCOUNT_ID_STORAGE, null)
             val email = preferences.getString(GOOGLE_ACCOUNT_EMAIL_STORAGE, null)
             val name = preferences.getString(GOOGLE_ACCOUNT_NAME_STORAGE, null)
+            val photoUrl = preferences.getString(GOOGLE_ACCOUNT_PHOTO_STORAGE, null)
             mutableStateOf(
                 if (!id.isNullOrBlank() && !email.isNullOrBlank()) {
-                    GoogleAccount(id = id, name = name.orEmpty(), email = email)
+                    GoogleAccount(id = id, name = name.orEmpty(), email = email, photoUrl = photoUrl.orEmpty())
                 } else {
                     null
                 },
@@ -446,7 +494,7 @@ fun PopOrganizeApp() {
             }
         }
 
-        SystemBarAppearance(darkBackground = true)
+        SystemBarAppearance(darkBackground = stage != AppStage.Main || !lightTheme)
 
         AnimatedContent(
             targetState = stage,
@@ -505,6 +553,7 @@ fun PopOrganizeApp() {
                             .putString(GOOGLE_ACCOUNT_ID_STORAGE, account.id)
                             .putString(GOOGLE_ACCOUNT_NAME_STORAGE, account.name)
                             .putString(GOOGLE_ACCOUNT_EMAIL_STORAGE, account.email)
+                            .putString(GOOGLE_ACCOUNT_PHOTO_STORAGE, account.photoUrl)
                             .apply()
                         stage = AppStage.Main
                     },
@@ -512,6 +561,14 @@ fun PopOrganizeApp() {
                 AppStage.Main -> PopMainContent(
                     sessionMode = sessionMode ?: SessionMode.Guest,
                     googleAccount = googleAccount,
+                    lightTheme = lightTheme,
+                    onLightThemeChange = { enabled ->
+                        lightTheme = enabled
+                        context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+                            .edit()
+                            .putBoolean(LIGHT_THEME_STORAGE, enabled)
+                            .apply()
+                    },
                     onRequireLogin = { stage = AppStage.Login },
                     onSignOut = {
                         sessionMode = null
@@ -522,6 +579,7 @@ fun PopOrganizeApp() {
                             .remove(GOOGLE_ACCOUNT_ID_STORAGE)
                             .remove(GOOGLE_ACCOUNT_NAME_STORAGE)
                             .remove(GOOGLE_ACCOUNT_EMAIL_STORAGE)
+                            .remove(GOOGLE_ACCOUNT_PHOTO_STORAGE)
                             .apply()
                         appScope.launch {
                             runCatching {
@@ -542,7 +600,11 @@ private fun SystemBarAppearance(darkBackground: Boolean) {
     SideEffect {
         val window = (view.context as Activity).window
         window.statusBarColor = if (darkBackground) android.graphics.Color.rgb(5, 5, 5) else android.graphics.Color.TRANSPARENT
-        WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkBackground
+        window.navigationBarColor = if (darkBackground) android.graphics.Color.rgb(5, 5, 5) else android.graphics.Color.rgb(244, 247, 250)
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !darkBackground
+            isAppearanceLightNavigationBars = !darkBackground
+        }
     }
 }
 
@@ -601,13 +663,13 @@ private fun PopSplashScreen(entered: Boolean) {
 }
 
 @Composable
-private fun PopWordmark(modifier: Modifier = Modifier, large: Boolean = false) {
+private fun PopWordmark(modifier: Modifier = Modifier, large: Boolean = false, color: Color = PopText) {
     val mainSize = if (large) 29.sp else 22.sp
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        Text("P", color = Color.White, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
+        Text("P", color = color, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
         Box(Modifier.size(if (large) 19.dp else 14.dp).clip(CircleShape).background(PopBlue))
-        Text("p", color = Color.White, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
-        Text("Organize", color = Color.White, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp, modifier = Modifier.padding(start = if (large) 5.dp else 4.dp))
+        Text("p", color = color, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
+        Text("Organize", color = color, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp, modifier = Modifier.padding(start = if (large) 5.dp else 4.dp))
     }
 }
 
@@ -625,7 +687,7 @@ private fun OnboardingScreen(onSkip: () -> Unit, onFinish: () -> Unit) {
             .padding(vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        PopWordmark(large = true)
+        PopWordmark(large = true, color = Color.White)
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -877,6 +939,7 @@ private fun LoginScreen(
                         id = googleCredential.id,
                         name = googleCredential.displayName.orEmpty(),
                         email = googleCredential.id,
+                        photoUrl = googleCredential.profilePictureUri?.toString().orEmpty(),
                     ),
                 )
             } catch (_: GetCredentialCancellationException) {
@@ -910,7 +973,7 @@ private fun LoginScreen(
             .padding(horizontal = 28.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        PopWordmark(large = true)
+        PopWordmark(large = true, color = Color.White)
         Column(
             Modifier.weight(1f),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1145,6 +1208,8 @@ private fun DarkLoginField(
 private fun PopMainContent(
     sessionMode: SessionMode,
     googleAccount: GoogleAccount?,
+    lightTheme: Boolean,
+    onLightThemeChange: (Boolean) -> Unit,
     onRequireLogin: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -1156,19 +1221,22 @@ private fun PopMainContent(
     var selectedCompanyIndex by remember { mutableIntStateOf(0) }
     var showCreateCompany by remember { mutableStateOf(false) }
     var newCompanyName by remember { mutableStateOf("") }
-    val companyNames = remember { mutableStateListOf("Minha empresa") }
+    var newCompanyDescription by remember { mutableStateOf("") }
+    val companyNames = remember { mutableStateListOf<String>() }
+    val companyDescriptions = remember { mutableStateListOf<String>() }
+    val companyMembers = remember { mutableStateListOf<CompanyMember>() }
+    val companySectors = remember { mutableStateListOf<CompanySector>() }
+    val companyGroups = remember { mutableStateListOf<CompanyGroup>() }
     val personalTasks = remember(sessionMode) {
         mutableStateListOf<PopTask>().apply {
             addAll(if (sessionMode == SessionMode.Guest) loadGuestTasks(context) else emptyList())
         }
     }
-    val companyTaskGroups = remember(sessionMode) {
-        mutableStateListOf<MutableList<PopTask>>(mutableStateListOf())
-    }
+    val companyTaskGroups = remember(sessionMode) { mutableStateListOf<MutableList<PopTask>>() }
     val tasks = if (workSpace == WorkSpace.Personal) {
         personalTasks
     } else {
-        companyTaskGroups.getOrElse(selectedCompanyIndex) { companyTaskGroups.first() }
+        companyTaskGroups.getOrElse(selectedCompanyIndex) { personalTasks }
     }
 
     fun selectWorkSpace(next: WorkSpace) {
@@ -1209,6 +1277,19 @@ private fun PopMainContent(
     LaunchedEffect(personalTasks.toList(), sessionMode) {
         if (sessionMode == SessionMode.Guest) saveGuestTasks(context, personalTasks)
     }
+    LaunchedEffect(personalTasks.toList(), companyTaskGroups.map { it.toList() }) {
+        saveNotificationTaskSnapshot(
+            context,
+            (personalTasks + companyTaskGroups.flatten()).map { task ->
+                NotificationTaskSnapshot(
+                    title = task.title,
+                    dueDate = task.dueDate,
+                    dueTime = task.dueTime,
+                    completed = task.completed,
+                )
+            },
+        )
+    }
 
     Scaffold(
             containerColor = PopBackground,
@@ -1231,9 +1312,19 @@ private fun PopMainContent(
                     PopDestination.Dashboard -> DashboardScreen(
                         tasks = tasks,
                         isGuest = sessionMode == SessionMode.Guest,
+                        displayName = when {
+                            sessionMode == SessionMode.Guest -> "Visitante"
+                            else -> googleAccount?.name
+                                ?.trim()
+                                ?.substringBefore(" ")
+                                ?.takeIf { it.isNotBlank() }
+                                ?.replaceFirstChar { it.titlecase(Locale("pt", "BR")) }
+                                ?: "Você"
+                        },
                         workSpace = workSpace,
                         onWorkSpaceChange = ::selectWorkSpace,
                         companyNames = companyNames,
+                        companyDescriptions = companyDescriptions,
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
@@ -1244,6 +1335,10 @@ private fun PopMainContent(
                         workSpace = workSpace,
                         onWorkSpaceChange = ::selectWorkSpace,
                         companyNames = companyNames,
+                        companyDescriptions = companyDescriptions,
+                        companyMembers = companyMembers,
+                        companySectors = companySectors,
+                        companyGroups = companyGroups,
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
@@ -1255,6 +1350,7 @@ private fun PopMainContent(
                         workSpace = workSpace,
                         onWorkSpaceChange = ::selectWorkSpace,
                         companyNames = companyNames,
+                        companyDescriptions = companyDescriptions,
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
@@ -1267,7 +1363,24 @@ private fun PopMainContent(
                             }
                         },
                     )
-                    PopDestination.More -> MoreScreen(sessionMode, googleAccount, workSpace, ::selectWorkSpace, companyNames, selectedCompanyIndex, ::selectCompany, ::requestCreateCompany, onRequireLogin, onSignOut)
+                    PopDestination.More -> MoreScreen(
+                        sessionMode = sessionMode,
+                        googleAccount = googleAccount,
+                        lightTheme = lightTheme,
+                        onLightThemeChange = onLightThemeChange,
+                        workSpace = workSpace,
+                        onWorkSpaceChange = ::selectWorkSpace,
+                        companyNames = companyNames,
+                        companyDescriptions = companyDescriptions,
+                        companyMembers = companyMembers,
+                        companySectors = companySectors,
+                        companyGroups = companyGroups,
+                        selectedCompanyIndex = selectedCompanyIndex,
+                        onCompanySelect = ::selectCompany,
+                        onCreateCompany = ::requestCreateCompany,
+                        onRequireLogin = onRequireLogin,
+                        onSignOut = onSignOut,
+                    )
                 }
             }
     }
@@ -1277,29 +1390,57 @@ private fun PopMainContent(
             onDismissRequest = { showCreateCompany = false },
             title = { Text("Criar nova empresa", fontWeight = FontWeight.ExtraBold) },
             text = {
-                TextField(
-                    value = newCompanyName,
-                    onValueChange = { newCompanyName = it },
-                    placeholder = { Text("Nome da empresa") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = PopBlueSoft,
-                        unfocusedContainerColor = PopSurfaceAlt,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TextField(
+                        value = newCompanyName,
+                        onValueChange = { newCompanyName = it },
+                        placeholder = { Text("Nome da empresa") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = PopBlueSoft,
+                            unfocusedContainerColor = PopSurfaceAlt,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                        ),
+                    )
+                    TextField(
+                        value = newCompanyDescription,
+                        onValueChange = { newCompanyDescription = it },
+                        placeholder = { Text("Pequena descrição da empresa") },
+                        minLines = 2,
+                        maxLines = 3,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = PopBlueSoft,
+                            unfocusedContainerColor = PopSurfaceAlt,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                        ),
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
-                    enabled = newCompanyName.trim().length >= 3,
+                    enabled = newCompanyName.trim().length >= 3 && newCompanyDescription.trim().length >= 3,
                     onClick = {
                         companyNames.add(newCompanyName.trim())
+                        companyDescriptions.add(newCompanyDescription.trim())
+                        if (companyMembers.isEmpty() && googleAccount != null) {
+                            companyMembers.add(
+                                CompanyMember(
+                                    name = googleAccount.name.ifBlank { "Administrador" },
+                                    email = googleAccount.email,
+                                    role = "Administrador",
+                                    sector = "Direção",
+                                ),
+                            )
+                        }
                         companyTaskGroups.add(mutableStateListOf())
                         selectedCompanyIndex = companyNames.lastIndex
                         workSpace = WorkSpace.Company
                         newCompanyName = ""
+                        newCompanyDescription = ""
                         showCreateCompany = false
                     },
                 ) { Text("Criar", color = PopBlue, fontWeight = FontWeight.Bold) }
@@ -1317,6 +1458,7 @@ private fun PopMainContent(
 private fun WorkSpaceSelector(
     selected: WorkSpace,
     companyNames: List<String>,
+    companyDescriptions: List<String>,
     selectedCompanyIndex: Int,
     onSelect: (WorkSpace) -> Unit,
     onCompanySelect: (Int) -> Unit,
@@ -1336,12 +1478,14 @@ private fun WorkSpaceSelector(
             ) {
                 Text(
                     text = if (selected == WorkSpace.Personal) "Meu espaço" else companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
-                    fontSize = 25.sp,
+                    fontSize = 21.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.5).sp,
+                    letterSpacing = (-0.35).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.width(4.dp))
-                Icon(Icons.Rounded.KeyboardArrowDown, "Trocar espaço", tint = PopBlue, modifier = Modifier.size(25.dp))
+                Icon(Icons.Rounded.KeyboardArrowDown, "Trocar espaço", tint = PopBlue, modifier = Modifier.size(22.dp))
             }
         }
 
@@ -1379,7 +1523,13 @@ private fun WorkSpaceSelector(
                     text = {
                         Column {
                             Text(companyName, fontWeight = FontWeight.Bold)
-                            Text("Empresa e equipe", color = PopMuted, fontSize = 11.sp)
+                            Text(
+                                companyDescriptions.getOrElse(index) { "Empresa e equipe" },
+                                color = PopMuted,
+                                fontSize = 11.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     },
                     leadingIcon = { Icon(Icons.Rounded.Business, null, tint = PopBlue) },
@@ -1408,15 +1558,65 @@ private fun WorkSpaceSelector(
 }
 
 @Composable
+private fun GoogleProfileAvatar(
+    photoUrl: String?,
+    modifier: Modifier = Modifier,
+    fallbackIcon: ImageVector = Icons.Rounded.PersonOutline,
+) {
+    val cachedImage = remember(photoUrl) {
+        photoUrl?.let { url -> synchronized(googleProfileImageCache) { googleProfileImageCache[url] } }
+    }
+    val profileImage by produceState<ImageBitmap?>(initialValue = cachedImage, key1 = photoUrl) {
+        val url = photoUrl?.takeIf { it.startsWith("https://") } ?: return@produceState
+        if (value != null) return@produceState
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = URL(url).openConnection().apply {
+                    connectTimeout = 8_000
+                    readTimeout = 8_000
+                }
+                connection.getInputStream().use { input -> BitmapFactory.decodeStream(input)?.asImageBitmap() }
+            }.getOrNull()?.also { image ->
+                synchronized(googleProfileImageCache) { googleProfileImageCache[url] = image }
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(PopSurfaceAlt)
+            .border(1.dp, PopBorder, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(fallbackIcon, "Conta", tint = PopText, modifier = Modifier.size(25.dp))
+        profileImage?.let { image ->
+            Image(
+                bitmap = image,
+                contentDescription = "Foto da conta Google",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+@Composable
 private fun WorkSpaceHeader(
     subtitle: String,
     selected: WorkSpace,
     companyNames: List<String>,
+    companyDescriptions: List<String>,
     selectedCompanyIndex: Int,
     onSelect: (WorkSpace) -> Unit,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
+    showPopBrand: Boolean = false,
+    dashboardWorkspaceLayout: Boolean = false,
 ) {
+    val context = LocalContext.current
+    val profilePhotoUrl = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .getString(GOOGLE_ACCOUNT_PHOTO_STORAGE, null)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1428,24 +1628,119 @@ private fun WorkSpaceHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                WorkSpaceSelector(selected, companyNames, selectedCompanyIndex, onSelect, onCompanySelect, onCreateCompany)
+                if (dashboardWorkspaceLayout) {
+                    DashboardWorkspaceSelector(
+                        selected = selected,
+                        companyNames = companyNames,
+                        companyDescriptions = companyDescriptions,
+                        selectedCompanyIndex = selectedCompanyIndex,
+                        onCompanyClick = onCompanySelect,
+                        onCreateCompany = onCreateCompany,
+                    )
+                } else {
+                    WorkSpaceSelector(selected, companyNames, companyDescriptions, selectedCompanyIndex, onSelect, onCompanySelect, onCreateCompany)
+                }
             }
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(PopSurfaceAlt)
-                    .border(1.dp, PopBorder, CircleShape)
-                    .clickable { },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Rounded.PersonOutline,
-                    "Conta",
-                    tint = PopText,
-                    modifier = Modifier.size(25.dp),
+            if (showPopBrand) {
+                PopWordmark()
+            } else {
+                GoogleProfileAvatar(
+                    photoUrl = profilePhotoUrl,
+                    modifier = Modifier.size(48.dp).clickable { },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun DashboardWorkspaceSelector(
+    selected: WorkSpace,
+    companyNames: List<String>,
+    companyDescriptions: List<String>,
+    selectedCompanyIndex: Int,
+    onCompanyClick: (Int) -> Unit,
+    onCreateCompany: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Surface(
+            onClick = { expanded = true },
+            color = Color.Transparent,
+            contentColor = PopText,
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(end = 5.dp, top = 2.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Meu espaço",
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.35).sp,
+                )
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    "Abrir lista de espaços",
+                    tint = PopBlue,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = PopSurface,
+        ) {
+            companyNames.forEachIndexed { index, companyName ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(companyName, fontWeight = FontWeight.Bold)
+                            Text(
+                                companyDescriptions.getOrElse(index) { "Empresa e equipe" },
+                                color = PopMuted,
+                                fontSize = 11.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.Rounded.Business, null, tint = PopBlue) },
+                    trailingIcon = {
+                        if (selected == WorkSpace.Company && selectedCompanyIndex == index) {
+                            Icon(Icons.Rounded.Check, null, tint = PopBlue)
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onCompanyClick(index)
+                    },
+                )
+            }
+            if (companyNames.isNotEmpty()) {
+                HorizontalDivider(color = PopBorder, modifier = Modifier.padding(vertical = 5.dp))
+            }
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        "Criar minha empresa",
+                        color = PopBlue,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = (-0.1).sp,
+                        maxLines = 1,
+                    )
+                },
+                onClick = {
+                    expanded = false
+                    onCreateCompany()
+                },
+            )
         }
     }
 }
@@ -1454,9 +1749,11 @@ private fun WorkSpaceHeader(
 private fun DashboardScreen(
     tasks: List<PopTask>,
     isGuest: Boolean,
+    displayName: String,
     workSpace: WorkSpace,
     onWorkSpaceChange: (WorkSpace) -> Unit,
     companyNames: List<String>,
+    companyDescriptions: List<String>,
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
@@ -1475,21 +1772,36 @@ private fun DashboardScreen(
                 },
                 selected = workSpace,
                 companyNames = companyNames,
+                companyDescriptions = companyDescriptions,
                 selectedCompanyIndex = selectedCompanyIndex,
                 onSelect = onWorkSpaceChange,
                 onCompanySelect = onCompanySelect,
                 onCreateCompany = onCreateCompany,
+                dashboardWorkspaceLayout = true,
             )
         }
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                HeroCard(tasks, if (isGuest) "Visitante" else "Usuário", onViewTasks)
+                HeroCard(tasks, displayName, onViewTasks)
                 Spacer(Modifier.height(18.dp))
-                Text("Visão geral", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Visão geral",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        if (tasks.size == 1) "1 tarefa" else "${tasks.size} tarefas",
+                        color = PopMuted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MetricCard("Concluídas", tasks.count { it.completed }, tasks.size, Icons.Rounded.CheckCircle, Color(0xFF18A66A), Modifier.weight(1f))
-                    MetricCard("Pendentes", tasks.count { !it.completed }, tasks.size, Icons.Rounded.PendingActions, Color(0xFFFF9F1C), Modifier.weight(1f))
+                    MetricCard("Concluídas", tasks.count { it.completed }, tasks.size, Color(0xFF18A66A), Modifier.weight(1f))
+                    MetricCard("Pendentes", tasks.count { !it.completed }, tasks.size, Color(0xFFFF9F1C), Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(20.dp))
                 SectionTitle("Tarefas recentes", "Ver todas", onViewTasks)
@@ -1557,30 +1869,26 @@ private fun HeroCard(tasks: List<PopTask>, displayName: String, onStartNow: () -
 }
 
 @Composable
-private fun MetricCard(label: String, value: Int, total: Int, icon: ImageVector, tint: Color, modifier: Modifier = Modifier) {
+private fun MetricCard(label: String, value: Int, total: Int, tint: Color, modifier: Modifier = Modifier) {
+    val percentage = if (total == 0) 0 else ((value.toFloat() / total) * 100).toInt()
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = tint.copy(alpha = .07f)),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = PopSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(15.dp)) {
+            Text(label, fontSize = 13.sp, color = PopText, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(15.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = tint.copy(alpha = .16f), shape = RoundedCornerShape(11.dp)) {
-                    Icon(icon, null, tint = tint, modifier = Modifier.padding(7.dp).size(20.dp))
-                }
-                Spacer(Modifier.width(9.dp))
-                Text(label, fontSize = 12.sp, color = PopMuted, fontWeight = FontWeight.SemiBold)
+                Text(value.toString(), color = tint, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.weight(1f))
+                Text("$percentage%", color = PopMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
-            Spacer(Modifier.height(13.dp))
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(value.toString(), fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-                Spacer(Modifier.width(5.dp))
-                Text("de $total", fontSize = 11.sp, color = PopMuted, modifier = Modifier.padding(bottom = 4.dp))
-            }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(11.dp))
             LinearProgressIndicator(
-                progress = if (total == 0) 0f else value.toFloat() / total,
-                modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
+                progress = { if (total == 0) 0f else value.toFloat() / total },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
                 color = tint,
                 trackColor = PopBorder.copy(alpha = .5f),
             )
@@ -1604,6 +1912,58 @@ private fun SectionTitle(title: String, action: String? = null, onAction: (() ->
     }
 }
 
+@Composable
+private fun AssignmentSelector(
+    value: String,
+    members: List<CompanyMember>,
+    sectors: List<CompanySector>,
+    groups: List<CompanyGroup>,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val options = buildList {
+        add("Sem responsável")
+        members.forEach { add("Pessoa • ${it.name}") }
+        sectors.forEach { add("Setor • ${it.name}") }
+        groups.forEach { add("Grupo • ${it.name}") }
+    }.distinct()
+    Box(Modifier.fillMaxWidth()) {
+        Surface(
+            onClick = { expanded = true },
+            color = PopSurface,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.PersonOutline, null, tint = PopBlue, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Atribuir para", color = PopMuted, fontSize = 10.sp)
+                    Text(value.ifBlank { "Sem responsável" }, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+                Icon(Icons.Rounded.KeyboardArrowDown, null, tint = PopMuted)
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = PopSurface,
+            modifier = Modifier.fillMaxWidth(.9f),
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option, fontWeight = if (value == option) FontWeight.Bold else FontWeight.Normal) },
+                    trailingIcon = { if (value == option) Icon(Icons.Rounded.Check, null, tint = PopBlue) },
+                    onClick = {
+                        onSelect(option)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TasksScreen(
@@ -1611,6 +1971,10 @@ private fun TasksScreen(
     workSpace: WorkSpace,
     onWorkSpaceChange: (WorkSpace) -> Unit,
     companyNames: List<String>,
+    companyDescriptions: List<String>,
+    companyMembers: List<CompanyMember>,
+    companySectors: List<CompanySector>,
+    companyGroups: List<CompanyGroup>,
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
@@ -1648,6 +2012,7 @@ private fun TasksScreen(
     var selectedFilter by remember { mutableStateOf("Todas") }
     var editingTaskId by remember { mutableStateOf<Int?>(null) }
     var completingTaskId by remember { mutableStateOf<Int?>(null) }
+    var deletingTaskId by remember { mutableStateOf<Int?>(null) }
     var showDeleteTaskConfirmation by remember { mutableStateOf(false) }
     var expandedDetailSection by remember { mutableStateOf<String?>(null) }
     var editTitle by remember { mutableStateOf("") }
@@ -1702,8 +2067,7 @@ private fun TasksScreen(
         }
     }
 
-    fun canChangeTask(task: PopTask): Boolean =
-        workSpace == WorkSpace.Personal || task.assignee == "Eu" || task.assignee == "Sem responsável"
+    fun canChangeTask(task: PopTask): Boolean = true
 
     LaunchedEffect(showCreate) {
         if (showCreate) {
@@ -1936,6 +2300,7 @@ private fun TasksScreen(
                     subtitle = if (workSpace == WorkSpace.Personal) "Tarefas pessoais • só você pode visualizar" else "Tarefas e prioridades da empresa",
                     selected = workSpace,
                     companyNames = companyNames,
+                    companyDescriptions = companyDescriptions,
                     selectedCompanyIndex = selectedCompanyIndex,
                     onSelect = onWorkSpaceChange,
                     onCompanySelect = onCompanySelect,
@@ -2003,7 +2368,11 @@ private fun TasksScreen(
                                     .graphicsLayer { rotationZ = if (showCompleted) 180f else 0f },
                             )
                         }
-                        AnimatedVisibility(visible = showCompleted) {
+                        AnimatedVisibility(
+                            visible = showCompleted,
+                            enter = expandVertically(tween(320, easing = FastOutSlowInEasing)) + fadeIn(tween(220)),
+                            exit = shrinkVertically(tween(280, easing = FastOutSlowInEasing)) + fadeOut(tween(180)),
+                        ) {
                             Column {
                                 completedTasks.forEach { task ->
                                     Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
@@ -2160,20 +2529,12 @@ private fun TasksScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         if (workSpace == WorkSpace.Company) {
-                            TextField(
+                            AssignmentSelector(
                                 value = newTaskAssignee,
-                                onValueChange = { newTaskAssignee = it },
-                                label = { Text("Atribuir para") },
-                                placeholder = { Text("Nome da pessoa") },
-                                singleLine = true,
-                                leadingIcon = { Icon(Icons.Rounded.PersonOutline, null, tint = PopBlue) },
-                                shape = RoundedCornerShape(14.dp),
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = PopBlueSoft,
-                                    unfocusedContainerColor = PopSurface,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent,
-                                ),
+                                members = companyMembers,
+                                sectors = companySectors,
+                                groups = companyGroups,
+                                onSelect = { newTaskAssignee = it },
                             )
                         }
                         if (newTaskAttachment.isNotBlank()) {
@@ -2201,8 +2562,8 @@ private fun TasksScreen(
             var detailVisible by remember(editingTaskId) { mutableStateOf(false) }
             LaunchedEffect(editingTaskId) { detailVisible = true }
             val detailAlpha by animateFloatAsState(
-                targetValue = if (detailVisible) 1f else 0f,
-                animationSpec = tween(380, easing = FastOutSlowInEasing),
+                targetValue = if (detailVisible && deletingTaskId != editingTaskId) 1f else 0f,
+                animationSpec = tween(if (deletingTaskId == editingTaskId) 300 else 380, easing = FastOutSlowInEasing),
                 label = "taskDetailEntrance",
             )
             Surface(
@@ -2560,11 +2921,16 @@ private fun TasksScreen(
                     onClick = {
                         val taskId = editingTaskId
                         if (taskId != null) {
-                            tasks.removeAll { it.id == taskId }
+                            deletingTaskId = taskId
                             playActionSound()
+                            taskActionScope.launch {
+                                delay(340)
+                                tasks.removeAll { it.id == taskId }
+                                editingTaskId = null
+                                deletingTaskId = null
+                            }
                         }
                         showDeleteTaskConfirmation = false
-                        editingTaskId = null
                     },
                 ) { Text("Excluir", color = Color(0xFFE5484D), fontWeight = FontWeight.Bold) }
             },
@@ -2834,19 +3200,12 @@ private fun TasksScreen(
                     )
                     if (workSpace == WorkSpace.Company) {
                         Text("Atribuir para", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        TextField(
+                        AssignmentSelector(
                             value = newTaskAssignee,
-                            onValueChange = { newTaskAssignee = it },
-                            placeholder = { Text("Nome da pessoa") },
-                            singleLine = true,
-                            leadingIcon = { Icon(Icons.Rounded.PersonOutline, null, tint = PopBlue) },
-                            shape = RoundedCornerShape(16.dp),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = PopBlueSoft,
-                                unfocusedContainerColor = PopSurfaceAlt,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                            ),
+                            members = companyMembers,
+                            sectors = companySectors,
+                            groups = companyGroups,
+                            onSelect = { newTaskAssignee = it },
                         )
                     }
                     Text("Prioridade", fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -3614,6 +3973,7 @@ private fun CalendarScreen(
     workSpace: WorkSpace,
     onWorkSpaceChange: (WorkSpace) -> Unit,
     companyNames: List<String>,
+    companyDescriptions: List<String>,
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
@@ -3651,6 +4011,7 @@ private fun CalendarScreen(
                 subtitle = if (workSpace == WorkSpace.Personal) "Seus prazos e tarefas" else "Calendário e prazos da empresa",
                 selected = workSpace,
                 companyNames = companyNames,
+                companyDescriptions = companyDescriptions,
                 selectedCompanyIndex = selectedCompanyIndex,
                 onSelect = onWorkSpaceChange,
                 onCompanySelect = onCompanySelect,
@@ -3881,9 +4242,15 @@ private fun PriorityLegend(label: String, color: Color) {
 private fun MoreScreen(
     sessionMode: SessionMode,
     googleAccount: GoogleAccount?,
+    lightTheme: Boolean,
+    onLightThemeChange: (Boolean) -> Unit,
     workSpace: WorkSpace,
     onWorkSpaceChange: (WorkSpace) -> Unit,
     companyNames: List<String>,
+    companyDescriptions: List<String>,
+    companyMembers: MutableList<CompanyMember>,
+    companySectors: MutableList<CompanySector>,
+    companyGroups: MutableList<CompanyGroup>,
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
@@ -3892,6 +4259,15 @@ private fun MoreScreen(
 ) {
     val isGuest = sessionMode == SessionMode.Guest
     val context = LocalContext.current
+    var showThemeDialog by remember { mutableStateOf(false) }
+    var showTeamDialog by remember { mutableStateOf(false) }
+    var showStructureDialog by remember { mutableStateOf(false) }
+    var memberName by remember { mutableStateOf("") }
+    var memberEmail by remember { mutableStateOf("") }
+    var memberRole by remember { mutableStateOf("Funcionário") }
+    var memberSector by remember { mutableStateOf("") }
+    var sectorName by remember { mutableStateOf("") }
+    var groupName by remember { mutableStateOf("") }
 
     fun sendContactEmail(subject: String) {
         runCatching {
@@ -3915,10 +4291,12 @@ private fun MoreScreen(
                 subtitle = "Conta, ajuda e informações",
                 selected = workSpace,
                 companyNames = companyNames,
+                companyDescriptions = companyDescriptions,
                 selectedCompanyIndex = selectedCompanyIndex,
                 onSelect = onWorkSpaceChange,
                 onCompanySelect = onCompanySelect,
                 onCreateCompany = onCreateCompany,
+                showPopBrand = true,
             )
         }
         item {
@@ -3930,12 +4308,11 @@ private fun MoreScreen(
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(PopSurface).padding(15.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(
-                        Modifier.size(50.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFF45ADFF), PopBlue))),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(if (isGuest) Icons.Rounded.PersonOutline else Icons.Rounded.Groups, null, tint = Color.White)
-                    }
+                    GoogleProfileAvatar(
+                        photoUrl = googleAccount?.photoUrl,
+                        modifier = Modifier.size(50.dp),
+                        fallbackIcon = if (isGuest) Icons.Rounded.PersonOutline else Icons.Rounded.Groups,
+                    )
                     Spacer(Modifier.width(13.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -3991,15 +4368,18 @@ private fun MoreScreen(
                     }
                 }
 
-                MoreSectionLabel("CONTA E ORGANIZAÇÃO")
+                MoreSectionLabel("CONTA E PREFERÊNCIAS")
                 if (isGuest) {
                     MoreItem(Icons.Rounded.PersonOutline, "Minhas atividades", "Conteúdo pessoal salvo localmente")
                 } else {
-                    MoreItem(Icons.Rounded.Business, "Empresa", "Dados e setores da organização")
-                    MoreItem(Icons.Rounded.Groups, "Equipe", "Funcionários, grupos e convites")
                     MoreItem(Icons.Rounded.PersonOutline, "Meu perfil", "Conta e preferências")
                 }
-                MoreItem(Icons.Rounded.Settings, "Configurações", "Notificações e preferências do aplicativo")
+                MoreItem(
+                    Icons.Rounded.Settings,
+                    "Configurações",
+                    if (lightTheme) "Tema claro e preferências" else "Tema escuro e preferências",
+                    onClick = { showThemeDialog = true },
+                )
                 if (!isGuest) {
                     MoreItem(
                         Icons.Rounded.Logout,
@@ -4007,6 +4387,27 @@ private fun MoreScreen(
                         "Desconectar esta conta do aparelho",
                         accent = Color(0xFFE5484D),
                         onClick = onSignOut,
+                    )
+                }
+
+                if (!isGuest && companyNames.isNotEmpty()) {
+                    MoreSectionLabel("GESTÃO DA EMPRESA")
+                    MoreItem(
+                        Icons.Rounded.Business,
+                        companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
+                        companyDescriptions.getOrElse(selectedCompanyIndex) { "Dados e setores da organização" },
+                    )
+                    MoreItem(
+                        Icons.Rounded.Groups,
+                        "Equipe",
+                        if (companyMembers.size == 1) "1 pessoa cadastrada" else "${companyMembers.size} pessoas cadastradas",
+                        onClick = { showTeamDialog = true },
+                    )
+                    MoreItem(
+                        Icons.Rounded.AccountTree,
+                        "Setores e grupos",
+                        "${companySectors.size} setores • ${companyGroups.size} grupos",
+                        onClick = { showStructureDialog = true },
                     )
                 }
 
@@ -4033,6 +4434,208 @@ private fun MoreScreen(
                     modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp),
                 )
             }
+        }
+    }
+
+    if (showThemeDialog) {
+        AlertDialog(
+            onDismissRequest = { showThemeDialog = false },
+            title = { Text("Aparência", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ThemeChoice(
+                        title = "Tema claro",
+                        subtitle = "Fundo branco e superfícies claras",
+                        icon = Icons.Rounded.LightMode,
+                        selected = lightTheme,
+                        onClick = {
+                            onLightThemeChange(true)
+                            showThemeDialog = false
+                        },
+                    )
+                    ThemeChoice(
+                        title = "Tema escuro",
+                        subtitle = "Visual atual com fundo escuro",
+                        icon = Icons.Rounded.DarkMode,
+                        selected = !lightTheme,
+                        onClick = {
+                            onLightThemeChange(false)
+                            showThemeDialog = false
+                        },
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showThemeDialog = false }) { Text("Cancelar") }
+            },
+            shape = RoundedCornerShape(26.dp),
+            containerColor = PopSurface,
+        )
+    }
+
+    if (showTeamDialog) {
+        AlertDialog(
+            onDismissRequest = { showTeamDialog = false },
+            title = { Text("Equipe", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (companyMembers.isEmpty()) {
+                        Text("Cadastre a primeira pessoa da empresa.", color = PopMuted, fontSize = 12.sp)
+                    } else {
+                        companyMembers.forEach { member ->
+                            Surface(color = PopSurfaceAlt, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(38.dp).clip(CircleShape).background(PopBlueSoft), contentAlignment = Alignment.Center) {
+                                        Text(member.name.trim().take(1).uppercase(), color = PopBlue, fontWeight = FontWeight.Black)
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(member.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(
+                                            listOf(member.role, member.sector).filter { it.isNotBlank() }.joinToString(" • "),
+                                            color = PopMuted,
+                                            fontSize = 10.sp,
+                                        )
+                                        if (member.email.isNotBlank()) Text(member.email, color = PopMuted, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = PopMuted.copy(alpha = .18f))
+                    Text("Cadastrar pessoa", color = PopBlue, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                    ManagementField(memberName, { memberName = it }, "Nome")
+                    ManagementField(memberEmail, { memberEmail = it }, "E-mail")
+                    ManagementField(memberRole, { memberRole = it }, "Cargo")
+                    ManagementField(memberSector, { memberSector = it }, "Setor")
+                    TextButton(
+                        enabled = memberName.trim().length >= 2,
+                        onClick = {
+                            companyMembers.add(
+                                CompanyMember(
+                                    memberName.trim(),
+                                    memberEmail.trim(),
+                                    memberRole.trim().ifBlank { "Funcionário" },
+                                    memberSector.trim(),
+                                ),
+                            )
+                            memberName = ""
+                            memberEmail = ""
+                            memberRole = "Funcionário"
+                            memberSector = ""
+                        },
+                        modifier = Modifier.align(Alignment.End),
+                    ) { Text("+ Adicionar", color = PopBlue, fontWeight = FontWeight.Bold) }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showTeamDialog = false }) { Text("Concluir") } },
+            shape = RoundedCornerShape(26.dp),
+            containerColor = PopSurface,
+        )
+    }
+
+    if (showStructureDialog) {
+        AlertDialog(
+            onDismissRequest = { showStructureDialog = false },
+            title = { Text("Setores e grupos", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text("Setores", color = PopBlue, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                    companySectors.forEach { sector -> ManagementListItem("Setor", sector.name) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { ManagementField(sectorName, { sectorName = it }, "Novo setor") }
+                        TextButton(
+                            enabled = sectorName.trim().length >= 2,
+                            onClick = {
+                                companySectors.add(CompanySector(sectorName.trim(), ""))
+                                sectorName = ""
+                            },
+                        ) { Text("Adicionar", color = PopBlue) }
+                    }
+                    HorizontalDivider(color = PopMuted.copy(alpha = .18f))
+                    Text("Grupos", color = PopBlue, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                    companyGroups.forEach { group -> ManagementListItem("Grupo", group.name) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { ManagementField(groupName, { groupName = it }, "Novo grupo") }
+                        TextButton(
+                            enabled = groupName.trim().length >= 2,
+                            onClick = {
+                                companyGroups.add(CompanyGroup(groupName.trim(), ""))
+                                groupName = ""
+                            },
+                        ) { Text("Adicionar", color = PopBlue) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showStructureDialog = false }) { Text("Concluir") } },
+            shape = RoundedCornerShape(26.dp),
+            containerColor = PopSurface,
+        )
+    }
+}
+
+@Composable
+private fun ManagementField(value: String, onValueChange: (String) -> Unit, placeholder: String) {
+    TextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = { Text(placeholder) },
+        singleLine = true,
+        shape = RoundedCornerShape(14.dp),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = PopBlueSoft,
+            unfocusedContainerColor = PopSurfaceAlt,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun ManagementListItem(kind: String, name: String) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(PopSurfaceAlt).padding(11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.AccountTree, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(9.dp))
+        Column {
+            Text(name, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Text(kind, color = PopMuted, fontSize = 9.sp)
+        }
+    }
+}
+
+@Composable
+private fun ThemeChoice(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        color = if (selected) PopBlueSoft else PopSurfaceAlt,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = if (selected) PopBlue else PopMuted)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(subtitle, color = PopMuted, fontSize = 11.sp)
+            }
+            if (selected) Icon(Icons.Rounded.Check, "Selecionado", tint = PopBlue)
         }
     }
 }
@@ -4091,9 +4694,7 @@ private fun PopBottomBar(selected: PopDestination, onSelect: (PopDestination) ->
             shadowElevation = 18.dp,
             tonalElevation = 3.dp,
             shape = RoundedCornerShape(29.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.dp, PopBlue.copy(alpha = .22f), RoundedCornerShape(29.dp)),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Row(
                 Modifier.padding(horizontal = 6.dp, vertical = 6.dp),

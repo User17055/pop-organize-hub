@@ -7,6 +7,7 @@ import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.media.RingtoneManager
+import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -89,6 +90,7 @@ import androidx.compose.material.icons.rounded.ContactSupport
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -155,9 +157,20 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
+import androidx.credentials.CredentialManager
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import br.com.poporganize.app.R
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.security.SecureRandom
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
@@ -205,12 +218,22 @@ private data class PopTask(
 )
 
 private enum class SessionMode { Guest, Email, Google }
+private data class GoogleAccount(val id: String, val name: String, val email: String)
 private enum class WorkSpace { Personal, Company }
 
 private const val GUEST_TASKS_STORAGE = "pop_organize_guest_tasks"
 private const val ONBOARDING_COMPLETED_STORAGE = "pop_organize_onboarding_completed"
 private const val SESSION_MODE_STORAGE = "pop_organize_session_mode"
+private const val GOOGLE_ACCOUNT_ID_STORAGE = "pop_organize_google_account_id"
+private const val GOOGLE_ACCOUNT_NAME_STORAGE = "pop_organize_google_account_name"
+private const val GOOGLE_ACCOUNT_EMAIL_STORAGE = "pop_organize_google_account_email"
 private const val LOCAL_PREFERENCES = "pop_organize_local"
+
+private fun generateGoogleSignInNonce(byteLength: Int = 32): String {
+    val bytes = ByteArray(byteLength)
+    SecureRandom().nextBytes(bytes)
+    return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+}
 
 private fun defaultGuestTasks() = listOf(
     PopTask(1, "Planejar minha semana", "Pessoal", "Hoje, 18:00", "Alta", LocalDate.now().toString()),
@@ -380,12 +403,26 @@ private val onboardingSlides = listOf(
 fun PopOrganizeApp() {
     PopTheme {
         val context = LocalContext.current
+        val appScope = rememberCoroutineScope()
         var stage by remember { mutableStateOf(AppStage.Splash) }
         var logoEntered by remember { mutableStateOf(false) }
         var sessionMode by remember {
             val storedMode = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
                 .getString(SESSION_MODE_STORAGE, null)
             mutableStateOf(storedMode?.let { value -> runCatching { SessionMode.valueOf(value) }.getOrNull() })
+        }
+        var googleAccount by remember {
+            val preferences = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+            val id = preferences.getString(GOOGLE_ACCOUNT_ID_STORAGE, null)
+            val email = preferences.getString(GOOGLE_ACCOUNT_EMAIL_STORAGE, null)
+            val name = preferences.getString(GOOGLE_ACCOUNT_NAME_STORAGE, null)
+            mutableStateOf(
+                if (!id.isNullOrBlank() && !email.isNullOrBlank()) {
+                    GoogleAccount(id = id, name = name.orEmpty(), email = email)
+                } else {
+                    null
+                },
+            )
         }
         val onboardingCompleted = remember {
             context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
@@ -458,10 +495,41 @@ fun PopOrganizeApp() {
                             .apply()
                         stage = AppStage.Main
                     },
+                    onGoogleSignedIn = { account ->
+                        completeOnboarding()
+                        sessionMode = SessionMode.Google
+                        googleAccount = account
+                        context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+                            .edit()
+                            .putString(SESSION_MODE_STORAGE, SessionMode.Google.name)
+                            .putString(GOOGLE_ACCOUNT_ID_STORAGE, account.id)
+                            .putString(GOOGLE_ACCOUNT_NAME_STORAGE, account.name)
+                            .putString(GOOGLE_ACCOUNT_EMAIL_STORAGE, account.email)
+                            .apply()
+                        stage = AppStage.Main
+                    },
                 )
                 AppStage.Main -> PopMainContent(
                     sessionMode = sessionMode ?: SessionMode.Guest,
+                    googleAccount = googleAccount,
                     onRequireLogin = { stage = AppStage.Login },
+                    onSignOut = {
+                        sessionMode = null
+                        googleAccount = null
+                        context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+                            .edit()
+                            .remove(SESSION_MODE_STORAGE)
+                            .remove(GOOGLE_ACCOUNT_ID_STORAGE)
+                            .remove(GOOGLE_ACCOUNT_NAME_STORAGE)
+                            .remove(GOOGLE_ACCOUNT_EMAIL_STORAGE)
+                            .apply()
+                        appScope.launch {
+                            runCatching {
+                                CredentialManager.create(context).clearCredentialState(ClearCredentialStateRequest())
+                            }
+                        }
+                        stage = AppStage.Login
+                    },
                 )
             }
         }
@@ -760,11 +828,78 @@ private fun EntryButton(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LoginScreen(onGuest: () -> Unit) {
+private fun LoginScreen(
+    onGuest: () -> Unit,
+    onGoogleSignedIn: (GoogleAccount) -> Unit,
+) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val googleWebClientId = context.getString(R.string.google_web_client_id).trim()
     var showEmail by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var isGoogleSignInPending by remember { mutableStateOf(false) }
+
+    fun startGoogleSignIn() {
+        if (googleWebClientId.isBlank() || googleWebClientId.startsWith("YOUR_")) {
+            Toast.makeText(
+                context,
+                "Configure o ID do cliente Web do Google em strings.xml.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+
+        val googleOption = GetSignInWithGoogleOption.Builder(googleWebClientId)
+            .setNonce(generateGoogleSignInNonce())
+            .build()
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(googleOption)
+            .build()
+
+        isGoogleSignInPending = true
+        coroutineScope.launch {
+            try {
+                val response = credentialManager.getCredential(context, request)
+                val credential = response.credential
+                if (
+                    credential !is CustomCredential ||
+                    credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                ) {
+                    Toast.makeText(context, "O Google retornou uma credencial incompatível.", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+
+                val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                onGoogleSignedIn(
+                    GoogleAccount(
+                        id = googleCredential.id,
+                        name = googleCredential.displayName.orEmpty(),
+                        email = googleCredential.id,
+                    ),
+                )
+            } catch (_: GetCredentialCancellationException) {
+                Toast.makeText(context, "Login com Google cancelado.", Toast.LENGTH_SHORT).show()
+            } catch (_: NoCredentialException) {
+                Toast.makeText(
+                    context,
+                    "Nenhuma conta Google está disponível neste aparelho.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } catch (_: GoogleIdTokenParsingException) {
+                Toast.makeText(context, "Não foi possível validar a resposta do Google.", Toast.LENGTH_LONG).show()
+            } catch (error: GetCredentialException) {
+                Toast.makeText(
+                    context,
+                    error.localizedMessage ?: "Falha ao entrar com o Google.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                isGoogleSignInPending = false
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -880,17 +1015,12 @@ private fun LoginScreen(onGuest: () -> Unit) {
 
         if (!showEmail) {
             LoginActionButton(
-                text = "Continuar com Google",
+                text = if (isGoogleSignInPending) "Conectando ao Google..." else "Continuar com Google",
                 background = Color.White,
                 foreground = Color(0xFF202124),
                 googleLogo = true,
-                onClick = {
-                    Toast.makeText(
-                        context,
-                        "Login com Google indisponível. Verifique a conexão e tente novamente.",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                },
+                enabled = !isGoogleSignInPending,
+                onClick = ::startGoogleSignIn,
             )
             Spacer(Modifier.height(12.dp))
             LoginActionButton(
@@ -940,9 +1070,11 @@ private fun LoginActionButton(
     onClick: () -> Unit,
     icon: ImageVector? = null,
     googleLogo: Boolean = false,
+    enabled: Boolean = true,
 ) {
     Surface(
         onClick = onClick,
+        enabled = enabled,
         color = background,
         contentColor = foreground,
         shape = RoundedCornerShape(18.dp),
@@ -1010,7 +1142,12 @@ private fun DarkLoginField(
 }
 
 @Composable
-private fun PopMainContent(sessionMode: SessionMode, onRequireLogin: () -> Unit) {
+private fun PopMainContent(
+    sessionMode: SessionMode,
+    googleAccount: GoogleAccount?,
+    onRequireLogin: () -> Unit,
+    onSignOut: () -> Unit,
+) {
     val context = LocalContext.current
     val navigationScope = rememberCoroutineScope()
     var destination by remember { mutableStateOf(PopDestination.Dashboard) }
@@ -1130,7 +1267,7 @@ private fun PopMainContent(sessionMode: SessionMode, onRequireLogin: () -> Unit)
                             }
                         },
                     )
-                    PopDestination.More -> MoreScreen(sessionMode, workSpace, ::selectWorkSpace, companyNames, selectedCompanyIndex, ::selectCompany, ::requestCreateCompany, onRequireLogin)
+                    PopDestination.More -> MoreScreen(sessionMode, googleAccount, workSpace, ::selectWorkSpace, companyNames, selectedCompanyIndex, ::selectCompany, ::requestCreateCompany, onRequireLogin, onSignOut)
                 }
             }
     }
@@ -3743,6 +3880,7 @@ private fun PriorityLegend(label: String, color: Color) {
 @Composable
 private fun MoreScreen(
     sessionMode: SessionMode,
+    googleAccount: GoogleAccount?,
     workSpace: WorkSpace,
     onWorkSpaceChange: (WorkSpace) -> Unit,
     companyNames: List<String>,
@@ -3750,6 +3888,7 @@ private fun MoreScreen(
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
     onRequireLogin: () -> Unit,
+    onSignOut: () -> Unit,
 ) {
     val isGuest = sessionMode == SessionMode.Guest
     val context = LocalContext.current
@@ -3799,9 +3938,21 @@ private fun MoreScreen(
                     }
                     Spacer(Modifier.width(13.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(if (isGuest) "Modo sem conta" else "Conta conectada", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
                         Text(
-                            if (isGuest) "Seus dados ficam neste celular" else "Dados sincronizados na nuvem",
+                            when {
+                                isGuest -> "Modo sem conta"
+                                sessionMode == SessionMode.Google && !googleAccount?.name.isNullOrBlank() -> googleAccount?.name.orEmpty()
+                                else -> "Conta conectada"
+                            },
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 16.sp,
+                        )
+                        Text(
+                            when {
+                                isGuest -> "Seus dados ficam neste celular"
+                                sessionMode == SessionMode.Google && !googleAccount?.email.isNullOrBlank() -> googleAccount?.email.orEmpty()
+                                else -> "Conta conectada"
+                            },
                             color = PopMuted,
                             fontSize = 11.sp,
                         )
@@ -3849,6 +4000,15 @@ private fun MoreScreen(
                     MoreItem(Icons.Rounded.PersonOutline, "Meu perfil", "Conta e preferências")
                 }
                 MoreItem(Icons.Rounded.Settings, "Configurações", "Notificações e preferências do aplicativo")
+                if (!isGuest) {
+                    MoreItem(
+                        Icons.Rounded.Logout,
+                        "Sair da conta",
+                        "Desconectar esta conta do aparelho",
+                        accent = Color(0xFFE5484D),
+                        onClick = onSignOut,
+                    )
+                }
 
                 MoreSectionLabel("AJUDA E INFORMAÇÕES")
                 MoreItem(
@@ -3864,43 +4024,6 @@ private fun MoreScreen(
                     accent = Color(0xFFFFA726),
                     onClick = { sendContactEmail("Relato de bug — Pop Organize Beta") },
                 )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(
-                                    Color(0xFFE5484D).copy(alpha = .16f),
-                                    Color(0xFFFFA726).copy(alpha = .14f),
-                                    Color(0xFF8B5CF6).copy(alpha = .16f),
-                                    PopBlue.copy(alpha = .14f),
-                                ),
-                            ),
-                        )
-                        .padding(16.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.Top) {
-                        Box(
-                            Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF8B5CF6).copy(alpha = .2f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Rounded.Favorite, null, tint = Color(0xFFC4A7FF), modifier = Modifier.size(21.dp))
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text("Um app para todo mundo 🌈", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-                            Text(
-                                "O Pop Organize respeita e acolhe pessoas LGBT+ e todas as identidades. Organização também deve ser um espaço seguro.",
-                                color = PopMuted,
-                                fontSize = 11.sp,
-                                lineHeight = 17.sp,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                        }
-                    }
-                }
 
                 MoreItem(Icons.Rounded.Info, "Sobre o aplicativo", "Versão 1.0 Beta • em desenvolvimento")
                 Text(

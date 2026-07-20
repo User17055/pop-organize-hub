@@ -31,6 +31,28 @@ As variantes de desenvolvimento e release usam o pacote
 `br.com.poporganize.app`, mantendo a execução pelo Android Studio alinhada com a
 `MainActivity` declarada no aplicativo.
 
+## Login com Google
+
+O fluxo nativo usa o Credential Manager. No Google Cloud, crie um cliente OAuth
+Android com o pacote `br.com.poporganize.app` e o SHA-1 da assinatura usada para
+instalar o aplicativo. Crie também um cliente OAuth do tipo **Aplicativo da Web**.
+
+Copie o ID do cliente Web para `google_web_client_id` em
+`android/app/src/main/res/values/strings.xml`. O cliente Android identifica o APK;
+o ID do cliente Web é o valor usado para solicitar o ID token.
+
+Para listar os certificados configurados no projeto:
+
+```powershell
+$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+cd android
+.\gradlew.bat signingReport
+```
+
+Depois do login, o app mantém localmente apenas o identificador, nome e e-mail da
+conta. O ID token não é salvo. Quando a API HTTPS estiver disponível, ela deverá
+receber e validar o ID token antes de criar uma sessão de servidor.
+
 ## Próxima etapa
 
 As telas atuais usam dados demonstrativos locais. Para login, tarefas e calendário

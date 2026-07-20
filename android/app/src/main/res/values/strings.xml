@@ -4,4 +4,6 @@
     <string name="title_activity_main">Pop Organize</string>
     <string name="package_name">br.com.poporganize.app</string>
     <string name="custom_url_scheme">br.com.poporganize.app</string>
+    <!-- Use o ID do cliente OAuth do tipo "Aplicativo da Web", não o cliente Android. -->
+    <string name="google_web_client_id" translatable="false">YOUR_WEB_CLIENT_ID.apps.googleusercontent.com</string>
 </resources>

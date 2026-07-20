@@ -2,7 +2,9 @@ package br.com.poporganize.app.ui
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.drawable.ColorDrawable
+import android.net.Uri
 import android.provider.OpenableColumns
 import android.media.RingtoneManager
 import android.widget.Toast
@@ -65,6 +67,7 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Business
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -82,6 +85,9 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.ContactSupport
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
@@ -1006,7 +1012,9 @@ private fun DarkLoginField(
 @Composable
 private fun PopMainContent(sessionMode: SessionMode, onRequireLogin: () -> Unit) {
     val context = LocalContext.current
+    val navigationScope = rememberCoroutineScope()
     var destination by remember { mutableStateOf(PopDestination.Dashboard) }
+    var taskToOpenId by remember { mutableStateOf<Int?>(null) }
     var workSpace by remember { mutableStateOf(WorkSpace.Personal) }
     var selectedCompanyIndex by remember { mutableIntStateOf(0) }
     var showCreateCompany by remember { mutableStateOf(false) }
@@ -1094,8 +1102,34 @@ private fun PopMainContent(sessionMode: SessionMode, onRequireLogin: () -> Unit)
                         onCreateCompany = ::requestCreateCompany,
                         onViewTasks = { destination = PopDestination.Tasks },
                     )
-                    PopDestination.Tasks -> TasksScreen(tasks, workSpace, ::selectWorkSpace, companyNames, selectedCompanyIndex, ::selectCompany, ::requestCreateCompany)
-                    PopDestination.Calendar -> CalendarScreen(tasks, workSpace, ::selectWorkSpace, companyNames, selectedCompanyIndex, ::selectCompany, ::requestCreateCompany)
+                    PopDestination.Tasks -> TasksScreen(
+                        tasks = tasks,
+                        workSpace = workSpace,
+                        onWorkSpaceChange = ::selectWorkSpace,
+                        companyNames = companyNames,
+                        selectedCompanyIndex = selectedCompanyIndex,
+                        onCompanySelect = ::selectCompany,
+                        onCreateCompany = ::requestCreateCompany,
+                        initialTaskId = taskToOpenId,
+                        onInitialTaskOpened = { taskToOpenId = null },
+                    )
+                    PopDestination.Calendar -> CalendarScreen(
+                        tasks = tasks,
+                        workSpace = workSpace,
+                        onWorkSpaceChange = ::selectWorkSpace,
+                        companyNames = companyNames,
+                        selectedCompanyIndex = selectedCompanyIndex,
+                        onCompanySelect = ::selectCompany,
+                        onCreateCompany = ::requestCreateCompany,
+                        onOpenTask = { task ->
+                            taskToOpenId = null
+                            destination = PopDestination.Tasks
+                            navigationScope.launch {
+                                delay(240)
+                                taskToOpenId = task.id
+                            }
+                        },
+                    )
                     PopDestination.More -> MoreScreen(sessionMode, workSpace, ::selectWorkSpace, companyNames, selectedCompanyIndex, ::selectCompany, ::requestCreateCompany, onRequireLogin)
                 }
             }
@@ -1443,6 +1477,8 @@ private fun TasksScreen(
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
+    initialTaskId: Int?,
+    onInitialTaskOpened: () -> Unit,
 ) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -1615,6 +1651,13 @@ private fun TasksScreen(
         }
         editAssignee = task.assignee
         editAttachment = task.attachmentName
+    }
+
+    LaunchedEffect(initialTaskId) {
+        initialTaskId?.let { taskId ->
+            tasks.firstOrNull { it.id == taskId }?.let(::openTask)
+            onInitialTaskOpened()
+        }
     }
 
     fun saveEditedTask() {
@@ -2022,14 +2065,17 @@ private fun TasksScreen(
             LaunchedEffect(editingTaskId) { detailVisible = true }
             val detailAlpha by animateFloatAsState(
                 targetValue = if (detailVisible) 1f else 0f,
-                animationSpec = tween(240, easing = FastOutSlowInEasing),
+                animationSpec = tween(380, easing = FastOutSlowInEasing),
                 label = "taskDetailEntrance",
             )
             Surface(
                 color = PopBackground,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
                     alpha = detailAlpha
-                    translationY = (1f - detailAlpha) * 28f
+                    translationY = (1f - detailAlpha) * 44f
+                    val entranceScale = .985f + (.015f * detailAlpha)
+                    scaleX = entranceScale
+                    scaleY = entranceScale
                 },
             ) {
             Column(
@@ -3434,10 +3480,10 @@ private fun CalendarScreen(
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
+    onOpenTask: (PopTask) -> Unit,
 ) {
     var month by remember { mutableStateOf(YearMonth.now()) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-    var openedCalendarTask by remember { mutableStateOf<PopTask?>(null) }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
     val selectedDayTasks = tasks.filter { task ->
@@ -3502,14 +3548,11 @@ private fun CalendarScreen(
                     Text("Nenhuma tarefa para este dia.", color = PopMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
                 } else {
                     selectedDayTasks.forEach { task ->
-                        TaskRow(task, onClick = { openedCalendarTask = task })
+                        TaskRow(task, onClick = { onOpenTask(task) })
                     }
                 }
             }
         }
-    }
-    openedCalendarTask?.let { task ->
-        CalendarTaskDetails(task = task, onDismiss = { openedCalendarTask = null })
     }
 }
 
@@ -3663,14 +3706,16 @@ private fun CalendarGrid(
                                 Box(
                                     Modifier
                                         .size(29.dp)
-                                        .clip(CircleShape)
-                                        .background(if (selected) PopBlue else Color.Transparent)
-                                        .then(
-                                            if (isToday && !selected) Modifier.border(1.dp, PopBlue, CircleShape)
-                                            else Modifier,
-                                        ),
+                                        .clip(CircleShape),
                                     contentAlignment = Alignment.Center,
-                                ) { Text(day.toString(), color = if (selected) Color.White else PopText, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) }
+                                ) {
+                                    Text(
+                                        day.toString(),
+                                        color = if (isToday || selected) PopBlue else PopText,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isToday || selected) FontWeight.Bold else FontWeight.Normal,
+                                    )
+                                }
                             }
                         }
                     }
@@ -3707,10 +3752,28 @@ private fun MoreScreen(
     onRequireLogin: () -> Unit,
 ) {
     val isGuest = sessionMode == SessionMode.Guest
-    LazyColumn(Modifier.fillMaxSize()) {
+    val context = LocalContext.current
+
+    fun sendContactEmail(subject: String) {
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_SENDTO).apply {
+                    data = Uri.parse("mailto:contato@poporganize.com")
+                    putExtra(Intent.EXTRA_SUBJECT, subject)
+                },
+            )
+        }.onFailure {
+            Toast.makeText(context, "Nenhum aplicativo de e-mail disponível", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 30.dp),
+    ) {
         item {
             WorkSpaceHeader(
-                subtitle = if (isGuest) "Dados locais e configurações" else "Conta, equipe e configurações",
+                subtitle = "Conta, ajuda e informações",
                 selected = workSpace,
                 companyNames = companyNames,
                 selectedCompanyIndex = selectedCompanyIndex,
@@ -3720,71 +3783,174 @@ private fun MoreScreen(
             )
         }
         item {
-            Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(58.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFF45ADFF), PopBlue))), contentAlignment = Alignment.Center) {
-                    Icon(
-                        if (isGuest) Icons.Rounded.PersonOutline else Icons.Rounded.Groups,
-                        null,
-                        tint = Color.White,
-                    )
-                }
-                Spacer(Modifier.width(14.dp))
-                Column {
-                    Text(if (isGuest) "Modo sem conta" else "Conta conectada", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    Text(if (isGuest) "Dados salvos neste celular" else "Sincronização em nuvem", color = PopMuted, fontSize = 12.sp)
-                }
-            }
-            Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (isGuest) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = PopBlueSoft),
-                        shape = RoundedCornerShape(22.dp),
-                        modifier = Modifier.fillMaxWidth().border(1.dp, PopBlue.copy(alpha = .18f), RoundedCornerShape(22.dp)),
+            Column(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(PopSurface).padding(15.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(50.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFF45ADFF), PopBlue))),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Column(Modifier.padding(18.dp)) {
-                            Icon(Icons.Rounded.Lock, null, tint = PopBlue)
-                            Spacer(Modifier.height(10.dp))
-                            Text("Equipe e convites precisam de login", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-                            Text(
-                                "Sem conta, você cria somente suas atividades pessoais e elas ficam neste aparelho.",
-                                color = PopMuted,
-                                fontSize = 12.sp,
-                                lineHeight = 18.sp,
-                                modifier = Modifier.padding(top = 5.dp),
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            Surface(
-                                onClick = onRequireLogin,
-                                color = PopBlue,
-                                contentColor = Color.White,
-                                shape = RoundedCornerShape(14.dp),
-                            ) {
-                                Text("Fazer login", fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
-                            }
-                        }
+                        Icon(if (isGuest) Icons.Rounded.PersonOutline else Icons.Rounded.Groups, null, tint = Color.White)
                     }
+                    Spacer(Modifier.width(13.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(if (isGuest) "Modo sem conta" else "Conta conectada", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                        Text(
+                            if (isGuest) "Seus dados ficam neste celular" else "Dados sincronizados na nuvem",
+                            color = PopMuted,
+                            fontSize = 11.sp,
+                        )
+                    }
+                    if (isGuest) {
+                        TextButton(onClick = onRequireLogin) { Text("Entrar", color = PopBlue, fontWeight = FontWeight.Bold) }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Brush.linearGradient(listOf(Color(0xFF182B41), Color(0xFF142132), Color(0xFF1D1F27))))
+                        .padding(18.dp),
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFFFFA726)).padding(horizontal = 8.dp, vertical = 4.dp),
+                            ) {
+                                Text("BETA", color = Color(0xFF181818), fontWeight = FontWeight.Black, fontSize = 10.sp)
+                            }
+                            Spacer(Modifier.width(9.dp))
+                            Text("Pop Organize 1.0", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                        }
+                        Spacer(Modifier.height(11.dp))
+                        Text("Estamos construindo com você", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                        Text(
+                            "Esta é uma versão de testes. Alguns recursos podem mudar e bugs podem acontecer durante o uso.",
+                            color = Color.White.copy(alpha = .72f),
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp,
+                            modifier = Modifier.padding(top = 5.dp),
+                        )
+                    }
+                }
+
+                MoreSectionLabel("CONTA E ORGANIZAÇÃO")
+                if (isGuest) {
                     MoreItem(Icons.Rounded.PersonOutline, "Minhas atividades", "Conteúdo pessoal salvo localmente")
                 } else {
                     MoreItem(Icons.Rounded.Business, "Empresa", "Dados e setores da organização")
                     MoreItem(Icons.Rounded.Groups, "Equipe", "Funcionários, grupos e convites")
                     MoreItem(Icons.Rounded.PersonOutline, "Meu perfil", "Conta e preferências")
                 }
-                MoreItem(Icons.Rounded.Settings, "Configurações", "Notificações e aplicativo")
+                MoreItem(Icons.Rounded.Settings, "Configurações", "Notificações e preferências do aplicativo")
+
+                MoreSectionLabel("AJUDA E INFORMAÇÕES")
+                MoreItem(
+                    Icons.Rounded.ContactSupport,
+                    "Falar com a gente",
+                    "Dúvidas, sugestões ou contato",
+                    onClick = { sendContactEmail("Contato pelo Pop Organize") },
+                )
+                MoreItem(
+                    Icons.Rounded.BugReport,
+                    "Relatar um problema",
+                    "Conte o que aconteceu nesta versão beta",
+                    accent = Color(0xFFFFA726),
+                    onClick = { sendContactEmail("Relato de bug — Pop Organize Beta") },
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color(0xFFE5484D).copy(alpha = .16f),
+                                    Color(0xFFFFA726).copy(alpha = .14f),
+                                    Color(0xFF8B5CF6).copy(alpha = .16f),
+                                    PopBlue.copy(alpha = .14f),
+                                ),
+                            ),
+                        )
+                        .padding(16.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Box(
+                            Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF8B5CF6).copy(alpha = .2f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.Favorite, null, tint = Color(0xFFC4A7FF), modifier = Modifier.size(21.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text("Um app para todo mundo 🌈", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                            Text(
+                                "O Pop Organize respeita e acolhe pessoas LGBT+ e todas as identidades. Organização também deve ser um espaço seguro.",
+                                color = PopMuted,
+                                fontSize = 11.sp,
+                                lineHeight = 17.sp,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                    }
+                }
+
+                MoreItem(Icons.Rounded.Info, "Sobre o aplicativo", "Versão 1.0 Beta • em desenvolvimento")
+                Text(
+                    "© 2026 Pop Organize",
+                    color = PopMuted.copy(alpha = .7f),
+                    fontSize = 10.sp,
+                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp),
+                )
             }
         }
     }
 }
 
 @Composable
-private fun MoreItem(icon: ImageVector, title: String, subtitle: String) {
+private fun MoreSectionLabel(label: String) {
+    Text(
+        label,
+        color = PopMuted,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.ExtraBold,
+        modifier = Modifier.padding(start = 3.dp, top = 10.dp, bottom = 1.dp),
+    )
+}
+
+@Composable
+private fun MoreItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    accent: Color = PopBlue,
+    onClick: (() -> Unit)? = null,
+) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(PopSurface).clickable { }.padding(15.dp),
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(PopSurface)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(PopBlueSoft), contentAlignment = Alignment.Center) { Icon(icon, null, tint = PopBlue) }
+        Box(
+            Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(accent.copy(alpha = .13f)),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, null, tint = accent, modifier = Modifier.size(21.dp)) }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp); Text(subtitle, color = PopMuted, fontSize = 11.sp) }
-        Icon(Icons.Rounded.ArrowForward, null, tint = PopMuted, modifier = Modifier.size(18.dp))
+        if (onClick != null) {
+            Icon(Icons.Rounded.ArrowForward, null, tint = PopMuted, modifier = Modifier.size(18.dp))
+        }
     }
 }
 

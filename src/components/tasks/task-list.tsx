@@ -68,7 +68,7 @@ export function TaskList({
   return (
     <>
       {/* Desktop dense table */}
-      <div className="task-glass-panel hidden rounded-[24px] p-4 md:block">
+      <div className="task-glass-panel hidden rounded-[24px] p-4 lg:block xl:p-5">
         <Table className="table-fixed border-separate border-spacing-y-3">
           <TableHeader className="[&_th]:h-8 [&_th]:px-4 [&_th]:pb-1 [&_th]:text-[10px] [&_th]:font-bold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-foreground/38 [&_tr]:border-0">
             <TableRow className="border-0 hover:bg-transparent">
@@ -204,7 +204,7 @@ export function TaskList({
       </div>
 
       {/* Mobile cards */}
-      <div className="flex flex-col gap-3 md:hidden">
+      <div className="flex flex-col gap-3 lg:hidden">
         {tasks.map((task, index) => {
           const emp = getEmployee(task.responsibleId);
           const overdue = isOverdue(task);

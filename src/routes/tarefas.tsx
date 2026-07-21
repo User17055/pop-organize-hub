@@ -415,7 +415,7 @@ function TasksPage() {
         canCreateTask ? (
           <button
             onClick={openForm}
-            className="hidden h-11 items-center gap-2 rounded-full bg-foreground px-5 text-sm font-bold text-background transition hover:-translate-y-0.5 hover:bg-foreground/90 md:inline-flex"
+            className="hidden h-11 items-center gap-2 rounded-full bg-foreground px-5 text-sm font-bold text-background transition hover:-translate-y-0.5 hover:bg-foreground/90 lg:inline-flex"
           >
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
               <Plus className="h-4 w-4" />
@@ -438,7 +438,7 @@ function TasksPage() {
         {canCreateTask && (
           <button
             onClick={openForm}
-            className="pressable inline-flex h-12 items-center gap-2 rounded-full bg-foreground px-4 text-sm font-bold text-background transition hover:bg-foreground/90 md:hidden"
+            className="pressable inline-flex h-12 items-center gap-2 rounded-full bg-foreground px-4 text-sm font-bold text-background transition hover:bg-foreground/90 lg:hidden"
           >
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
               <Plus className="h-4 w-4" />

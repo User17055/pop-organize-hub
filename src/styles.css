@@ -1110,7 +1110,7 @@
     will-change: opacity;
   }
 
-  @media (max-width: 767px) {
+  @media (max-width: 1023px) {
     html,
     body {
       height: 100%;
@@ -1145,7 +1145,7 @@
     }
   }
 
-  @media (min-width: 768px) {
+  @media (min-width: 1024px) {
     html,
     body {
       height: 100%;
@@ -1163,6 +1163,7 @@
       min-height: 0;
       overflow-y: auto;
       overscroll-behavior-y: contain;
+      scrollbar-gutter: stable;
     }
 
     .mobile-fixed-header {
@@ -1170,6 +1171,18 @@
       left: auto !important;
       right: auto !important;
       transform: none !important;
+    }
+
+    input,
+    select,
+    textarea {
+      font-size: 14px;
+    }
+
+    .mobile-card {
+      box-shadow:
+        0 1px 0 oklch(1 0 0 / 0.72) inset,
+        0 16px 38px -34px color-mix(in oklab, var(--primary) 30%, transparent);
     }
   }
 

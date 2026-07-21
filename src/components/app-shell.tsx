@@ -169,7 +169,7 @@ function ScrollBoundaryEffect() {
           exit={{ opacity: 0, scaleY: 0.92 }}
           transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
           className={cn(
-            "pointer-events-none fixed left-0 right-0 z-[80] md:hidden",
+            "pointer-events-none fixed left-0 right-0 z-[80] lg:hidden",
             edge === "top" ? "top-0 origin-top" : "bottom-0 origin-bottom",
           )}
           style={{
@@ -512,7 +512,7 @@ export function AppShell({
       {/* Sidebar (desktop/tablet only) */}
       <aside
         className={cn(
-          "glass-sidebar native-sidebar sticky top-0 hidden h-screen flex-col border-r border-white/70 text-sidebar-foreground soft-transition transition-[width,background-color] duration-300 md:flex",
+          "glass-sidebar native-sidebar sticky top-0 hidden h-screen flex-col border-r border-white/70 text-sidebar-foreground soft-transition transition-[width,background-color] duration-300 lg:flex",
           collapsed ? "w-[84px]" : "w-72",
         )}
       >
@@ -850,8 +850,8 @@ export function AppShell({
       </Dialog>
 
       {/* Mobile fixed header */}
-      <header className="mobile-fixed-header glass-header safe-top fixed left-0 right-0 top-0 z-[70] border-b border-white/70 md:hidden">
-        <div className="relative mx-auto flex w-full max-w-[1440px] items-center gap-3 px-4 py-3">
+      <header className="mobile-fixed-header glass-header safe-top fixed left-0 right-0 top-0 z-[70] border-b border-white/70 lg:hidden">
+        <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-3 px-4 py-3">
           <div className="app-page-heading min-w-0 flex-1">
             <div className="mb-0.5 w-fit max-w-full">
               <WorkspaceSwitcher />
@@ -901,14 +901,14 @@ export function AppShell({
 
       {/* Main */}
       <main className="app-main-shell flex min-w-0 flex-1 flex-col">
-        <header className="glass-header safe-top sticky top-0 z-30 hidden border-b border-white/70 md:block">
-          <div className="relative mx-auto flex w-full max-w-[1440px] items-center gap-3 px-4 py-3 md:px-10 md:py-3.5 lg:px-12">
+        <header className="glass-header safe-top sticky top-0 z-30 hidden border-b border-white/70 lg:block">
+          <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-4 px-8 py-4 xl:px-12">
             <div className="app-page-heading min-w-0 flex-1">
-              <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground md:text-xl md:font-semibold">
+              <h1 className="truncate font-display text-[22px] font-semibold leading-tight text-foreground xl:text-2xl">
                 {title}
               </h1>
               {subtitle && (
-                <p className="mt-0.5 truncate text-xs text-muted-foreground md:text-sm">
+                <p className="mt-1 truncate text-sm text-muted-foreground">
                   {subtitle}
                 </p>
               )}
@@ -926,7 +926,7 @@ export function AppShell({
               {data.accessMode === "personal" ? (
                 <Link
                   to="/login"
-                  className="glass-surface hidden h-9 items-center gap-2 rounded-xl border border-white/70 bg-white/50 px-3 text-sm font-medium text-foreground/75 transition hover:text-primary md:inline-flex"
+                  className="glass-surface hidden h-9 items-center gap-2 rounded-xl border border-white/70 bg-white/50 px-3 text-sm font-medium text-foreground/75 transition hover:text-primary lg:inline-flex"
                 >
                   <UserRound className="h-4 w-4" />
                   Entrar
@@ -935,7 +935,7 @@ export function AppShell({
                 <button
                   type="button"
                   onClick={openProfile}
-                  className="glass-icon-button hidden h-9 w-9 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-primary-foreground md:flex"
+                  className="glass-icon-button hidden h-9 w-9 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-primary-foreground lg:flex"
                   title="Abrir perfil"
                   aria-label="Abrir perfil"
                 >
@@ -956,7 +956,7 @@ export function AppShell({
                   type="button"
                   onClick={() => logoutMutation.mutate()}
                   disabled={logoutMutation.isPending}
-                  className="glass-icon-button hidden h-9 w-9 items-center justify-center rounded-xl text-foreground/70 md:flex"
+                  className="glass-icon-button hidden h-9 w-9 items-center justify-center rounded-xl text-foreground/70 lg:flex"
                   title="Sair"
                 >
                   <LogOut className="h-4 w-4" />
@@ -973,7 +973,7 @@ export function AppShell({
             exit={{ opacity: 0, y: -6, filter: "blur(3px)" }}
             transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
             className={cn(
-              "app-scroll-content mx-auto w-full max-w-[1440px] flex-1 px-4 pb-32 pt-[calc(var(--safe-area-top)+5.25rem)] md:px-10 md:py-7 md:pb-7 lg:px-12",
+              "app-scroll-content mx-auto w-full max-w-[1600px] flex-1 px-4 pb-32 pt-[calc(var(--safe-area-top)+5.25rem)] lg:px-8 lg:py-8 lg:pb-8 xl:px-12",
               contentClassName,
             )}
           >

@@ -150,6 +150,54 @@ const onboardingSlides: Array<{
   },
 ];
 
+function DesktopLoginIntro() {
+  const highlights = [
+    { icon: ListTodo, title: "Tarefas em um só lugar", text: "Planeje, priorize e acompanhe o trabalho em tempo real." },
+    { icon: Users, title: "Equipe organizada", text: "Distribua atividades por pessoa, setor ou grupo." },
+    { icon: BellRing, title: "Prazos sob controle", text: "Visualize pendências, revisões e entregas do dia." },
+  ];
+
+  return (
+    <aside className="relative hidden min-h-screen overflow-hidden border-r border-white/10 bg-[#242424] px-12 py-10 text-white lg:flex lg:flex-col xl:px-16 xl:py-12">
+      <div className="pointer-events-none absolute -left-32 top-1/4 h-96 w-96 rounded-full bg-[#1687f8]/16 blur-[110px]" />
+      <div className="pointer-events-none absolute -bottom-40 right-0 h-96 w-96 rounded-full bg-[#1687f8]/10 blur-[120px]" />
+
+      <div className="relative flex items-center font-display text-2xl font-bold tracking-[-0.05em]">
+        P<span className="mx-[2px] h-4 w-4 rounded-full bg-[#1687f8]" />p Organize
+      </div>
+
+      <div className="relative my-auto max-w-[680px] py-12">
+        <span className="inline-flex rounded-full border border-[#1687f8]/25 bg-[#1687f8]/10 px-3 py-1 text-xs font-semibold text-[#5aaaff]">
+          Gestão simples para equipes produtivas
+        </span>
+        <h1 className="mt-6 max-w-[620px] font-display text-4xl font-bold leading-[1.12] tracking-[-0.04em] xl:text-5xl">
+          Sua empresa organizada em uma visão feita para trabalhar.
+        </h1>
+        <p className="mt-5 max-w-[570px] text-base leading-7 text-white/58">
+          O mesmo visual familiar do Pop Organize, com espaço para acompanhar tarefas, pessoas e resultados no computador.
+        </p>
+
+        <div className="mt-10 grid max-w-[650px] gap-3 xl:grid-cols-3">
+          {highlights.map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.title} className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur-xl">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1687f8]/15 text-[#5aaaff]">
+                  <Icon className="h-[18px] w-[18px]" />
+                </span>
+                <div className="mt-3 text-sm font-semibold">{item.title}</div>
+                <p className="mt-1 text-xs leading-5 text-white/48">{item.text}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <p className="relative text-xs text-white/32">Pop Organize • Web, Android e iOS</p>
+    </aside>
+  );
+}
+
 function OnboardingFlow({ onFinish }: { onFinish: () => void }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [carouselRef, carouselApi] = useEmblaCarousel({
@@ -178,8 +226,9 @@ function OnboardingFlow({ onFinish }: { onFinish: () => void }) {
   }, [carouselApi]);
 
   return (
-    <main className="flex min-h-screen justify-center bg-[#2c2c2c]">
-      <section className="flex min-h-screen w-full max-w-[460px] flex-col overflow-hidden bg-[#2c2c2c] px-7 pb-[max(1.75rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-white sm:min-h-[820px] sm:px-8">
+    <main className="min-h-screen bg-[#2c2c2c] lg:grid lg:grid-cols-[minmax(0,1fr)_520px] xl:grid-cols-[minmax(0,1fr)_560px]">
+      <DesktopLoginIntro />
+      <section className="flex min-h-screen w-full flex-col overflow-hidden bg-[#2c2c2c] px-7 pb-[max(1.75rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-white sm:px-8 lg:border-l lg:border-white/5 lg:px-12">
         <div className="flex items-center justify-center font-display text-[28px] font-bold tracking-[-0.05em]">
           P<span className="mx-[2px] h-[18px] w-[18px] rounded-full bg-[#1687f8]" />
           pOrganize
@@ -403,8 +452,9 @@ function LoginPage() {
   }
 
   return (
-    <main className="login-screen flex min-h-screen justify-center bg-[#2c2c2c] p-0">
-      <section className="login-card-enter flex min-h-screen w-full max-w-[460px] flex-col overflow-hidden bg-[#2c2c2c] px-7 pb-7 pt-[max(2rem,env(safe-area-inset-top))] text-white sm:min-h-[820px] sm:px-8">
+    <main className="login-screen min-h-screen bg-[#2c2c2c] p-0 lg:grid lg:grid-cols-[minmax(0,1fr)_520px] xl:grid-cols-[minmax(0,1fr)_560px]">
+      <DesktopLoginIntro />
+      <section className="login-card-enter flex min-h-screen w-full flex-col overflow-hidden bg-[#2c2c2c] px-7 pb-7 pt-[max(2rem,env(safe-area-inset-top))] text-white sm:px-8 lg:border-l lg:border-white/5 lg:px-12">
         <div className="flex items-center justify-center font-display text-xl font-bold tracking-[-0.04em]">
           P
           <span className="mx-px h-3.5 w-3.5 rounded-full bg-[#1687f8]" aria-label="o" />

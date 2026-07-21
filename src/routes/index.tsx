@@ -115,7 +115,7 @@ function Dashboard() {
           <Link
             to="/tarefas"
             style={{ background: "var(--gradient-primary)" }}
-            className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
+            className="hidden lg:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
           >
             <Plus className="h-4 w-4" /> Nova tarefa
           </Link>

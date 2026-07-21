@@ -979,36 +979,6 @@ private fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Box(
-                Modifier.size(if (showEmail) 118.dp else 166.dp)
-                    .clip(RoundedCornerShape(48.dp, 72.dp, 54.dp, 68.dp))
-                    .background(Color(0xFFF7F7F7)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier.size(if (showEmail) 72.dp else 98.dp)
-                        .clip(RoundedCornerShape(28.dp, 20.dp, 30.dp, 22.dp))
-                        .background(Color(0xFF202222)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (showEmail) Icons.Rounded.Email else Icons.Rounded.TaskAlt,
-                        null,
-                        tint = PopBlue,
-                        modifier = Modifier.size(if (showEmail) 34.dp else 48.dp),
-                    )
-                }
-                if (!showEmail) {
-                    Box(
-                        Modifier.align(Alignment.BottomEnd).padding(18.dp).size(38.dp)
-                            .clip(CircleShape).background(PopBlue),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Rounded.Groups, null, tint = Color.White, modifier = Modifier.size(19.dp))
-                    }
-                }
-            }
-            Spacer(Modifier.height(if (showEmail) 20.dp else 28.dp))
             Text(
                 if (showEmail) "Entre com seu e-mail" else "Comece por aqui",
                 color = Color.White,

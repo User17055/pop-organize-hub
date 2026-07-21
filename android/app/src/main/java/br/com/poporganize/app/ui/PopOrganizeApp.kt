@@ -1723,7 +1723,9 @@ private fun PopMainContent(
     suspend fun refreshRemoteTasks(showFeedback: Boolean = false) {
         val account = googleAccount ?: return
         if (account.apiToken.isBlank()) return
-        isRefreshing = true
+        val showIndicator = showFeedback
+        val refreshStartedAt = System.currentTimeMillis()
+        if (showIndicator) isRefreshing = true
         runCatching {
             val localTasksJson = tasksToJson(personalTasks).toString()
             if (accountTasksAreDirty(context, account.id) || (remoteTasksLoaded && localTasksJson != lastSyncedTasksJson)) {
@@ -1744,13 +1746,16 @@ private fun PopMainContent(
                     }
                 }
             }
-            if (showFeedback) Toast.makeText(context, "Atividades atualizadas", Toast.LENGTH_SHORT).show()
         }.onFailure { error ->
             if (showFeedback) {
                 Toast.makeText(context, error.localizedMessage ?: "Não foi possível atualizar.", Toast.LENGTH_LONG).show()
             }
         }
-        isRefreshing = false
+        if (showIndicator) {
+            val remainingIndicatorTime = 1_400L - (System.currentTimeMillis() - refreshStartedAt)
+            if (remainingIndicatorTime > 0) delay(remainingIndicatorTime)
+            isRefreshing = false
+        }
     }
 
     LaunchedEffect(sessionMode, googleAccount?.apiToken) {

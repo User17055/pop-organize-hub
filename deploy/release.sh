@@ -23,7 +23,7 @@ set -a
 source "$ENV_FILE"
 set +a
 
-npm ci
+npm ci --include=dev --include=optional
 npm run typecheck
 npm run build
 

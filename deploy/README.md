@@ -49,7 +49,7 @@ cd /var/www/pop-organize
 set -a
 source /etc/pop-organize.env
 set +a
-npm ci
+npm ci --include=dev --include=optional
 npm run check
 ```
 

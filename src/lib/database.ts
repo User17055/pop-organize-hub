@@ -14,10 +14,21 @@ export type EmployeeRecord = Employee & {
   googleSubject?: string;
 };
 
+export type AccountRecord = {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  passwordHash: string;
+  googleSubject?: string;
+  createdAt: string;
+};
+
 export type SessionRecord = {
   id: string;
   tokenHash: string;
   userId: string;
+  activeCompanyId: string;
   createdAt: string;
   expiresAt: string;
 };
@@ -48,6 +59,13 @@ export type Database = {
   invitations: InvitationRecord[];
 };
 
+export type PlatformDatabase = {
+  version: 2;
+  accounts: AccountRecord[];
+  workspaces: Database[];
+  sessions: SessionRecord[];
+};
+
 export function withoutPassword(employee: EmployeeRecord): Employee {
   const { passwordHash, googleSubject, ...safeEmployee } = employee;
   return safeEmployee;
@@ -62,7 +80,11 @@ export function toCurrentUser(employee: Employee): CurrentUser {
   };
 }
 
-export function sanitizeDatabase(db: Database, currentUserId: string) {
+export function sanitizeDatabase(
+  db: Database,
+  currentUserId: string,
+  workspaces: PlatformDatabase["workspaces"] = [db],
+) {
   const employees = db.employees.map(withoutPassword);
   const currentEmployee = employees.find((employee) => employee.id === currentUserId);
   if (!currentEmployee) {
@@ -89,6 +111,29 @@ export function sanitizeDatabase(db: Database, currentUserId: string) {
     tasks: visibleTasks,
     permissionGroups: db.permissionGroups,
     invitations: db.invitations.map(({ tokenHash, ...invitation }) => invitation),
+    workspaces: workspaces
+      .filter((workspace) =>
+        workspace.employees.some(
+          (employee) => employee.id === currentUserId && employee.status === "active",
+        ),
+      )
+      .map((workspace) => {
+        const membership = workspace.employees.find((employee) => employee.id === currentUserId)!;
+        return {
+          id: workspace.company.id,
+          name: workspace.company.name,
+          description: workspace.company.description,
+          kind: workspace.company.kind ?? "company",
+          isOwner: workspace.company.ownerId === currentUserId,
+          role: membership.role,
+        };
+      })
+      .sort((a, b) => {
+        if (a.kind !== b.kind) return a.kind === "personal" ? -1 : 1;
+        return a.name.localeCompare(b.name, "pt-BR");
+      }),
+    canLeaveCompany:
+      (db.company.kind ?? "company") === "company" && db.company.ownerId !== currentUserId,
   };
 }
 

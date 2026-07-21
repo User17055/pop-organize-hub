@@ -51,11 +51,12 @@ function GoogleLoginButton({
 
   useEffect(() => {
     if (!clientId) return;
+    const configuredClientId = clientId;
 
     function renderButton() {
       if (!window.google || !buttonRef.current) return;
       window.google.accounts.id.initialize({
-        client_id: clientId,
+        client_id: configuredClientId,
         callback: ({ credential }) => callbackRef.current(credential),
       });
       buttonRef.current.replaceChildren();
@@ -451,12 +452,14 @@ function LoginPage() {
             disabled={isPending}
           />
 
-          <Link
-            to="/"
-            className="mt-4 flex h-14 w-full items-center justify-center rounded-[18px] bg-white text-sm font-bold text-[#191919] transition hover:bg-white/92 active:scale-[0.99]"
-          >
-            Continuar sem login
-          </Link>
+          {!import.meta.env.PROD && (
+            <Link
+              to="/"
+              className="mt-4 flex h-14 w-full items-center justify-center rounded-[18px] bg-white text-sm font-bold text-[#191919] transition hover:bg-white/92 active:scale-[0.99]"
+            >
+              Continuar sem login
+            </Link>
+          )}
 
           {errorMessage && (
             <div className="mt-4 flex items-start justify-center gap-2 text-xs text-destructive">

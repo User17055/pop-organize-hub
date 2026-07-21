@@ -3,7 +3,13 @@ import process from "node:process";
 import mysql from "mysql2/promise";
 import { OAuth2Client } from "google-auth-library";
 
-import { nextId, type Database, type SessionRecord } from "./database";
+import {
+  nextId,
+  type AccountRecord,
+  type Database,
+  type PlatformDatabase,
+  type SessionRecord,
+} from "./database";
 import {
   allPermissionKeys,
   departmentColors,
@@ -16,6 +22,14 @@ import {
 } from "./domain";
 
 const DEFAULT_PASSWORD_PEPPER = "pop-organize-local-demo";
+const SCRYPT_PREFIX = "scrypt";
+const SCRYPT_KEY_LENGTH = 64;
+const SCRYPT_OPTIONS = {
+  N: 2 ** 17,
+  r: 8,
+  p: 1,
+  maxmem: 256 * 1024 * 1024,
+} as const;
 const MYSQL_STATE_ID = "default";
 let mysqlPool: mysql.Pool | undefined;
 const googleOAuthClient = new OAuth2Client();
@@ -53,9 +67,79 @@ function getBootstrapAdmin() {
   };
 }
 
-export function hashPassword(password: string) {
+function getPasswordPepper() {
   const pepper = process.env.AUTH_PASSWORD_PEPPER || DEFAULT_PASSWORD_PEPPER;
-  return crypto.createHash("sha256").update(`${pepper}:${password}`).digest("hex");
+  if (process.env.NODE_ENV === "production" && pepper.length < 32) {
+    throw new Error("AUTH_PASSWORD_PEPPER must contain at least 32 characters in production.");
+  }
+  return pepper;
+}
+
+function legacyPasswordHash(password: string) {
+  return crypto.createHash("sha256").update(`${getPasswordPepper()}:${password}`).digest("hex");
+}
+
+function deriveScryptKey(password: string, salt: Buffer) {
+  return new Promise<Buffer>((resolve, reject) => {
+    crypto.scrypt(
+      `${getPasswordPepper()}:${password}`,
+      salt,
+      SCRYPT_KEY_LENGTH,
+      SCRYPT_OPTIONS,
+      (error, derivedKey) => {
+        if (error) reject(error);
+        else resolve(derivedKey);
+      },
+    );
+  });
+}
+
+export async function hashPassword(password: string) {
+  const salt = crypto.randomBytes(16);
+  const derivedKey = await deriveScryptKey(password, salt);
+  return [
+    SCRYPT_PREFIX,
+    SCRYPT_OPTIONS.N,
+    SCRYPT_OPTIONS.r,
+    SCRYPT_OPTIONS.p,
+    salt.toString("base64url"),
+    derivedKey.toString("base64url"),
+  ].join("$");
+}
+
+export async function verifyPassword(password: string, storedHash: string) {
+  if (!storedHash.startsWith(`${SCRYPT_PREFIX}$`)) {
+    const candidate = Buffer.from(legacyPasswordHash(password), "utf8");
+    const expected = Buffer.from(storedHash, "utf8");
+    return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
+  }
+
+  const [prefix, nValue, rValue, pValue, saltValue, hashValue] = storedHash.split("$");
+  const n = Number(nValue);
+  const r = Number(rValue);
+  const p = Number(pValue);
+  if (
+    prefix !== SCRYPT_PREFIX ||
+    n !== SCRYPT_OPTIONS.N ||
+    r !== SCRYPT_OPTIONS.r ||
+    p !== SCRYPT_OPTIONS.p ||
+    !saltValue ||
+    !hashValue
+  ) {
+    return false;
+  }
+
+  try {
+    const expected = Buffer.from(hashValue, "base64url");
+    const candidate = await deriveScryptKey(password, Buffer.from(saltValue, "base64url"));
+    return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
+  } catch {
+    return false;
+  }
+}
+
+export function passwordHashNeedsUpgrade(storedHash: string) {
+  return !storedHash.startsWith(`${SCRYPT_PREFIX}$`);
 }
 
 export function hashToken(token: string) {
@@ -135,9 +219,54 @@ function defaultPermissionGroupId(
   return isManager ? "pg2" : "pg3";
 }
 
-function initialDatabase(): Database {
+function defaultCompany(): Company {
+  return {
+    id: "c1",
+    name: process.env.BOOTSTRAP_COMPANY_NAME || "Pop Organize",
+    document: "00.000.000/0001-00",
+    status: "active",
+  };
+}
+
+async function initialDatabase(): Promise<Database> {
   const bootstrapAdmin = getBootstrapAdmin();
-  const passwordHash = hashPassword(bootstrapAdmin.password);
+  const passwordHash = await hashPassword(bootstrapAdmin.password);
+
+  if (process.env.BOOTSTRAP_SEED_DEMO !== "true") {
+    const adminId = "u1";
+    const departmentId = "d1";
+    return {
+      accessMode: "team",
+      company: defaultCompany(),
+      employees: [
+        {
+          id: adminId,
+          name: bootstrapAdmin.name,
+          email: bootstrapAdmin.email,
+          role: "Administrador",
+          departmentId,
+          status: "active",
+          passwordHash,
+          permissionGroupId: "pg1",
+        },
+      ],
+      departments: [
+        {
+          id: departmentId,
+          name: "Administrativo",
+          description: "Gestão e operações da empresa",
+          managerId: adminId,
+          color: departmentColors[0],
+        },
+      ],
+      groups: [],
+      tasks: [],
+      permissionGroups: initialPermissionGroups(),
+      sessions: [],
+      invitations: [],
+    };
+  }
+
   const departments: Department[] = [
     {
       id: "d1",
@@ -422,12 +551,7 @@ function initialDatabase(): Database {
 
   return {
     accessMode: "personal",
-    company: {
-      id: "c1",
-      name: process.env.BOOTSTRAP_COMPANY_NAME || "Pop Organize",
-      document: "00.000.000/0001-00",
-      status: "active",
-    },
+    company: defaultCompany(),
     employees: employees.map((employee) => ({
       ...employee,
       permissionGroupId: defaultPermissionGroupId(employee, departments, groups),
@@ -442,6 +566,7 @@ function initialDatabase(): Database {
 }
 
 function normalizeDatabase(value: Database): Database {
+  const now = Date.now();
   const departments = value.departments ?? [];
   const groups = value.groups ?? [];
   const permissionGroups = value.permissionGroups?.length
@@ -454,30 +579,299 @@ function normalizeDatabase(value: Database): Database {
       ? employee
       : { ...employee, permissionGroupId: defaultPermissionGroupId(employee, departments, groups) },
   );
+  const companyKind = value.company?.kind ?? "company";
+  const ownerId =
+    value.company?.ownerId ??
+    employees.find((employee) => employee.role.toLowerCase().includes("admin"))?.id ??
+    employees[0]?.id;
   return {
-    ...initialDatabase(),
     ...value,
-    accessMode: value.accessMode ?? "personal",
-    company: { ...initialDatabase().company, ...value.company },
+    accessMode: "team",
+    company: {
+      ...defaultCompany(),
+      ...value.company,
+      kind: companyKind,
+      ownerId,
+    },
     employees,
     departments,
     groups,
     tasks: value.tasks ?? [],
     permissionGroups,
-    sessions: value.sessions ?? [],
-    invitations: value.invitations ?? [],
+    sessions: (value.sessions ?? []).filter(
+      (session) => new Date(session.expiresAt).getTime() > now,
+    ),
+    invitations: (value.invitations ?? []).filter(
+      (invitation) => new Date(invitation.expiresAt).getTime() > now,
+    ),
   };
 }
 
-function cloneDatabase(db: Database): Database {
-  return JSON.parse(JSON.stringify(db)) as Database;
+function accountFromEmployee(employee: Database["employees"][number]): AccountRecord {
+  return {
+    id: employee.id,
+    name: employee.name,
+    email: employee.email.toLowerCase(),
+    avatar: employee.avatar,
+    passwordHash: employee.passwordHash,
+    googleSubject: employee.googleSubject,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export function createPersonalWorkspace(account: AccountRecord): Database {
+  return {
+    accessMode: "team",
+    company: {
+      id: `personal-${account.id}`,
+      name: "Meu espaço",
+      description: "Suas tarefas e organização pessoal",
+      document: "",
+      status: "active",
+      kind: "personal",
+      ownerId: account.id,
+    },
+    employees: [
+      {
+        id: account.id,
+        name: account.name,
+        email: account.email,
+        avatar: account.avatar,
+        role: "Administrador",
+        departmentId: "d1",
+        status: "active",
+        permissionGroupId: "pg1",
+        passwordHash: account.passwordHash,
+        googleSubject: account.googleSubject,
+      },
+    ],
+    departments: [
+      {
+        id: "d1",
+        name: "Pessoal",
+        description: "Suas atividades pessoais",
+        managerId: account.id,
+        color: departmentColors[0],
+      },
+    ],
+    groups: [],
+    tasks: [],
+    permissionGroups: initialPermissionGroups(),
+    sessions: [],
+    invitations: [],
+  };
+}
+
+export function createCompanyWorkspace(
+  account: AccountRecord,
+  company: Pick<Company, "id" | "name" | "description" | "document">,
+): Database {
+  return {
+    accessMode: "team",
+    company: {
+      ...company,
+      status: "active",
+      kind: "company",
+      ownerId: account.id,
+    },
+    employees: [
+      {
+        id: account.id,
+        name: account.name,
+        email: account.email,
+        avatar: account.avatar,
+        role: "Administrador",
+        departmentId: "d1",
+        status: "active",
+        permissionGroupId: "pg1",
+        passwordHash: account.passwordHash,
+        googleSubject: account.googleSubject,
+      },
+    ],
+    departments: [
+      {
+        id: "d1",
+        name: "Administrativo",
+        description: "Gestão e operações da empresa",
+        managerId: account.id,
+        color: departmentColors[0],
+      },
+    ],
+    groups: [],
+    tasks: [],
+    permissionGroups: initialPermissionGroups(),
+    sessions: [],
+    invitations: [],
+  };
+}
+
+export function nextCompanyId(platform: PlatformDatabase) {
+  return nextId(
+    "c",
+    platform.workspaces.map((workspace) => ({ id: workspace.company.id })),
+  );
+}
+
+function migrateLegacyDatabase(value: Database): PlatformDatabase {
+  const workspace = normalizeDatabase(value);
+  const accounts = workspace.employees.map(accountFromEmployee);
+  const ownerId =
+    workspace.company.ownerId ??
+    workspace.employees.find((employee) => employee.role.toLowerCase().includes("admin"))?.id ??
+    workspace.employees[0]?.id;
+  workspace.company = {
+    ...workspace.company,
+    kind: "company",
+    ownerId,
+  };
+
+  const sessions = workspace.sessions.map((session) => ({
+    ...session,
+    activeCompanyId: workspace.company.id,
+  }));
+  workspace.sessions = [];
+
+  return {
+    version: 2,
+    accounts,
+    workspaces: [...accounts.map(createPersonalWorkspace), workspace],
+    sessions,
+  };
+}
+
+function normalizePlatformDatabase(value: PlatformDatabase | Database): PlatformDatabase {
+  if (!("version" in value) || value.version !== 2 || !("workspaces" in value)) {
+    return migrateLegacyDatabase(value as Database);
+  }
+
+  const now = Date.now();
+  const accountById = new Map(value.accounts.map((account) => [account.id, account]));
+  const workspaces = value.workspaces.map((rawWorkspace) => {
+    const workspace = normalizeDatabase(rawWorkspace);
+    workspace.sessions = [];
+    workspace.employees = workspace.employees.map((employee) => {
+      const account = accountById.get(employee.id);
+      return account
+        ? {
+            ...employee,
+            name: account.name,
+            email: account.email,
+            avatar: account.avatar,
+            passwordHash: account.passwordHash,
+            googleSubject: account.googleSubject,
+          }
+        : employee;
+    });
+    return workspace;
+  });
+
+  for (const account of value.accounts) {
+    if (
+      !workspaces.some(
+        (workspace) =>
+          workspace.company.kind === "personal" && workspace.company.ownerId === account.id,
+      )
+    ) {
+      workspaces.unshift(createPersonalWorkspace(account));
+    }
+  }
+
+  const validWorkspacesByAccount = new Map<string, string[]>();
+  for (const workspace of workspaces) {
+    for (const employee of workspace.employees) {
+      if (employee.status !== "active") continue;
+      const ids = validWorkspacesByAccount.get(employee.id) ?? [];
+      ids.push(workspace.company.id);
+      validWorkspacesByAccount.set(employee.id, ids);
+    }
+  }
+
+  const sessions = (value.sessions ?? [])
+    .filter(
+      (session) => accountById.has(session.userId) && new Date(session.expiresAt).getTime() > now,
+    )
+    .map((session) => {
+      const validIds = validWorkspacesByAccount.get(session.userId) ?? [];
+      const personalId = workspaces.find(
+        (workspace) =>
+          workspace.company.kind === "personal" && workspace.company.ownerId === session.userId,
+      )?.company.id;
+      return {
+        ...session,
+        activeCompanyId: validIds.includes(session.activeCompanyId)
+          ? session.activeCompanyId
+          : (personalId ?? validIds[0] ?? ""),
+      };
+    })
+    .filter((session) => Boolean(session.activeCompanyId));
+
+  return {
+    version: 2,
+    accounts: value.accounts.map((account) => ({
+      ...account,
+      email: account.email.toLowerCase(),
+      createdAt: account.createdAt ?? new Date().toISOString(),
+    })),
+    workspaces,
+    sessions,
+  };
+}
+
+async function initialPlatformDatabase() {
+  return migrateLegacyDatabase(await initialDatabase());
 }
 
 function getDatabaseUrl() {
   return process.env.DATABASE_URL || process.env.MYSQL_URL;
 }
 
+let runtimeEnvironmentValidated = false;
+
+export function validateRuntimeEnvironment() {
+  if (runtimeEnvironmentValidated) return;
+
+  const databaseUrl = getDatabaseUrl();
+  const errors: string[] = [];
+  if (!databaseUrl) {
+    errors.push("DATABASE_URL is required.");
+  } else {
+    try {
+      const parsedUrl = new URL(databaseUrl);
+      if (parsedUrl.protocol !== "mysql:") errors.push("DATABASE_URL must use the mysql protocol.");
+      if (process.env.NODE_ENV === "production" && parsedUrl.username === "root") {
+        errors.push("DATABASE_URL must not use the MySQL root account in production.");
+      }
+    } catch {
+      errors.push("DATABASE_URL is not a valid MySQL connection URL.");
+    }
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    if ((process.env.AUTH_PASSWORD_PEPPER ?? "").length < 32) {
+      errors.push("AUTH_PASSWORD_PEPPER must contain at least 32 characters.");
+    }
+    if ((process.env.BOOTSTRAP_ADMIN_PASSWORD ?? "").length < 12) {
+      errors.push("BOOTSTRAP_ADMIN_PASSWORD must contain at least 12 characters.");
+    }
+    if (!process.env.GOOGLE_CLIENT_ID) errors.push("GOOGLE_CLIENT_ID is required.");
+    if (!process.env.VITE_GOOGLE_CLIENT_ID) errors.push("VITE_GOOGLE_CLIENT_ID is required.");
+    if (
+      process.env.GOOGLE_CLIENT_ID &&
+      process.env.VITE_GOOGLE_CLIENT_ID &&
+      process.env.GOOGLE_CLIENT_ID !== process.env.VITE_GOOGLE_CLIENT_ID
+    ) {
+      errors.push("GOOGLE_CLIENT_ID and VITE_GOOGLE_CLIENT_ID must identify the same web client.");
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Invalid server configuration:\n- ${errors.join("\n- ")}`);
+  }
+  runtimeEnvironmentValidated = true;
+}
+
 function getMysqlPool() {
+  validateRuntimeEnvironment();
   const databaseUrl = getDatabaseUrl();
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required. Configure a MySQL connection string.");
@@ -502,49 +896,100 @@ async function ensureMysqlSchema(pool: mysql.Pool) {
   `);
 }
 
-async function readMysqlDatabase(pool: mysql.Pool) {
+async function ensureMysqlState(pool: mysql.Pool) {
   await ensureMysqlSchema(pool);
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    "SELECT id FROM app_state WHERE id = ? LIMIT 1",
+    [MYSQL_STATE_ID],
+  );
+  if (rows.length > 0) return;
+
+  const db = await initialPlatformDatabase();
+  await pool.execute(
+    `
+      INSERT IGNORE INTO app_state (id, data)
+      VALUES (?, CAST(? AS JSON))
+    `,
+    [MYSQL_STATE_ID, JSON.stringify(normalizePlatformDatabase(db))],
+  );
+}
+
+function databaseFromRow(row: mysql.RowDataPacket) {
+  const raw = row.data;
+  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+  return normalizePlatformDatabase(parsed as PlatformDatabase | Database);
+}
+
+async function readMysqlDatabase(pool: mysql.Pool) {
+  await ensureMysqlState(pool);
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     "SELECT data FROM app_state WHERE id = ? LIMIT 1",
     [MYSQL_STATE_ID],
   );
+  if (!rows[0]) throw new Error("MySQL application state could not be initialized.");
+  return databaseFromRow(rows[0]);
+}
 
-  if (rows.length === 0) {
-    const db = initialDatabase();
-    await saveMysqlDatabase(pool, db);
-    return cloneDatabase(db);
+async function saveMysqlDatabase(pool: mysql.Pool, db: PlatformDatabase) {
+  await ensureMysqlState(pool);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.execute("SELECT id FROM app_state WHERE id = ? FOR UPDATE", [MYSQL_STATE_ID]);
+    await connection.execute("UPDATE app_state SET data = CAST(? AS JSON) WHERE id = ?", [
+      JSON.stringify(normalizePlatformDatabase(db)),
+      MYSQL_STATE_ID,
+    ]);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  const raw = rows[0]?.data;
-  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-  return normalizeDatabase(parsed as Database);
 }
 
-async function saveMysqlDatabase(pool: mysql.Pool, db: Database) {
-  await ensureMysqlSchema(pool);
-  await pool.execute(
-    `
-      INSERT INTO app_state (id, data)
-      VALUES (?, CAST(? AS JSON))
-      ON DUPLICATE KEY UPDATE data = VALUES(data)
-    `,
-    [MYSQL_STATE_ID, JSON.stringify(normalizeDatabase(db))],
-  );
-}
-
-export async function readDatabase(): Promise<Database> {
+export async function readDatabase(): Promise<PlatformDatabase> {
   const mysql = getMysqlPool();
   return readMysqlDatabase(mysql);
 }
 
-export async function saveDatabase(db: Database) {
+export async function saveDatabase(db: PlatformDatabase) {
   const mysql = getMysqlPool();
   await saveMysqlDatabase(mysql, db);
 }
 
-export async function mutateDatabase<T>(mutator: (db: Database) => T | Promise<T>) {
-  const db = await readDatabase();
-  const result = await mutator(db);
-  await saveDatabase(db);
-  return result;
+export async function mutateDatabase<T>(mutator: (db: PlatformDatabase) => T | Promise<T>) {
+  const pool = getMysqlPool();
+  await ensureMysqlState(pool);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute<mysql.RowDataPacket[]>(
+      "SELECT data FROM app_state WHERE id = ? FOR UPDATE",
+      [MYSQL_STATE_ID],
+    );
+    if (!rows[0]) throw new Error("MySQL application state is missing.");
+
+    const db = databaseFromRow(rows[0]);
+    const result = await mutator(db);
+    await connection.execute("UPDATE app_state SET data = CAST(? AS JSON) WHERE id = ?", [
+      JSON.stringify(normalizePlatformDatabase(db)),
+      MYSQL_STATE_ID,
+    ]);
+    await connection.commit();
+    return result;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function checkDatabaseHealth() {
+  const pool = getMysqlPool();
+  await ensureMysqlSchema(pool);
+  await pool.execute("SELECT 1");
+  return true;
 }

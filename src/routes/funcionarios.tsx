@@ -44,8 +44,6 @@ function FuncionariosPage() {
     departmentId: "",
     status: "active" as "active" | "inactive",
     permissionGroupId: "",
-    ownerEmail: "",
-    ownerPassword: "",
   });
 
   const createMutation = useMutation({
@@ -56,8 +54,6 @@ function FuncionariosPage() {
       departmentId: string;
       status: "active" | "inactive";
       permissionGroupId?: string;
-      ownerEmail?: string;
-      ownerPassword?: string;
     }) => createEmployee({ data: payload }),
     onSuccess: ({ invitationToken }) => {
       setInviteLink(`${window.location.origin}/aceitar-convite?token=${invitationToken}`);
@@ -81,8 +77,7 @@ function FuncionariosPage() {
     );
   }
 
-  const { accessMode, employees, departments, invitations, tasks, currentUser, permissionGroups } =
-    data;
+  const { employees, departments, invitations, tasks, currentUser, permissionGroups } = data;
   const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
   if (!hasPermission(permissionSet, "pages.employees")) {
     return (
@@ -105,8 +100,6 @@ function FuncionariosPage() {
       departmentId: departments[0]?.id ?? "",
       status: "active",
       permissionGroupId: "",
-      ownerEmail: "",
-      ownerPassword: "",
     });
     setInviteLink("");
     setCopied(false);
@@ -116,11 +109,7 @@ function FuncionariosPage() {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    createMutation.mutate({
-      ...form,
-      ownerEmail: accessMode === "personal" ? form.ownerEmail : undefined,
-      ownerPassword: accessMode === "personal" ? form.ownerPassword : undefined,
-    });
+    createMutation.mutate(form);
   }
 
   async function copyInviteLink() {
@@ -261,39 +250,6 @@ function FuncionariosPage() {
               </div>
             ) : (
               <div className="space-y-3.5 mt-4">
-                {accessMode === "personal" && (
-                  <div className="space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-3">
-                    <div>
-                      <div className="text-sm font-medium">Ative seu espaço compartilhado</div>
-                      <div className="text-xs text-muted-foreground">
-                        Crie sua conta de administrador antes do primeiro convite.
-                      </div>
-                    </div>
-                    <Field label="Seu e-mail">
-                      <input
-                        type="email"
-                        value={form.ownerEmail}
-                        onChange={(e) =>
-                          setForm((current) => ({ ...current, ownerEmail: e.target.value }))
-                        }
-                        className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
-                        required
-                      />
-                    </Field>
-                    <Field label="Sua senha">
-                      <input
-                        type="password"
-                        value={form.ownerPassword}
-                        onChange={(e) =>
-                          setForm((current) => ({ ...current, ownerPassword: e.target.value }))
-                        }
-                        className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
-                        minLength={8}
-                        required
-                      />
-                    </Field>
-                  </div>
-                )}
                 <Field label="Nome">
                   <input
                     value={form.name}

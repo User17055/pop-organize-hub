@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "start": "node .output/server/index.mjs",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "android:sync": "cd android && gradlew.bat :app:assembleDebug",
@@ -19,6 +20,8 @@
     "ios:open": "npm run ios:validate && open ios/App/App.xcodeproj",
     "native:validate:store-env": "node scripts/validate-native-release.mjs store-env",
     "native:validate:store": "node scripts/validate-native-release.mjs store",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

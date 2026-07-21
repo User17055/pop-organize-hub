@@ -50,8 +50,11 @@ export interface TaskSubtask {
 export interface Company {
   id: string;
   name: string;
+  description?: string;
   document: string;
   status: "active" | "inactive";
+  kind?: "personal" | "company";
+  ownerId?: string;
 }
 
 export interface Employee {
@@ -219,6 +222,15 @@ export interface WorkspaceData {
     createdAt: string;
     expiresAt: string;
   }>;
+  workspaces: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    kind: "personal" | "company";
+    isOwner: boolean;
+    role: string;
+  }>;
+  canLeaveCompany: boolean;
 }
 
 export const statusLabels: Record<TaskStatus, string> = {

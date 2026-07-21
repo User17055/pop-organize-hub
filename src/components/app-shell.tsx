@@ -22,6 +22,10 @@ import {
   Moon,
   Sun,
   UserRound,
+  ChevronDown,
+  Plus,
+  Check,
+  DoorOpen,
 } from "lucide-react";
 import {
   useEffect,
@@ -32,7 +36,13 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "@/lib/utils";
-import { logout, updateProfile } from "@/lib/api/pop-organize.functions";
+import {
+  createCompany,
+  leaveCompany,
+  logout,
+  switchWorkspace,
+  updateProfile,
+} from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import { getAvatarGradient } from "@/lib/avatar-colors";
 import type { PermissionKey, Priority, TaskStatus } from "@/lib/domain";
@@ -49,6 +59,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
 
 type NavVisibility = "all" | "admin" | PermissionKey;
 
@@ -211,6 +230,8 @@ export function AppShell({
   );
   const moreMobileNav = visibleNav.filter((item) => !primaryMobileNav.includes(item));
   const [profileOpen, setProfileOpen] = useState(false);
+  const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
+  const [companyForm, setCompanyForm] = useState({ name: "", description: "" });
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof document === "undefined") return "light";
     return document.documentElement.classList.contains("dark") ? "dark" : "light";
@@ -291,6 +312,44 @@ export function AppShell({
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
+  const switchWorkspaceMutation = useMutation({
+    mutationFn: (companyId: string) => switchWorkspace({ data: { companyId } }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+      navigate({ to: "/" });
+    },
+    onError: (mutationError) => {
+      toast.error(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Não foi possível trocar de espaço.",
+      );
+    },
+  });
+  const createCompanyMutation = useMutation({
+    mutationFn: (payload: { name: string; description: string }) =>
+      createCompany({ data: { ...payload, document: "" } }),
+    onSuccess: async () => {
+      setCreateCompanyOpen(false);
+      setCompanyForm({ name: "", description: "" });
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+      navigate({ to: "/" });
+      toast.success("Empresa criada. Você já está no novo espaço.");
+    },
+  });
+  const leaveCompanyMutation = useMutation({
+    mutationFn: () => leaveCompany(),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+      navigate({ to: "/" });
+      toast.success("Você saiu da empresa.");
+    },
+    onError: (mutationError) => {
+      toast.error(
+        mutationError instanceof Error ? mutationError.message : "Não foi possível sair.",
+      );
+    },
+  });
 
   function openProfile() {
     setProfileForm({
@@ -327,6 +386,98 @@ export function AppShell({
 
   const profileError =
     profileMutation.error instanceof Error ? profileMutation.error.message : null;
+  const createCompanyError =
+    createCompanyMutation.error instanceof Error ? createCompanyMutation.error.message : null;
+
+  function WorkspaceSwitcher({ compact = false }: { compact?: boolean }) {
+    const workspaceData = data!;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "flex items-center rounded-xl text-left transition hover:bg-sidebar-accent focus:outline-none",
+              compact ? "h-9 w-9 justify-center" : "w-full gap-2 px-3 py-2",
+            )}
+            aria-label="Trocar espaço"
+          >
+            <Building2 className="h-4 w-4 shrink-0 text-primary" />
+            {!compact && (
+              <>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-sidebar-foreground">
+                    {workspaceData.company.name}
+                  </span>
+                  {workspaceData.company.kind === "company" &&
+                    workspaceData.company.description && (
+                      <span className="block truncate text-[10px] text-sidebar-foreground/55">
+                        {workspaceData.company.description}
+                      </span>
+                    )}
+                </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-sidebar-foreground/45" />
+              </>
+            )}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align={compact ? "start" : "center"} className="w-72 p-1.5">
+          <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+            Seus espaços
+          </DropdownMenuLabel>
+          {workspaceData.workspaces.map((workspace) => (
+            <DropdownMenuItem
+              key={workspace.id}
+              onSelect={() => {
+                if (workspace.id !== workspaceData.company.id)
+                  switchWorkspaceMutation.mutate(workspace.id);
+              }}
+              className="min-h-12 cursor-pointer gap-2 rounded-xl"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                {workspace.kind === "personal" ? (
+                  <UserRound className="h-4 w-4" />
+                ) : (
+                  <Building2 className="h-4 w-4" />
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">{workspace.name}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {workspace.kind === "personal"
+                    ? "Suas tarefas pessoais"
+                    : workspace.description || workspace.role}
+                </span>
+              </span>
+              {workspace.id === workspaceData.company.id && (
+                <Check className="h-4 w-4 text-primary" />
+              )}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() => setCreateCompanyOpen(true)}
+            className="h-9 cursor-pointer rounded-xl text-xs font-semibold text-primary focus:text-primary"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Criar minha empresa
+          </DropdownMenuItem>
+          {workspaceData.canLeaveCompany && (
+            <DropdownMenuItem
+              onSelect={() => {
+                if (window.confirm(`Sair de ${workspaceData.company.name}?`))
+                  leaveCompanyMutation.mutate();
+              }}
+              className="h-9 cursor-pointer rounded-xl text-xs text-destructive focus:text-destructive"
+            >
+              <DoorOpen className="h-3.5 w-3.5" />
+              Sair desta empresa
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
 
   if (!data || !currentUser) {
     return (
@@ -386,6 +537,10 @@ export function AppShell({
           >
             <Menu className="h-4 w-4" />
           </button>
+        </div>
+
+        <div className={cn("pb-3", collapsed ? "px-3.5" : "px-5")}>
+          <WorkspaceSwitcher compact={collapsed} />
         </div>
 
         <nav
@@ -626,10 +781,81 @@ export function AppShell({
         </DialogContent>
       </Dialog>
 
+      <Dialog open={createCompanyOpen} onOpenChange={setCreateCompanyOpen}>
+        <DialogContent className="max-w-md">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              createCompanyMutation.mutate(companyForm);
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Criar minha empresa</DialogTitle>
+              <DialogDescription>
+                A empresa terá tarefas, equipe, setores e grupos separados do seu espaço pessoal.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-5 space-y-4">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  Nome da empresa
+                </span>
+                <input
+                  value={companyForm.name}
+                  onChange={(event) =>
+                    setCompanyForm((current) => ({ ...current, name: event.target.value }))
+                  }
+                  className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                  placeholder="Ex.: Pop Organize"
+                  required
+                  minLength={2}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  Pequena descrição
+                </span>
+                <textarea
+                  value={companyForm.description}
+                  onChange={(event) =>
+                    setCompanyForm((current) => ({ ...current, description: event.target.value }))
+                  }
+                  className="min-h-20 w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                  placeholder="O que sua empresa faz?"
+                  maxLength={160}
+                />
+              </label>
+              {createCompanyError && (
+                <p className="text-xs text-destructive">{createCompanyError}</p>
+              )}
+            </div>
+            <DialogFooter className="mt-5">
+              <button
+                type="button"
+                onClick={() => setCreateCompanyOpen(false)}
+                className="h-9 rounded-xl border border-border px-4 text-sm font-medium hover:bg-muted"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={createCompanyMutation.isPending}
+                className="h-9 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+              >
+                {createCompanyMutation.isPending ? "Criando..." : "Criar empresa"}
+              </button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* Mobile fixed header */}
       <header className="mobile-fixed-header glass-header safe-top fixed left-0 right-0 top-0 z-[70] border-b border-white/70 md:hidden">
         <div className="relative mx-auto flex w-full max-w-[1440px] items-center gap-3 px-4 py-3">
           <div className="app-page-heading min-w-0 flex-1">
+            <div className="mb-0.5 w-fit max-w-full">
+              <WorkspaceSwitcher />
+            </div>
             <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground">
               {title}
             </h1>

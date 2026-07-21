@@ -14,6 +14,8 @@ export default defineConfig(({ mode, command }) => {
     "BOOTSTRAP_ADMIN_NAME",
     "BOOTSTRAP_ADMIN_EMAIL",
     "BOOTSTRAP_ADMIN_PASSWORD",
+    "BOOTSTRAP_SEED_DEMO",
+    "AUTH_PASSWORD_PEPPER",
     "GOOGLE_CLIENT_ID",
     "VITE_GOOGLE_CLIENT_ID",
   ]) {

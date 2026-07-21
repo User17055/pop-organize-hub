@@ -16,6 +16,11 @@ dist-ssr
 .tanstack/**
 .nitro
 
+# Local/runtime secrets. Keep only the documented placeholder file.
+.env
+.env.*
+!.env.example
+
 android/**/build/
 ios/**/build/
 native-shell/**/build/

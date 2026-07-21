@@ -2,6 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   deleteCookie,
   getCookie,
+  getRequestHeader,
+  getRequestIP,
   getRequestProtocol,
   setCookie,
 } from "@tanstack/react-start/server";
@@ -13,6 +15,10 @@ import {
   sanitizeDatabase,
   today,
   toCurrentUser,
+  type AccountRecord,
+  type Database,
+  type PlatformDatabase,
+  type SessionRecord,
   withoutPassword,
 } from "../database";
 import {
@@ -28,6 +34,12 @@ import { getTaskPermissions } from "../permissions";
 const SESSION_COOKIE = "pop_organize_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 const INVITATION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+const LOGIN_ATTEMPT_LIMIT = 5;
+const LOGIN_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_ATTEMPT_MAP_LIMIT = 5_000;
+
+type LoginAttempt = { count: number; resetAt: number };
+const loginAttempts = new Map<string, LoginAttempt>();
 
 const prioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 const statusSchema = z.enum([
@@ -94,8 +106,6 @@ const createEmployeeSchema = z.object({
   role: z.string().trim().min(2),
   departmentId: z.string().min(1),
   status: z.enum(["active", "inactive"]).default("active"),
-  ownerEmail: z.string().trim().email().optional(),
-  ownerPassword: z.string().min(8, "Sua senha deve ter pelo menos 8 caracteres.").optional(),
   permissionGroupId: z
     .union([z.literal(""), z.string().min(1)])
     .optional()
@@ -202,7 +212,7 @@ const updateProfileSchema = z
       .optional()
       .transform((value) => value || undefined),
     currentPassword: z.string().optional(),
-    newPassword: z.string().min(6, "A nova senha deve ter pelo menos 6 caracteres").optional(),
+    newPassword: z.string().min(8, "A nova senha deve ter pelo menos 8 caracteres").optional(),
   })
   .refine((data) => !data.newPassword || Boolean(data.currentPassword), {
     message: "Informe a senha atual.",
@@ -222,6 +232,44 @@ function createHttpError(message: string, status = 400) {
   return Object.assign(new Error(message), { statusCode: status });
 }
 
+function getLoginRateLimitKey(email: string) {
+  const ip = getRequestHeader("x-real-ip") || getRequestIP() || "unknown";
+  return `${ip}:${email}`;
+}
+
+function assertLoginAllowed(key: string) {
+  const now = Date.now();
+  const attempt = loginAttempts.get(key);
+  if (!attempt || attempt.resetAt <= now) {
+    loginAttempts.delete(key);
+    return;
+  }
+  if (attempt.count >= LOGIN_ATTEMPT_LIMIT) {
+    throw createHttpError("Muitas tentativas. Aguarde 15 minutos e tente novamente.", 429);
+  }
+}
+
+function recordFailedLogin(key: string) {
+  const now = Date.now();
+  const current = loginAttempts.get(key);
+  if (!current || current.resetAt <= now) {
+    loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_ATTEMPT_WINDOW_MS });
+  } else {
+    current.count += 1;
+  }
+
+  if (loginAttempts.size > LOGIN_ATTEMPT_MAP_LIMIT) {
+    for (const [attemptKey, attempt] of loginAttempts) {
+      if (attempt.resetAt <= now) loginAttempts.delete(attemptKey);
+    }
+    while (loginAttempts.size > LOGIN_ATTEMPT_MAP_LIMIT) {
+      const oldestKey = loginAttempts.keys().next().value;
+      if (!oldestKey) break;
+      loginAttempts.delete(oldestKey);
+    }
+  }
+}
+
 function getCookieOptions() {
   return {
     httpOnly: true,
@@ -236,43 +284,85 @@ async function dbServer() {
   return import("../database.server");
 }
 
-async function getSessionUserId(
-  database?: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
-) {
-  const { hashToken, readDatabase } = await dbServer();
-  const db = database ?? (await readDatabase());
+type SessionContext = {
+  account: AccountRecord;
+  session?: SessionRecord;
+  workspace: Database;
+};
+
+function resolveSessionContext(
+  platform: PlatformDatabase,
+  tokenHash?: string,
+): SessionContext | null {
+  const now = Date.now();
+  const session = tokenHash
+    ? platform.sessions.find(
+        (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > now,
+      )
+    : undefined;
+  const account = session
+    ? platform.accounts.find((item) => item.id === session.userId)
+    : !import.meta.env.PROD
+      ? platform.accounts[0]
+      : undefined;
+  if (!account) return null;
+
+  const preferredWorkspaceId = session?.activeCompanyId;
+  const workspace =
+    platform.workspaces.find(
+      (item) =>
+        item.company.id === preferredWorkspaceId &&
+        item.employees.some(
+          (employee) => employee.id === account.id && employee.status === "active",
+        ),
+    ) ??
+    platform.workspaces.find(
+      (item) =>
+        item.company.kind === "personal" &&
+        item.company.ownerId === account.id &&
+        item.employees.some((employee) => employee.id === account.id),
+    );
+  return workspace ? { account, session, workspace } : null;
+}
+
+async function getSessionTokenHash() {
   const token = getCookie(SESSION_COOKIE);
-  if (token) {
-    const tokenHash = hashToken(token);
-    const now = Date.now();
-    const session = db.sessions.find(
-      (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > now,
-    );
-    if (session) return session.userId;
-  }
-
-  if (db.accessMode === "personal") {
-    return (
-      db.employees.find((employee) => employee.role.toLowerCase().includes("admin"))?.id ??
-      db.employees[0]?.id ??
-      null
-    );
-  }
-
-  return null;
+  if (!token) return undefined;
+  const { hashToken } = await dbServer();
+  return hashToken(token);
 }
 
-async function requireSessionUserId() {
-  const userId = await getSessionUserId();
-  if (!userId) throw createHttpError("Sessão expirada. Faça login novamente.", 401);
-  return userId;
+async function readSessionContext() {
+  const { readDatabase } = await dbServer();
+  const platform = await readDatabase();
+  const context = resolveSessionContext(platform, await getSessionTokenHash());
+  return { platform, context };
 }
 
-function resolveTargetLabel(
-  type: TargetType,
-  id: string,
-  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
+async function requireSessionContext() {
+  const result = await readSessionContext();
+  if (!result.context) throw createHttpError("Sessão expirada. Faça login novamente.", 401);
+  return { platform: result.platform, ...result.context };
+}
+
+async function mutateCurrentWorkspace<T>(
+  mutator: (
+    workspace: Database,
+    currentUserId: string,
+    platform: PlatformDatabase,
+    context: SessionContext,
+  ) => T | Promise<T>,
 ) {
+  const tokenHash = await getSessionTokenHash();
+  const { mutateDatabase } = await dbServer();
+  return mutateDatabase((platform) => {
+    const context = resolveSessionContext(platform, tokenHash);
+    if (!context) throw createHttpError("Sessão expirada. Faça login novamente.", 401);
+    return mutator(context.workspace, context.account.id, platform, context);
+  });
+}
+
+function resolveTargetLabel(type: TargetType, id: string, db: Database) {
   if (type === "company" && db.company.id === id) return "Empresa inteira";
   if (type === "department") return db.departments.find((department) => department.id === id)?.name;
   if (type === "group") return db.groups.find((group) => group.id === id)?.name;
@@ -369,10 +459,7 @@ function getNextRecurringDueDate(task: Task) {
   return nextDueDate;
 }
 
-function createNextRecurringTask(
-  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
-  task: Task,
-) {
+function createNextRecurringTask(db: Database, task: Task) {
   const nextDueDate = getNextRecurringDueDate(task);
   if (!nextDueDate) return;
 
@@ -396,11 +483,7 @@ function createNextRecurringTask(
   });
 }
 
-function getTaskWithPermissions(
-  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
-  taskId: string,
-  currentUserId: string,
-) {
+function getTaskWithPermissions(db: Database, taskId: string, currentUserId: string) {
   const task = db.tasks.find((item) => item.id === taskId);
   if (!task) throw createHttpError("Tarefa não encontrada.", 404);
 
@@ -418,7 +501,7 @@ function getTaskWithPermissions(
 }
 
 function requireGroupPermission(
-  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
+  db: Database,
   currentUserId: string,
   key: PermissionKey,
   message: string,
@@ -432,10 +515,7 @@ function requireGroupPermission(
   if (!hasPermission(set, key)) throw createHttpError(message, 403);
 }
 
-function requireAdmin(
-  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
-  currentUserId: string,
-) {
+function requireAdmin(db: Database, currentUserId: string) {
   const currentUser = db.employees.find((employee) => employee.id === currentUserId);
   if (!isAdminUser({ currentUser, employees: db.employees })) {
     throw createHttpError("Apenas administradores podem gerenciar grupos de permissão.", 403);
@@ -443,109 +523,286 @@ function requireAdmin(
 }
 
 export const getWorkspaceData = createServerFn({ method: "GET" }).handler(async () => {
-  const { readDatabase } = await dbServer();
-  const db = await readDatabase();
-  const currentUserId = await getSessionUserId(db);
-  if (!currentUserId) throw createHttpError("Sessão expirada. Faça login novamente.", 401);
-  return sanitizeDatabase(db, currentUserId);
+  const { platform, account, workspace } = await requireSessionContext();
+  return sanitizeDatabase(workspace, account.id, platform.workspaces);
+});
+
+const createCompanySchema = z.object({
+  name: z.string().trim().min(2, "Informe o nome da empresa"),
+  description: z.string().trim().max(160, "Use no máximo 160 caracteres").default(""),
+  document: z.string().trim().max(30).default(""),
+});
+
+const switchWorkspaceSchema = z.object({
+  companyId: z.string().min(1),
+});
+
+export const createCompany = createServerFn({ method: "POST" })
+  .validator((data) => createCompanySchema.parse(data))
+  .handler(async ({ data }) => {
+    const tokenHash = await getSessionTokenHash();
+    const { createCompanyWorkspace, mutateDatabase, nextCompanyId } = await dbServer();
+    return mutateDatabase((platform) => {
+      const context = resolveSessionContext(platform, tokenHash);
+      if (!context) throw createHttpError("Sessão expirada. Faça login novamente.", 401);
+
+      const normalizedName = data.name.toLocaleLowerCase("pt-BR");
+      if (
+        platform.workspaces.some(
+          (workspace) =>
+            workspace.company.ownerId === context.account.id &&
+            workspace.company.kind === "company" &&
+            workspace.company.name.toLocaleLowerCase("pt-BR") === normalizedName,
+        )
+      ) {
+        throw createHttpError("Você já possui uma empresa com este nome.");
+      }
+
+      const workspace = createCompanyWorkspace(context.account, {
+        id: nextCompanyId(platform),
+        name: data.name,
+        description: data.description || undefined,
+        document: data.document,
+      });
+      platform.workspaces.push(workspace);
+      if (context.session) context.session.activeCompanyId = workspace.company.id;
+      return { ok: true, company: workspace.company };
+    });
+  });
+
+export const switchWorkspace = createServerFn({ method: "POST" })
+  .validator((data) => switchWorkspaceSchema.parse(data))
+  .handler(async ({ data }) => {
+    const tokenHash = await getSessionTokenHash();
+    if (!tokenHash) throw createHttpError("Faça login para trocar de espaço.", 401);
+    const { mutateDatabase } = await dbServer();
+    return mutateDatabase((platform) => {
+      const session = platform.sessions.find((item) => item.tokenHash === tokenHash);
+      if (!session || new Date(session.expiresAt).getTime() <= Date.now()) {
+        throw createHttpError("Sessão expirada. Faça login novamente.", 401);
+      }
+      const workspace = platform.workspaces.find(
+        (item) =>
+          item.company.id === data.companyId &&
+          item.employees.some(
+            (employee) => employee.id === session.userId && employee.status === "active",
+          ),
+      );
+      if (!workspace) throw createHttpError("Você não participa deste espaço.", 403);
+      session.activeCompanyId = workspace.company.id;
+      return { ok: true, companyId: workspace.company.id };
+    });
+  });
+
+export const leaveCompany = createServerFn({ method: "POST" }).handler(async () => {
+  const tokenHash = await getSessionTokenHash();
+  const { mutateDatabase } = await dbServer();
+  return mutateDatabase((platform) => {
+    const context = resolveSessionContext(platform, tokenHash);
+    if (!context?.session) throw createHttpError("Sessão expirada. Faça login novamente.", 401);
+    const { workspace, account, session } = context;
+    if (workspace.company.kind === "personal") {
+      throw createHttpError("Não é possível sair do seu espaço pessoal.");
+    }
+    if (workspace.company.ownerId === account.id) {
+      throw createHttpError("O dono precisa transferir a empresa antes de sair.");
+    }
+    const ownerId = workspace.company.ownerId;
+    const owner = workspace.employees.find((employee) => employee.id === ownerId);
+    if (!owner) throw createHttpError("Dono da empresa não encontrado.", 409);
+
+    for (const task of workspace.tasks) {
+      if (task.responsibleId === account.id) task.responsibleId = owner.id;
+      if (task.reviewerId === account.id) task.reviewerId = owner.id;
+      if (task.target.type === "user" && task.target.id === account.id) {
+        task.target = {
+          type: "company",
+          id: workspace.company.id,
+          label: "Empresa inteira",
+        };
+      }
+    }
+    for (const department of workspace.departments) {
+      if (department.managerId === account.id) department.managerId = owner.id;
+    }
+    for (const group of workspace.groups) {
+      group.memberIds = group.memberIds.filter((id) => id !== account.id);
+      if (group.leaderId === account.id) group.leaderId = owner.id;
+    }
+    workspace.employees = workspace.employees.filter((employee) => employee.id !== account.id);
+
+    const personalWorkspace = platform.workspaces.find(
+      (item) => item.company.kind === "personal" && item.company.ownerId === account.id,
+    );
+    if (!personalWorkspace) throw createHttpError("Espaço pessoal não encontrado.", 409);
+    session.activeCompanyId = personalWorkspace.company.id;
+    return { ok: true, companyId: personalWorkspace.company.id };
+  });
 });
 
 export const getSessionUser = createServerFn({ method: "GET" }).handler(async () => {
-  const { readDatabase } = await dbServer();
-  const db = await readDatabase();
-  const userId = await getSessionUserId(db);
-  if (!userId) return null;
-  const employee = db.employees.find((item) => item.id === userId);
+  const { context } = await readSessionContext();
+  if (!context) return null;
+  const employee = context.workspace.employees.find((item) => item.id === context.account.id);
   return employee ? toCurrentUser(employee) : null;
 });
 
 export const login = createServerFn({ method: "POST" })
   .validator((data) => loginSchema.parse(data))
   .handler(async ({ data }) => {
-    const { hashPassword, mutateDatabase, createSessionToken, hashToken } = await dbServer();
+    const {
+      createSessionToken,
+      hashPassword,
+      hashToken,
+      mutateDatabase,
+      passwordHashNeedsUpgrade,
+      readDatabase,
+      verifyPassword,
+    } = await dbServer();
     const email = data.email.toLowerCase();
-    const passwordHash = hashPassword(data.password);
+    const rateLimitKey = getLoginRateLimitKey(email);
+    assertLoginAllowed(rateLimitKey);
 
-    return mutateDatabase(async (db) => {
-      const employee = db.employees.find((item) => item.email.toLowerCase() === email);
-      if (!employee || employee.passwordHash !== passwordHash || employee.status !== "active") {
+    const snapshot = await readDatabase();
+    const snapshotAccount = snapshot.accounts.find((item) => item.email.toLowerCase() === email);
+    const passwordMatches = snapshotAccount
+      ? await verifyPassword(data.password, snapshotAccount.passwordHash)
+      : false;
+    if (!snapshotAccount || !passwordMatches) {
+      recordFailedLogin(rateLimitKey);
+      throw createHttpError("E-mail ou senha inválidos.", 401);
+    }
+
+    const upgradedHash = passwordHashNeedsUpgrade(snapshotAccount.passwordHash)
+      ? await hashPassword(data.password)
+      : undefined;
+    const token = createSessionToken();
+    const user = await mutateDatabase((platform) => {
+      const account = platform.accounts.find((item) => item.id === snapshotAccount.id);
+      if (!account || account.passwordHash !== snapshotAccount.passwordHash) {
         throw createHttpError("E-mail ou senha inválidos.", 401);
       }
 
-      const token = createSessionToken();
-      db.sessions = db.sessions.filter((session) => session.userId !== employee.id);
-      db.sessions.push({
-        id: nextId("s", db.sessions),
+      if (upgradedHash) {
+        account.passwordHash = upgradedHash;
+        for (const workspace of platform.workspaces) {
+          const employee = workspace.employees.find((item) => item.id === account.id);
+          if (employee) employee.passwordHash = upgradedHash;
+        }
+      }
+
+      const activeWorkspace =
+        platform.workspaces.find(
+          (workspace) =>
+            workspace.company.kind === "personal" && workspace.company.ownerId === account.id,
+        ) ??
+        platform.workspaces.find((workspace) =>
+          workspace.employees.some(
+            (employee) => employee.id === account.id && employee.status === "active",
+          ),
+        );
+      const employee = activeWorkspace?.employees.find((item) => item.id === account.id);
+      if (!activeWorkspace || !employee) throw createHttpError("Conta sem espaço disponível.", 409);
+
+      platform.sessions = platform.sessions.filter((session) => session.userId !== account.id);
+      platform.sessions.push({
+        id: nextId("s", platform.sessions),
         tokenHash: hashToken(token),
-        userId: employee.id,
+        userId: account.id,
+        activeCompanyId: activeWorkspace.company.id,
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString(),
       });
 
-      setCookie(SESSION_COOKIE, token, getCookieOptions());
-
-      return {
-        ok: true,
-        user: toCurrentUser(employee),
-      };
+      return toCurrentUser(employee);
     });
+
+    loginAttempts.delete(rateLimitKey);
+    setCookie(SESSION_COOKIE, token, getCookieOptions());
+    return { ok: true, user };
   });
 
 export const loginWithGoogle = createServerFn({ method: "POST" })
   .validator((data) => googleLoginSchema.parse(data))
   .handler(async ({ data }) => {
-    const { verifyGoogleCredential, mutateDatabase, createSessionToken, hashToken, hashPassword } =
-      await dbServer();
+    const {
+      createPersonalWorkspace,
+      verifyGoogleCredential,
+      mutateDatabase,
+      createSessionToken,
+      hashToken,
+    } = await dbServer();
     const googleUser = await verifyGoogleCredential(data.credential);
     const sessionToken = createSessionToken();
 
-    const user = await mutateDatabase((db) => {
-      let employee =
-        db.employees.find((item) => item.googleSubject === googleUser.subject) ??
-        db.employees.find((item) => item.email.toLowerCase() === googleUser.email);
+    const user = await mutateDatabase((platform) => {
+      let account =
+        platform.accounts.find((item) => item.googleSubject === googleUser.subject) ??
+        platform.accounts.find((item) => item.email.toLowerCase() === googleUser.email);
 
-      if (!employee) {
-        const invitation = db.invitations.find(
+      if (account?.googleSubject && account.googleSubject !== googleUser.subject) {
+        throw createHttpError("Este e-mail já está vinculado a outra conta Google.", 409);
+      }
+
+      if (!account) {
+        account = {
+          id: nextId("u", platform.accounts),
+          name: googleUser.name || googleUser.email.split("@")[0],
+          email: googleUser.email,
+          avatar: googleUser.picture,
+          passwordHash: `disabled$${hashToken(createSessionToken())}`,
+          googleSubject: googleUser.subject,
+          createdAt: new Date().toISOString(),
+        };
+        platform.accounts.push(account);
+        platform.workspaces.unshift(createPersonalWorkspace(account));
+      } else {
+        account.googleSubject = googleUser.subject;
+        account.name = googleUser.name || account.name;
+        account.avatar ||= googleUser.picture;
+      }
+
+      let invitedWorkspace: Database | undefined;
+      for (const workspace of platform.workspaces) {
+        const invitation = workspace.invitations.find(
           (item) =>
             item.email.toLowerCase() === googleUser.email &&
             new Date(item.expiresAt).getTime() > Date.now(),
         );
-        if (!invitation) {
-          throw createHttpError(
-            "Esta conta Google ainda não foi cadastrada ou convidada para a equipe.",
-            403,
-          );
+        if (!invitation) continue;
+        if (!workspace.employees.some((employee) => employee.id === account!.id)) {
+          workspace.employees.push({
+            id: account.id,
+            name: account.name,
+            email: account.email,
+            avatar: account.avatar,
+            role: invitation.role,
+            departmentId: invitation.departmentId,
+            status: invitation.status,
+            permissionGroupId: invitation.permissionGroupId,
+            passwordHash: account.passwordHash,
+            googleSubject: account.googleSubject,
+          });
         }
-        employee = {
-          id: nextId("u", db.employees),
-          name: googleUser.name || invitation.name,
-          email: googleUser.email,
-          role: invitation.role,
-          departmentId: invitation.departmentId,
-          status: invitation.status,
-          permissionGroupId: invitation.permissionGroupId,
-          avatar: googleUser.picture,
-          passwordHash: hashPassword(createSessionToken()),
-          googleSubject: googleUser.subject,
-        };
-        db.employees.push(employee);
-        db.invitations = db.invitations.filter((item) => item.id !== invitation.id);
+        workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
+        invitedWorkspace ??= workspace;
       }
 
-      if (employee.status !== "active") {
-        throw createHttpError("Esta conta está inativa.", 403);
-      }
-      if (employee.googleSubject && employee.googleSubject !== googleUser.subject) {
-        throw createHttpError("Este e-mail já está vinculado a outra conta Google.", 409);
-      }
+      const activeWorkspace =
+        invitedWorkspace ??
+        platform.workspaces.find(
+          (workspace) =>
+            workspace.company.kind === "personal" && workspace.company.ownerId === account!.id,
+        );
+      const employee = activeWorkspace?.employees.find((item) => item.id === account!.id);
+      if (!activeWorkspace || !employee) throw createHttpError("Conta sem espaço disponível.", 409);
 
-      employee.googleSubject = googleUser.subject;
-      employee.avatar ||= googleUser.picture;
-      db.sessions = db.sessions.filter((session) => session.userId !== employee.id);
-      db.sessions.push({
-        id: nextId("s", db.sessions),
+      platform.sessions = platform.sessions.filter((session) => session.userId !== account!.id);
+      platform.sessions.push({
+        id: nextId("s", platform.sessions),
         tokenHash: hashToken(sessionToken),
-        userId: employee.id,
+        userId: account.id,
+        activeCompanyId: activeWorkspace.company.id,
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString(),
       });
@@ -574,22 +831,39 @@ export const logout = createServerFn({ method: "POST" }).handler(async () => {
 export const updateProfile = createServerFn({ method: "POST" })
   .validator((data) => updateProfileSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase, hashPassword } = await dbServer();
+    const { account: snapshotAccount } = await requireSessionContext();
+    const { hashPassword, verifyPassword } = await dbServer();
+    let nextPasswordHash: string | undefined;
+    let previousPasswordHash: string | undefined;
+    if (data.newPassword) {
+      if (!(await verifyPassword(data.currentPassword ?? "", snapshotAccount.passwordHash))) {
+        throw createHttpError("Senha atual inválida.", 401);
+      }
+      previousPasswordHash = snapshotAccount.passwordHash;
+      nextPasswordHash = await hashPassword(data.newPassword);
+    }
 
-    return mutateDatabase((db) => {
-      const employee = db.employees.find((item) => item.id === currentUserId);
-      if (!employee) throw createHttpError("Usuário não encontrado.", 404);
+    return mutateCurrentWorkspace((workspace, currentUserId, platform) => {
+      const account = platform.accounts.find((item) => item.id === currentUserId);
+      if (!account) throw createHttpError("Usuário não encontrado.", 404);
 
-      if (data.newPassword) {
-        if (employee.passwordHash !== hashPassword(data.currentPassword ?? "")) {
+      if (nextPasswordHash) {
+        if (account.passwordHash !== previousPasswordHash) {
           throw createHttpError("Senha atual inválida.", 401);
         }
-        employee.passwordHash = hashPassword(data.newPassword);
+        account.passwordHash = nextPasswordHash;
       }
 
-      employee.name = data.name;
-      employee.avatar = data.avatar;
+      account.name = data.name;
+      account.avatar = data.avatar;
+      for (const item of platform.workspaces) {
+        const member = item.employees.find((employee) => employee.id === currentUserId);
+        if (!member) continue;
+        member.name = account.name;
+        member.avatar = account.avatar;
+        member.passwordHash = account.passwordHash;
+      }
+      const employee = workspace.employees.find((item) => item.id === currentUserId)!;
 
       return {
         employee: withoutPassword(employee),
@@ -601,9 +875,7 @@ export const updateProfile = createServerFn({ method: "POST" })
 export const createTask = createServerFn({ method: "POST" })
   .validator((data) => createTaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       requireGroupPermission(
         db,
         currentUserId,
@@ -649,9 +921,7 @@ export const createTask = createServerFn({ method: "POST" })
 export const updateTaskStatus = createServerFn({ method: "POST" })
   .validator((data) => updateTaskStatusSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       const task = db.tasks.find((item) => item.id === data.id);
       if (!task) throw createHttpError("Tarefa não encontrada.", 404);
       const currentUser = db.employees.find((employee) => employee.id === currentUserId);
@@ -686,9 +956,7 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
 export const updateTaskDetails = createServerFn({ method: "POST" })
   .validator((data) => updateTaskDetailsSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       const task = db.tasks.find((item) => item.id === data.id);
       if (!task) throw createHttpError("Tarefa não encontrada.", 404);
       const currentUser = db.employees.find((employee) => employee.id === currentUserId);
@@ -717,10 +985,7 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
 export const addTaskComment = createServerFn({ method: "POST" })
   .validator((data) => addTaskCommentSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
       if (!permissions.canComment) {
         throw createHttpError("Você não tem permissão para comentar nesta tarefa.", 403);
@@ -742,10 +1007,7 @@ export const addTaskComment = createServerFn({ method: "POST" })
 export const addTaskAttachment = createServerFn({ method: "POST" })
   .validator((data) => addTaskAttachmentSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
       if (!permissions.canAttach) {
         throw createHttpError("Você não tem permissão para anexar arquivos nesta tarefa.", 403);
@@ -768,10 +1030,7 @@ export const addTaskAttachment = createServerFn({ method: "POST" })
 export const addTaskSubtask = createServerFn({ method: "POST" })
   .validator((data) => addTaskSubtaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
       if (!permissions.canManageChecklist) {
         throw createHttpError("Você não tem permissão para adicionar itens nesta tarefa.", 403);
@@ -791,10 +1050,7 @@ export const addTaskSubtask = createServerFn({ method: "POST" })
 export const toggleTaskSubtask = createServerFn({ method: "POST" })
   .validator((data) => toggleTaskSubtaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
       if (!permissions.canManageChecklist) {
         throw createHttpError("Você não tem permissão para atualizar itens desta tarefa.", 403);
@@ -812,10 +1068,7 @@ export const toggleTaskSubtask = createServerFn({ method: "POST" })
 export const updateTaskSubtask = createServerFn({ method: "POST" })
   .validator((data) => updateTaskSubtaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
       if (!permissions.canManageChecklist || !permissions.canEditContent) {
         throw createHttpError("Você não tem permissão para editar itens desta tarefa.", 403);
@@ -832,10 +1085,7 @@ export const updateTaskSubtask = createServerFn({ method: "POST" })
 export const deleteTaskSubtask = createServerFn({ method: "POST" })
   .validator((data) => deleteTaskSubtaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
       if (!permissions.canManageChecklist) {
         throw createHttpError("Você não tem permissão para remover itens desta tarefa.", 403);
@@ -849,9 +1099,7 @@ export const deleteTaskSubtask = createServerFn({ method: "POST" })
 export const deleteTask = createServerFn({ method: "POST" })
   .validator((data) => deleteTaskSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       const taskIndex = db.tasks.findIndex((item) => item.id === data.id);
       if (taskIndex === -1) throw createHttpError("Tarefa nÃ£o encontrada.", 404);
 
@@ -877,9 +1125,7 @@ export const deleteTask = createServerFn({ method: "POST" })
 export const createDepartment = createServerFn({ method: "POST" })
   .validator((data) => createDepartmentSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       requireGroupPermission(
         db,
         currentUserId,
@@ -906,11 +1152,9 @@ export const createDepartment = createServerFn({ method: "POST" })
 export const createEmployee = createServerFn({ method: "POST" })
   .validator((data) => createEmployeeSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase, hashPassword, createSessionToken, hashToken } = await dbServer();
+    const { createSessionToken, hashToken } = await dbServer();
     const invitationToken = createSessionToken();
-    const ownerSessionToken = createSessionToken();
-    const result = await mutateDatabase((db) => {
+    const result = await mutateCurrentWorkspace((db, currentUserId) => {
       requireGroupPermission(
         db,
         currentUserId,
@@ -939,35 +1183,6 @@ export const createEmployee = createServerFn({ method: "POST" })
         throw createHttpError("Grupo de permissão não encontrado.");
       }
 
-      if (db.accessMode === "personal") {
-        if (!data.ownerEmail || !data.ownerPassword) {
-          throw createHttpError(
-            "Crie sua conta de administrador para ativar o trabalho em equipe.",
-          );
-        }
-        const owner = db.employees.find((employee) => employee.id === currentUserId);
-        if (!owner) throw createHttpError("Administrador não encontrado.", 404);
-        const ownerEmail = data.ownerEmail.toLowerCase();
-        if (
-          db.employees.some(
-            (employee) => employee.id !== owner.id && employee.email.toLowerCase() === ownerEmail,
-          )
-        ) {
-          throw createHttpError("Este e-mail já está em uso.");
-        }
-        owner.email = ownerEmail;
-        owner.passwordHash = hashPassword(data.ownerPassword);
-        db.accessMode = "team";
-        db.sessions = db.sessions.filter((session) => session.userId !== owner.id);
-        db.sessions.push({
-          id: nextId("s", db.sessions),
-          tokenHash: hashToken(ownerSessionToken),
-          userId: owner.id,
-          createdAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString(),
-        });
-      }
-
       const invitation = {
         id: nextId("i", db.invitations),
         tokenHash: hashToken(invitationToken),
@@ -984,12 +1199,8 @@ export const createEmployee = createServerFn({ method: "POST" })
 
       db.invitations.push(invitation);
       const { tokenHash, ...safeInvitation } = invitation;
-      return { invitation: safeInvitation, activatedTeamMode: db.accessMode === "team" };
+      return { invitation: safeInvitation, activatedTeamMode: true };
     });
-
-    if (data.ownerEmail && data.ownerPassword) {
-      setCookie(SESSION_COOKIE, ownerSessionToken, getCookieOptions());
-    }
 
     return { ...result, invitationToken };
   });
@@ -997,36 +1208,84 @@ export const createEmployee = createServerFn({ method: "POST" })
 export const acceptInvitation = createServerFn({ method: "POST" })
   .validator((data) => acceptInvitationSchema.parse(data))
   .handler(async ({ data }) => {
-    const { mutateDatabase, hashPassword, hashToken, createSessionToken } = await dbServer();
+    const {
+      mutateDatabase,
+      hashPassword,
+      hashToken,
+      createSessionToken,
+      createPersonalWorkspace,
+      verifyPassword,
+    } = await dbServer();
     const invitationTokenHash = hashToken(data.token);
+    const currentSessionTokenHash = await getSessionTokenHash();
     const sessionToken = createSessionToken();
+    const passwordHash = await hashPassword(data.password);
 
-    const user = await mutateDatabase((db) => {
-      const invitation = db.invitations.find(
-        (item) =>
-          item.tokenHash === invitationTokenHash && new Date(item.expiresAt).getTime() > Date.now(),
+    const user = await mutateDatabase(async (platform) => {
+      const workspace = platform.workspaces.find((item) =>
+        item.invitations.some(
+          (invitation) =>
+            invitation.tokenHash === invitationTokenHash &&
+            new Date(invitation.expiresAt).getTime() > Date.now(),
+        ),
+      );
+      const invitation = workspace?.invitations.find(
+        (item) => item.tokenHash === invitationTokenHash,
       );
       if (!invitation) throw createHttpError("Este convite é inválido ou expirou.", 410);
-      if (db.employees.some((employee) => employee.email.toLowerCase() === invitation.email)) {
-        throw createHttpError("Já existe uma conta com este e-mail.");
+      if (!workspace) throw createHttpError("Empresa do convite não encontrada.", 404);
+      if (
+        workspace.employees.some((employee) => employee.email.toLowerCase() === invitation.email)
+      ) {
+        throw createHttpError("Esta pessoa já participa da empresa.");
       }
 
+      let account = platform.accounts.find(
+        (item) => item.email.toLowerCase() === invitation.email.toLowerCase(),
+      );
+      const currentContext = resolveSessionContext(platform, currentSessionTokenHash);
+      if (account && currentContext?.account.id !== account.id) {
+        const validPassword = await verifyPassword(data.password, account.passwordHash);
+        if (!validPassword) {
+          throw createHttpError(
+            account.googleSubject
+              ? "Entre com Google antes de aceitar este convite."
+              : "Use a senha da sua conta para aceitar o convite.",
+            401,
+          );
+        }
+      }
+      if (!account) {
+        account = {
+          id: nextId("u", platform.accounts),
+          name: invitation.name,
+          email: invitation.email,
+          passwordHash,
+          createdAt: new Date().toISOString(),
+        };
+        platform.accounts.push(account);
+        platform.workspaces.unshift(createPersonalWorkspace(account));
+      }
       const employee = {
-        id: nextId("u", db.employees),
-        name: invitation.name,
-        email: invitation.email,
+        id: account.id,
+        name: account.name,
+        email: account.email,
+        avatar: account.avatar,
         role: invitation.role,
         departmentId: invitation.departmentId,
         status: invitation.status,
         permissionGroupId: invitation.permissionGroupId,
-        passwordHash: hashPassword(data.password),
+        passwordHash: account.passwordHash,
+        googleSubject: account.googleSubject,
       };
-      db.employees.push(employee);
-      db.invitations = db.invitations.filter((item) => item.id !== invitation.id);
-      db.sessions.push({
-        id: nextId("s", db.sessions),
+      workspace.employees.push(employee);
+      workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
+      platform.sessions = platform.sessions.filter((session) => session.userId !== account.id);
+      platform.sessions.push({
+        id: nextId("s", platform.sessions),
         tokenHash: hashToken(sessionToken),
-        userId: employee.id,
+        userId: account.id,
+        activeCompanyId: workspace.company.id,
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString(),
       });
@@ -1040,9 +1299,7 @@ export const acceptInvitation = createServerFn({ method: "POST" })
 export const createGroup = createServerFn({ method: "POST" })
   .validator((data) => createGroupSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       requireGroupPermission(
         db,
         currentUserId,
@@ -1077,9 +1334,7 @@ export const createGroup = createServerFn({ method: "POST" })
 export const updateCompany = createServerFn({ method: "POST" })
   .validator((data) => updateCompanySchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       requireGroupPermission(
         db,
         currentUserId,
@@ -1096,11 +1351,7 @@ export const updateCompany = createServerFn({ method: "POST" })
     });
   });
 
-function applyPermissionGroupMembers(
-  db: Awaited<ReturnType<typeof import("../database.server").readDatabase>>,
-  groupId: string,
-  memberIds: string[],
-) {
+function applyPermissionGroupMembers(db: Database, groupId: string, memberIds: string[]) {
   const invalidMember = memberIds.find(
     (memberId) => !db.employees.some((employee) => employee.id === memberId),
   );
@@ -1118,9 +1369,7 @@ function applyPermissionGroupMembers(
 export const createPermissionGroup = createServerFn({ method: "POST" })
   .validator((data) => createPermissionGroupSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       requireAdmin(db, currentUserId);
 
       const group = {
@@ -1138,9 +1387,7 @@ export const createPermissionGroup = createServerFn({ method: "POST" })
 export const updatePermissionGroup = createServerFn({ method: "POST" })
   .validator((data) => updatePermissionGroupSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       requireAdmin(db, currentUserId);
 
       const group = db.permissionGroups.find((item) => item.id === data.id);
@@ -1159,9 +1406,7 @@ export const updatePermissionGroup = createServerFn({ method: "POST" })
 export const deletePermissionGroup = createServerFn({ method: "POST" })
   .validator((data) => deletePermissionGroupSchema.parse(data))
   .handler(async ({ data }) => {
-    const currentUserId = await requireSessionUserId();
-    const { mutateDatabase } = await dbServer();
-    return mutateDatabase((db) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
       requireAdmin(db, currentUserId);
 
       const groupIndex = db.permissionGroups.findIndex((item) => item.id === data.id);

@@ -130,6 +130,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -464,7 +465,7 @@ private data class ApiEmailSession(
     val email: String,
     val photoUrl: String,
 )
-private data class ApiWorkspaceSummary(val id: String, val name: String, val description: String)
+private data class ApiWorkspaceSummary(val id: String, val name: String, val description: String, val kind: String)
 private data class ApiInvitation(
     val id: String,
     val companyName: String,
@@ -490,9 +491,7 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
         buildList {
             repeat(items.length()) { index ->
                 val item = items.optJSONObject(index) ?: return@repeat
-                if (item.optString("kind") == "company") {
-                    add(ApiWorkspaceSummary(item.optString("id"), item.optString("name"), item.optString("description")))
-                }
+                add(ApiWorkspaceSummary(item.optString("id"), item.optString("name"), item.optString("description"), item.optString("kind")))
             }
         }
     } finally {
@@ -673,12 +672,13 @@ private fun isFutureRecurrence(task: PopTask, today: LocalDate = LocalDate.now()
         task.recurrenceOccurrence > 1 &&
         runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isAfter(today) == true
 
-private suspend fun loadRemoteTasks(apiToken: String): List<PopTask> = withContext(Dispatchers.IO) {
+private suspend fun loadRemoteTasks(apiToken: String, workspaceId: String = ""): List<PopTask> = withContext(Dispatchers.IO) {
     val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
         requestMethod = "GET"
         connectTimeout = 15_000
         readTimeout = 20_000
         setRequestProperty("Authorization", "Bearer $apiToken")
+        if (workspaceId.isNotBlank()) setRequestProperty("X-Workspace-Id", workspaceId)
         setRequestProperty("Accept", "application/json")
     }
     try {
@@ -695,13 +695,14 @@ private suspend fun loadRemoteTasks(apiToken: String): List<PopTask> = withConte
     }
 }
 
-private suspend fun syncRemoteTasks(apiToken: String, tasks: List<PopTask>) = withContext(Dispatchers.IO) {
+private suspend fun syncRemoteTasks(apiToken: String, tasks: List<PopTask>, workspaceId: String = "") = withContext(Dispatchers.IO) {
     val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
         requestMethod = "PUT"
         connectTimeout = 15_000
         readTimeout = 20_000
         doOutput = true
         setRequestProperty("Authorization", "Bearer $apiToken")
+        if (workspaceId.isNotBlank()) setRequestProperty("X-Workspace-Id", workspaceId)
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
     }
@@ -1627,6 +1628,7 @@ private fun PopMainContent(
     var selectedCompanyIndex by remember { mutableIntStateOf(0) }
     var showCreateCompany by remember { mutableStateOf(false) }
     val companyNames = remember { mutableStateListOf<String>() }
+    val companyIds = remember { mutableStateListOf<String>() }
     val companyDescriptions = remember { mutableStateListOf<String>() }
     val companyMembers = remember { mutableStateListOf<CompanyMember>() }
     val companySectors = remember { mutableStateListOf<CompanySector>() }
@@ -1649,6 +1651,7 @@ private fun PopMainContent(
     }
     var isRefreshing by remember { mutableStateOf(false) }
     var lastSyncedTasksJson by remember(sessionMode, googleAccount?.id) { mutableStateOf("") }
+    val lastSyncedCompanyTasks = remember(sessionMode, googleAccount?.id) { mutableStateMapOf<String, String>() }
     val companyTaskGroups = remember(sessionMode) { mutableStateListOf<MutableList<PopTask>>() }
     val tasks = if (workSpace == WorkSpace.Personal) {
         personalTasks
@@ -1675,6 +1678,19 @@ private fun PopMainContent(
         } else {
             selectedCompanyIndex = index
             workSpace = WorkSpace.Company
+            val token = googleAccount?.apiToken.orEmpty()
+            val workspaceId = companyIds.getOrNull(index).orEmpty()
+            if (token.isNotBlank() && workspaceId.isNotBlank()) {
+                navigationScope.launch {
+                    runCatching { loadRemoteTasks(token, workspaceId) }.onSuccess { remoteTasks ->
+                        lastSyncedCompanyTasks[workspaceId] = tasksToJson(remoteTasks).toString()
+                        companyTaskGroups.getOrNull(index)?.let { group ->
+                            group.clear()
+                            group.addAll(remoteTasks)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1683,12 +1699,15 @@ private fun PopMainContent(
     }
 
     fun applyCompanyWorkspaces(workspaces: List<ApiWorkspaceSummary>) {
+        val companies = workspaces.filter { it.kind == "company" }
+        companyIds.clear()
+        companyIds.addAll(companies.map { it.id })
         companyNames.clear()
-        companyNames.addAll(workspaces.map { it.name })
+        companyNames.addAll(companies.map { it.name })
         companyDescriptions.clear()
-        companyDescriptions.addAll(workspaces.map { it.description.ifBlank { "Empresa e equipe" } })
-        while (companyTaskGroups.size < workspaces.size) companyTaskGroups.add(mutableStateListOf())
-        while (companyTaskGroups.size > workspaces.size) companyTaskGroups.removeAt(companyTaskGroups.lastIndex)
+        companyDescriptions.addAll(companies.map { it.description.ifBlank { "Empresa e equipe" } })
+        while (companyTaskGroups.size < companies.size) companyTaskGroups.add(mutableStateListOf())
+        while (companyTaskGroups.size > companies.size) companyTaskGroups.removeAt(companyTaskGroups.lastIndex)
         if (selectedCompanyIndex !in companyTaskGroups.indices) selectedCompanyIndex = 0
     }
 
@@ -1713,6 +1732,18 @@ private fun PopMainContent(
             loadRemoteTasks(account.apiToken)
         }.onSuccess { remoteTasks ->
             applyRemoteTasks(remoteTasks)
+            if (workSpace == WorkSpace.Company) {
+                val workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty()
+                if (workspaceId.isNotBlank()) {
+                    runCatching { loadRemoteTasks(account.apiToken, workspaceId) }.onSuccess { companyTasks ->
+                        lastSyncedCompanyTasks[workspaceId] = tasksToJson(companyTasks).toString()
+                        companyTaskGroups.getOrNull(selectedCompanyIndex)?.let { group ->
+                            group.clear()
+                            group.addAll(companyTasks)
+                        }
+                    }
+                }
+            }
             if (showFeedback) Toast.makeText(context, "Atividades atualizadas", Toast.LENGTH_SHORT).show()
         }.onFailure { error ->
             if (showFeedback) {
@@ -1726,12 +1757,27 @@ private fun PopMainContent(
         val token = googleAccount?.apiToken.orEmpty()
         if (sessionMode != SessionMode.Guest && token.isNotBlank()) {
             while (true) {
-                runCatching { loadMobileWorkspaces(token) }.onSuccess(::applyCompanyWorkspaces)
+                runCatching { loadMobileWorkspaces(token) }.onSuccess { workspaces ->
+                    applyCompanyWorkspaces(workspaces)
+                    companyIds.forEachIndexed { index, workspaceId ->
+                        runCatching { loadRemoteTasks(token, workspaceId) }.onSuccess { remoteTasks ->
+                            val remoteJson = tasksToJson(remoteTasks).toString()
+                            val localJson = companyTaskGroups.getOrNull(index)?.let(::tasksToJson)?.toString()
+                            if (lastSyncedCompanyTasks[workspaceId].isNullOrBlank() || localJson == lastSyncedCompanyTasks[workspaceId]) {
+                                lastSyncedCompanyTasks[workspaceId] = remoteJson
+                                companyTaskGroups.getOrNull(index)?.let { group ->
+                                    group.clear()
+                                    group.addAll(remoteTasks)
+                                }
+                            }
+                        }
+                    }
+                }
                 runCatching { loadMobileInvitations(token) }.onSuccess { invitations ->
                     pendingInvitations.clear()
                     pendingInvitations.addAll(invitations)
                 }
-                delay(60_000)
+                delay(15_000)
             }
         }
     }
@@ -1891,6 +1937,20 @@ private fun PopMainContent(
                     )
                 }
             }
+    }
+    LaunchedEffect(companyTaskGroups.map { it.toList() }, companyIds.toList(), googleAccount?.apiToken) {
+        val token = googleAccount?.apiToken.orEmpty()
+        if (token.isNotBlank()) {
+            companyTaskGroups.forEachIndexed { index, group ->
+                val workspaceId = companyIds.getOrNull(index).orEmpty()
+                val localJson = tasksToJson(group).toString()
+                if (workspaceId.isNotBlank() && lastSyncedCompanyTasks[workspaceId] != null && localJson != lastSyncedCompanyTasks[workspaceId]) {
+                    delay(350)
+                    runCatching { syncRemoteTasks(token, group.toList(), workspaceId) }
+                        .onSuccess { lastSyncedCompanyTasks[workspaceId] = localJson }
+                }
+            }
+        }
     }
     }
 

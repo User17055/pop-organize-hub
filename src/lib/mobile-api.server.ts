@@ -247,7 +247,12 @@ async function requireMobileWorkspace(request: Request) {
   );
   if (!session) throw Object.assign(new Error("Sessão expirada."), { statusCode: 401 });
 
-  const workspace = platform.workspaces.find((item) => item.company.id === session.activeCompanyId);
+  const requestedWorkspaceId = request.headers.get("x-workspace-id")?.trim();
+  const workspace = platform.workspaces.find(
+    (item) =>
+      item.company.id === (requestedWorkspaceId || session.activeCompanyId) &&
+      item.employees.some((employee) => employee.id === session.userId && employee.status === "active"),
+  );
   const account = platform.accounts.find((item) => item.id === session.userId);
   if (!workspace || !account) {
     throw Object.assign(new Error("Espaço da conta não encontrado."), { statusCode: 401 });
@@ -454,13 +459,18 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
   const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
   if (!token) throw Object.assign(new Error("Sessão ausente."), { statusCode: 401 });
   const tokenHash = hashToken(token);
+  const requestedWorkspaceId = request.headers.get("x-workspace-id")?.trim();
 
   return mutateDatabase((platform: PlatformDatabase) => {
     const session = platform.sessions.find(
       (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > Date.now(),
     );
     if (!session) throw Object.assign(new Error("Sessão expirada."), { statusCode: 401 });
-    const workspace = platform.workspaces.find((item) => item.company.id === session.activeCompanyId);
+    const workspace = platform.workspaces.find(
+      (item) =>
+        item.company.id === (requestedWorkspaceId || session.activeCompanyId) &&
+        item.employees.some((employee) => employee.id === session.userId && employee.status === "active"),
+    );
     const account = platform.accounts.find((item) => item.id === session.userId);
     if (!workspace || !account) {
       throw Object.assign(new Error("Espaço da conta não encontrado."), { statusCode: 401 });

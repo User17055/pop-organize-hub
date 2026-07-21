@@ -1,9 +1,6 @@
 package br.com.poporganize.app
 
 import android.os.Bundle
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,19 +10,13 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import br.com.poporganize.app.notifications.clearPopNotifications
 import br.com.poporganize.app.notifications.schedulePopNotifications
-import br.com.poporganize.shared.PopOrganizeApp
+import br.com.poporganize.app.ui.PopOrganizeApp
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         schedulePopNotifications(this)
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 901)
-        }
         enableEdgeToEdge()
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
@@ -33,8 +24,7 @@ class MainActivity : ComponentActivity() {
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.navigationBars())
         }
-        val platformServices = PopAndroidServices(this)
-        setContent { PopOrganizeApp(platformServices) }
+        setContent { PopOrganizeApp() }
     }
 
     override fun onResume() {

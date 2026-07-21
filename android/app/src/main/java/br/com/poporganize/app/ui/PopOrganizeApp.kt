@@ -8,7 +8,6 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.media.RingtoneManager
 import android.os.Build
 import android.util.Base64
 import android.widget.Toast
@@ -59,6 +58,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -276,6 +276,9 @@ private fun defaultGuestTasks() = listOf(
 )
 
 private fun normalizedDueDate(dueLabel: String, storedDate: String?): String {
+    val persistedDate = runCatching { storedDate?.let(LocalDate::parse) }.getOrNull()
+    if (persistedDate != null) return persistedDate.toString()
+
     val today = LocalDate.now()
     val normalizedLabel = dueLabel.lowercase(Locale("pt", "BR"))
     val inferred = when {
@@ -288,7 +291,7 @@ private fun normalizedDueDate(dueLabel: String, storedDate: String?): String {
         }
         else -> null
     }
-    return (inferred ?: runCatching { storedDate?.let(LocalDate::parse) }.getOrNull() ?: today).toString()
+    return (inferred ?: today).toString()
 }
 
 private fun dueLabelForDate(date: LocalDate): String {
@@ -466,6 +469,21 @@ private suspend fun authenticateGoogleWithApi(idToken: String): ApiGoogleSession
         connection.disconnect()
     }
 }
+
+private fun displayDueLabel(task: PopTask): String {
+    val date = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return task.dueLabel
+    val dateLabel = dueLabelForDate(date)
+    val legacyInlineTime = task.dueLabel.substringAfter(",", missingDelimiterValue = "").trim()
+    return if (task.dueTime.isBlank() && legacyInlineTime.isNotBlank()) {
+        "$dateLabel, $legacyInlineTime"
+    } else {
+        dateLabel
+    }
+}
+
+private fun isTaskOverdue(task: PopTask): Boolean =
+    !task.completed &&
+        runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isBefore(LocalDate.now()) == true
 
 private suspend fun loadRemoteTasks(apiToken: String): List<PopTask> = withContext(Dispatchers.IO) {
     val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
@@ -1325,8 +1343,6 @@ private fun PopMainContent(
     var workSpace by remember { mutableStateOf(WorkSpace.Personal) }
     var selectedCompanyIndex by remember { mutableIntStateOf(0) }
     var showCreateCompany by remember { mutableStateOf(false) }
-    var newCompanyName by remember { mutableStateOf("") }
-    var newCompanyDescription by remember { mutableStateOf("") }
     val companyNames = remember { mutableStateListOf<String>() }
     val companyDescriptions = remember { mutableStateListOf<String>() }
     val companyMembers = remember { mutableStateListOf<CompanyMember>() }
@@ -1376,16 +1392,7 @@ private fun PopMainContent(
     }
 
     fun requestCreateCompany() {
-        if (sessionMode == SessionMode.Guest) {
-            Toast.makeText(
-                context,
-                "Faça login para criar e gerenciar uma empresa.",
-                Toast.LENGTH_LONG,
-            ).show()
-            onRequireLogin()
-        } else {
-            showCreateCompany = true
-        }
+        showCreateCompany = true
     }
 
     LaunchedEffect(sessionMode, googleAccount?.apiToken) {
@@ -1488,6 +1495,10 @@ private fun PopMainContent(
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
                         onViewTasks = { destination = PopDestination.Tasks },
+                        onOpenTask = { task ->
+                            taskToOpenId = task.id
+                            destination = PopDestination.Tasks
+                        },
                     )
                     PopDestination.Tasks -> TasksScreen(
                         tasks = tasks,
@@ -1547,65 +1558,19 @@ private fun PopMainContent(
     if (showCreateCompany) {
         AlertDialog(
             onDismissRequest = { showCreateCompany = false },
-            title = { Text("Criar nova empresa", fontWeight = FontWeight.ExtraBold) },
+            title = { Text("Empresas em breve", fontWeight = FontWeight.ExtraBold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TextField(
-                        value = newCompanyName,
-                        onValueChange = { newCompanyName = it },
-                        placeholder = { Text("Nome da empresa") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = PopBlueSoft,
-                            unfocusedContainerColor = PopSurfaceAlt,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                        ),
-                    )
-                    TextField(
-                        value = newCompanyDescription,
-                        onValueChange = { newCompanyDescription = it },
-                        placeholder = { Text("Pequena descrição da empresa") },
-                        minLines = 2,
-                        maxLines = 3,
-                        shape = RoundedCornerShape(16.dp),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = PopBlueSoft,
-                            unfocusedContainerColor = PopSurfaceAlt,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                        ),
-                    )
-                }
+                Text(
+                    "A criação e a gestão de empresas serão disponibilizadas pela versão Web. " +
+                        "No aplicativo, você continua organizando suas tarefas pessoais normalmente.",
+                    color = PopMuted,
+                    lineHeight = 20.sp,
+                )
             },
             confirmButton = {
-                TextButton(
-                    enabled = newCompanyName.trim().length >= 3 && newCompanyDescription.trim().length >= 3,
-                    onClick = {
-                        companyNames.add(newCompanyName.trim())
-                        companyDescriptions.add(newCompanyDescription.trim())
-                        if (companyMembers.isEmpty() && googleAccount != null) {
-                            companyMembers.add(
-                                CompanyMember(
-                                    name = googleAccount.name.ifBlank { "Administrador" },
-                                    email = googleAccount.email,
-                                    role = "Administrador",
-                                    sector = "Direção",
-                                ),
-                            )
-                        }
-                        companyTaskGroups.add(mutableStateListOf())
-                        selectedCompanyIndex = companyNames.lastIndex
-                        workSpace = WorkSpace.Company
-                        newCompanyName = ""
-                        newCompanyDescription = ""
-                        showCreateCompany = false
-                    },
-                ) { Text("Criar", color = PopBlue, fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCreateCompany = false }) { Text("Cancelar") }
+                TextButton(onClick = { showCreateCompany = false }) {
+                    Text("Entendi", color = PopBlue, fontWeight = FontWeight.Bold)
+                }
             },
             shape = RoundedCornerShape(26.dp),
             containerColor = PopSurface,
@@ -1705,8 +1670,12 @@ private fun WorkSpaceSelector(
             }
             HorizontalDivider(color = PopBorder, modifier = Modifier.padding(vertical = 5.dp))
             DropdownMenuItem(
-                text = { Text("Criar nova empresa", color = PopBlue, fontWeight = FontWeight.ExtraBold) },
-                leadingIcon = { Icon(Icons.Rounded.Add, null, tint = PopBlue) },
+                text = {
+                    Column {
+                        Text("Empresas", color = PopBlue, fontWeight = FontWeight.ExtraBold)
+                        Text("Em breve na versão Web", color = PopMuted, fontSize = 11.sp)
+                    }
+                },
                 onClick = {
                     expanded = false
                     onCreateCompany()
@@ -1886,14 +1855,16 @@ private fun DashboardWorkspaceSelector(
             }
             DropdownMenuItem(
                 text = {
-                    Text(
-                        "Criar minha empresa",
-                        color = PopBlue,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = (-0.1).sp,
-                        maxLines = 1,
-                    )
+                    Column {
+                        Text(
+                            "Empresas",
+                            color = PopBlue,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = (-0.1).sp,
+                        )
+                        Text("Em breve na versão Web", color = PopMuted, fontSize = 11.sp)
+                    }
                 },
                 onClick = {
                     expanded = false
@@ -1917,7 +1888,14 @@ private fun DashboardScreen(
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
     onViewTasks: () -> Unit,
+    onOpenTask: (PopTask) -> Unit,
 ) {
+    val today = LocalDate.now()
+    val overdue = tasks.count { task ->
+        !task.completed &&
+            runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isBefore(today) == true
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 28.dp),
@@ -1958,15 +1936,47 @@ private fun DashboardScreen(
                     )
                 }
                 Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MetricCard("Concluídas", tasks.count { it.completed }, tasks.size, Color(0xFF18A66A), Modifier.weight(1f))
-                    MetricCard("Pendentes", tasks.count { !it.completed }, tasks.size, Color(0xFFFF9F1C), Modifier.weight(1f))
+                LazyRow(
+                    contentPadding = PaddingValues(end = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    item {
+                        MetricCard(
+                            "Concluídas",
+                            tasks.count { it.completed },
+                            tasks.size,
+                            Color(0xFF18A66A),
+                            showProgress = true,
+                            modifier = Modifier.width(158.dp).height(125.dp),
+                        )
+                    }
+                    item {
+                        MetricCard(
+                            "Pendentes",
+                            tasks.count { !it.completed },
+                            tasks.size,
+                            Color(0xFFFF9F1C),
+                            showProgress = false,
+                            modifier = Modifier.width(158.dp).height(125.dp),
+                        )
+                    }
+                    item {
+                        MetricCard(
+                            "Atrasadas",
+                            overdue,
+                            tasks.size,
+                            Color(0xFFE5484D),
+                            showProgress = false,
+                            modifier = Modifier.width(158.dp).height(125.dp),
+                        )
+                    }
                 }
                 Spacer(Modifier.height(20.dp))
                 SectionTitle("Tarefas recentes", "Ver todas", onViewTasks)
                 Spacer(Modifier.height(8.dp))
                 tasks.take(3).forEachIndexed { index, task ->
-                    TaskRow(task = task, onClick = onViewTasks)
+                    TaskRow(task = task, onClick = { onOpenTask(task) })
                     if (index < 2) HorizontalDivider(color = PopBorder.copy(alpha = .65f))
                 }
             }
@@ -2028,7 +2038,14 @@ private fun HeroCard(tasks: List<PopTask>, displayName: String, onStartNow: () -
 }
 
 @Composable
-private fun MetricCard(label: String, value: Int, total: Int, tint: Color, modifier: Modifier = Modifier) {
+private fun MetricCard(
+    label: String,
+    value: Int,
+    total: Int,
+    tint: Color,
+    showProgress: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val percentage = if (total == 0) 0 else ((value.toFloat() / total) * 100).toInt()
     Card(
         modifier = modifier,
@@ -2036,21 +2053,25 @@ private fun MetricCard(label: String, value: Int, total: Int, tint: Color, modif
         colors = CardDefaults.cardColors(containerColor = PopSurface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        Column(Modifier.padding(15.dp)) {
+        Column(Modifier.fillMaxSize().padding(15.dp)) {
             Text(label, fontSize = 13.sp, color = PopText, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(15.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.weight(1f))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(value.toString(), color = tint, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
                 Spacer(Modifier.weight(1f))
                 Text("$percentage%", color = PopMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
-            Spacer(Modifier.height(11.dp))
-            LinearProgressIndicator(
-                progress = { if (total == 0) 0f else value.toFloat() / total },
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                color = tint,
-                trackColor = PopBorder.copy(alpha = .5f),
-            )
+            if (showProgress) {
+                Spacer(Modifier.height(11.dp))
+                LinearProgressIndicator(
+                    progress = { if (total == 0) 0f else value.toFloat() / total },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                    color = tint,
+                    trackColor = PopBorder.copy(alpha = .5f),
+                )
+            } else {
+                Spacer(Modifier.height(6.dp))
+            }
         }
     }
 }
@@ -2219,13 +2240,6 @@ private fun TasksScreen(
     }
     val today = LocalDate.now()
 
-    fun playActionSound() {
-        runCatching {
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            RingtoneManager.getRingtone(context, uri)?.play()
-        }
-    }
-
     fun canChangeTask(task: PopTask): Boolean = true
 
     LaunchedEffect(showCreate) {
@@ -2262,7 +2276,6 @@ private fun TasksScreen(
         if (markingCompleted) {
             if (completingTaskId == task.id) return
             completingTaskId = task.id
-            playActionSound()
             taskActionScope.launch {
                 delay(620)
                 val currentIndex = tasks.indexOfFirst { it.id == task.id }
@@ -2496,7 +2509,7 @@ private fun TasksScreen(
                     animationSpec = tween(580, easing = FastOutSlowInEasing),
                     label = "taskSlotHeight",
                 )
-                Box(Modifier.fillMaxWidth().height(taskSlotHeight).clipToBounds().padding(horizontal = 20.dp, vertical = 6.dp)) {
+                Box(Modifier.fillMaxWidth().height(taskSlotHeight).clipToBounds().padding(horizontal = 26.dp, vertical = 6.dp)) {
                     TaskCard(task, isCompleting = isCompleting, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
                 }
             }
@@ -2534,7 +2547,7 @@ private fun TasksScreen(
                         ) {
                             Column {
                                 completedTasks.forEach { task ->
-                                    Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+                                    Box(Modifier.padding(horizontal = 26.dp, vertical = 6.dp)) {
                                         TaskCard(task, isCompleting = false, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
                                     }
                                 }
@@ -2768,6 +2781,34 @@ private fun TasksScreen(
                 ) {
                     item {
                         val currentTask = tasks.firstOrNull { it.id == editingTaskId }
+                        val detailCompleting = completingTaskId == currentTask?.id
+                        val detailCompletedVisual = currentTask?.completed == true || detailCompleting
+                        val detailCheckColor by animateColorAsState(
+                            targetValue = if (detailCompletedVisual) PopBlue else Color.Transparent,
+                            animationSpec = tween(220),
+                            label = "detailCheckColor",
+                        )
+                        val detailCheckScale by animateFloatAsState(
+                            targetValue = if (detailCompletedVisual) 1f else .55f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow,
+                            ),
+                            label = "detailCheckScale",
+                        )
+                        val detailCheckAlpha by animateFloatAsState(
+                            targetValue = if (detailCompletedVisual) 1f else 0f,
+                            animationSpec = tween(160),
+                            label = "detailCheckAlpha",
+                        )
+                        val detailPulseScale by animateFloatAsState(
+                            targetValue = if (detailCompleting) 1.22f else 1f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium,
+                            ),
+                            label = "detailCheckPulse",
+                        )
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -2780,13 +2821,38 @@ private fun TasksScreen(
                             ) {
                                 Box(
                                     Modifier
-                                        .size(31.dp)
-                                        .background(if (currentTask?.completed == true) PopBlue else Color.Transparent, CircleShape)
-                                        .border(2.dp, if (currentTask?.completed == true) PopBlue else PopMuted, CircleShape),
+                                        .size(38.dp)
+                                        .graphicsLayer {
+                                            scaleX = detailPulseScale
+                                            scaleY = detailPulseScale
+                                        }
+                                        .background(
+                                            if (detailCompleting) PopBlue.copy(alpha = .14f) else Color.Transparent,
+                                            CircleShape,
+                                        ),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    if (currentTask?.completed == true) {
-                                        Icon(Icons.Rounded.Check, "Concluída", tint = Color.White, modifier = Modifier.size(20.dp))
+                                    Box(
+                                        Modifier
+                                            .size(31.dp)
+                                            .background(detailCheckColor, CircleShape)
+                                            .border(
+                                                2.dp,
+                                                if (detailCompletedVisual) PopBlue else PopBorder,
+                                                CircleShape,
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Check,
+                                            "Concluída",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp).graphicsLayer {
+                                                alpha = detailCheckAlpha
+                                                scaleX = detailCheckScale
+                                                scaleY = detailCheckScale
+                                            },
+                                        )
                                     }
                                 }
                             }
@@ -3081,7 +3147,6 @@ private fun TasksScreen(
                         val taskId = editingTaskId
                         if (taskId != null) {
                             deletingTaskId = taskId
-                            playActionSound()
                             taskActionScope.launch {
                                 delay(340)
                                 tasks.removeAll { it.id == taskId }
@@ -3917,6 +3982,7 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Unit, onOpen: () -> Unit) {
     val completedVisual = task.completed || isCompleting
+    val isOverdue = isTaskOverdue(task) && !isCompleting
     val cardColor by animateColorAsState(
         targetValue = if (completedVisual) Color(0xFF141717) else PopSurface,
         animationSpec = tween(260),
@@ -3956,7 +4022,11 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                 alpha = 1f - completionProgress
             },
     ) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxSize().padding(start = 14.dp, end = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 modifier = Modifier
                     .size(42.dp)
@@ -3996,7 +4066,8 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(task.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val dueText = if (task.dueTime.isBlank()) task.dueLabel else "${task.dueLabel}, ${task.dueTime}"
+                val dueLabel = displayDueLabel(task)
+                val dueText = if (task.dueTime.isBlank()) dueLabel else "$dueLabel, ${task.dueTime}"
                 val hasRecurrence = task.recurrenceRule != "Não repetir"
                 val hasDescription = task.description.isNotBlank()
                 val showAssignee = task.assignee.isNotBlank() && task.assignee != "Eu" && task.assignee != "Sem responsável"
@@ -4025,7 +4096,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                     }
                     Text(
                         if (showAssignee) "$dueText  •  ${task.assignee}" else dueText,
-                        color = PopMuted,
+                        color = if (isOverdue) Color(0xFFE5484D) else PopMuted,
                         fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -4035,11 +4106,13 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
             }
             PriorityPill(task.priority)
         }
+        }
     }
 }
 
 @Composable
 private fun TaskRow(task: PopTask, onClick: (() -> Unit)? = null) {
+    val isOverdue = isTaskOverdue(task)
     val rowModifier = if (onClick != null) {
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 13.dp)
     } else {
@@ -4061,9 +4134,9 @@ private fun TaskRow(task: PopTask, onClick: (() -> Unit)? = null) {
                     Text("•", color = PopMuted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 5.dp))
                 }
                 Text(
-                    if (showAssignee) "${task.dueLabel}  •  ${task.assignee}" else task.dueLabel,
+                    if (showAssignee) "${displayDueLabel(task)}  •  ${task.assignee}" else displayDueLabel(task),
                     fontSize = 11.sp,
-                    color = PopMuted,
+                    color = if (isOverdue) Color(0xFFE5484D) else PopMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -4268,7 +4341,7 @@ private fun CalendarTaskDetails(task: PopTask, onDismiss: () -> Unit) {
                             }
                         }
                     }
-                    item { CalendarTaskInfoRow(Icons.Rounded.CalendarMonth, "Data", task.dueLabel + task.dueTime.takeIf { it.isNotBlank() }?.let { ", $it" }.orEmpty()) }
+                    item { CalendarTaskInfoRow(Icons.Rounded.CalendarMonth, "Data", displayDueLabel(task) + task.dueTime.takeIf { it.isNotBlank() }?.let { ", $it" }.orEmpty()) }
                     item { CalendarTaskInfoRow(Icons.Rounded.TaskAlt, "Prioridade", task.priority) }
                     if (task.recurrenceRule != "Não repetir") {
                         item { CalendarTaskInfoRow(Icons.Rounded.Repeat, "Recorrência", task.recurrence) }

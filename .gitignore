@@ -22,6 +22,7 @@ dist-ssr
 !.env.example
 
 android/**/build/
+android/.gradle/
 ios/**/build/
 native-shell/**/build/
 

@@ -13,7 +13,9 @@ import kotlin.random.Random
 class PopStore(private val platform: PopPlatformServices) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    var state by mutableStateOf(restore())
+    var state by mutableStateOf(
+        restore().copy(workspace = WorkspaceKind.Personal, selectedCompanyId = null),
+    )
         private set
 
     var message by mutableStateOf("Dados salvos neste ${platform.platformName}")

@@ -44,7 +44,6 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.NotificationsActive
@@ -56,13 +55,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -294,7 +290,6 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
     var tab by remember { mutableStateOf(MainTab.Dashboard) }
     var morePage by remember { mutableStateOf(MorePage.Menu) }
     var showTaskEditor by remember { mutableStateOf(false) }
-    var showCompanyEditor by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
@@ -311,7 +306,7 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
                     onBack = { morePage = MorePage.Menu },
                 )
             } else {
-                WorkspaceHeader(store = store, onCreateCompany = { showCompanyEditor = true })
+                WorkspaceHeader()
             }
         },
         bottomBar = {
@@ -339,9 +334,7 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
                 MainTab.Calendar -> CalendarScreen(store)
                 MainTab.More -> when (page) {
                     MorePage.Menu -> MoreScreen(
-                        store = store,
                         onPage = { morePage = it },
-                        onCreateCompany = { showCompanyEditor = true },
                     )
                     MorePage.Team -> TeamScreen(store)
                     MorePage.Sectors -> SectorsScreen(store)
@@ -353,14 +346,11 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
     }
 
     if (showTaskEditor) TaskEditorDialog(store = store, onDismiss = { showTaskEditor = false })
-    if (showCompanyEditor) CompanyEditorDialog(store = store, onDismiss = { showCompanyEditor = false })
 }
 
 @Composable
-private fun WorkspaceHeader(store: PopStore, onCreateCompany: () -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val state = store.state
-    val selected = store.selectedCompany
+private fun WorkspaceHeader() {
+    var showComingSoon by remember { mutableStateOf(false) }
 
     Surface(color = MaterialTheme.colorScheme.background) {
         Row(
@@ -368,53 +358,30 @@ private fun WorkspaceHeader(store: PopStore, onCreateCompany: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(
-                modifier = Modifier.weight(1f).clickable { expanded = true },
+                modifier = Modifier.weight(1f).clickable { showComingSoon = true },
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (state.workspace == WorkspaceKind.Personal) "Meu espaço" else selected?.name ?: "Minha empresa",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Icon(Icons.Rounded.KeyboardArrowDown, "Trocar espaço", modifier = Modifier.size(20.dp))
-                }
+                Text("Meu espaço", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Text(
-                    if (state.workspace == WorkspaceKind.Personal) "Organização pessoal" else selected?.description.orEmpty().ifBlank { "Espaço da empresa" },
+                    "Organização pessoal",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    DropdownMenuItem(
-                        text = { WorkspaceMenuLabel("Meu espaço", "Organização pessoal") },
-                        leadingIcon = { Icon(Icons.Rounded.Person, null) },
-                        onClick = { store.selectPersonal(); expanded = false },
-                    )
-                    state.companies.forEach { company ->
-                        DropdownMenuItem(
-                            text = { WorkspaceMenuLabel(company.name, company.description.ifBlank { "Espaço da empresa" }) },
-                            leadingIcon = { Icon(Icons.Rounded.Business, null) },
-                            onClick = { store.selectCompany(company.id); expanded = false },
-                        )
-                    }
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("+ Criar minha empresa", color = PopBlue, fontSize = 13.sp, fontWeight = FontWeight.Bold) },
-                        onClick = { expanded = false; onCreateCompany() },
-                    )
-                }
             }
             PopLogo()
         }
     }
-}
 
-@Composable
-private fun WorkspaceMenuLabel(title: String, detail: String) {
-    Column {
-        Text(title, fontWeight = FontWeight.SemiBold)
-        Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1)
+    if (showComingSoon) {
+        AlertDialog(
+            onDismissRequest = { showComingSoon = false },
+            title = { Text("Meu espaço") },
+            text = { Text("Em breve, mais funcionalidades para o seu espaço pessoal.") },
+            confirmButton = {
+                TextButton(onClick = { showComingSoon = false }) { Text("Entendi") }
+            },
+        )
     }
 }
 
@@ -588,8 +555,7 @@ private fun CalendarScreen(store: PopStore) {
 }
 
 @Composable
-private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit, onCreateCompany: () -> Unit) {
-    val company = store.selectedCompany
+private fun MoreScreen(onPage: (MorePage) -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(18.dp),
@@ -597,22 +563,17 @@ private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit, onCreateComp
     ) {
         item {
             Text("Mais", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-            Text("Conta, empresa e preferências", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Conta e preferências", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (company == null) {
-            item {
-                PopCard {
-                    Text("Crie o espaço da sua empresa", fontWeight = FontWeight.Bold)
-                    Text("Depois do cadastro, equipe, setores e grupos serão liberados.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = onCreateCompany) { Text("Criar minha empresa") }
-                }
+        item {
+            PopCard {
+                Text("Meu espaço", fontWeight = FontWeight.Bold)
+                Text(
+                    "Em breve, mais funcionalidades para sua organização pessoal.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                )
             }
-        } else {
-            item { SectionTitle("Gestão de ${company.name}") }
-            item { MoreItem(Icons.Rounded.Groups, "Equipe", "${company.members.size} pessoas") { onPage(MorePage.Team) } }
-            item { MoreItem(Icons.Rounded.Apartment, "Setores", "${company.sectors.size} setores") { onPage(MorePage.Sectors) } }
-            item { MoreItem(Icons.Rounded.Business, "Grupos", "${company.groups.size} grupos") { onPage(MorePage.Groups) } }
         }
         item { SectionTitle("Aplicativo") }
         item { MoreItem(Icons.Rounded.Settings, "Configurações", "Tema, conta e suporte") { onPage(MorePage.Settings) } }

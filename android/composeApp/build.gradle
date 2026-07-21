@@ -1,0 +1,52 @@
+apply plugin: 'org.jetbrains.kotlin.multiplatform'
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.compose'
+apply plugin: 'org.jetbrains.kotlin.plugin.compose'
+apply plugin: 'org.jetbrains.kotlin.plugin.serialization'
+
+kotlin {
+    androidTarget {
+        compilations.all {
+            kotlinOptions.jvmTarget = '17'
+        }
+    }
+
+    iosX64()
+    iosArm64()
+    iosSimulatorArm64()
+
+    targets.withType(org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget).configureEach {
+        binaries.framework {
+            baseName = 'ComposeApp'
+            isStatic = true
+            binaryOption('bundleId', 'br.com.poporganize.shared')
+        }
+    }
+
+    sourceSets {
+        commonMain.dependencies {
+            implementation compose.runtime
+            implementation compose.foundation
+            implementation compose.animation
+            implementation compose.material3
+            implementation compose.materialIconsExtended
+            implementation compose.ui
+            implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1'
+            implementation 'org.jetbrains.kotlinx:kotlinx-datetime:0.6.2'
+        }
+    }
+}
+
+android {
+    namespace = 'br.com.poporganize.shared'
+    compileSdk = rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        minSdk = rootProject.ext.minSdkVersion
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

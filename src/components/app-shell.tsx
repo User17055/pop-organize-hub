@@ -1,11 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import {
-  Capacitor,
-  SystemBars,
-  SystemBarsStyle,
-  SystemBarType,
-} from "@capacitor/core";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   LayoutDashboard,
@@ -240,14 +234,6 @@ export function AppShell({
     document
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute("content", isDark ? "#071727" : "#1687f8");
-    if (Capacitor.isNativePlatform()) {
-      void SystemBars.setStyle({
-        style: isDark ? SystemBarsStyle.Dark : SystemBarsStyle.Light,
-        bar: SystemBarType.StatusBar,
-      }).catch(() => {
-        // O tema visual continua funcional caso o sistema não permita alterar os ícones.
-      });
-    }
     try {
       localStorage.setItem(THEME_KEY, theme);
     } catch {

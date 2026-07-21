@@ -1,1 +1,4 @@
+rootProject.name = 'PopOrganize'
+
 include ':app'
+include ':composeApp'

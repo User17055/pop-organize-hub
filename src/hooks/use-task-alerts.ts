@@ -30,7 +30,7 @@ function writeSeen(userId: string, ids: Set<string>) {
 }
 
 /**
- * Popups in-app (funcionam no navegador e dentro do app Android/iOS via Capacitor):
+ * Popups do painel web:
  * - avisa quando uma nova tarefa é atribuída ao usuário;
  * - avisa uma vez por dia quando há tarefas atrasadas do usuário.
  */

@@ -12,7 +12,7 @@ import {
 import type { Task } from "./domain";
 import { canViewTask, getTaskPermissions } from "./permissions";
 
-const MOBILE_SESSION_SECONDS = 60 * 60 * 24 * 30;
+const MOBILE_SESSION_EXPIRY = "9999-12-31T23:59:59.999Z";
 const NATIVE_SOURCE = "android";
 const EMAIL_CODE_TTL_MS = 10 * 60 * 1000;
 const EMAIL_CODE_RESEND_MS = 60 * 1000;
@@ -52,7 +52,7 @@ type NativeTask = Task & {
 };
 
 function sessionExpiry() {
-  return new Date(Date.now() + MOBILE_SESSION_SECONDS * 1000).toISOString();
+  return MOBILE_SESSION_EXPIRY;
 }
 
 function normalizeEmail(email: string) {
@@ -159,7 +159,6 @@ export async function verifyMobileEmailCode(rawEmail: string, code: string) {
     );
     if (!personalWorkspace) throw Object.assign(new Error("Conta sem espaço pessoal."), { statusCode: 409 });
 
-    platform.sessions = platform.sessions.filter((session) => session.userId !== account!.id);
     platform.sessions.push({
       id: nextId("s", platform.sessions),
       tokenHash: hashToken(sessionToken),

@@ -704,7 +704,6 @@ export const login = createServerFn({ method: "POST" })
       const employee = activeWorkspace?.employees.find((item) => item.id === account.id);
       if (!activeWorkspace || !employee) throw createHttpError("Conta sem espaço disponível.", 409);
 
-      platform.sessions = platform.sessions.filter((session) => session.userId !== account.id);
       platform.sessions.push({
         id: nextId("s", platform.sessions),
         tokenHash: hashToken(token),
@@ -797,7 +796,6 @@ export const loginWithGoogle = createServerFn({ method: "POST" })
       const employee = activeWorkspace?.employees.find((item) => item.id === account!.id);
       if (!activeWorkspace || !employee) throw createHttpError("Conta sem espaço disponível.", 409);
 
-      platform.sessions = platform.sessions.filter((session) => session.userId !== account!.id);
       platform.sessions.push({
         id: nextId("s", platform.sessions),
         tokenHash: hashToken(sessionToken),
@@ -1280,7 +1278,6 @@ export const acceptInvitation = createServerFn({ method: "POST" })
       };
       workspace.employees.push(employee);
       workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
-      platform.sessions = platform.sessions.filter((session) => session.userId !== account.id);
       platform.sessions.push({
         id: nextId("s", platform.sessions),
         tokenHash: hashToken(sessionToken),

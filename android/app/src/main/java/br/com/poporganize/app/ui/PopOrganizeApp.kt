@@ -144,6 +144,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -484,6 +485,11 @@ private fun displayDueLabel(task: PopTask): String {
 private fun isTaskOverdue(task: PopTask): Boolean =
     !task.completed &&
         runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isBefore(LocalDate.now()) == true
+
+private fun isFutureRecurrence(task: PopTask, today: LocalDate = LocalDate.now()): Boolean =
+    !task.completed &&
+        task.recurrenceOccurrence > 1 &&
+        runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isAfter(today) == true
 
 private suspend fun loadRemoteTasks(apiToken: String): List<PopTask> = withContext(Dispatchers.IO) {
     val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
@@ -1891,7 +1897,8 @@ private fun DashboardScreen(
     onOpenTask: (PopTask) -> Unit,
 ) {
     val today = LocalDate.now()
-    val overdue = tasks.count { task ->
+    val visibleTasks = tasks.filterNot { isFutureRecurrence(it, today) }
+    val overdue = visibleTasks.count { task ->
         !task.completed &&
             runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isBefore(today) == true
     }
@@ -1919,7 +1926,7 @@ private fun DashboardScreen(
         }
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                HeroCard(tasks, displayName, onViewTasks)
+                HeroCard(visibleTasks, displayName, onViewTasks)
                 Spacer(Modifier.height(18.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -1929,7 +1936,7 @@ private fun DashboardScreen(
                         modifier = Modifier.weight(1f),
                     )
                     Text(
-                        if (tasks.size == 1) "1 tarefa" else "${tasks.size} tarefas",
+                        if (visibleTasks.size == 1) "1 tarefa" else "${visibleTasks.size} tarefas",
                         color = PopMuted,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -1944,8 +1951,8 @@ private fun DashboardScreen(
                     item {
                         MetricCard(
                             "Concluídas",
-                            tasks.count { it.completed },
-                            tasks.size,
+                            visibleTasks.count { it.completed },
+                            visibleTasks.size,
                             Color(0xFF18A66A),
                             showProgress = true,
                             modifier = Modifier.width(158.dp).height(125.dp),
@@ -1954,8 +1961,8 @@ private fun DashboardScreen(
                     item {
                         MetricCard(
                             "Pendentes",
-                            tasks.count { !it.completed },
-                            tasks.size,
+                            visibleTasks.count { !it.completed },
+                            visibleTasks.size,
                             Color(0xFFFF9F1C),
                             showProgress = false,
                             modifier = Modifier.width(158.dp).height(125.dp),
@@ -1965,7 +1972,7 @@ private fun DashboardScreen(
                         MetricCard(
                             "Atrasadas",
                             overdue,
-                            tasks.size,
+                            visibleTasks.size,
                             Color(0xFFE5484D),
                             showProgress = false,
                             modifier = Modifier.width(158.dp).height(125.dp),
@@ -1975,7 +1982,7 @@ private fun DashboardScreen(
                 Spacer(Modifier.height(20.dp))
                 SectionTitle("Tarefas recentes", "Ver todas", onViewTasks)
                 Spacer(Modifier.height(8.dp))
-                tasks.take(3).forEachIndexed { index, task ->
+                visibleTasks.take(3).forEachIndexed { index, task ->
                     TaskRow(task = task, onClick = { onOpenTask(task) })
                     if (index < 2) HorizontalDivider(color = PopBorder.copy(alpha = .65f))
                 }
@@ -2047,11 +2054,16 @@ private fun MetricCard(
     modifier: Modifier = Modifier,
 ) {
     val percentage = if (total == 0) 0 else ((value.toFloat() / total) * 100).toInt()
+    val isLightTheme = MaterialTheme.colorScheme.background.luminance() > .5f
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = PopSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isLightTheme) 0.dp else 1.dp,
+            pressedElevation = 0.dp,
+            focusedElevation = if (isLightTheme) 0.dp else 1.dp,
+        ),
     ) {
         Column(Modifier.fillMaxSize().padding(15.dp)) {
             Text(label, fontSize = 13.sp, color = PopText, fontWeight = FontWeight.Bold)
@@ -2250,6 +2262,7 @@ private fun TasksScreen(
     }
 
     val filtered = tasks
+        .filterNot { isFutureRecurrence(it, today) }
         .filter {
             it.title.contains(query, ignoreCase = true) ||
                 it.description.contains(query, ignoreCase = true) ||
@@ -2724,10 +2737,15 @@ private fun TasksScreen(
 
     if (editingTaskId != null) {
         Dialog(
-            onDismissRequest = { editingTaskId = null },
+            onDismissRequest = ::saveEditedTask,
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
         ) {
             val dialogView = LocalView.current
+            val openedTask = tasks.firstOrNull { it.id == editingTaskId }
+            val detailIsOverdue = openedTask?.let(::isTaskOverdue) == true
+            val detailIsLightTheme = MaterialTheme.colorScheme.background.luminance() > .5f
+            val detailOverdueBackground =
+                if (detailIsLightTheme) Color(0xFFD63843) else Color(0xFFB52D3A)
             SideEffect {
                 (dialogView.parent as? DialogWindowProvider)?.window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
             }
@@ -2760,12 +2778,12 @@ private fun TasksScreen(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = { editingTaskId = null }) {
+                    IconButton(onClick = ::saveEditedTask) {
                         Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText, modifier = Modifier.size(28.dp))
                     }
                     Text(
-                        tasks.firstOrNull { it.id == editingTaskId }?.department?.uppercase() ?: "DETALHES",
-                        color = PopMuted,
+                        openedTask?.department?.uppercase() ?: "DETALHES",
+                        color = if (detailIsOverdue) detailOverdueBackground else PopMuted,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         modifier = Modifier.weight(1f),
@@ -2780,7 +2798,7 @@ private fun TasksScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     item {
-                        val currentTask = tasks.firstOrNull { it.id == editingTaskId }
+                        val currentTask = openedTask
                         val detailCompleting = completingTaskId == currentTask?.id
                         val detailCompletedVisual = currentTask?.completed == true || detailCompleting
                         val detailCheckColor by animateColorAsState(
@@ -2810,7 +2828,9 @@ private fun TasksScreen(
                             label = "detailCheckPulse",
                         )
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Box(
@@ -2835,10 +2855,19 @@ private fun TasksScreen(
                                     Box(
                                         Modifier
                                             .size(31.dp)
-                                            .background(detailCheckColor, CircleShape)
+                                            .background(
+                                                when {
+                                                    detailCompletedVisual -> detailCheckColor
+                                                    else -> Color.Transparent
+                                                },
+                                                CircleShape,
+                                            )
                                             .border(
                                                 2.dp,
-                                                if (detailCompletedVisual) PopBlue else PopBorder,
+                                                when {
+                                                    detailCompletedVisual -> PopBlue
+                                                    else -> PopBorder
+                                                },
                                                 CircleShape,
                                             ),
                                         contentAlignment = Alignment.Center,
@@ -2866,6 +2895,11 @@ private fun TasksScreen(
                                 colors = TextFieldDefaults.colors(
                                     focusedContainerColor = Color.Transparent,
                                     unfocusedContainerColor = Color.Transparent,
+                                    focusedTextColor = PopText,
+                                    unfocusedTextColor = PopText,
+                                    cursorColor = PopBlue,
+                                    focusedPlaceholderColor = PopMuted,
+                                    unfocusedPlaceholderColor = PopMuted,
                                     focusedIndicatorColor = Color.Transparent,
                                     unfocusedIndicatorColor = Color.Transparent,
                                 ),
@@ -2906,6 +2940,7 @@ private fun TasksScreen(
                                     label = "Data de conclusão",
                                     value = listOf(editDueDate, editDueTime).filter { it.isNotBlank() }.joinToString(" • "),
                                     expanded = expandedDetailSection == "date",
+                                    valueColor = if (detailIsOverdue) detailOverdueBackground else PopMuted,
                                 ) {
                                     expandedDetailSection = if (expandedDetailSection == "date") null else "date"
                                 }
@@ -3983,8 +4018,14 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Unit, onOpen: () -> Unit) {
     val completedVisual = task.completed || isCompleting
     val isOverdue = isTaskOverdue(task) && !isCompleting
+    val isLightTheme = MaterialTheme.colorScheme.background.luminance() > .5f
+    val overdueBackground = if (isLightTheme) Color(0xFFD63843) else Color(0xFFB52D3A)
     val cardColor by animateColorAsState(
-        targetValue = if (completedVisual) Color(0xFF141717) else PopSurface,
+        targetValue = when {
+            completedVisual -> Color(0xFF141717)
+            isOverdue -> overdueBackground
+            else -> PopSurface
+        },
         animationSpec = tween(260),
         label = "taskCardCompletionColor",
     )
@@ -4011,7 +4052,10 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
     Card(
         onClick = onOpen,
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = cardColor),
+        colors = CardDefaults.cardColors(
+            containerColor = cardColor,
+            contentColor = if (isOverdue || completedVisual) Color.White else PopText,
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .height(82.dp)
@@ -4048,7 +4092,15 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                     Modifier
                         .size(22.dp)
                         .background(checkColor, CircleShape)
-                        .border(2.dp, if (completedVisual) PopBlue else PopMuted.copy(alpha = .55f), CircleShape),
+                        .border(
+                            2.dp,
+                            when {
+                                completedVisual -> PopBlue
+                                isOverdue -> Color.White.copy(alpha = .72f)
+                                else -> PopMuted.copy(alpha = .55f)
+                            },
+                            CircleShape,
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -4065,7 +4117,14 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(task.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    task.title,
+                    color = if (isOverdue) Color.White else Color.Unspecified,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 val dueLabel = displayDueLabel(task)
                 val dueText = if (task.dueTime.isBlank()) dueLabel else "$dueLabel, ${task.dueTime}"
                 val hasRecurrence = task.recurrenceRule != "Não repetir"
@@ -4076,7 +4135,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                         Icon(
                             Icons.Rounded.Repeat,
                             "Tarefa recorrente",
-                            tint = PopMuted,
+                            tint = if (isOverdue) Color.White.copy(alpha = .82f) else PopMuted,
                             modifier = Modifier.padding(start = 5.dp).size(14.dp),
                         )
                     }
@@ -4087,16 +4146,21 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                         Icon(
                             Icons.Rounded.Description,
                             "Possui anotação",
-                            tint = PopMuted,
+                            tint = if (isOverdue) Color.White.copy(alpha = .82f) else PopMuted,
                             modifier = Modifier.size(14.dp),
                         )
                     }
                     if (hasRecurrence || hasDescription) {
-                        Text("•", color = PopMuted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 5.dp))
+                        Text(
+                            "•",
+                            color = if (isOverdue) Color.White.copy(alpha = .82f) else PopMuted,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 5.dp),
+                        )
                     }
                     Text(
                         if (showAssignee) "$dueText  •  ${task.assignee}" else dueText,
-                        color = if (isOverdue) Color(0xFFE5484D) else PopMuted,
+                        color = if (isOverdue) Color.White.copy(alpha = .9f) else PopMuted,
                         fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -4104,7 +4168,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                     )
                 }
             }
-            PriorityPill(task.priority)
+            PriorityPill(task.priority, if (isOverdue) Color.White else null)
         }
         }
     }
@@ -4152,6 +4216,7 @@ private fun DetailSettingRow(
     label: String,
     value: String,
     expanded: Boolean,
+    valueColor: Color = PopMuted,
     onClick: () -> Unit,
 ) {
     Row(
@@ -4163,7 +4228,7 @@ private fun DetailSettingRow(
         Column(Modifier.weight(1f)) {
             Text(label, color = PopText.copy(alpha = .82f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             if (value.isNotBlank()) {
-                Text(value, color = PopMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(value, color = valueColor, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         Icon(
@@ -4184,7 +4249,7 @@ private fun taskEditorFieldColors(containerColor: Color = PopSurfaceAlt) = TextF
 )
 
 @Composable
-private fun PriorityPill(priority: String) {
+private fun PriorityPill(priority: String, colorOverride: Color? = null) {
     val color = when (priority) {
         "Alta" -> Color(0xFFE5484D)
         "Média" -> Color(0xFFFF9F1C)
@@ -4192,7 +4257,7 @@ private fun PriorityPill(priority: String) {
     }
     Text(
         priority,
-        color = color,
+        color = colorOverride ?: color,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),

@@ -241,6 +241,7 @@ private data class GoogleAccount(
     val name: String,
     val email: String,
     val photoUrl: String,
+    val apiToken: String,
 )
 private data class CompanyMember(val name: String, val email: String, val role: String, val sector: String)
 private data class CompanySector(val name: String, val description: String)
@@ -254,6 +255,10 @@ private const val GOOGLE_ACCOUNT_ID_STORAGE = "pop_organize_google_account_id"
 private const val GOOGLE_ACCOUNT_NAME_STORAGE = "pop_organize_google_account_name"
 private const val GOOGLE_ACCOUNT_EMAIL_STORAGE = "pop_organize_google_account_email"
 private const val GOOGLE_ACCOUNT_PHOTO_STORAGE = "pop_organize_google_account_photo"
+private const val API_SESSION_TOKEN_STORAGE = "pop_organize_api_session_token"
+private const val ACCOUNT_TASKS_STORAGE_PREFIX = "pop_organize_account_tasks_"
+private const val ACCOUNT_TASKS_DIRTY_PREFIX = "pop_organize_account_tasks_dirty_"
+private const val MOBILE_API_BASE_URL = "https://app.poporganize.com.br/api/mobile"
 private const val LIGHT_THEME_STORAGE = "pop_organize_light_theme"
 private const val LOCAL_PREFERENCES = "pop_organize_local"
 private val googleProfileImageCache = mutableMapOf<String, ImageBitmap>()
@@ -333,9 +338,8 @@ private fun nextRecurrenceDate(task: PopTask): LocalDate? {
     }
 }
 
-private fun loadGuestTasks(context: Context): List<PopTask> {
-    val raw = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
-        .getString(GUEST_TASKS_STORAGE, null) ?: return defaultGuestTasks()
+private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
+    if (raw.isNullOrBlank()) return fallback
     return runCatching {
         val items = JSONArray(raw)
         List(items.length()) { index ->
@@ -345,7 +349,7 @@ private fun loadGuestTasks(context: Context): List<PopTask> {
             PopTask(
                 id = item.getInt("id"),
                 title = item.getString("title"),
-                department = "Pessoal",
+                department = item.optString("department", "Pessoal"),
                 dueLabel = dueLabel,
                 priority = item.getString("priority"),
                 dueDate = normalizedDueDate(dueLabel, storedDueDate),
@@ -365,16 +369,32 @@ private fun loadGuestTasks(context: Context): List<PopTask> {
                 recurrenceOccurrence = item.optInt("recurrenceOccurrence", 1).coerceAtLeast(1),
             )
         }
-    }.getOrElse { defaultGuestTasks() }
+    }.getOrElse { fallback }
 }
 
-private fun saveGuestTasks(context: Context, tasks: List<PopTask>) {
+private fun loadGuestTasks(context: Context): List<PopTask> = decodeTasks(
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .getString(GUEST_TASKS_STORAGE, null),
+    defaultGuestTasks(),
+)
+
+private fun accountTasksKey(accountId: String) = "$ACCOUNT_TASKS_STORAGE_PREFIX$accountId"
+private fun accountTasksDirtyKey(accountId: String) = "$ACCOUNT_TASKS_DIRTY_PREFIX$accountId"
+
+private fun loadAccountTasks(context: Context, accountId: String): List<PopTask> = decodeTasks(
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .getString(accountTasksKey(accountId), null),
+    emptyList(),
+)
+
+private fun tasksToJson(tasks: List<PopTask>): JSONArray {
     val items = JSONArray()
     tasks.forEach { task ->
         items.put(
             JSONObject()
                 .put("id", task.id)
                 .put("title", task.title)
+                .put("department", task.department)
                 .put("dueLabel", task.dueLabel)
                 .put("priority", task.priority)
                 .put("dueDate", task.dueDate)
@@ -394,8 +414,105 @@ private fun saveGuestTasks(context: Context, tasks: List<PopTask>) {
                 .put("recurrenceOccurrence", task.recurrenceOccurrence),
         )
     }
+    return items
+}
+
+private fun saveTasks(context: Context, storageKey: String, tasks: List<PopTask>) {
     context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
-        .edit().putString(GUEST_TASKS_STORAGE, items.toString()).apply()
+        .edit().putString(storageKey, tasksToJson(tasks).toString()).apply()
+}
+
+private fun saveGuestTasks(context: Context, tasks: List<PopTask>) =
+    saveTasks(context, GUEST_TASKS_STORAGE, tasks)
+
+private fun saveAccountTasks(context: Context, accountId: String, tasks: List<PopTask>) =
+    saveTasks(context, accountTasksKey(accountId), tasks)
+
+private fun setAccountTasksDirty(context: Context, accountId: String, dirty: Boolean) {
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .edit().putBoolean(accountTasksDirtyKey(accountId), dirty).apply()
+}
+
+private fun accountTasksAreDirty(context: Context, accountId: String): Boolean =
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .getBoolean(accountTasksDirtyKey(accountId), false)
+
+private data class ApiGoogleSession(val token: String)
+
+private suspend fun authenticateGoogleWithApi(idToken: String): ApiGoogleSession = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/auth/google").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "POST"
+        connectTimeout = 15_000
+        readTimeout = 20_000
+        doOutput = true
+        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+            writer.write(JSONObject().put("credential", idToken).toString())
+        }
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) {
+            throw IllegalStateException(response.optString("error", "Não foi possível conectar ao servidor."))
+        }
+        val token = response.optString("token")
+        if (token.isBlank()) throw IllegalStateException("O servidor não retornou uma sessão válida.")
+        ApiGoogleSession(token)
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private suspend fun loadRemoteTasks(apiToken: String): List<PopTask> = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 15_000
+        readTimeout = 20_000
+        setRequestProperty("Authorization", "Bearer $apiToken")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) {
+            throw IllegalStateException(response.optString("error", "Falha ao carregar tarefas."))
+        }
+        decodeTasks(response.optJSONArray("tasks")?.toString(), emptyList())
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private suspend fun syncRemoteTasks(apiToken: String, tasks: List<PopTask>) = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "PUT"
+        connectTimeout = 15_000
+        readTimeout = 20_000
+        doOutput = true
+        setRequestProperty("Authorization", "Bearer $apiToken")
+        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+            writer.write(JSONObject().put("tasks", tasksToJson(tasks)).toString())
+        }
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (responseCode !in 200..299) {
+            val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+            throw IllegalStateException(response.optString("error", "Falha ao salvar tarefas."))
+        }
+    } finally {
+        connection.disconnect()
+    }
 }
 
 private enum class AppStage { Splash, Onboarding, Login, Main }
@@ -464,9 +581,16 @@ fun PopOrganizeApp() {
             val email = preferences.getString(GOOGLE_ACCOUNT_EMAIL_STORAGE, null)
             val name = preferences.getString(GOOGLE_ACCOUNT_NAME_STORAGE, null)
             val photoUrl = preferences.getString(GOOGLE_ACCOUNT_PHOTO_STORAGE, null)
+            val apiToken = preferences.getString(API_SESSION_TOKEN_STORAGE, null)
             mutableStateOf(
-                if (!id.isNullOrBlank() && !email.isNullOrBlank()) {
-                    GoogleAccount(id = id, name = name.orEmpty(), email = email, photoUrl = photoUrl.orEmpty())
+                if (!id.isNullOrBlank() && !email.isNullOrBlank() && !apiToken.isNullOrBlank()) {
+                    GoogleAccount(
+                        id = id,
+                        name = name.orEmpty(),
+                        email = email,
+                        photoUrl = photoUrl.orEmpty(),
+                        apiToken = apiToken,
+                    )
                 } else {
                     null
                 },
@@ -489,7 +613,8 @@ fun PopOrganizeApp() {
             delay(1_500)
             stage = when {
                 !onboardingCompleted -> AppStage.Onboarding
-                sessionMode != null -> AppStage.Main
+                sessionMode == SessionMode.Guest -> AppStage.Main
+                sessionMode == SessionMode.Google && googleAccount != null -> AppStage.Main
                 else -> AppStage.Login
             }
         }
@@ -554,6 +679,7 @@ fun PopOrganizeApp() {
                             .putString(GOOGLE_ACCOUNT_NAME_STORAGE, account.name)
                             .putString(GOOGLE_ACCOUNT_EMAIL_STORAGE, account.email)
                             .putString(GOOGLE_ACCOUNT_PHOTO_STORAGE, account.photoUrl)
+                            .putString(API_SESSION_TOKEN_STORAGE, account.apiToken)
                             .apply()
                         stage = AppStage.Main
                     },
@@ -580,6 +706,7 @@ fun PopOrganizeApp() {
                             .remove(GOOGLE_ACCOUNT_NAME_STORAGE)
                             .remove(GOOGLE_ACCOUNT_EMAIL_STORAGE)
                             .remove(GOOGLE_ACCOUNT_PHOTO_STORAGE)
+                            .remove(API_SESSION_TOKEN_STORAGE)
                             .apply()
                         appScope.launch {
                             runCatching {
@@ -934,12 +1061,14 @@ private fun LoginScreen(
                 }
 
                 val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                val apiSession = authenticateGoogleWithApi(googleCredential.idToken)
                 onGoogleSignedIn(
                     GoogleAccount(
                         id = googleCredential.id,
                         name = googleCredential.displayName.orEmpty(),
                         email = googleCredential.id,
                         photoUrl = googleCredential.profilePictureUri?.toString().orEmpty(),
+                        apiToken = apiSession.token,
                     ),
                 )
             } catch (_: GetCredentialCancellationException) {
@@ -956,6 +1085,12 @@ private fun LoginScreen(
                 Toast.makeText(
                     context,
                     error.localizedMessage ?: "Falha ao entrar com o Google.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } catch (error: Exception) {
+                Toast.makeText(
+                    context,
+                    error.localizedMessage ?: "Não foi possível conectar ao servidor.",
                     Toast.LENGTH_LONG,
                 ).show()
             } finally {
@@ -1197,10 +1332,19 @@ private fun PopMainContent(
     val companyMembers = remember { mutableStateListOf<CompanyMember>() }
     val companySectors = remember { mutableStateListOf<CompanySector>() }
     val companyGroups = remember { mutableStateListOf<CompanyGroup>() }
-    val personalTasks = remember(sessionMode) {
+    val personalTasks = remember(sessionMode, googleAccount?.id) {
         mutableStateListOf<PopTask>().apply {
-            addAll(if (sessionMode == SessionMode.Guest) loadGuestTasks(context) else emptyList())
+            addAll(
+                if (sessionMode == SessionMode.Guest) {
+                    loadGuestTasks(context)
+                } else {
+                    googleAccount?.id?.let { loadAccountTasks(context, it) }.orEmpty()
+                },
+            )
         }
+    }
+    var remoteTasksLoaded by remember(sessionMode, googleAccount?.id) {
+        mutableStateOf(sessionMode == SessionMode.Guest)
     }
     val companyTaskGroups = remember(sessionMode) { mutableStateListOf<MutableList<PopTask>>() }
     val tasks = if (workSpace == WorkSpace.Personal) {
@@ -1244,8 +1388,53 @@ private fun PopMainContent(
         }
     }
 
-    LaunchedEffect(personalTasks.toList(), sessionMode) {
-        if (sessionMode == SessionMode.Guest) saveGuestTasks(context, personalTasks)
+    LaunchedEffect(sessionMode, googleAccount?.apiToken) {
+        if (sessionMode == SessionMode.Google && !googleAccount?.apiToken.isNullOrBlank()) {
+            val account = googleAccount!!
+            val hasPendingLocalChanges = accountTasksAreDirty(context, account.id)
+            runCatching {
+                if (hasPendingLocalChanges) {
+                    syncRemoteTasks(account.apiToken, personalTasks.toList())
+                    personalTasks.toList()
+                } else {
+                    loadRemoteTasks(account.apiToken)
+                }
+            }
+                .onSuccess { remoteTasks ->
+                    personalTasks.clear()
+                    personalTasks.addAll(remoteTasks)
+                    saveAccountTasks(context, account.id, remoteTasks)
+                    setAccountTasksDirty(context, account.id, false)
+                    remoteTasksLoaded = true
+                }
+                .onFailure { error ->
+                    Toast.makeText(
+                        context,
+                        error.localizedMessage ?: "Não foi possível carregar as tarefas.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+        }
+    }
+    LaunchedEffect(personalTasks.toList(), sessionMode, googleAccount?.apiToken, remoteTasksLoaded) {
+        if (sessionMode == SessionMode.Guest) {
+            saveGuestTasks(context, personalTasks)
+        } else if (googleAccount != null) {
+            saveAccountTasks(context, googleAccount.id, personalTasks)
+            if (remoteTasksLoaded && googleAccount.apiToken.isNotBlank()) {
+                setAccountTasksDirty(context, googleAccount.id, true)
+                delay(350)
+                runCatching { syncRemoteTasks(googleAccount.apiToken, personalTasks.toList()) }
+                    .onSuccess { setAccountTasksDirty(context, googleAccount.id, false) }
+                    .onFailure { error ->
+                        Toast.makeText(
+                            context,
+                            error.localizedMessage ?: "A tarefa ficou salva no aparelho e será sincronizada depois.",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+            }
+        }
     }
     LaunchedEffect(personalTasks.toList(), companyTaskGroups.map { it.toList() }) {
         saveNotificationTaskSnapshot(

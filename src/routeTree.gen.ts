@@ -21,6 +21,8 @@ import { Route as CalendarioRouteImport } from './routes/calendario'
 import { Route as AceitarConviteRouteImport } from './routes/aceitar-convite'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiMobileTasksRouteImport } from './routes/api/mobile/tasks'
+import { Route as ApiMobileAuthGoogleRouteImport } from './routes/api/mobile/auth/google'
 
 const TarefasRoute = TarefasRouteImport.update({
   id: '/tarefas',
@@ -82,6 +84,16 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMobileTasksRoute = ApiMobileTasksRouteImport.update({
+  id: '/api/mobile/tasks',
+  path: '/api/mobile/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileAuthGoogleRoute = ApiMobileAuthGoogleRouteImport.update({
+  id: '/api/mobile/auth/google',
+  path: '/api/mobile/auth/google',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -96,6 +108,8 @@ export interface FileRoutesByFullPath {
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mobile/tasks': typeof ApiMobileTasksRoute
+  '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -110,6 +124,8 @@ export interface FileRoutesByTo {
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mobile/tasks': typeof ApiMobileTasksRoute
+  '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -125,6 +141,8 @@ export interface FileRoutesById {
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mobile/tasks': typeof ApiMobileTasksRoute
+  '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -141,6 +159,8 @@ export interface FileRouteTypes {
     | '/setores'
     | '/tarefas'
     | '/api/health'
+    | '/api/mobile/tasks'
+    | '/api/mobile/auth/google'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -155,6 +175,8 @@ export interface FileRouteTypes {
     | '/setores'
     | '/tarefas'
     | '/api/health'
+    | '/api/mobile/tasks'
+    | '/api/mobile/auth/google'
   id:
     | '__root__'
     | '/'
@@ -169,6 +191,8 @@ export interface FileRouteTypes {
     | '/setores'
     | '/tarefas'
     | '/api/health'
+    | '/api/mobile/tasks'
+    | '/api/mobile/auth/google'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -184,6 +208,8 @@ export interface RootRouteChildren {
   SetoresRoute: typeof SetoresRoute
   TarefasRoute: typeof TarefasRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiMobileTasksRoute: typeof ApiMobileTasksRoute
+  ApiMobileAuthGoogleRoute: typeof ApiMobileAuthGoogleRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -272,6 +298,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mobile/tasks': {
+      id: '/api/mobile/tasks'
+      path: '/api/mobile/tasks'
+      fullPath: '/api/mobile/tasks'
+      preLoaderRoute: typeof ApiMobileTasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/auth/google': {
+      id: '/api/mobile/auth/google'
+      path: '/api/mobile/auth/google'
+      fullPath: '/api/mobile/auth/google'
+      preLoaderRoute: typeof ApiMobileAuthGoogleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -288,6 +328,8 @@ const rootRouteChildren: RootRouteChildren = {
   SetoresRoute: SetoresRoute,
   TarefasRoute: TarefasRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiMobileTasksRoute: ApiMobileTasksRoute,
+  ApiMobileAuthGoogleRoute: ApiMobileAuthGoogleRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

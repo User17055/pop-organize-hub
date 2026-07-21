@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
 const mobileTaskSchema = z.object({
-  id: z.number().int().positive(),
+  id: z.number().int(),
+  serverId: z.string().max(300).optional(),
   title: z.string().trim().min(3).max(300),
   department: z.string().max(120).default("Pessoal"),
   dueLabel: z.string().max(120),
@@ -22,6 +23,9 @@ const mobileTaskSchema = z.object({
   recurrenceEndMode: z.string().max(100),
   recurrenceEndValue: z.string().max(100),
   recurrenceOccurrence: z.number().int().min(1).max(1_000_000),
+  canEdit: z.boolean().optional(),
+  canComplete: z.boolean().optional(),
+  canDelete: z.boolean().optional(),
 });
 
 const mobileTasksPayloadSchema = z.object({

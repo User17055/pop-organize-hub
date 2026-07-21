@@ -37,14 +37,8 @@ declare global {
   }
 }
 
-function SkCubeGrid() {
-  return (
-    <div className="sk-cube-grid" role="status" aria-label="Carregando">
-      {Array.from({ length: 9 }, (_, index) => (
-        <span key={index} className={`sk-cube sk-cube${index + 1}`} />
-      ))}
-    </div>
-  );
+function LoginSpinner() {
+  return <span className="login-spinner" role="status" aria-label="Carregando" />;
 }
 
 function GoogleLoginButton({
@@ -66,7 +60,7 @@ function GoogleLoginButton({
         disabled
         className="flex h-14 w-full items-center justify-center rounded-[18px] bg-white"
       >
-        <SkCubeGrid />
+        <LoginSpinner />
       </button>
     );
   }

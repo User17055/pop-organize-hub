@@ -20,10 +20,6 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -115,6 +111,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -126,6 +123,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -238,6 +236,10 @@ private data class PopTask(
     val recurrenceEndMode: String = "Nunca",
     val recurrenceEndValue: String = "",
     val recurrenceOccurrence: Int = 1,
+    val canEdit: Boolean = true,
+    val canComplete: Boolean = true,
+    val canDelete: Boolean = true,
+    val serverId: String = "",
 )
 
 private enum class SessionMode { Guest, Email, Google }
@@ -356,6 +358,7 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
             val storedDueDate = if (item.has("dueDate") && !item.isNull("dueDate")) item.getString("dueDate") else null
             PopTask(
                 id = item.getInt("id"),
+                serverId = item.optString("serverId"),
                 title = item.getString("title"),
                 department = item.optString("department", "Pessoal"),
                 dueLabel = dueLabel,
@@ -375,6 +378,9 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 recurrenceEndMode = item.optString("recurrenceEndMode", "Nunca"),
                 recurrenceEndValue = item.optString("recurrenceEndValue"),
                 recurrenceOccurrence = item.optInt("recurrenceOccurrence", 1).coerceAtLeast(1),
+                canEdit = item.optBoolean("canEdit", true),
+                canComplete = item.optBoolean("canComplete", true),
+                canDelete = item.optBoolean("canDelete", true),
             )
         }
     }.getOrElse { fallback }
@@ -401,6 +407,7 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
         items.put(
             JSONObject()
                 .put("id", task.id)
+                .put("serverId", task.serverId)
                 .put("title", task.title)
                 .put("department", task.department)
                 .put("dueLabel", task.dueLabel)
@@ -419,7 +426,10 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("recurrenceInterval", task.recurrenceInterval)
                 .put("recurrenceEndMode", task.recurrenceEndMode)
                 .put("recurrenceEndValue", task.recurrenceEndValue)
-                .put("recurrenceOccurrence", task.recurrenceOccurrence),
+                .put("recurrenceOccurrence", task.recurrenceOccurrence)
+                .put("canEdit", task.canEdit)
+                .put("canComplete", task.canComplete)
+                .put("canDelete", task.canDelete),
         )
     }
     return items
@@ -1532,7 +1542,11 @@ private fun LoginActionButton(
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (showLoader) {
-                SkCubeGridLoader()
+                CircularProgressIndicator(
+                    color = PopBlue,
+                    strokeWidth = 3.dp,
+                    modifier = Modifier.size(27.dp),
+                )
             } else if (googleLogo) {
                 Image(
                     painter = painterResource(R.drawable.google_logo),
@@ -1554,46 +1568,6 @@ private fun LoginActionButton(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = .15.sp,
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SkCubeGridLoader() {
-    val transition = rememberInfiniteTransition(label = "sk-cube-grid")
-    val delays = listOf(200, 300, 400, 100, 200, 300, 0, 100, 200)
-    val scales = delays.mapIndexed { index, delayMillis ->
-        transition.animateFloat(
-            initialValue = 1f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = keyframes {
-                    durationMillis = 1_300
-                    1f at 0
-                    1f at delayMillis.coerceAtMost(400)
-                    0f at (delayMillis + 455).coerceAtMost(1_000)
-                    1f at (delayMillis + 910).coerceAtMost(1_299)
-                },
-            ),
-            label = "sk-cube-${index + 1}",
-        )
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-        repeat(3) { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-                repeat(3) { column ->
-                    val scale = scales[row * 3 + column].value
-                    Box(
-                        Modifier
-                            .size(9.dp)
-                            .graphicsLayer {
-                                scaleX = scale
-                                scaleY = scale
-                            }
-                            .background(PopBlue),
-                    )
-                }
             }
         }
     }
@@ -1635,6 +1609,7 @@ private fun DarkLoginField(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PopMainContent(
     sessionMode: SessionMode,
@@ -1672,6 +1647,8 @@ private fun PopMainContent(
     var remoteTasksLoaded by remember(sessionMode, googleAccount?.id) {
         mutableStateOf(sessionMode == SessionMode.Guest)
     }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var lastSyncedTasksJson by remember(sessionMode, googleAccount?.id) { mutableStateOf("") }
     val companyTaskGroups = remember(sessionMode) { mutableStateListOf<MutableList<PopTask>>() }
     val tasks = if (workSpace == WorkSpace.Personal) {
         personalTasks
@@ -1715,6 +1692,36 @@ private fun PopMainContent(
         if (selectedCompanyIndex !in companyTaskGroups.indices) selectedCompanyIndex = 0
     }
 
+    fun applyRemoteTasks(remoteTasks: List<PopTask>) {
+        lastSyncedTasksJson = tasksToJson(remoteTasks).toString()
+        personalTasks.clear()
+        personalTasks.addAll(remoteTasks)
+        googleAccount?.let { saveAccountTasks(context, it.id, remoteTasks) }
+        googleAccount?.let { setAccountTasksDirty(context, it.id, false) }
+        remoteTasksLoaded = true
+    }
+
+    suspend fun refreshRemoteTasks(showFeedback: Boolean = false) {
+        val account = googleAccount ?: return
+        if (account.apiToken.isBlank()) return
+        isRefreshing = true
+        runCatching {
+            val localTasksJson = tasksToJson(personalTasks).toString()
+            if (accountTasksAreDirty(context, account.id) || (remoteTasksLoaded && localTasksJson != lastSyncedTasksJson)) {
+                syncRemoteTasks(account.apiToken, personalTasks.toList())
+            }
+            loadRemoteTasks(account.apiToken)
+        }.onSuccess { remoteTasks ->
+            applyRemoteTasks(remoteTasks)
+            if (showFeedback) Toast.makeText(context, "Atividades atualizadas", Toast.LENGTH_SHORT).show()
+        }.onFailure { error ->
+            if (showFeedback) {
+                Toast.makeText(context, error.localizedMessage ?: "Não foi possível atualizar.", Toast.LENGTH_LONG).show()
+            }
+        }
+        isRefreshing = false
+    }
+
     LaunchedEffect(sessionMode, googleAccount?.apiToken) {
         val token = googleAccount?.apiToken.orEmpty()
         if (sessionMode != SessionMode.Guest && token.isNotBlank()) {
@@ -1731,30 +1738,12 @@ private fun PopMainContent(
 
     LaunchedEffect(sessionMode, googleAccount?.apiToken) {
         if (sessionMode != SessionMode.Guest && !googleAccount?.apiToken.isNullOrBlank()) {
-            val account = googleAccount!!
-            val hasPendingLocalChanges = accountTasksAreDirty(context, account.id)
-            runCatching {
-                if (hasPendingLocalChanges) {
-                    syncRemoteTasks(account.apiToken, personalTasks.toList())
-                    personalTasks.toList()
-                } else {
-                    loadRemoteTasks(account.apiToken)
-                }
+            refreshRemoteTasks(showFeedback = true)
+            while (true) {
+                delay(15_000)
+                val hasLocalChanges = tasksToJson(personalTasks).toString() != lastSyncedTasksJson
+                if (!accountTasksAreDirty(context, googleAccount!!.id) && !hasLocalChanges) refreshRemoteTasks()
             }
-                .onSuccess { remoteTasks ->
-                    personalTasks.clear()
-                    personalTasks.addAll(remoteTasks)
-                    saveAccountTasks(context, account.id, remoteTasks)
-                    setAccountTasksDirty(context, account.id, false)
-                    remoteTasksLoaded = true
-                }
-                .onFailure { error ->
-                    Toast.makeText(
-                        context,
-                        error.localizedMessage ?: "Não foi possível carregar as tarefas.",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
         }
     }
     LaunchedEffect(personalTasks.toList(), sessionMode, googleAccount?.apiToken, remoteTasksLoaded) {
@@ -1762,11 +1751,15 @@ private fun PopMainContent(
             saveGuestTasks(context, personalTasks)
         } else if (googleAccount != null) {
             saveAccountTasks(context, googleAccount.id, personalTasks)
-            if (remoteTasksLoaded && googleAccount.apiToken.isNotBlank()) {
+            val localTasksJson = tasksToJson(personalTasks).toString()
+            if (remoteTasksLoaded && googleAccount.apiToken.isNotBlank() && localTasksJson != lastSyncedTasksJson) {
                 setAccountTasksDirty(context, googleAccount.id, true)
                 delay(350)
                 runCatching { syncRemoteTasks(googleAccount.apiToken, personalTasks.toList()) }
-                    .onSuccess { setAccountTasksDirty(context, googleAccount.id, false) }
+                    .onSuccess {
+                        lastSyncedTasksJson = localTasksJson
+                        setAccountTasksDirty(context, googleAccount.id, false)
+                    }
                     .onFailure { error ->
                         Toast.makeText(
                             context,
@@ -1791,6 +1784,17 @@ private fun PopMainContent(
         )
     }
 
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            if (sessionMode == SessionMode.Guest) {
+                Toast.makeText(context, "Entre na sua conta para sincronizar", Toast.LENGTH_SHORT).show()
+            } else {
+                navigationScope.launch { refreshRemoteTasks(showFeedback = true) }
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) {
     Scaffold(
             containerColor = PopBackground,
             bottomBar = {
@@ -1887,6 +1891,7 @@ private fun PopMainContent(
                     )
                 }
             }
+    }
     }
 
     if (showCreateCompany) {
@@ -2005,6 +2010,7 @@ private fun WorkSpaceSelector(
                 Icon(Icons.Rounded.KeyboardArrowDown, "Trocar espaço", tint = PopBlue, modifier = Modifier.size(22.dp))
             }
         }
+    }
 
         DropdownMenu(
             expanded = expanded,
@@ -2076,7 +2082,6 @@ private fun WorkSpaceSelector(
             )
         }
     }
-}
 
 @Composable
 private fun GoogleProfileAvatar(
@@ -2639,7 +2644,8 @@ private fun TasksScreen(
     }
     val today = LocalDate.now()
 
-    fun canChangeTask(task: PopTask): Boolean = true
+    fun canCompleteTask(task: PopTask): Boolean = task.canComplete
+    fun canEditTask(task: PopTask): Boolean = task.canEdit
 
     LaunchedEffect(showCreate) {
         if (showCreate) {
@@ -2668,7 +2674,7 @@ private fun TasksScreen(
     val completedTasks = filtered.filter { it.completed }
 
     fun toggleTask(task: PopTask) {
-        if (!canChangeTask(task)) {
+        if (!canCompleteTask(task)) {
             Toast.makeText(context, "Somente o responsável pode concluir esta tarefa", Toast.LENGTH_SHORT).show()
             return
         }
@@ -2686,7 +2692,8 @@ private fun TasksScreen(
                         tasks.add(
                             (currentIndex + 1).coerceAtMost(tasks.size),
                             task.copy(
-                                id = (tasks.maxOfOrNull { it.id } ?: 0) + 1,
+                                id = (tasks.filter { it.id > 0 }.maxOfOrNull { it.id } ?: 0) + 1,
+                                serverId = "",
                                 dueDate = nextDate.toString(),
                                 dueLabel = dueLabelForDate(nextDate),
                                 completed = false,
@@ -2738,7 +2745,7 @@ private fun TasksScreen(
         val index = tasks.indexOfFirst { it.id == taskId }
         if (index < 0 || editTitle.trim().length < 3) return
         val original = tasks[index]
-        if (!canChangeTask(original)) {
+        if (!canEditTask(original)) {
             Toast.makeText(context, "Você pode visualizar, mas não editar esta tarefa", Toast.LENGTH_SHORT).show()
             return
         }
@@ -2806,7 +2813,7 @@ private fun TasksScreen(
         tasks.add(
             0,
             PopTask(
-                id = (tasks.maxOfOrNull { it.id } ?: 0) + 1,
+                id = (tasks.filter { it.id > 0 }.maxOfOrNull { it.id } ?: 0) + 1,
                 title = newTaskTitle.trim(),
                 department = if (workSpace == WorkSpace.Personal) "Pessoal" else "Empresa",
                 dueLabel = when (newTaskDateOffset) {
@@ -3528,7 +3535,7 @@ private fun TasksScreen(
                             }
                         }
                     }
-                    item {
+                    if (openedTask?.canDelete == true) item {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
                             horizontalArrangement = Arrangement.End,
@@ -3536,7 +3543,7 @@ private fun TasksScreen(
                             Surface(
                                 onClick = {
                                     val currentTask = tasks.firstOrNull { it.id == editingTaskId }
-                                    if (currentTask != null && canChangeTask(currentTask)) {
+                                    if (currentTask?.canDelete == true) {
                                         showDeleteTaskConfirmation = true
                                     } else {
                                         Toast.makeText(context, "Você não tem permissão para excluir esta tarefa", Toast.LENGTH_SHORT).show()

@@ -88,6 +88,11 @@ const THEME_KEY = "pop-organize:theme";
 
 type ScrollEdge = "top" | "bottom" | null;
 
+type PwaInstallPrompt = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
+
 function isAuthError(error: unknown) {
   if (!(error instanceof Error)) return false;
   const typedError = error as Error & { statusCode?: number; status?: number };
@@ -231,6 +236,10 @@ export function AppShell({
   const moreMobileNav = visibleNav.filter((item) => !primaryMobileNav.includes(item));
   const [profileOpen, setProfileOpen] = useState(false);
   const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
+  const [installHelpOpen, setInstallHelpOpen] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<PwaInstallPrompt | null>(null);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [isIos, setIsIos] = useState(false);
   const [companyForm, setCompanyForm] = useState({ name: "", description: "" });
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof document === "undefined") return "light";
@@ -261,6 +270,40 @@ export function AppShell({
       // O tema continua ativo durante a sessão quando o armazenamento não está disponível.
     }
   }, [theme]);
+
+  useEffect(() => {
+    const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean };
+    setIsStandalone(
+      window.matchMedia("(display-mode: standalone)").matches ||
+        navigatorWithStandalone.standalone === true,
+    );
+    setIsIos(/iphone|ipad|ipod/i.test(navigator.userAgent));
+    const handlePrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as PwaInstallPrompt);
+    };
+    const handleInstalled = () => {
+      setIsStandalone(true);
+      setInstallPrompt(null);
+      toast.success("Pop Organize instalado.");
+    };
+    window.addEventListener("beforeinstallprompt", handlePrompt);
+    window.addEventListener("appinstalled", handleInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handlePrompt);
+      window.removeEventListener("appinstalled", handleInstalled);
+    };
+  }, []);
+
+  async function installWebApp() {
+    if (installPrompt) {
+      await installPrompt.prompt();
+      const choice = await installPrompt.userChoice;
+      if (choice.outcome === "accepted") setInstallPrompt(null);
+      return;
+    }
+    setInstallHelpOpen(true);
+  }
 
   function toggleCollapsed() {
     setCollapsed((current) => {
@@ -849,6 +892,26 @@ export function AppShell({
         </DialogContent>
       </Dialog>
 
+      <Dialog open={installHelpOpen} onOpenChange={setInstallHelpOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Instalar Pop Organize</DialogTitle>
+            <DialogDescription>
+              {isIos
+                ? "No Safari, toque em Compartilhar e depois em Adicionar à Tela de Início."
+                : "Abra o menu do navegador e escolha Instalar aplicativo ou Adicionar à tela inicial."}
+            </DialogDescription>
+          </DialogHeader>
+          <button
+            type="button"
+            onClick={() => setInstallHelpOpen(false)}
+            className="mt-2 h-10 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"
+          >
+            Entendi
+          </button>
+        </DialogContent>
+      </Dialog>
+
       {/* Mobile fixed header */}
       <header className="mobile-fixed-header glass-header safe-top fixed left-0 right-0 top-0 z-[70] border-b border-white/70 lg:hidden">
         <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-3 px-4 py-3">
@@ -991,6 +1054,8 @@ export function AppShell({
         onOpenProfile={openProfile}
         onLogout={() => logoutMutation.mutate()}
         showLogout={data.accessMode === "team"}
+        showInstall={!isStandalone}
+        onInstall={() => void installWebApp()}
       />
 
       <Toaster position="top-center" closeButton richColors />

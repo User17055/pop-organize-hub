@@ -10,6 +10,7 @@ import {
   verifyGoogleCredential,
 } from "./database.server";
 import type { Task } from "./domain";
+import { canViewTask, getTaskPermissions } from "./permissions";
 
 const MOBILE_SESSION_SECONDS = 60 * 60 * 24 * 30;
 const NATIVE_SOURCE = "android";
@@ -19,6 +20,7 @@ const EMAIL_CODE_MAX_ATTEMPTS = 5;
 
 export type MobileTask = {
   id: number;
+  serverId?: string;
   title: string;
   department: string;
   dueLabel: string;
@@ -38,6 +40,9 @@ export type MobileTask = {
   recurrenceEndMode: string;
   recurrenceEndValue: string;
   recurrenceOccurrence: number;
+  canEdit?: boolean;
+  canComplete?: boolean;
+  canDelete?: boolean;
 };
 
 type NativeTask = Task & {
@@ -336,15 +341,99 @@ export async function respondToMobileInvitation(
 
 export async function readMobileTasks(request: Request) {
   const { workspace, account } = await requireMobileWorkspace(request);
+  const currentUser = workspace.employees.find((employee) => employee.id === account.id);
+  if (!currentUser) return [];
+
   return workspace.tasks
     .map((task) => task as NativeTask)
-    .filter(
-      (task) =>
-        task.nativeSource === NATIVE_SOURCE &&
-        task.nativeOwnerId === account.id &&
-        task.nativeData,
+    .filter((task) =>
+      canViewTask({
+        task,
+        currentUser,
+        employees: workspace.employees,
+        departments: workspace.departments,
+        groups: workspace.groups,
+        permissionGroups: workspace.permissionGroups,
+      }),
     )
-    .map((task) => task.nativeData!);
+    .map((task) => taskToMobileTask(task, workspace, currentUser));
+}
+
+function mobileId(taskId: string) {
+  let hash = 0;
+  for (let index = 0; index < taskId.length; index += 1) {
+    hash = Math.imul(31, hash) + taskId.charCodeAt(index) | 0;
+  }
+  return -(Math.abs(hash) || 1);
+}
+
+function mobilePriority(value: Task["priority"]) {
+  return { low: "Baixa", medium: "Média", high: "Alta", urgent: "Urgente" }[value];
+}
+
+function mobileRecurrence(task: Task) {
+  const recurrence = task.recurrence;
+  if (!recurrence) return { rule: "Não repetir", detail: "", interval: 1, endMode: "Nunca", endValue: "" };
+  const rule = {
+    daily: "Diária",
+    weekly: "Semanal",
+    biweekly: "Semanal",
+    monthly: "Mensal",
+    yearly: "Anual",
+    custom: "Personalizada",
+  }[recurrence.frequency];
+  const interval = recurrence.frequency === "biweekly" ? 2 : (recurrence.interval ?? recurrence.intervalDays ?? 1);
+  return {
+    rule,
+    detail: recurrence.dayOfMonth ? String(recurrence.dayOfMonth) : "",
+    interval,
+    endMode: recurrence.endDate ? "Em uma data" : "Nunca",
+    endValue: recurrence.endDate ?? "",
+  };
+}
+
+function taskToMobileTask(
+  task: NativeTask,
+  workspace: Database,
+  currentUser: Database["employees"][number],
+): MobileTask {
+  const permissions = getTaskPermissions({
+    task,
+    currentUser,
+    employees: workspace.employees,
+    departments: workspace.departments,
+    groups: workspace.groups,
+    permissionGroups: workspace.permissionGroups,
+  });
+  const native = task.nativeData;
+  const recurrence = mobileRecurrence(task);
+  const assignee = workspace.employees.find((employee) => employee.id === task.responsibleId)?.name ?? "Sem responsável";
+  return {
+    id: native?.id ?? mobileId(task.id),
+    serverId: task.id,
+    title: task.title,
+    department: task.target.label,
+    dueLabel: native?.dueLabel ?? task.dueDate,
+    priority: mobilePriority(task.priority),
+    dueDate: task.dueDate,
+    completed: task.status === "completed" || task.status === "waiting_review",
+    description: task.description,
+    assignee,
+    recurrence: native?.recurrence ?? recurrence.rule,
+    reminder: native?.reminder ?? "Sem lembrete",
+    attachmentName: native?.attachmentName ?? "",
+    dueTime: native?.dueTime ?? "",
+    duration: native?.duration ?? "Sem duração",
+    recurrenceRule: native?.recurrenceRule ?? recurrence.rule,
+    recurrenceDetail: native?.recurrenceDetail ?? recurrence.detail,
+    recurrenceInterval: native?.recurrenceInterval ?? recurrence.interval,
+    recurrenceEndMode: native?.recurrenceEndMode ?? recurrence.endMode,
+    recurrenceEndValue: native?.recurrenceEndValue ?? recurrence.endValue,
+    recurrenceOccurrence: native?.recurrenceOccurrence ?? 1,
+    canEdit: permissions.canEditContent,
+    canComplete: permissions.canComplete || permissions.canReopen,
+    canDelete: permissions.canDelete,
+  };
 }
 
 function priority(value: string): Task["priority"] {
@@ -377,35 +466,69 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
       throw Object.assign(new Error("Espaço da conta não encontrado."), { statusCode: 401 });
     }
 
+    const currentUser = workspace.employees.find((employee) => employee.id === account.id);
+    if (!currentUser) throw Object.assign(new Error("Usuário sem acesso ao espaço."), { statusCode: 403 });
     const department = workspace.departments[0];
-    const preserved = workspace.tasks.filter((rawTask) => {
-      const task = rawTask as NativeTask;
-      return task.nativeSource !== NATIVE_SOURCE || task.nativeOwnerId !== account.id;
-    });
-    const synced: NativeTask[] = tasks.map((item) => ({
-      id: `native-${account.id}-${item.id}`,
-      title: item.title,
-      description: item.description || "Tarefa criada no aplicativo",
-      priority: priority(item.priority),
-      status: item.completed ? "completed" : "pending",
-      dueDate: item.dueDate,
-      createdAt: new Date().toISOString().slice(0, 10),
-      target: {
-        type: department ? "department" : "user",
-        id: department?.id ?? account.id,
-        label: department?.name ?? account.name,
-      },
-      responsibleId: account.id,
-      requiresReview: false,
-      tags: ["Aplicativo"],
-      comments: 0,
-      attachments: item.attachmentName ? 1 : 0,
-      subtasks: [],
-      nativeSource: NATIVE_SOURCE,
-      nativeOwnerId: account.id,
-      nativeData: item,
-    }));
-    workspace.tasks = [...synced, ...preserved] as Database["tasks"];
-    return { ok: true, count: synced.length };
+    let created = 0;
+    let updated = 0;
+
+    for (const item of tasks) {
+      const existing = workspace.tasks.find((rawTask) => {
+        const task = rawTask as NativeTask;
+        return task.id === item.serverId ||
+          (task.nativeSource === NATIVE_SOURCE && task.nativeOwnerId === account.id && task.nativeData?.id === item.id);
+      }) as NativeTask | undefined;
+
+      if (existing) {
+        if (!canViewTask({ task: existing, currentUser, employees: workspace.employees, departments: workspace.departments, groups: workspace.groups })) continue;
+        const permissions = getTaskPermissions({
+          task: existing,
+          currentUser,
+          employees: workspace.employees,
+          departments: workspace.departments,
+          groups: workspace.groups,
+          permissionGroups: workspace.permissionGroups,
+        });
+        if (item.completed !== (existing.status === "completed" || existing.status === "waiting_review")) {
+          if (item.completed && permissions.canComplete) existing.status = existing.requiresReview ? "waiting_review" : "completed";
+          if (!item.completed && permissions.canReopen) existing.status = "reopened";
+        }
+        if (permissions.canEditContent || existing.nativeOwnerId === account.id) {
+          existing.title = item.title;
+          existing.description = item.description || "Tarefa criada no aplicativo";
+          existing.priority = priority(item.priority);
+          existing.dueDate = item.dueDate;
+          existing.attachments = item.attachmentName ? 1 : 0;
+        }
+        if (existing.nativeSource === NATIVE_SOURCE && existing.nativeOwnerId === account.id) {
+          existing.nativeData = { ...item, serverId: existing.id };
+        }
+        updated += 1;
+        continue;
+      }
+
+      const newTask: NativeTask = {
+        id: `native-${account.id}-${item.id}`,
+        title: item.title,
+        description: item.description || "Tarefa criada no aplicativo",
+        priority: priority(item.priority),
+        status: item.completed ? "completed" : "pending",
+        dueDate: item.dueDate,
+        createdAt: new Date().toISOString().slice(0, 10),
+        target: { type: department ? "department" : "user", id: department?.id ?? account.id, label: department?.name ?? account.name },
+        responsibleId: account.id,
+        requiresReview: false,
+        tags: ["Aplicativo"],
+        comments: 0,
+        attachments: item.attachmentName ? 1 : 0,
+        subtasks: [],
+        nativeSource: NATIVE_SOURCE,
+        nativeOwnerId: account.id,
+        nativeData: item,
+      };
+      workspace.tasks.unshift(newTask as Task);
+      created += 1;
+    }
+    return { ok: true, count: created + updated, created, updated };
   });
 }

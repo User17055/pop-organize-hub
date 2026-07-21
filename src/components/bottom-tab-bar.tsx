@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { MoreHorizontal, Settings, LogOut } from "lucide-react";
+import { Download, MoreHorizontal, Settings, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -27,6 +27,8 @@ export function BottomTabBar({
   onOpenProfile,
   onLogout,
   showLogout = true,
+  showInstall = false,
+  onInstall,
 }: {
   primaryItems: NavItem[];
   moreItems: NavItem[];
@@ -36,6 +38,8 @@ export function BottomTabBar({
   onOpenProfile: () => void;
   onLogout: () => void;
   showLogout?: boolean;
+  showInstall?: boolean;
+  onInstall?: () => void;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreActive = moreItems.some((item) =>
@@ -142,6 +146,19 @@ export function BottomTabBar({
             })}
           </div>
           <div className="mt-5 border-t border-border pt-4">
+            {showInstall && onInstall && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMoreOpen(false);
+                  onInstall();
+                }}
+                className="pressable mb-2 flex w-full items-center gap-3 rounded-2xl bg-primary/10 p-3 text-left text-primary"
+              >
+                <Download className="h-4 w-4" />
+                <span className="text-sm font-semibold">Instalar no celular</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {

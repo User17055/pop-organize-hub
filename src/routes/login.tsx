@@ -37,6 +37,16 @@ declare global {
   }
 }
 
+function SkCubeGrid() {
+  return (
+    <div className="sk-cube-grid" role="status" aria-label="Carregando">
+      {Array.from({ length: 9 }, (_, index) => (
+        <span key={index} className={`sk-cube sk-cube${index + 1}`} />
+      ))}
+    </div>
+  );
+}
+
 function GoogleLoginButton({
   onCredential,
   disabled,
@@ -48,6 +58,18 @@ function GoogleLoginButton({
   const callbackRef = useRef(onCredential);
   callbackRef.current = onCredential;
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+
+  if (disabled && clientId) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="flex h-14 w-full items-center justify-center rounded-[18px] bg-white"
+      >
+        <SkCubeGrid />
+      </button>
+    );
+  }
 
   useEffect(() => {
     if (!clientId) return;

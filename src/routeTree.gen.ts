@@ -21,8 +21,12 @@ import { Route as CalendarioRouteImport } from './routes/calendario'
 import { Route as AceitarConviteRouteImport } from './routes/aceitar-convite'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiMobileWorkspacesRouteImport } from './routes/api/mobile/workspaces'
 import { Route as ApiMobileTasksRouteImport } from './routes/api/mobile/tasks'
+import { Route as ApiMobileInvitationsRouteImport } from './routes/api/mobile/invitations'
 import { Route as ApiMobileAuthGoogleRouteImport } from './routes/api/mobile/auth/google'
+import { Route as ApiMobileAuthEmailVerifyCodeRouteImport } from './routes/api/mobile/auth/email/verify-code'
+import { Route as ApiMobileAuthEmailRequestCodeRouteImport } from './routes/api/mobile/auth/email/request-code'
 
 const TarefasRoute = TarefasRouteImport.update({
   id: '/tarefas',
@@ -84,9 +88,19 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMobileWorkspacesRoute = ApiMobileWorkspacesRouteImport.update({
+  id: '/api/mobile/workspaces',
+  path: '/api/mobile/workspaces',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMobileTasksRoute = ApiMobileTasksRouteImport.update({
   id: '/api/mobile/tasks',
   path: '/api/mobile/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileInvitationsRoute = ApiMobileInvitationsRouteImport.update({
+  id: '/api/mobile/invitations',
+  path: '/api/mobile/invitations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMobileAuthGoogleRoute = ApiMobileAuthGoogleRouteImport.update({
@@ -94,6 +108,18 @@ const ApiMobileAuthGoogleRoute = ApiMobileAuthGoogleRouteImport.update({
   path: '/api/mobile/auth/google',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMobileAuthEmailVerifyCodeRoute =
+  ApiMobileAuthEmailVerifyCodeRouteImport.update({
+    id: '/api/mobile/auth/email/verify-code',
+    path: '/api/mobile/auth/email/verify-code',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiMobileAuthEmailRequestCodeRoute =
+  ApiMobileAuthEmailRequestCodeRouteImport.update({
+    id: '/api/mobile/auth/email/request-code',
+    path: '/api/mobile/auth/email/request-code',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -108,8 +134,12 @@ export interface FileRoutesByFullPath {
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
+  '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
+  '/api/mobile/auth/email/request-code': typeof ApiMobileAuthEmailRequestCodeRoute
+  '/api/mobile/auth/email/verify-code': typeof ApiMobileAuthEmailVerifyCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -124,8 +154,12 @@ export interface FileRoutesByTo {
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
+  '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
+  '/api/mobile/auth/email/request-code': typeof ApiMobileAuthEmailRequestCodeRoute
+  '/api/mobile/auth/email/verify-code': typeof ApiMobileAuthEmailVerifyCodeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -141,8 +175,12 @@ export interface FileRoutesById {
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
+  '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
+  '/api/mobile/auth/email/request-code': typeof ApiMobileAuthEmailRequestCodeRoute
+  '/api/mobile/auth/email/verify-code': typeof ApiMobileAuthEmailVerifyCodeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -159,8 +197,12 @@ export interface FileRouteTypes {
     | '/setores'
     | '/tarefas'
     | '/api/health'
+    | '/api/mobile/invitations'
     | '/api/mobile/tasks'
+    | '/api/mobile/workspaces'
     | '/api/mobile/auth/google'
+    | '/api/mobile/auth/email/request-code'
+    | '/api/mobile/auth/email/verify-code'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -175,8 +217,12 @@ export interface FileRouteTypes {
     | '/setores'
     | '/tarefas'
     | '/api/health'
+    | '/api/mobile/invitations'
     | '/api/mobile/tasks'
+    | '/api/mobile/workspaces'
     | '/api/mobile/auth/google'
+    | '/api/mobile/auth/email/request-code'
+    | '/api/mobile/auth/email/verify-code'
   id:
     | '__root__'
     | '/'
@@ -191,8 +237,12 @@ export interface FileRouteTypes {
     | '/setores'
     | '/tarefas'
     | '/api/health'
+    | '/api/mobile/invitations'
     | '/api/mobile/tasks'
+    | '/api/mobile/workspaces'
     | '/api/mobile/auth/google'
+    | '/api/mobile/auth/email/request-code'
+    | '/api/mobile/auth/email/verify-code'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -208,8 +258,12 @@ export interface RootRouteChildren {
   SetoresRoute: typeof SetoresRoute
   TarefasRoute: typeof TarefasRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiMobileInvitationsRoute: typeof ApiMobileInvitationsRoute
   ApiMobileTasksRoute: typeof ApiMobileTasksRoute
+  ApiMobileWorkspacesRoute: typeof ApiMobileWorkspacesRoute
   ApiMobileAuthGoogleRoute: typeof ApiMobileAuthGoogleRoute
+  ApiMobileAuthEmailRequestCodeRoute: typeof ApiMobileAuthEmailRequestCodeRoute
+  ApiMobileAuthEmailVerifyCodeRoute: typeof ApiMobileAuthEmailVerifyCodeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -298,6 +352,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mobile/workspaces': {
+      id: '/api/mobile/workspaces'
+      path: '/api/mobile/workspaces'
+      fullPath: '/api/mobile/workspaces'
+      preLoaderRoute: typeof ApiMobileWorkspacesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mobile/tasks': {
       id: '/api/mobile/tasks'
       path: '/api/mobile/tasks'
@@ -305,11 +366,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMobileTasksRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mobile/invitations': {
+      id: '/api/mobile/invitations'
+      path: '/api/mobile/invitations'
+      fullPath: '/api/mobile/invitations'
+      preLoaderRoute: typeof ApiMobileInvitationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mobile/auth/google': {
       id: '/api/mobile/auth/google'
       path: '/api/mobile/auth/google'
       fullPath: '/api/mobile/auth/google'
       preLoaderRoute: typeof ApiMobileAuthGoogleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/auth/email/verify-code': {
+      id: '/api/mobile/auth/email/verify-code'
+      path: '/api/mobile/auth/email/verify-code'
+      fullPath: '/api/mobile/auth/email/verify-code'
+      preLoaderRoute: typeof ApiMobileAuthEmailVerifyCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/auth/email/request-code': {
+      id: '/api/mobile/auth/email/request-code'
+      path: '/api/mobile/auth/email/request-code'
+      fullPath: '/api/mobile/auth/email/request-code'
+      preLoaderRoute: typeof ApiMobileAuthEmailRequestCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -328,8 +410,12 @@ const rootRouteChildren: RootRouteChildren = {
   SetoresRoute: SetoresRoute,
   TarefasRoute: TarefasRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiMobileInvitationsRoute: ApiMobileInvitationsRoute,
   ApiMobileTasksRoute: ApiMobileTasksRoute,
+  ApiMobileWorkspacesRoute: ApiMobileWorkspacesRoute,
   ApiMobileAuthGoogleRoute: ApiMobileAuthGoogleRoute,
+  ApiMobileAuthEmailRequestCodeRoute: ApiMobileAuthEmailRequestCodeRoute,
+  ApiMobileAuthEmailVerifyCodeRoute: ApiMobileAuthEmailVerifyCodeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

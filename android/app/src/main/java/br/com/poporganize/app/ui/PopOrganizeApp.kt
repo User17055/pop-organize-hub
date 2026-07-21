@@ -20,6 +20,10 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -442,6 +446,174 @@ private fun accountTasksAreDirty(context: Context, accountId: String): Boolean =
         .getBoolean(accountTasksDirtyKey(accountId), false)
 
 private data class ApiGoogleSession(val token: String)
+private data class ApiEmailCodeRequest(val developmentCode: String?)
+private data class ApiEmailSession(
+    val token: String,
+    val id: String,
+    val name: String,
+    val email: String,
+    val photoUrl: String,
+)
+private data class ApiWorkspaceSummary(val id: String, val name: String, val description: String)
+private data class ApiInvitation(
+    val id: String,
+    val companyName: String,
+    val role: String,
+    val permissionGroupName: String,
+)
+
+private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSummary> = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/workspaces").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 15_000
+        readTimeout = 20_000
+        setRequestProperty("Authorization", "Bearer $apiToken")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) throw IllegalStateException(response.optString("error", "Falha ao carregar empresas."))
+        val items = response.optJSONArray("workspaces") ?: JSONArray()
+        buildList {
+            repeat(items.length()) { index ->
+                val item = items.optJSONObject(index) ?: return@repeat
+                if (item.optString("kind") == "company") {
+                    add(ApiWorkspaceSummary(item.optString("id"), item.optString("name"), item.optString("description")))
+                }
+            }
+        }
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private suspend fun loadMobileInvitations(apiToken: String): List<ApiInvitation> = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/invitations").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 15_000
+        readTimeout = 20_000
+        setRequestProperty("Authorization", "Bearer $apiToken")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) throw IllegalStateException(response.optString("error", "Falha ao carregar convites."))
+        val items = response.optJSONArray("invitations") ?: JSONArray()
+        buildList {
+            repeat(items.length()) { index ->
+                val item = items.optJSONObject(index) ?: return@repeat
+                add(
+                    ApiInvitation(
+                        id = item.optString("id"),
+                        companyName = item.optString("companyName"),
+                        role = item.optString("role"),
+                        permissionGroupName = item.optString("permissionGroupName"),
+                    ),
+                )
+            }
+        }
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private suspend fun respondToMobileInvitation(apiToken: String, invitationId: String, accept: Boolean) = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/invitations").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "POST"
+        connectTimeout = 15_000
+        readTimeout = 20_000
+        doOutput = true
+        setRequestProperty("Authorization", "Bearer $apiToken")
+        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+            writer.write(JSONObject().put("invitationId", invitationId).put("accept", accept).toString())
+        }
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) throw IllegalStateException(response.optString("error", "Falha ao responder ao convite."))
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private suspend fun requestEmailCodeWithApi(email: String): ApiEmailCodeRequest = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/auth/email/request-code").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "POST"
+        connectTimeout = 15_000
+        readTimeout = 20_000
+        doOutput = true
+        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+            writer.write(JSONObject().put("email", email.trim().lowercase()).toString())
+        }
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) {
+            throw IllegalStateException(response.optString("error", "Não foi possível enviar o código."))
+        }
+        ApiEmailCodeRequest(response.optString("developmentCode").takeIf(String::isNotBlank))
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private suspend fun verifyEmailCodeWithApi(email: String, code: String): ApiEmailSession = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/auth/email/verify-code").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "POST"
+        connectTimeout = 15_000
+        readTimeout = 20_000
+        doOutput = true
+        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+            writer.write(
+                JSONObject()
+                    .put("email", email.trim().lowercase())
+                    .put("code", code)
+                    .toString(),
+            )
+        }
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) {
+            throw IllegalStateException(response.optString("error", "Não foi possível confirmar o código."))
+        }
+        val token = response.optString("token")
+        val user = response.optJSONObject("user") ?: JSONObject()
+        if (token.isBlank() || user.optString("id").isBlank()) {
+            throw IllegalStateException("O servidor não retornou uma sessão válida.")
+        }
+        ApiEmailSession(
+            token = token,
+            id = user.optString("id"),
+            name = user.optString("name"),
+            email = user.optString("email"),
+            photoUrl = user.optString("photoUrl"),
+        )
+    } finally {
+        connection.disconnect()
+    }
+}
 
 private suspend fun authenticateGoogleWithApi(idToken: String): ApiGoogleSession = withContext(Dispatchers.IO) {
     val connection = (URL("$MOBILE_API_BASE_URL/auth/google").openConnection() as java.net.HttpURLConnection).apply {
@@ -638,7 +810,7 @@ fun PopOrganizeApp() {
             stage = when {
                 !onboardingCompleted -> AppStage.Onboarding
                 sessionMode == SessionMode.Guest -> AppStage.Main
-                sessionMode == SessionMode.Google && googleAccount != null -> AppStage.Main
+                sessionMode != null && sessionMode != SessionMode.Guest && googleAccount != null -> AppStage.Main
                 else -> AppStage.Login
             }
         }
@@ -699,6 +871,21 @@ fun PopOrganizeApp() {
                         context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
                             .edit()
                             .putString(SESSION_MODE_STORAGE, SessionMode.Google.name)
+                            .putString(GOOGLE_ACCOUNT_ID_STORAGE, account.id)
+                            .putString(GOOGLE_ACCOUNT_NAME_STORAGE, account.name)
+                            .putString(GOOGLE_ACCOUNT_EMAIL_STORAGE, account.email)
+                            .putString(GOOGLE_ACCOUNT_PHOTO_STORAGE, account.photoUrl)
+                            .putString(API_SESSION_TOKEN_STORAGE, account.apiToken)
+                            .apply()
+                        stage = AppStage.Main
+                    },
+                    onEmailSignedIn = { account ->
+                        completeOnboarding()
+                        sessionMode = SessionMode.Email
+                        googleAccount = account
+                        context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+                            .edit()
+                            .putString(SESSION_MODE_STORAGE, SessionMode.Email.name)
                             .putString(GOOGLE_ACCOUNT_ID_STORAGE, account.id)
                             .putString(GOOGLE_ACCOUNT_NAME_STORAGE, account.name)
                             .putString(GOOGLE_ACCOUNT_EMAIL_STORAGE, account.email)
@@ -1044,6 +1231,7 @@ private fun EntryButton(
 private fun LoginScreen(
     onGuest: () -> Unit,
     onGoogleSignedIn: (GoogleAccount) -> Unit,
+    onEmailSignedIn: (GoogleAccount) -> Unit,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -1051,7 +1239,9 @@ private fun LoginScreen(
     val googleWebClientId = context.getString(R.string.google_web_client_id).trim()
     var showEmail by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    var emailCode by remember { mutableStateOf("") }
+    var emailCodeSent by remember { mutableStateOf(false) }
+    var isEmailPending by remember { mutableStateOf(false) }
     var isGoogleSignInPending by remember { mutableStateOf(false) }
 
     fun startGoogleSignIn() {
@@ -1165,32 +1355,98 @@ private fun LoginScreen(
             ) {
                 DarkLoginField(
                     value = email,
-                    onValueChange = { email = it },
+                    onValueChange = {
+                        email = it
+                        if (emailCodeSent) {
+                            emailCodeSent = false
+                            emailCode = ""
+                        }
+                    },
                     label = "E-mail",
                     icon = Icons.Rounded.Email,
                     keyboardType = KeyboardType.Email,
-                    imeAction = ImeAction.Next,
+                    imeAction = if (emailCodeSent) ImeAction.Next else ImeAction.Done,
                 )
-                DarkLoginField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = "Senha",
-                    icon = Icons.Rounded.Lock,
-                    isPassword = true,
-                    imeAction = ImeAction.Done,
-                )
+                AnimatedVisibility(visible = emailCodeSent) {
+                    DarkLoginField(
+                        value = emailCode,
+                        onValueChange = { emailCode = it.filter(Char::isDigit).take(6) },
+                        label = "Código de 6 números",
+                        icon = Icons.Rounded.Lock,
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done,
+                    )
+                }
                 LoginActionButton(
-                    text = "Entrar",
+                    text = when {
+                        isEmailPending -> "Aguarde..."
+                        emailCodeSent -> "Confirmar código"
+                        else -> "Enviar código"
+                    },
                     background = PopBlue,
                     foreground = Color.White,
+                    enabled = !isEmailPending,
+                    showLoader = isEmailPending,
                     onClick = {
-                        Toast.makeText(
-                            context,
-                            "Não foi possível acessar a nuvem. Verifique a configuração da API.",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        val normalizedEmail = email.trim().lowercase()
+                        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()) {
+                            Toast.makeText(context, "Informe um e-mail válido.", Toast.LENGTH_SHORT).show()
+                        } else if (emailCodeSent && emailCode.length != 6) {
+                            Toast.makeText(context, "Digite os 6 números do código.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            isEmailPending = true
+                            coroutineScope.launch {
+                                try {
+                                    if (!emailCodeSent) {
+                                        val result = requestEmailCodeWithApi(normalizedEmail)
+                                        emailCodeSent = true
+                                        Toast.makeText(
+                                            context,
+                                            result.developmentCode?.let { "Código de teste: $it" }
+                                                ?: "Enviamos um código para seu e-mail.",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    } else {
+                                        val session = verifyEmailCodeWithApi(normalizedEmail, emailCode)
+                                        onEmailSignedIn(
+                                            GoogleAccount(
+                                                id = session.id,
+                                                name = session.name,
+                                                email = session.email,
+                                                photoUrl = session.photoUrl,
+                                                apiToken = session.token,
+                                            ),
+                                        )
+                                    }
+                                } catch (error: Exception) {
+                                    Toast.makeText(
+                                        context,
+                                        error.localizedMessage ?: "Não foi possível acessar o servidor.",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                } finally {
+                                    isEmailPending = false
+                                }
+                            }
+                        }
                     },
                 )
+                if (emailCodeSent) {
+                    Surface(
+                        onClick = {
+                            emailCodeSent = false
+                            emailCode = ""
+                        },
+                        color = Color.Transparent,
+                        contentColor = Color.White.copy(alpha = .68f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(38.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("Alterar e-mail ou reenviar código", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
                 Surface(
                     onClick = { showEmail = false },
                     color = Color.Transparent,
@@ -1212,6 +1468,7 @@ private fun LoginScreen(
                 foreground = Color(0xFF202124),
                 googleLogo = true,
                 enabled = !isGoogleSignInPending,
+                showLoader = isGoogleSignInPending,
                 onClick = ::startGoogleSignIn,
             )
             Spacer(Modifier.height(12.dp))
@@ -1263,6 +1520,7 @@ private fun LoginActionButton(
     icon: ImageVector? = null,
     googleLogo: Boolean = false,
     enabled: Boolean = true,
+    showLoader: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
@@ -1273,7 +1531,9 @@ private fun LoginActionButton(
         modifier = Modifier.fillMaxWidth().height(56.dp),
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            if (googleLogo) {
+            if (showLoader) {
+                SkCubeGridLoader()
+            } else if (googleLogo) {
                 Image(
                     painter = painterResource(R.drawable.google_logo),
                     contentDescription = null,
@@ -1287,12 +1547,54 @@ private fun LoginActionButton(
                     modifier = Modifier.align(Alignment.CenterStart).padding(start = 20.dp).size(21.dp),
                 )
             }
-            Text(
-                text,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = .15.sp,
-            )
+            if (!showLoader) {
+                Text(
+                    text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = .15.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SkCubeGridLoader() {
+    val transition = rememberInfiniteTransition(label = "sk-cube-grid")
+    val delays = listOf(200, 300, 400, 100, 200, 300, 0, 100, 200)
+    val scales = delays.mapIndexed { index, delayMillis ->
+        transition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = keyframes {
+                    durationMillis = 1_300
+                    1f at 0
+                    1f at delayMillis.coerceAtMost(400)
+                    0f at (delayMillis + 455).coerceAtMost(1_000)
+                    1f at (delayMillis + 910).coerceAtMost(1_299)
+                },
+            ),
+            label = "sk-cube-${index + 1}",
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        repeat(3) { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                repeat(3) { column ->
+                    val scale = scales[row * 3 + column].value
+                    Box(
+                        Modifier
+                            .size(9.dp)
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                            }
+                            .background(PopBlue),
+                    )
+                }
+            }
         }
     }
 }
@@ -1354,6 +1656,8 @@ private fun PopMainContent(
     val companyMembers = remember { mutableStateListOf<CompanyMember>() }
     val companySectors = remember { mutableStateListOf<CompanySector>() }
     val companyGroups = remember { mutableStateListOf<CompanyGroup>() }
+    val pendingInvitations = remember { mutableStateListOf<ApiInvitation>() }
+    var invitationActionPending by remember { mutableStateOf(false) }
     val personalTasks = remember(sessionMode, googleAccount?.id) {
         mutableStateListOf<PopTask>().apply {
             addAll(
@@ -1401,8 +1705,32 @@ private fun PopMainContent(
         showCreateCompany = true
     }
 
+    fun applyCompanyWorkspaces(workspaces: List<ApiWorkspaceSummary>) {
+        companyNames.clear()
+        companyNames.addAll(workspaces.map { it.name })
+        companyDescriptions.clear()
+        companyDescriptions.addAll(workspaces.map { it.description.ifBlank { "Empresa e equipe" } })
+        while (companyTaskGroups.size < workspaces.size) companyTaskGroups.add(mutableStateListOf())
+        while (companyTaskGroups.size > workspaces.size) companyTaskGroups.removeAt(companyTaskGroups.lastIndex)
+        if (selectedCompanyIndex !in companyTaskGroups.indices) selectedCompanyIndex = 0
+    }
+
     LaunchedEffect(sessionMode, googleAccount?.apiToken) {
-        if (sessionMode == SessionMode.Google && !googleAccount?.apiToken.isNullOrBlank()) {
+        val token = googleAccount?.apiToken.orEmpty()
+        if (sessionMode != SessionMode.Guest && token.isNotBlank()) {
+            while (true) {
+                runCatching { loadMobileWorkspaces(token) }.onSuccess(::applyCompanyWorkspaces)
+                runCatching { loadMobileInvitations(token) }.onSuccess { invitations ->
+                    pendingInvitations.clear()
+                    pendingInvitations.addAll(invitations)
+                }
+                delay(60_000)
+            }
+        }
+    }
+
+    LaunchedEffect(sessionMode, googleAccount?.apiToken) {
+        if (sessionMode != SessionMode.Guest && !googleAccount?.apiToken.isNullOrBlank()) {
             val account = googleAccount!!
             val hasPendingLocalChanges = accountTasksAreDirty(context, account.id)
             runCatching {
@@ -1577,6 +1905,65 @@ private fun PopMainContent(
                 TextButton(onClick = { showCreateCompany = false }) {
                     Text("Entendi", color = PopBlue, fontWeight = FontWeight.Bold)
                 }
+            },
+            shape = RoundedCornerShape(26.dp),
+            containerColor = PopSurface,
+        )
+    }
+
+    pendingInvitations.firstOrNull()?.let { invitation ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Convite para empresa", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Você foi convidado para participar de ${invitation.companyName}.")
+                    Text(
+                        listOf(invitation.role, invitation.permissionGroupName)
+                            .filter(String::isNotBlank)
+                            .joinToString(" • "),
+                        color = PopMuted,
+                        fontSize = 13.sp,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !invitationActionPending,
+                    onClick = {
+                        val token = googleAccount?.apiToken.orEmpty()
+                        invitationActionPending = true
+                        navigationScope.launch {
+                            runCatching { respondToMobileInvitation(token, invitation.id, true) }
+                                .onSuccess {
+                                    pendingInvitations.removeAll { it.id == invitation.id }
+                                    runCatching { loadMobileWorkspaces(token) }.onSuccess(::applyCompanyWorkspaces)
+                                    Toast.makeText(context, "Empresa adicionada aos seus espaços.", Toast.LENGTH_LONG).show()
+                                }
+                                .onFailure { error ->
+                                    Toast.makeText(context, error.localizedMessage ?: "Falha ao aceitar convite.", Toast.LENGTH_LONG).show()
+                                }
+                            invitationActionPending = false
+                        }
+                    },
+                ) { Text(if (invitationActionPending) "Aguarde..." else "Aceitar", color = PopBlue, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !invitationActionPending,
+                    onClick = {
+                        val token = googleAccount?.apiToken.orEmpty()
+                        invitationActionPending = true
+                        navigationScope.launch {
+                            runCatching { respondToMobileInvitation(token, invitation.id, false) }
+                                .onSuccess { pendingInvitations.removeAll { it.id == invitation.id } }
+                                .onFailure { error ->
+                                    Toast.makeText(context, error.localizedMessage ?: "Falha ao recusar convite.", Toast.LENGTH_LONG).show()
+                                }
+                            invitationActionPending = false
+                        }
+                    },
+                ) { Text("Recusar", color = PopMuted) }
             },
             shape = RoundedCornerShape(26.dp),
             containerColor = PopSurface,
@@ -4615,7 +5002,7 @@ private fun MoreScreen(
                         Text(
                             when {
                                 isGuest -> "Modo sem conta"
-                                sessionMode == SessionMode.Google && !googleAccount?.name.isNullOrBlank() -> googleAccount?.name.orEmpty()
+                                sessionMode != SessionMode.Guest && !googleAccount?.name.isNullOrBlank() -> googleAccount?.name.orEmpty()
                                 else -> "Conta conectada"
                             },
                             fontWeight = FontWeight.ExtraBold,
@@ -4624,7 +5011,7 @@ private fun MoreScreen(
                         Text(
                             when {
                                 isGuest -> "Seus dados ficam neste celular"
-                                sessionMode == SessionMode.Google && !googleAccount?.email.isNullOrBlank() -> googleAccount?.email.orEmpty()
+                                sessionMode != SessionMode.Guest && !googleAccount?.email.isNullOrBlank() -> googleAccount?.email.orEmpty()
                                 else -> "Conta conectada"
                             },
                             color = PopMuted,

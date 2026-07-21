@@ -21,7 +21,18 @@ export type AccountRecord = {
   avatar?: string;
   passwordHash: string;
   googleSubject?: string;
+  emailVerifiedAt?: string;
   createdAt: string;
+};
+
+export type EmailChallengeRecord = {
+  id: string;
+  email: string;
+  codeHash: string;
+  attempts: number;
+  createdAt: string;
+  expiresAt: string;
+  consumedAt?: string;
 };
 
 export type SessionRecord = {
@@ -64,6 +75,7 @@ export type PlatformDatabase = {
   accounts: AccountRecord[];
   workspaces: Database[];
   sessions: SessionRecord[];
+  emailChallenges: EmailChallengeRecord[];
 };
 
 export function withoutPassword(employee: EmployeeRecord): Employee {

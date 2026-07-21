@@ -736,6 +736,7 @@ function migrateLegacyDatabase(value: Database): PlatformDatabase {
     accounts,
     workspaces: [...accounts.map(createPersonalWorkspace), workspace],
     sessions,
+    emailChallenges: [],
   };
 }
 
@@ -814,6 +815,10 @@ function normalizePlatformDatabase(value: PlatformDatabase | Database): Platform
     })),
     workspaces,
     sessions,
+    emailChallenges: (value.emailChallenges ?? []).filter(
+      (challenge) =>
+        !challenge.consumedAt && new Date(challenge.expiresAt).getTime() > now - 60 * 60 * 1000,
+    ),
   };
 }
 

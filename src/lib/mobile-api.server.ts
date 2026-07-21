@@ -1,4 +1,5 @@
 import type { Database, PlatformDatabase } from "./database";
+import { randomInt } from "node:crypto";
 import { nextId, toCurrentUser } from "./database";
 import {
   createPersonalWorkspace,
@@ -12,6 +13,9 @@ import type { Task } from "./domain";
 
 const MOBILE_SESSION_SECONDS = 60 * 60 * 24 * 30;
 const NATIVE_SOURCE = "android";
+const EMAIL_CODE_TTL_MS = 10 * 60 * 1000;
+const EMAIL_CODE_RESEND_MS = 60 * 1000;
+const EMAIL_CODE_MAX_ATTEMPTS = 5;
 
 export type MobileTask = {
   id: number;
@@ -46,6 +50,128 @@ function sessionExpiry() {
   return new Date(Date.now() + MOBILE_SESSION_SECONDS * 1000).toISOString();
 }
 
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function emailCodeHash(email: string, code: string) {
+  return hashToken(`${email}:${code}:${process.env.AUTH_PASSWORD_PEPPER ?? "development"}`);
+}
+
+function publicUser(account: PlatformDatabase["accounts"][number]) {
+  return { id: account.id, name: account.name, email: account.email, photoUrl: account.avatar ?? "" };
+}
+
+function workspaceSummaries(platform: PlatformDatabase, userId: string) {
+  return platform.workspaces
+    .filter((workspace) =>
+      workspace.employees.some(
+        (employee) => employee.id === userId && employee.status === "active",
+      ),
+    )
+    .map((workspace) => ({
+      id: workspace.company.id,
+      name: workspace.company.name,
+      description: workspace.company.description ?? "",
+      kind: workspace.company.kind ?? "company",
+    }));
+}
+
+export async function requestMobileEmailCode(rawEmail: string) {
+  const email = normalizeEmail(rawEmail);
+  const now = Date.now();
+  const code = randomInt(100_000, 1_000_000).toString();
+
+  await mutateDatabase((platform) => {
+    const recent = platform.emailChallenges
+      .filter((challenge) => challenge.email === email && !challenge.consumedAt)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    if (recent && now - new Date(recent.createdAt).getTime() < EMAIL_CODE_RESEND_MS) {
+      throw Object.assign(new Error("Aguarde um minuto antes de solicitar outro código."), {
+        statusCode: 429,
+      });
+    }
+    platform.emailChallenges = platform.emailChallenges.filter(
+      (challenge) => challenge.email !== email || Boolean(challenge.consumedAt),
+    );
+    platform.emailChallenges.push({
+      id: nextId("ec", platform.emailChallenges),
+      email,
+      codeHash: emailCodeHash(email, code),
+      attempts: 0,
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + EMAIL_CODE_TTL_MS).toISOString(),
+    });
+  });
+
+  const { sendVerificationCode } = await import("./email.server");
+  const delivery = await sendVerificationCode(email, code);
+  return { ok: true, expiresInSeconds: EMAIL_CODE_TTL_MS / 1000, ...delivery };
+}
+
+export async function verifyMobileEmailCode(rawEmail: string, code: string) {
+  const email = normalizeEmail(rawEmail);
+  const codeHash = emailCodeHash(email, code);
+  const sessionToken = createSessionToken();
+
+  return mutateDatabase((platform) => {
+    const challenge = platform.emailChallenges
+      .filter((item) => item.email === email && !item.consumedAt)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    if (!challenge || new Date(challenge.expiresAt).getTime() <= Date.now()) {
+      throw Object.assign(new Error("O código expirou. Solicite um novo."), { statusCode: 410 });
+    }
+    challenge.attempts += 1;
+    if (challenge.attempts > EMAIL_CODE_MAX_ATTEMPTS) {
+      challenge.consumedAt = new Date().toISOString();
+      throw Object.assign(new Error("Muitas tentativas. Solicite um novo código."), {
+        statusCode: 429,
+      });
+    }
+    if (challenge.codeHash !== codeHash) {
+      throw Object.assign(new Error("Código incorreto."), { statusCode: 401 });
+    }
+    challenge.consumedAt = new Date().toISOString();
+
+    let account = platform.accounts.find((item) => item.email.toLowerCase() === email);
+    if (!account) {
+      account = {
+        id: nextId("u", platform.accounts),
+        name: email.split("@")[0].replace(/[._-]+/g, " ").trim() || "Usuário",
+        email,
+        passwordHash: `disabled$${hashToken(createSessionToken())}`,
+        emailVerifiedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+      platform.accounts.push(account);
+      platform.workspaces.unshift(createPersonalWorkspace(account));
+    } else {
+      account.emailVerifiedAt = new Date().toISOString();
+    }
+
+    const personalWorkspace = platform.workspaces.find(
+      (workspace) => workspace.company.kind === "personal" && workspace.company.ownerId === account!.id,
+    );
+    if (!personalWorkspace) throw Object.assign(new Error("Conta sem espaço pessoal."), { statusCode: 409 });
+
+    platform.sessions = platform.sessions.filter((session) => session.userId !== account!.id);
+    platform.sessions.push({
+      id: nextId("s", platform.sessions),
+      tokenHash: hashToken(sessionToken),
+      userId: account.id,
+      activeCompanyId: personalWorkspace.company.id,
+      createdAt: new Date().toISOString(),
+      expiresAt: sessionExpiry(),
+    });
+
+    return {
+      token: sessionToken,
+      user: publicUser(account),
+      workspaces: workspaceSummaries(platform, account.id),
+    };
+  });
+}
+
 export async function authenticateMobileGoogle(credential: string) {
   const googleUser = await verifyGoogleCredential(credential);
   const token = createSessionToken();
@@ -69,6 +195,7 @@ export async function authenticateMobileGoogle(credential: string) {
         avatar: googleUser.picture,
         passwordHash: `disabled$${hashToken(createSessionToken())}`,
         googleSubject: googleUser.subject,
+        emailVerifiedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
       };
       platform.accounts.push(account);
@@ -77,6 +204,7 @@ export async function authenticateMobileGoogle(credential: string) {
       account.googleSubject = googleUser.subject;
       account.name = googleUser.name || account.name;
       account.avatar ||= googleUser.picture;
+      account.emailVerifiedAt ||= new Date().toISOString();
     }
 
     const workspace =
@@ -120,6 +248,90 @@ async function requireMobileWorkspace(request: Request) {
     throw Object.assign(new Error("Espaço da conta não encontrado."), { statusCode: 401 });
   }
   return { platform, workspace, account, session };
+}
+
+export async function readMobileWorkspaces(request: Request) {
+  const { platform, account, session } = await requireMobileWorkspace(request);
+  return {
+    activeWorkspaceId: session.activeCompanyId,
+    workspaces: workspaceSummaries(platform, account.id),
+  };
+}
+
+export async function readMobileInvitations(request: Request) {
+  const { platform, account } = await requireMobileWorkspace(request);
+  const now = Date.now();
+  return platform.workspaces.flatMap((workspace) =>
+    workspace.invitations
+      .filter(
+        (invitation) =>
+          invitation.email.toLowerCase() === account.email.toLowerCase() &&
+          new Date(invitation.expiresAt).getTime() > now &&
+          !workspace.employees.some((employee) => employee.id === account.id),
+      )
+      .map((invitation) => ({
+        id: invitation.id,
+        companyId: workspace.company.id,
+        companyName: workspace.company.name,
+        role: invitation.role,
+        permissionGroupName:
+          workspace.permissionGroups.find((group) => group.id === invitation.permissionGroupId)?.name ??
+          "Padrão",
+        expiresAt: invitation.expiresAt,
+      })),
+  );
+}
+
+export async function respondToMobileInvitation(
+  request: Request,
+  invitationId: string,
+  accept: boolean,
+) {
+  const authorization = request.headers.get("authorization") ?? "";
+  const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (!token) throw Object.assign(new Error("Sessão ausente."), { statusCode: 401 });
+  const tokenHash = hashToken(token);
+
+  return mutateDatabase((platform) => {
+    const session = platform.sessions.find(
+      (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > Date.now(),
+    );
+    const account = platform.accounts.find((item) => item.id === session?.userId);
+    if (!session || !account) throw Object.assign(new Error("Sessão expirada."), { statusCode: 401 });
+
+    const workspace = platform.workspaces.find((item) =>
+      item.invitations.some((invitation) => invitation.id === invitationId),
+    );
+    const invitation = workspace?.invitations.find((item) => item.id === invitationId);
+    if (!workspace || !invitation || new Date(invitation.expiresAt).getTime() <= Date.now()) {
+      throw Object.assign(new Error("Convite inválido ou expirado."), { statusCode: 410 });
+    }
+    if (invitation.email.toLowerCase() !== account.email.toLowerCase() || !account.emailVerifiedAt) {
+      throw Object.assign(new Error("Confirme o e-mail que recebeu este convite."), { statusCode: 403 });
+    }
+
+    if (accept && !workspace.employees.some((employee) => employee.id === account.id)) {
+      workspace.employees.push({
+        id: account.id,
+        name: account.name,
+        email: account.email,
+        avatar: account.avatar,
+        role: invitation.role,
+        departmentId: invitation.departmentId,
+        status: invitation.status,
+        permissionGroupId: invitation.permissionGroupId,
+        passwordHash: account.passwordHash,
+        googleSubject: account.googleSubject,
+      });
+    }
+    workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
+    return {
+      ok: true,
+      accepted: accept,
+      activeWorkspaceId: session.activeCompanyId,
+      workspaces: workspaceSummaries(platform, account.id),
+    };
+  });
 }
 
 export async function readMobileTasks(request: Request) {

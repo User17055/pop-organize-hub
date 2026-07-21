@@ -912,8 +912,9 @@ export function AppShell({
         </DialogContent>
       </Dialog>
 
-      {/* Mobile fixed header */}
-      <header className="mobile-fixed-header glass-header safe-top fixed left-0 right-0 top-0 z-[70] lg:hidden">
+      <main className="app-main-shell flex min-w-0 flex-1 flex-col">
+      {/* Mobile header */}
+      <header className="mobile-fixed-header glass-header safe-top relative z-[70] shrink-0 lg:hidden">
         <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-3 px-4 py-3">
           <div className="app-page-heading min-w-0 flex-1">
             <div className="mb-0.5 w-fit max-w-full">
@@ -962,8 +963,7 @@ export function AppShell({
         </div>
       </header>
 
-      {/* Main */}
-      <main className="app-main-shell flex min-w-0 flex-1 flex-col">
+      {/* Main content */}
         <header className="glass-header safe-top sticky top-0 z-30 hidden lg:block">
           <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-4 px-8 py-4 xl:px-12">
             <div className="app-page-heading min-w-0 flex-1">

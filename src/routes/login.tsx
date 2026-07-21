@@ -433,8 +433,11 @@ function LoginPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const isDesktop = window.matchMedia("(min-width: 1024px)").matches;
     setShowOnboarding(
-      params.get("onboarding") === "1" || localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "true",
+      !isDesktop &&
+        (params.get("onboarding") === "1" ||
+          localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "true"),
     );
   }, []);
 

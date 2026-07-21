@@ -112,7 +112,7 @@ export function BottomTabBar({
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
           side="bottom"
-          className="safe-bottom-bar rounded-t-[28px] border-border/70 bg-card/90 backdrop-blur-2xl"
+          className="safe-bottom-bar rounded-t-[28px] border-border/70 bg-card/98 backdrop-blur-2xl"
         >
           <SheetHeader className="text-left">
             <SheetTitle>Mais opções</SheetTitle>
@@ -131,7 +131,7 @@ export function BottomTabBar({
                     "pressable flex flex-col items-center gap-2 rounded-2xl border p-3 text-center text-xs font-semibold",
                     active
                       ? "border-primary/35 text-primary"
-                      : "border-border bg-card/75 text-foreground/80 hover:bg-muted",
+                      : "border-border bg-card/95 text-foreground/85 hover:bg-muted",
                   )}
                   style={
                     active

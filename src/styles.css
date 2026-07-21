@@ -463,20 +463,20 @@
 .dark .task-glass-panel,
 .dark .task-glass-control {
   border-color: oklch(1 0 0 / 0.1);
-  background: color-mix(in oklab, var(--card) 82%, transparent);
+  background: color-mix(in oklab, var(--card) 94%, transparent);
   box-shadow: 0 1px 0 oklch(1 0 0 / 0.07) inset;
 }
 
 .dark .glass-sidebar,
 .dark .glass-header {
-  border-color: oklch(1 0 0 / 0.1);
-  background: color-mix(in oklab, var(--card) 84%, transparent);
-  box-shadow: 0 1px 0 oklch(1 0 0 / 0.06) inset;
+  border-color: transparent;
+  background: color-mix(in oklab, var(--card) 96%, transparent);
+  box-shadow: none;
 }
 
 .dark .glass-icon-button {
   border-color: oklch(1 0 0 / 0.11);
-  background: oklch(1 0 0 / 0.055);
+  background: color-mix(in oklab, var(--card) 92%, white 8%);
   box-shadow: 0 1px 0 oklch(1 0 0 / 0.08) inset;
 }
 
@@ -488,7 +488,7 @@
 .dark .calendar-detail-drawer,
 .dark .glass-date-popover {
   border-color: oklch(1 0 0 / 0.12);
-  background: color-mix(in oklab, var(--card) 88%, transparent);
+  background: color-mix(in oklab, var(--card) 96%, transparent);
   box-shadow: -24px 24px 58px -42px oklch(0 0 0 / 0.9);
 }
 
@@ -502,7 +502,7 @@
 .dark .task-create-secondary-button,
 .dark .task-create-step {
   border-color: oklch(1 0 0 / 0.1);
-  background: color-mix(in oklab, var(--card) 78%, transparent);
+  background: color-mix(in oklab, var(--card) 94%, transparent);
   color: var(--foreground);
   box-shadow: 0 1px 0 oklch(1 0 0 / 0.06) inset;
 }
@@ -586,14 +586,14 @@
   }
 
   .glass-surface {
-    background: color-mix(in oklab, var(--background) 78%, transparent);
+    background: color-mix(in oklab, var(--card) 94%, transparent);
     backdrop-filter: blur(24px) saturate(160%);
     -webkit-backdrop-filter: blur(24px) saturate(160%);
     box-shadow: 0 1px 0 oklch(1 0 0 / 0.72) inset;
   }
 
   .app-surface {
-    background: color-mix(in oklab, var(--card) 72%, transparent);
+    background: color-mix(in oklab, var(--card) 92%, transparent);
     border: 1px solid color-mix(in oklab, var(--primary) 14%, white 62%);
     box-shadow: 0 1px 0 oklch(1 0 0 / 0.7) inset;
     backdrop-filter: blur(22px) saturate(155%);
@@ -601,7 +601,7 @@
   }
 
   .bottom-tab-glass {
-    background: color-mix(in oklab, var(--card) 50%, transparent);
+    background: color-mix(in oklab, var(--card) 94%, transparent);
     border-color: color-mix(in oklab, var(--primary) 18%, white 60%);
     box-shadow:
       0 18px 46px -24px color-mix(in oklab, var(--primary) 34%, transparent),
@@ -613,7 +613,7 @@
   }
 
   .dark .bottom-tab-glass {
-    background: color-mix(in oklab, var(--card) 52%, transparent);
+    background: color-mix(in oklab, var(--card) 94%, transparent);
     border-color: color-mix(in oklab, var(--primary) 24%, transparent);
     box-shadow:
       0 16px 42px -24px oklch(0 0 0 / 0.78),
@@ -624,7 +624,7 @@
     background: linear-gradient(
       145deg,
       color-mix(in oklab, var(--primary) 7%, white 93%),
-      color-mix(in oklab, var(--card) 84%, transparent)
+      color-mix(in oklab, var(--card) 96%, transparent)
     );
     border: 1px solid color-mix(in oklab, var(--primary) 14%, white 64%);
     box-shadow: 0 1px 0 oklch(1 0 0 / 0.72) inset;
@@ -732,20 +732,15 @@
   }
 
   .glass-header {
-    background: linear-gradient(
-      180deg,
-      color-mix(in oklab, var(--card) 96%, var(--primary) 4%),
-      color-mix(in oklab, var(--card) 91%, var(--primary) 9%)
-    );
-    backdrop-filter: blur(28px) saturate(175%);
-    -webkit-backdrop-filter: blur(28px) saturate(175%);
-    box-shadow:
-      0 1px 0 oklch(1 0 0 / 0.9) inset,
-      0 1px 0 oklch(0.88 0 0 / 0.72);
+    border-color: transparent;
+    background: color-mix(in oklab, var(--card) 95%, var(--background));
+    backdrop-filter: blur(20px) saturate(135%);
+    -webkit-backdrop-filter: blur(20px) saturate(135%);
+    box-shadow: none;
   }
 
   .glass-icon-button {
-    background: oklch(1 0 0 / 0.56);
+    background: color-mix(in oklab, white 90%, var(--card));
     border: 1px solid oklch(0.91 0 0 / 0.8);
     box-shadow: 0 1px 0 oklch(1 0 0 / 0.8) inset;
     backdrop-filter: blur(18px) saturate(160%);
@@ -768,8 +763,8 @@
     position: fixed;
     border-color: oklch(0.82 0.04 235 / 0.58);
     background:
-      linear-gradient(145deg, oklch(1 0 0 / 0.88), oklch(0.98 0.012 235 / 0.78)),
-      oklch(1 0 0 / 0.72);
+      linear-gradient(145deg, oklch(1 0 0 / 0.97), oklch(0.98 0.012 235 / 0.94)),
+      oklch(1 0 0 / 0.94);
     box-shadow:
       -24px 24px 58px -42px oklch(0.16 0.045 248 / 0.62),
       -1px 0 0 oklch(1 0 0 / 0.72) inset,
@@ -919,7 +914,8 @@
 
   .task-create-footer {
     border-color: oklch(0.86 0.03 235 / 0.56);
-    background: oklch(1 0 0 / 0.72);
+    background: oklch(1 0 0 / 0.95);
+    padding-bottom: max(0.875rem, calc(var(--safe-area-bottom) + 0.5rem));
     box-shadow:
       0 -14px 28px -28px oklch(0.2 0.04 245 / 0.45),
       0 1px 0 oklch(1 0 0 / 0.86) inset;
@@ -929,7 +925,8 @@
 
   .task-detail-footer {
     border-color: oklch(0.9 0.01 245 / 0.7);
-    background: oklch(1 0 0 / 0.88);
+    background: oklch(1 0 0 / 0.96);
+    padding-bottom: max(0.75rem, calc(var(--safe-area-bottom) + 0.375rem));
     box-shadow: 0 1px 0 oklch(1 0 0 / 0.88) inset;
     backdrop-filter: blur(14px) saturate(112%);
     -webkit-backdrop-filter: blur(14px) saturate(112%);
@@ -948,7 +945,7 @@
 
   .task-create-secondary-button {
     border: 1px solid oklch(0.84 0.035 235 / 0.72);
-    background: oklch(1 0 0 / 0.68);
+    background: oklch(1 0 0 / 0.92);
     box-shadow:
       0 12px 26px -22px oklch(0.2 0.05 245 / 0.34),
       0 1px 0 oklch(1 0 0 / 0.84) inset;
@@ -1146,6 +1143,8 @@
       overflow-y: auto;
       overscroll-behavior-y: contain;
       -webkit-overflow-scrolling: touch;
+      padding-bottom: calc(8.5rem + var(--safe-area-bottom));
+      scroll-padding-bottom: calc(8.5rem + var(--safe-area-bottom));
     }
 
     .mobile-fixed-header {
@@ -1154,9 +1153,8 @@
       left: 0 !important;
       right: 0 !important;
       transform: none !important;
-      box-shadow:
-        0 16px 36px -30px oklch(0.18 0.025 265 / 0.56),
-        0 1px 0 oklch(1 0 0 / 0.72) inset;
+      border-color: transparent;
+      box-shadow: none;
     }
   }
 

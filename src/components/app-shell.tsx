@@ -526,7 +526,7 @@ export function AppShell({
     return (
       <div className="native-viewport flex w-full bg-background">
         <main className="app-main-shell flex min-w-0 flex-1 flex-col">
-          <header className="glass-header safe-top sticky top-0 z-30 border-b border-white/70">
+          <header className="glass-header safe-top sticky top-0 z-30">
             <div className="relative flex items-center gap-3 px-4 py-3 md:px-10 md:py-3.5 lg:px-12">
               <div className="min-w-0 flex-1">
                 <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground md:text-xl md:font-semibold">
@@ -913,7 +913,7 @@ export function AppShell({
       </Dialog>
 
       {/* Mobile fixed header */}
-      <header className="mobile-fixed-header glass-header safe-top fixed left-0 right-0 top-0 z-[70] border-b border-white/70 lg:hidden">
+      <header className="mobile-fixed-header glass-header safe-top fixed left-0 right-0 top-0 z-[70] lg:hidden">
         <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-3 px-4 py-3">
           <div className="app-page-heading min-w-0 flex-1">
             <div className="mb-0.5 w-fit max-w-full">
@@ -964,7 +964,7 @@ export function AppShell({
 
       {/* Main */}
       <main className="app-main-shell flex min-w-0 flex-1 flex-col">
-        <header className="glass-header safe-top sticky top-0 z-30 hidden border-b border-white/70 lg:block">
+        <header className="glass-header safe-top sticky top-0 z-30 hidden lg:block">
           <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-4 px-8 py-4 xl:px-12">
             <div className="app-page-heading min-w-0 flex-1">
               <h1 className="truncate font-display text-[22px] font-semibold leading-tight text-foreground xl:text-2xl">

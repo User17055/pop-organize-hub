@@ -62,6 +62,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -145,6 +146,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
@@ -1372,6 +1374,67 @@ private fun LoginScreen(
         }
     }
 
+    fun requestEmailCode() {
+        val normalizedEmail = email.trim().lowercase()
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()) {
+            Toast.makeText(context, "Informe um e-mail válido.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        isEmailPending = true
+        coroutineScope.launch {
+            try {
+                val result = requestEmailCodeWithApi(normalizedEmail)
+                email = normalizedEmail
+                emailCodeSent = true
+                emailCode = ""
+                Toast.makeText(
+                    context,
+                    result.developmentCode?.let { "Código de teste: $it" }
+                        ?: "Enviamos um código para seu e-mail.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } catch (error: Exception) {
+                Toast.makeText(
+                    context,
+                    error.localizedMessage ?: "Não foi possível enviar o código.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                isEmailPending = false
+            }
+        }
+    }
+
+    fun confirmEmailCode() {
+        if (emailCode.length != 6) {
+            Toast.makeText(context, "Digite os 6 números do código.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        isEmailPending = true
+        coroutineScope.launch {
+            try {
+                val session = verifyEmailCodeWithApi(email, emailCode)
+                onEmailSignedIn(
+                    GoogleAccount(
+                        id = session.id,
+                        name = session.name,
+                        email = session.email,
+                        photoUrl = session.photoUrl,
+                        apiToken = session.token,
+                    ),
+                )
+            } catch (error: Exception) {
+                Toast.makeText(
+                    context,
+                    error.localizedMessage ?: "Não foi possível confirmar o código.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                isEmailPending = false
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1387,8 +1450,20 @@ private fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
+            AnimatedVisibility(visible = emailCodeSent) {
+                Image(
+                    painter = painterResource(R.drawable.email_code_message),
+                    contentDescription = "Mensagem com código de confirmação",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth().height(132.dp).padding(bottom = 8.dp),
+                )
+            }
             Text(
-                if (showEmail) "Entre com seu e-mail" else "Comece por aqui",
+                when {
+                    emailCodeSent -> "Verifique seu e-mail"
+                    showEmail -> "Entre com seu e-mail"
+                    else -> "Comece por aqui"
+                },
                 color = Color.White,
                 fontSize = if (showEmail) 28.sp else 34.sp,
                 fontWeight = FontWeight.ExtraBold,
@@ -1397,8 +1472,11 @@ private fun LoginScreen(
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
             Text(
-                if (showEmail) "Use seus dados para acessar o Pop Organize."
-                else "Escolha como você quer continuar.",
+                when {
+                    emailCodeSent -> "Digite o código de 6 números que enviamos para você."
+                    showEmail -> "Use seu e-mail para acessar o Pop Organize."
+                    else -> "Escolha como você quer continuar."
+                },
                 color = Color.White.copy(alpha = .56f),
                 fontSize = 14.sp,
                 lineHeight = 21.sp,
@@ -1412,109 +1490,113 @@ private fun LoginScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.padding(bottom = 4.dp),
             ) {
-                DarkLoginField(
-                    value = email,
-                    onValueChange = {
-                        email = it
-                        if (emailCodeSent) {
-                            emailCodeSent = false
-                            emailCode = ""
+                AnimatedContent(
+                    targetState = emailCodeSent,
+                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+                    label = "emailVerificationStep",
+                ) { codeStep ->
+                    if (!codeStep) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            DarkLoginField(
+                                value = email,
+                                onValueChange = { email = it },
+                                label = "E-mail",
+                                icon = Icons.Rounded.Email,
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Done,
+                            )
+                            LoginActionButton(
+                                text = if (isEmailPending) "Enviando..." else "Enviar código",
+                                background = PopBlue,
+                                foreground = Color.White,
+                                enabled = !isEmailPending,
+                                showLoader = isEmailPending,
+                                onClick = ::requestEmailCode,
+                            )
                         }
-                    },
-                    label = "E-mail",
-                    icon = Icons.Rounded.Email,
-                    keyboardType = KeyboardType.Email,
-                    imeAction = if (emailCodeSent) ImeAction.Next else ImeAction.Done,
-                )
-                AnimatedVisibility(visible = emailCodeSent) {
-                    DarkLoginField(
-                        value = emailCode,
-                        onValueChange = { emailCode = it.filter(Char::isDigit).take(6) },
-                        label = "Código de 6 números",
-                        icon = Icons.Rounded.Lock,
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Done,
-                    )
-                }
-                LoginActionButton(
-                    text = when {
-                        isEmailPending -> "Aguarde..."
-                        emailCodeSent -> "Confirmar código"
-                        else -> "Enviar código"
-                    },
-                    background = PopBlue,
-                    foreground = Color.White,
-                    enabled = !isEmailPending,
-                    showLoader = isEmailPending,
-                    onClick = {
-                        val normalizedEmail = email.trim().lowercase()
-                        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()) {
-                            Toast.makeText(context, "Informe um e-mail válido.", Toast.LENGTH_SHORT).show()
-                        } else if (emailCodeSent && emailCode.length != 6) {
-                            Toast.makeText(context, "Digite os 6 números do código.", Toast.LENGTH_SHORT).show()
-                        } else {
-                            isEmailPending = true
-                            coroutineScope.launch {
-                                try {
-                                    if (!emailCodeSent) {
-                                        val result = requestEmailCodeWithApi(normalizedEmail)
-                                        emailCodeSent = true
-                                        Toast.makeText(
-                                            context,
-                                            result.developmentCode?.let { "Código de teste: $it" }
-                                                ?: "Enviamos um código para seu e-mail.",
-                                            Toast.LENGTH_LONG,
-                                        ).show()
-                                    } else {
-                                        val session = verifyEmailCodeWithApi(normalizedEmail, emailCode)
-                                        onEmailSignedIn(
-                                            GoogleAccount(
-                                                id = session.id,
-                                                name = session.name,
-                                                email = session.email,
-                                                photoUrl = session.photoUrl,
-                                                apiToken = session.token,
-                                            ),
-                                        )
-                                    }
-                                } catch (error: Exception) {
-                                    Toast.makeText(
-                                        context,
-                                        error.localizedMessage ?: "Não foi possível acessar o servidor.",
-                                        Toast.LENGTH_LONG,
-                                    ).show()
-                                } finally {
-                                    isEmailPending = false
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Surface(
+                                color = Color.White.copy(alpha = .075f),
+                                contentColor = Color.White.copy(alpha = .82f),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Rounded.Lock, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(9.dp))
+                                    Text(
+                                        email,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
                             }
-                        }
-                    },
-                )
-                if (emailCodeSent) {
-                    Surface(
-                        onClick = {
-                            emailCodeSent = false
-                            emailCode = ""
-                        },
-                        color = Color.Transparent,
-                        contentColor = Color.White.copy(alpha = .68f),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(38.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text("Alterar e-mail ou reenviar código", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Digite o código",
+                                color = Color.White.copy(alpha = .65f),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            EmailOtpField(
+                                value = emailCode,
+                                onValueChange = { emailCode = it },
+                                enabled = !isEmailPending,
+                            )
+                            LoginActionButton(
+                                text = if (isEmailPending) "Verificando..." else "Verificar código",
+                                background = PopBlue,
+                                foreground = Color.White,
+                                enabled = !isEmailPending && emailCode.length == 6,
+                                showLoader = isEmailPending,
+                                onClick = ::confirmEmailCode,
+                            )
+                            Surface(
+                                onClick = ::requestEmailCode,
+                                enabled = !isEmailPending,
+                                color = Color.Transparent,
+                                contentColor = PopBlue,
+                                shape = RoundedCornerShape(15.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .border(1.dp, PopBlue.copy(alpha = .62f), RoundedCornerShape(15.dp)),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text("Reenviar código", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }
                 Surface(
-                    onClick = { showEmail = false },
+                    onClick = {
+                        if (emailCodeSent) {
+                            emailCodeSent = false
+                            emailCode = ""
+                        } else {
+                            showEmail = false
+                        }
+                    },
                     color = Color.Transparent,
                     contentColor = Color.White.copy(alpha = .68f),
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth().height(44.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text("Voltar para outras opções", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (emailCodeSent) "Voltar e alterar e-mail" else "Voltar para outras opções",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     }
                 }
             }
@@ -1568,6 +1650,70 @@ private fun LoginScreen(
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
     }
+}
+
+@Composable
+private fun EmailOtpField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    enabled: Boolean,
+) {
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
+    LaunchedEffect(value) {
+        if (value.length == 6) keyboardController?.hide()
+    }
+
+    BasicTextField(
+        value = value,
+        onValueChange = { onValueChange(it.filter(Char::isDigit).take(6)) },
+        enabled = enabled,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+        textStyle = androidx.compose.ui.text.TextStyle(color = Color.Transparent),
+        cursorBrush = SolidColor(Color.Transparent),
+        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+        decorationBox = { innerTextField ->
+            Box {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    repeat(6) { index ->
+                        val digit = value.getOrNull(index)?.toString().orEmpty()
+                        val isActive = enabled && (index == value.length || (value.length == 6 && index == 5))
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(54.dp)
+                                .background(Color.White.copy(alpha = if (digit.isNotEmpty()) .12f else .07f), RoundedCornerShape(15.dp))
+                                .border(
+                                    width = if (isActive) 1.5.dp else 1.dp,
+                                    color = if (isActive) PopBlue else Color.White.copy(alpha = .1f),
+                                    shape = RoundedCornerShape(15.dp),
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                digit,
+                                color = Color.White,
+                                fontSize = 21.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+                Box(Modifier.size(1.dp).graphicsLayer { alpha = 0f }) {
+                    innerTextField()
+                }
+            }
+        },
+    )
 }
 
 @Composable

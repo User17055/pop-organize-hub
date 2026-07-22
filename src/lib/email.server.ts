@@ -37,12 +37,16 @@ export async function sendVerificationCode(
     await transporter.sendMail({
       from: `Pop Organize <${from}>`,
       to: email,
-      subject: `${code} é seu código do Pop Organize`,
-      text: `Seu código do Pop Organize é ${code}. Ele expira em 10 minutos.`,
+      subject: "Confirme seu acesso ao Pop Organize",
+      text: `Recebemos uma solicitação de acesso à sua conta no Pop Organize. Abra esta mensagem para consultar o código de confirmação.\n\nCódigo: ${code}\n\nEle expira em 10 minutos e pode ser usado apenas uma vez.`,
       html: `
         <div style="font-family:Arial,sans-serif;color:#17212b;max-width:520px;margin:auto;padding:28px">
+          <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
+            Abra esta mensagem para confirmar seu acesso ao Pop Organize.
+            &nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
+          </div>
           <h1 style="font-size:22px;margin:0 0 14px">Confirme seu e-mail</h1>
-          <p style="line-height:1.6">Use o código abaixo para entrar no Pop Organize:</p>
+          <p style="line-height:1.6">Recebemos uma solicitação de acesso. Use o código abaixo para entrar no Pop Organize:</p>
           <div style="font-size:34px;font-weight:800;letter-spacing:8px;color:#1687f8;padding:20px 0">${code}</div>
           <p style="color:#657383;font-size:13px">O código expira em 10 minutos e pode ser usado apenas uma vez.</p>
           <p style="color:#657383;font-size:13px">Se você não solicitou este acesso, ignore este e-mail.</p>

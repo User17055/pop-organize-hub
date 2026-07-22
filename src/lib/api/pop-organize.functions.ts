@@ -112,6 +112,10 @@ const createEmployeeSchema = z.object({
     .transform((value) => value || undefined),
 });
 
+const resendEmployeeInvitationSchema = z.object({
+  id: z.string().min(1, "Convite inválido."),
+});
+
 const acceptInvitationSchema = z.object({
   token: z.string().min(20, "Convite inválido."),
   password: z.string().min(8, "A senha deve ter pelo menos 8 caracteres."),
@@ -286,6 +290,26 @@ function getCookieOptions() {
     path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,
   };
+}
+
+function getApplicationOrigin() {
+  const configuredOrigin = process.env.APP_URL?.trim();
+  if (configuredOrigin) {
+    try {
+      return new URL(configuredOrigin).origin;
+    } catch {
+      throw createHttpError("APP_URL possui um endereço inválido.", 500);
+    }
+  }
+
+  if (process.env.NODE_ENV === "production") return "https://app.poporganize.com.br";
+
+  const forwardedHost = getRequestHeader("x-forwarded-host")?.split(",")[0]?.trim();
+  const requestHost = forwardedHost || getRequestHeader("host")?.trim();
+  const safeHost = requestHost && /^[a-z0-9.-]+(?::\d+)?$/i.test(requestHost)
+    ? requestHost
+    : "localhost:8080";
+  return `${getRequestProtocol()}://${safeHost}`;
 }
 
 async function dbServer() {
@@ -1243,10 +1267,111 @@ export const createEmployee = createServerFn({ method: "POST" })
 
       db.invitations.push(invitation);
       const { tokenHash, ...safeInvitation } = invitation;
-      return { invitation: safeInvitation, activatedTeamMode: true };
+      const invitedByName =
+        db.employees.find((employee) => employee.id === currentUserId)?.name ?? "Sua equipe";
+      return {
+        invitation: safeInvitation,
+        activatedTeamMode: true,
+        emailContext: {
+          companyName: db.company.name,
+          invitedByName,
+        },
+      };
     });
 
-    return { ...result, invitationToken };
+    const invitationUrl = `${getApplicationOrigin()}/aceitar-convite?token=${encodeURIComponent(invitationToken)}`;
+    try {
+      const { sendEmployeeInvitation } = await import("../email.server");
+      const delivery = await sendEmployeeInvitation({
+        email: result.invitation.email,
+        employeeName: result.invitation.name,
+        companyName: result.emailContext.companyName,
+        invitedByName: result.emailContext.invitedByName,
+        role: result.invitation.role,
+        invitationUrl,
+      });
+      return {
+        invitation: result.invitation,
+        activatedTeamMode: result.activatedTeamMode,
+        invitationToken,
+        invitationUrl,
+        emailSent: delivery.delivered,
+      };
+    } catch (error) {
+      await mutateCurrentWorkspace((db) => {
+        db.invitations = db.invitations.filter(
+          (invitation) => invitation.id !== result.invitation.id,
+        );
+      });
+      throw error;
+    }
+  });
+
+export const resendEmployeeInvitation = createServerFn({ method: "POST" })
+  .validator((data) => resendEmployeeInvitationSchema.parse(data))
+  .handler(async ({ data }) => {
+    const { createSessionToken, hashToken } = await dbServer();
+    const invitationToken = createSessionToken();
+    const invitationTokenHash = hashToken(invitationToken);
+    const result = await mutateCurrentWorkspace((db, currentUserId) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.employees",
+        "Seu grupo de permissão não pode reenviar convites.",
+      );
+      const invitation = db.invitations.find((item) => item.id === data.id);
+      if (!invitation) throw createHttpError("Convite pendente não encontrado.", 404);
+
+      const previousTokenHash = invitation.tokenHash;
+      const previousCreatedAt = invitation.createdAt;
+      const previousExpiresAt = invitation.expiresAt;
+      invitation.tokenHash = invitationTokenHash;
+      invitation.invitedById = currentUserId;
+      invitation.createdAt = new Date().toISOString();
+      invitation.expiresAt = new Date(
+        Date.now() + INVITATION_MAX_AGE_SECONDS * 1000,
+      ).toISOString();
+
+      return {
+        invitation: {
+          id: invitation.id,
+          name: invitation.name,
+          email: invitation.email,
+          role: invitation.role,
+        },
+        companyName: db.company.name,
+        invitedByName:
+          db.employees.find((employee) => employee.id === currentUserId)?.name ?? "Sua equipe",
+        previousTokenHash,
+        previousCreatedAt,
+        previousExpiresAt,
+      };
+    });
+
+    const invitationUrl = `${getApplicationOrigin()}/aceitar-convite?token=${encodeURIComponent(invitationToken)}`;
+    try {
+      const { sendEmployeeInvitation } = await import("../email.server");
+      await sendEmployeeInvitation({
+        email: result.invitation.email,
+        employeeName: result.invitation.name,
+        companyName: result.companyName,
+        invitedByName: result.invitedByName,
+        role: result.invitation.role,
+        invitationUrl,
+      });
+      return { ok: true, invitationId: result.invitation.id };
+    } catch (error) {
+      await mutateCurrentWorkspace((db) => {
+        const invitation = db.invitations.find((item) => item.id === result.invitation.id);
+        if (invitation?.tokenHash === invitationTokenHash) {
+          invitation.tokenHash = result.previousTokenHash;
+          invitation.createdAt = result.previousCreatedAt;
+          invitation.expiresAt = result.previousExpiresAt;
+        }
+      });
+      throw error;
+    }
   });
 
 export const acceptInvitation = createServerFn({ method: "POST" })

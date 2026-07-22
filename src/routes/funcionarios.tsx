@@ -22,7 +22,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createEmployee } from "@/lib/api/pop-organize.functions";
+import {
+  createEmployee,
+  resendEmployeeInvitation,
+} from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import { Check, Copy, Link2, Mail, Plus } from "lucide-react";
 
@@ -36,7 +39,9 @@ function FuncionariosPage() {
   const { data, isLoading, error } = useWorkspaceData();
   const [showForm, setShowForm] = useState(false);
   const [inviteLink, setInviteLink] = useState("");
+  const [inviteEmailSent, setInviteEmailSent] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [resentInvitationId, setResentInvitationId] = useState("");
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -55,8 +60,17 @@ function FuncionariosPage() {
       status: "active" | "inactive";
       permissionGroupId?: string;
     }) => createEmployee({ data: payload }),
-    onSuccess: ({ invitationToken }) => {
-      setInviteLink(`${window.location.origin}/aceitar-convite?token=${invitationToken}`);
+    onSuccess: ({ invitationUrl, emailSent }) => {
+      setInviteLink(invitationUrl);
+      setInviteEmailSent(emailSent);
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+  const resendMutation = useMutation({
+    mutationFn: (invitationId: string) =>
+      resendEmployeeInvitation({ data: { id: invitationId } }),
+    onSuccess: ({ invitationId }) => {
+      setResentInvitationId(invitationId);
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
@@ -91,6 +105,7 @@ function FuncionariosPage() {
   const getDepartment = (id: string) => departments.find((department) => department.id === id);
   const getPermissionGroup = (id?: string) => permissionGroups.find((group) => group.id === id);
   const mutationError = createMutation.error instanceof Error ? createMutation.error.message : null;
+  const resendError = resendMutation.error instanceof Error ? resendMutation.error.message : null;
 
   function openForm() {
     setForm({
@@ -102,6 +117,7 @@ function FuncionariosPage() {
       permissionGroupId: "",
     });
     setInviteLink("");
+    setInviteEmailSent(false);
     setCopied(false);
     createMutation.reset();
     setShowForm(true);
@@ -142,14 +158,42 @@ function FuncionariosPage() {
             {invitations.map((invitation) => (
               <div
                 key={invitation.id}
-                className="flex flex-col gap-1 rounded-xl bg-background/80 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 rounded-xl bg-background/80 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
               >
-                <span className="font-medium">{invitation.name}</span>
-                <span className="text-muted-foreground">
-                  {invitation.email} · aguardando aceite
-                </span>
+                <div className="min-w-0">
+                  <div className="font-medium">{invitation.name}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {invitation.email} · aguardando aceite
+                  </div>
+                </div>
+                {canManage && (
+                  <button
+                    type="button"
+                    disabled={
+                      resendMutation.isPending && resendMutation.variables === invitation.id
+                    }
+                    onClick={() => {
+                      setResentInvitationId("");
+                      resendMutation.reset();
+                      resendMutation.mutate(invitation.id);
+                    }}
+                    className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-primary/25 px-3 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
+                  >
+                    {resentInvitationId === invitation.id ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : (
+                      <Mail className="h-3.5 w-3.5" />
+                    )}
+                    {resendMutation.isPending && resendMutation.variables === invitation.id
+                      ? "Enviando..."
+                      : resentInvitationId === invitation.id
+                        ? "E-mail enviado"
+                        : "Reenviar e-mail"}
+                  </button>
+                )}
               </div>
             ))}
+            {resendError && <div className="text-sm text-destructive">{resendError}</div>}
           </div>
         </div>
       )}
@@ -227,15 +271,28 @@ function FuncionariosPage() {
         <DialogContent className="max-w-lg">
           <form onSubmit={handleSubmit}>
             <DialogHeader>
-              <DialogTitle>{inviteLink ? "Convite pronto" : "Convidar funcionário"}</DialogTitle>
+              <DialogTitle>
+                {inviteLink
+                  ? inviteEmailSent
+                    ? "Convite enviado"
+                    : "Convite pronto"
+                  : "Convidar funcionário"}
+              </DialogTitle>
               <DialogDescription>
                 {inviteLink
-                  ? "Envie este link ao funcionário. Ele definirá a própria senha ao aceitar."
+                  ? inviteEmailSent
+                    ? `Enviamos o convite para ${form.email}. O link abaixo fica disponível como alternativa.`
+                    : "Copie o link abaixo e envie ao funcionário. Ele definirá a própria senha ao aceitar."
                   : "Informe os dados do colaborador. A senha será criada por ele no aceite."}
               </DialogDescription>
             </DialogHeader>
             {inviteLink ? (
               <div className="mt-5 space-y-3">
+                {inviteEmailSent && (
+                  <div className="flex items-center gap-2 rounded-xl bg-success/10 px-3 py-2.5 text-sm font-medium text-success">
+                    <Mail className="h-4 w-4" /> E-mail enviado com sucesso
+                  </div>
+                )}
                 <div className="break-all rounded-xl border border-border bg-muted/40 p-3 text-sm">
                   {inviteLink}
                 </div>
@@ -343,7 +400,7 @@ function FuncionariosPage() {
                   style={{ background: "var(--gradient-primary)" }}
                   className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
                 >
-                  {createMutation.isPending ? "Criando convite..." : "Criar convite"}
+                  {createMutation.isPending ? "Enviando convite..." : "Criar e enviar convite"}
                 </button>
               )}
             </DialogFooter>

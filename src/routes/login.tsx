@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import useEmblaCarousel from "embla-carousel-react";
 import {
+  ArrowLeft,
   ArrowRight,
   BellRing,
   Building2,
@@ -9,11 +10,16 @@ import {
   Check,
   CircleAlert,
   ListTodo,
+  Mail,
   Users,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { loginWithGoogle } from "@/lib/api/pop-organize.functions";
+import {
+  loginWithEmailCode,
+  loginWithGoogle,
+  requestEmailLoginCode,
+} from "@/lib/api/pop-organize.functions";
 import { workspaceQueryKey } from "@/lib/api/use-workspace";
 
 type GoogleIdentityApi = {
@@ -37,8 +43,14 @@ declare global {
   }
 }
 
-function LoginSpinner() {
-  return <span className="login-spinner" role="status" aria-label="Carregando" />;
+function LoginSpinner({ light = false }: { light?: boolean }) {
+  return (
+    <span
+      className={`login-spinner${light ? " login-spinner-light" : ""}`}
+      role="status"
+      aria-label="Carregando"
+    />
+  );
 }
 
 function GoogleLoginButton({
@@ -129,6 +141,67 @@ function GoogleLoginButton({
   return (
     <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
       <div ref={buttonRef} className="flex min-h-12 w-full justify-center overflow-hidden" />
+    </div>
+  );
+}
+
+function EmailCodeInputs({
+  digits,
+  onChange,
+  disabled,
+}: {
+  digits: string[];
+  onChange: (digits: string[]) => void;
+  disabled: boolean;
+}) {
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  const setDigit = (index: number, rawValue: string) => {
+    const numbers = rawValue.replace(/\D/g, "");
+    if (!numbers) {
+      const next = [...digits];
+      next[index] = "";
+      onChange(next);
+      return;
+    }
+
+    const next = [...digits];
+    numbers
+      .slice(0, 6 - index)
+      .split("")
+      .forEach((number, offset) => {
+        next[index + offset] = number;
+      });
+    onChange(next);
+    inputRefs.current[Math.min(index + numbers.length, 5)]?.focus();
+  };
+
+  return (
+    <div className="grid grid-cols-6 gap-2" aria-label="Código de verificação">
+      {digits.map((digit, index) => (
+        <input
+          key={index}
+          ref={(element) => {
+            inputRefs.current[index] = element;
+          }}
+          value={digit}
+          disabled={disabled}
+          inputMode="numeric"
+          autoComplete={index === 0 ? "one-time-code" : "off"}
+          maxLength={6}
+          aria-label={`Dígito ${index + 1}`}
+          onChange={(event) => setDigit(index, event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Backspace" && !digit && index > 0) {
+              inputRefs.current[index - 1]?.focus();
+            }
+            if (event.key === "ArrowLeft" && index > 0) inputRefs.current[index - 1]?.focus();
+            if (event.key === "ArrowRight" && index < 5) inputRefs.current[index + 1]?.focus();
+          }}
+          onFocus={(event) => event.currentTarget.select()}
+          className="h-12 min-w-0 rounded-[14px] border border-white/10 bg-white/[0.075] text-center font-display text-xl font-bold text-white outline-none transition focus:border-[#1687f8] focus:bg-white/10 disabled:opacity-55"
+        />
+      ))}
     </div>
   );
 }
@@ -436,16 +509,68 @@ function LoginPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+  const [emailLoginOpen, setEmailLoginOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [emailCodeSent, setEmailCodeSent] = useState(false);
+  const [codeDigits, setCodeDigits] = useState<string[]>(() => Array(6).fill(""));
+  const [emailFeedback, setEmailFeedback] = useState<string | null>(null);
+
+  const finishLogin = () => {
+    void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    navigate({ to: "/" });
+  };
+
   const googleMutation = useMutation({
     mutationFn: (credential: string) => loginWithGoogle({ data: { credential } }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
-      navigate({ to: "/" });
-    },
+    onSuccess: finishLogin,
+  });
+  const requestCodeMutation = useMutation({
+    mutationFn: (address: string) => requestEmailLoginCode({ data: { email: address } }),
+  });
+  const verifyCodeMutation = useMutation({
+    mutationFn: ({ address, code }: { address: string; code: string }) =>
+      loginWithEmailCode({ data: { email: address, code } }),
+    onSuccess: finishLogin,
   });
 
-  const errorMessage = googleMutation.error instanceof Error ? googleMutation.error.message : null;
-  const isPending = googleMutation.isPending;
+  const googleError = googleMutation.error instanceof Error ? googleMutation.error.message : null;
+  const emailErrorSource = verifyCodeMutation.error ?? requestCodeMutation.error;
+  const emailError = emailErrorSource instanceof Error ? emailErrorSource.message : null;
+  const emailPending = requestCodeMutation.isPending || verifyCodeMutation.isPending;
+
+  const sendEmailCode = () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const wasAlreadySent = emailCodeSent;
+    setEmailFeedback(null);
+    verifyCodeMutation.reset();
+    requestCodeMutation.mutate(normalizedEmail, {
+      onSuccess: () => {
+        setEmail(normalizedEmail);
+        setEmailCodeSent(true);
+        setCodeDigits(Array(6).fill(""));
+        setEmailFeedback(wasAlreadySent ? "Novo código enviado." : null);
+      },
+    });
+  };
+
+  const verifyEmailCode = () => {
+    setEmailFeedback(null);
+    requestCodeMutation.reset();
+    verifyCodeMutation.mutate({ address: email, code: codeDigits.join("") });
+  };
+
+  const closeEmailLogin = () => {
+    if (emailPending) return;
+    if (emailCodeSent) {
+      setEmailCodeSent(false);
+      setCodeDigits(Array(6).fill(""));
+    } else {
+      setEmailLoginOpen(false);
+    }
+    setEmailFeedback(null);
+    requestCodeMutation.reset();
+    verifyCodeMutation.reset();
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -480,8 +605,12 @@ function LoginPage() {
           pOrganize
         </div>
 
-        <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-          <div className="relative flex h-48 w-48 items-center justify-center rounded-full bg-[#f7f7f7] shadow-[0_24px_55px_-30px_rgba(0,0,0,0.8)]">
+        <div
+          className={`flex flex-1 flex-col items-center justify-center text-center ${emailLoginOpen ? "py-4" : "py-8"}`}
+        >
+          <div
+            className={`${emailLoginOpen ? "hidden" : "relative flex"} h-48 w-48 items-center justify-center rounded-full bg-[#f7f7f7] shadow-[0_24px_55px_-30px_rgba(0,0,0,0.8)]`}
+          >
             <div className="absolute left-5 top-10 h-20 w-20 rounded-full bg-[#1687f8]/12" />
             <div className="absolute bottom-7 right-5 h-16 w-16 rounded-full bg-[#d9dde3]" />
             <div className="relative w-28 rounded-[20px] bg-[#2c2c2c] p-4 text-left shadow-xl">
@@ -507,34 +636,162 @@ function LoginPage() {
             </div>
           </div>
 
-          <h1 className="mt-10 font-display text-[36px] font-bold leading-tight tracking-[-0.04em]">
-            Organize tudo.
+          {emailLoginOpen && (
+            <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[#1687f8]/14 text-[#5aaaff]">
+              <Mail className="h-7 w-7" />
+            </div>
+          )}
+          <h1
+            className={`${emailLoginOpen ? "mt-5 text-[28px]" : "mt-10 text-[36px]"} font-display font-bold leading-tight tracking-[-0.04em]`}
+          >
+            {emailLoginOpen ? (emailCodeSent ? "Verifique seu e-mail" : "Entre com e-mail") : "Organize tudo."}
           </h1>
           <p className="mt-3 max-w-[320px] text-sm leading-6 text-white/58">
-            Pessoas, tarefas e equipes em um só lugar, de um jeito simples.
+            {emailLoginOpen
+              ? emailCodeSent
+                ? `Enviamos um código de 6 números para ${email}.`
+                : "Use seu e-mail para receber um código de acesso."
+              : "Pessoas, tarefas e equipes em um só lugar, de um jeito simples."}
           </p>
         </div>
 
         <div className="mx-auto w-full max-w-[380px]">
-          <GoogleLoginButton
-            onCredential={(credential) => googleMutation.mutate(credential)}
-            disabled={isPending}
-          />
+          {emailLoginOpen ? (
+            <div>
+              <button
+                type="button"
+                onClick={closeEmailLogin}
+                disabled={emailPending}
+                className="mb-4 inline-flex items-center gap-2 text-xs font-semibold text-white/58 transition hover:text-white disabled:opacity-40"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                {emailCodeSent ? "Alterar e-mail" : "Outras opções de acesso"}
+              </button>
 
-          {!import.meta.env.PROD && (
-            <Link
-              to="/"
-              className="mt-4 flex h-14 w-full items-center justify-center rounded-[18px] bg-white text-sm font-bold text-[#191919] transition hover:bg-white/92 active:scale-[0.99]"
-            >
-              Continuar sem login
-            </Link>
-          )}
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (emailCodeSent) verifyEmailCode();
+                  else sendEmailCode();
+                }}
+                className="space-y-3"
+              >
+                <label className="block text-left">
+                  <span className="mb-2 block text-xs font-semibold text-white/64">E-mail</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => {
+                      setEmail(event.target.value);
+                      setEmailFeedback(null);
+                      requestCodeMutation.reset();
+                    }}
+                    readOnly={emailCodeSent}
+                    disabled={emailPending}
+                    required
+                    autoComplete="email"
+                    placeholder="voce@exemplo.com"
+                    className="h-14 w-full rounded-[18px] border border-white/10 bg-white/[0.075] px-4 text-sm font-medium text-white outline-none transition placeholder:text-white/28 focus:border-[#1687f8] focus:bg-white/10 read-only:cursor-default read-only:text-white/65 disabled:opacity-65"
+                  />
+                </label>
 
-          {errorMessage && (
-            <div className="mt-4 flex items-start justify-center gap-2 text-xs text-destructive">
-              <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>{errorMessage}</span>
+                {emailCodeSent && (
+                  <div className="pt-1">
+                    <span className="mb-2 block text-left text-xs font-semibold text-white/64">
+                      Código de verificação
+                    </span>
+                    <EmailCodeInputs
+                      digits={codeDigits}
+                      onChange={(nextDigits) => {
+                        setCodeDigits(nextDigits);
+                        setEmailFeedback(null);
+                        verifyCodeMutation.reset();
+                      }}
+                      disabled={emailPending}
+                    />
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={
+                    emailPending ||
+                    !email.trim() ||
+                    (emailCodeSent && codeDigits.join("").length !== 6)
+                  }
+                  className="flex h-14 w-full items-center justify-center rounded-[18px] bg-[#1687f8] text-sm font-bold text-white shadow-[0_14px_28px_-18px_rgba(22,135,248,0.8)] transition hover:bg-[#2d93fa] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {emailPending ? (
+                    <LoginSpinner light />
+                  ) : emailCodeSent ? (
+                    "Verificar código"
+                  ) : (
+                    "Enviar código"
+                  )}
+                </button>
+
+                {emailCodeSent && (
+                  <button
+                    type="button"
+                    onClick={sendEmailCode}
+                    disabled={emailPending}
+                    className="flex h-11 w-full items-center justify-center rounded-[15px] border border-[#1687f8]/55 text-xs font-bold text-[#5aaaff] transition hover:bg-[#1687f8]/10 disabled:opacity-40"
+                  >
+                    Reenviar código
+                  </button>
+                )}
+              </form>
+
+              {(emailError || emailFeedback) && (
+                <div
+                  className={`mt-4 flex items-start justify-center gap-2 text-xs ${emailError ? "text-[#ff7c85]" : "text-white/58"}`}
+                >
+                  {emailError && <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+                  <span>{emailError ?? emailFeedback}</span>
+                </div>
+              )}
             </div>
+          ) : (
+            <>
+              <GoogleLoginButton
+                onCredential={(credential) => googleMutation.mutate(credential)}
+                disabled={googleMutation.isPending}
+              />
+
+              <div className="my-3 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/28">
+                <span className="h-px flex-1 bg-white/10" />
+                ou
+                <span className="h-px flex-1 bg-white/10" />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  googleMutation.reset();
+                  setEmailLoginOpen(true);
+                }}
+                className="flex h-14 w-full items-center justify-center gap-3 rounded-[18px] bg-white/10 text-sm font-bold text-white transition hover:bg-white/15 active:scale-[0.99]"
+              >
+                <Mail className="h-5 w-5 text-[#5aaaff]" />
+                Continuar com e-mail
+              </button>
+
+              {!import.meta.env.PROD && (
+                <Link
+                  to="/"
+                  className="mt-4 flex h-14 w-full items-center justify-center rounded-[18px] bg-white text-sm font-bold text-[#191919] transition hover:bg-white/92 active:scale-[0.99]"
+                >
+                  Continuar sem login
+                </Link>
+              )}
+
+              {googleError && (
+                <div className="mt-4 flex items-start justify-center gap-2 text-xs text-destructive">
+                  <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{googleError}</span>
+                </div>
+              )}
+            </>
           )}
 
           <p className="mt-6 text-center text-[11px] leading-5 text-white/42">

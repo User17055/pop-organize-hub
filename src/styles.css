@@ -21,6 +21,11 @@
   animation: login-spinner-rotate 0.72s linear infinite;
 }
 
+.login-spinner-light {
+  border-color: rgb(255 255 255 / 32%);
+  border-top-color: #fff;
+}
+
 @keyframes login-spinner-rotate {
   to {
     transform: rotate(360deg);

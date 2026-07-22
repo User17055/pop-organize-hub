@@ -1302,6 +1302,8 @@ private fun LoginScreen(
     var email by remember { mutableStateOf("") }
     var emailCode by remember { mutableStateOf("") }
     var emailCodeSent by remember { mutableStateOf(false) }
+    var emailFeedback by remember { mutableStateOf<String?>(null) }
+    var emailFeedbackIsError by remember { mutableStateOf(false) }
     var isEmailPending by remember { mutableStateOf(false) }
     var isGoogleSignInPending by remember { mutableStateOf(false) }
 
@@ -1377,28 +1379,24 @@ private fun LoginScreen(
     fun requestEmailCode() {
         val normalizedEmail = email.trim().lowercase()
         if (!android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()) {
-            Toast.makeText(context, "Informe um e-mail válido.", Toast.LENGTH_SHORT).show()
+            emailFeedback = "Informe um e-mail válido."
+            emailFeedbackIsError = true
             return
         }
+        val isResending = emailCodeSent
+        emailFeedback = null
         isEmailPending = true
         coroutineScope.launch {
             try {
-                val result = requestEmailCodeWithApi(normalizedEmail)
+                requestEmailCodeWithApi(normalizedEmail)
                 email = normalizedEmail
                 emailCodeSent = true
                 emailCode = ""
-                Toast.makeText(
-                    context,
-                    result.developmentCode?.let { "Código de teste: $it" }
-                        ?: "Enviamos um código para seu e-mail.",
-                    Toast.LENGTH_LONG,
-                ).show()
+                emailFeedback = if (isResending) "Novo código enviado." else null
+                emailFeedbackIsError = false
             } catch (error: Exception) {
-                Toast.makeText(
-                    context,
-                    error.localizedMessage ?: "Não foi possível enviar o código.",
-                    Toast.LENGTH_LONG,
-                ).show()
+                emailFeedback = error.localizedMessage ?: "Não foi possível enviar o código."
+                emailFeedbackIsError = true
             } finally {
                 isEmailPending = false
             }
@@ -1407,9 +1405,11 @@ private fun LoginScreen(
 
     fun confirmEmailCode() {
         if (emailCode.length != 6) {
-            Toast.makeText(context, "Digite os 6 números do código.", Toast.LENGTH_SHORT).show()
+            emailFeedback = "Digite os 6 números do código."
+            emailFeedbackIsError = true
             return
         }
+        emailFeedback = null
         isEmailPending = true
         coroutineScope.launch {
             try {
@@ -1424,11 +1424,8 @@ private fun LoginScreen(
                     ),
                 )
             } catch (error: Exception) {
-                Toast.makeText(
-                    context,
-                    error.localizedMessage ?: "Não foi possível confirmar o código.",
-                    Toast.LENGTH_LONG,
-                ).show()
+                emailFeedback = error.localizedMessage ?: "Não foi possível confirmar o código."
+                emailFeedbackIsError = true
             } finally {
                 isEmailPending = false
             }
@@ -1499,7 +1496,10 @@ private fun LoginScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             DarkLoginField(
                                 value = email,
-                                onValueChange = { email = it },
+                                onValueChange = {
+                                    email = it
+                                    emailFeedback = null
+                                },
                                 label = "E-mail",
                                 icon = Icons.Rounded.Email,
                                 keyboardType = KeyboardType.Email,
@@ -1548,7 +1548,10 @@ private fun LoginScreen(
                             )
                             EmailOtpField(
                                 value = emailCode,
-                                onValueChange = { emailCode = it },
+                                onValueChange = {
+                                    emailCode = it
+                                    if (emailFeedbackIsError) emailFeedback = null
+                                },
                                 enabled = !isEmailPending,
                             )
                             LoginActionButton(
@@ -1577,13 +1580,25 @@ private fun LoginScreen(
                         }
                     }
                 }
+                AnimatedVisibility(visible = !emailFeedback.isNullOrBlank()) {
+                    Text(
+                        emailFeedback.orEmpty(),
+                        color = if (emailFeedbackIsError) Color(0xFFFF7C85) else Color.White.copy(alpha = .7f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    )
+                }
                 Surface(
                     onClick = {
                         if (emailCodeSent) {
                             emailCodeSent = false
                             emailCode = ""
+                            emailFeedback = null
                         } else {
                             showEmail = false
+                            emailFeedback = null
                         }
                     },
                     color = Color.Transparent,
@@ -1738,7 +1753,7 @@ private fun LoginActionButton(
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (showLoader) {
                 CircularProgressIndicator(
-                    color = PopBlue,
+                    color = foreground,
                     strokeWidth = 3.dp,
                     modifier = Modifier.size(27.dp),
                 )
@@ -2384,29 +2399,21 @@ private fun WorkSpaceSelector(
             shape = RoundedCornerShape(20.dp),
             containerColor = PopSurface,
         ) {
-            Text(
-                "SEUS ESPAÇOS",
-                color = PopMuted,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-            DropdownMenuItem(
-                text = {
-                    Column {
-                        Text("Meu espaço", fontWeight = FontWeight.Bold)
-                        Text("Tarefas pessoais", color = PopMuted, fontSize = 11.sp)
-                    }
-                },
-                leadingIcon = { Icon(Icons.Rounded.PersonOutline, null, tint = PopBlue) },
-                trailingIcon = {
-                    if (selected == WorkSpace.Personal) Icon(Icons.Rounded.Check, null, tint = PopBlue)
-                },
-                onClick = {
-                    expanded = false
-                    onSelect(WorkSpace.Personal)
-                },
-            )
+            if (selected != WorkSpace.Personal) {
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Meu espaço", fontWeight = FontWeight.Bold)
+                            Text("Tarefas pessoais", color = PopMuted, fontSize = 11.sp)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.Rounded.PersonOutline, null, tint = PopBlue) },
+                    onClick = {
+                        expanded = false
+                        onSelect(WorkSpace.Personal)
+                    },
+                )
+            }
             companyNames.forEachIndexed { index, companyName ->
                 DropdownMenuItem(
                     text = {
@@ -2433,7 +2440,6 @@ private fun WorkSpaceSelector(
                     },
                 )
             }
-            HorizontalDivider(color = PopBorder, modifier = Modifier.padding(vertical = 5.dp))
             DropdownMenuItem(
                 text = {
                     Column {
@@ -2504,7 +2510,6 @@ private fun WorkSpaceHeader(
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
     showPopBrand: Boolean = false,
-    dashboardWorkspaceLayout: Boolean = false,
 ) {
     val context = LocalContext.current
     val profilePhotoUrl = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
@@ -2520,18 +2525,7 @@ private fun WorkSpaceHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                if (dashboardWorkspaceLayout) {
-                    DashboardWorkspaceSelector(
-                        selected = selected,
-                        companyNames = companyNames,
-                        companyDescriptions = companyDescriptions,
-                        selectedCompanyIndex = selectedCompanyIndex,
-                        onCompanyClick = onCompanySelect,
-                        onCreateCompany = onCreateCompany,
-                    )
-                } else {
-                    WorkSpaceSelector(selected, companyNames, companyDescriptions, selectedCompanyIndex, onSelect, onCompanySelect, onCreateCompany)
-                }
+                WorkSpaceSelector(selected, companyNames, companyDescriptions, selectedCompanyIndex, onSelect, onCompanySelect, onCreateCompany)
             }
             if (showPopBrand) {
                 PopWordmark()
@@ -2541,100 +2535,6 @@ private fun WorkSpaceHeader(
                     modifier = Modifier.size(48.dp).clickable { },
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun DashboardWorkspaceSelector(
-    selected: WorkSpace,
-    companyNames: List<String>,
-    companyDescriptions: List<String>,
-    selectedCompanyIndex: Int,
-    onCompanyClick: (Int) -> Unit,
-    onCreateCompany: () -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        Surface(
-            onClick = { expanded = true },
-            color = Color.Transparent,
-            contentColor = PopText,
-            shape = RoundedCornerShape(14.dp),
-        ) {
-            Row(
-                modifier = Modifier.padding(end = 5.dp, top = 2.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Meu espaço",
-                    fontSize = 21.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.35).sp,
-                )
-                Spacer(Modifier.width(4.dp))
-                Icon(
-                    Icons.Rounded.KeyboardArrowDown,
-                    "Abrir lista de espaços",
-                    tint = PopBlue,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
-        }
-
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            shape = RoundedCornerShape(20.dp),
-            containerColor = PopSurface,
-        ) {
-            companyNames.forEachIndexed { index, companyName ->
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text(companyName, fontWeight = FontWeight.Bold)
-                            Text(
-                                companyDescriptions.getOrElse(index) { "Empresa e equipe" },
-                                color = PopMuted,
-                                fontSize = 11.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    },
-                    leadingIcon = { Icon(Icons.Rounded.Business, null, tint = PopBlue) },
-                    trailingIcon = {
-                        if (selected == WorkSpace.Company && selectedCompanyIndex == index) {
-                            Icon(Icons.Rounded.Check, null, tint = PopBlue)
-                        }
-                    },
-                    onClick = {
-                        expanded = false
-                        onCompanyClick(index)
-                    },
-                )
-            }
-            if (companyNames.isNotEmpty()) {
-                HorizontalDivider(color = PopBorder, modifier = Modifier.padding(vertical = 5.dp))
-            }
-            DropdownMenuItem(
-                text = {
-                    Column {
-                        Text(
-                            "Empresas",
-                            color = PopBlue,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = (-0.1).sp,
-                        )
-                        Text("Em breve na versão Web", color = PopMuted, fontSize = 11.sp)
-                    }
-                },
-                onClick = {
-                    expanded = false
-                    onCreateCompany()
-                },
-            )
         }
     }
 }
@@ -2679,7 +2579,6 @@ private fun DashboardScreen(
                 onSelect = onWorkSpaceChange,
                 onCompanySelect = onCompanySelect,
                 onCreateCompany = onCreateCompany,
-                dashboardWorkspaceLayout = true,
             )
         }
         item {

@@ -228,6 +228,14 @@ const googleLoginSchema = z.object({
   credential: z.string().min(20, "Credencial do Google inválida."),
 });
 
+const emailCodeRequestSchema = z.object({
+  email: z.string().trim().email("Informe um e-mail válido."),
+});
+
+const emailCodeLoginSchema = emailCodeRequestSchema.extend({
+  code: z.string().regex(/^\d{6}$/, "Digite os 6 números do código."),
+});
+
 function createHttpError(message: string, status = 400) {
   return Object.assign(new Error(message), { statusCode: status });
 }
@@ -822,6 +830,23 @@ export const loginWithGoogle = createServerFn({ method: "POST" })
 
     setCookie(SESSION_COOKIE, sessionToken, getCookieOptions());
     return { ok: true, user };
+  });
+
+export const requestEmailLoginCode = createServerFn({ method: "POST" })
+  .validator((data) => emailCodeRequestSchema.parse(data))
+  .handler(async ({ data }) => {
+    const { requestMobileEmailCode } = await import("../mobile-api.server");
+    const result = await requestMobileEmailCode(data.email);
+    return { ok: true, expiresInSeconds: result.expiresInSeconds };
+  });
+
+export const loginWithEmailCode = createServerFn({ method: "POST" })
+  .validator((data) => emailCodeLoginSchema.parse(data))
+  .handler(async ({ data }) => {
+    const { verifyMobileEmailCode } = await import("../mobile-api.server");
+    const result = await verifyMobileEmailCode(data.email, data.code);
+    setCookie(SESSION_COOKIE, result.token, getCookieOptions());
+    return { ok: true, user: result.user };
   });
 
 export const logout = createServerFn({ method: "POST" }).handler(async () => {

@@ -3281,11 +3281,7 @@ private fun TasksScreen(
                         TaskComposerIcon(
                             icon = Icons.Rounded.TaskAlt,
                             description = "Definir prioridade",
-                            tint = when (newTaskPriority) {
-                                "Alta" -> Color(0xFFE5484D)
-                                "Média" -> Color(0xFFFF9F1C)
-                                else -> Color(0xFF18A66A)
-                            },
+                            tint = taskPriorityColor(newTaskPriority),
                         ) { showPriorityMenu = true }
                         DropdownMenu(
                             expanded = showPriorityMenu,
@@ -3294,9 +3290,10 @@ private fun TasksScreen(
                             containerColor = PopSurface,
                         ) {
                             listOf(
-                                "Alta" to Color(0xFFE5484D),
-                                "Média" to Color(0xFFFF9F1C),
-                                "Baixa" to Color(0xFF18A66A),
+                                "Urgente" to taskPriorityColor("Urgente"),
+                                "Alta" to taskPriorityColor("Alta"),
+                                "Média" to taskPriorityColor("Média"),
+                                "Baixa" to taskPriorityColor("Baixa"),
                             ).forEach { (priority, color) ->
                                 DropdownMenuItem(
                                     text = { Text(priority, fontWeight = if (newTaskPriority == priority) FontWeight.Bold else FontWeight.Normal) },
@@ -3397,7 +3394,7 @@ private fun TasksScreen(
                     }
                     Text(
                         openedTask?.department?.uppercase() ?: "DETALHES",
-                        color = if (detailIsOverdue) detailOverdueBackground else PopMuted,
+                        color = PopMuted,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         modifier = Modifier.weight(1f),
@@ -3533,13 +3530,14 @@ private fun TasksScreen(
                                     expandedDetailSection = if (expandedDetailSection == "priority") null else "priority"
                                 }
                                 AnimatedVisibility(visible = expandedDetailSection == "priority") {
-                                    Row(
+                                    LazyRow(
                                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.Center,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     ) {
-                                        listOf("Baixa", "Média", "Alta").forEach { option ->
-                                            PriorityChoicePill(option, editPriority == option) { editPriority = option }
-                                            if (option != "Alta") Spacer(Modifier.width(8.dp))
+                                        items(listOf("Baixa", "Média", "Alta", "Urgente")) { option ->
+                                            PriorityChoicePill(option, editPriority == option) {
+                                                editPriority = option
+                                            }
                                         }
                                     }
                                 }
@@ -4091,8 +4089,8 @@ private fun TasksScreen(
                         )
                     }
                     Text("Prioridade", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Baixa", "Média", "Alta").forEach { priority ->
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(listOf("Baixa", "Média", "Alta", "Urgente")) { priority ->
                             ChoicePill(priority, newTaskPriority == priority) { newTaskPriority = priority }
                         }
                     }
@@ -4590,11 +4588,7 @@ private fun DetailChoicePill(label: String, selected: Boolean, onClick: () -> Un
 
 @Composable
 private fun PriorityChoicePill(label: String, selected: Boolean, onClick: () -> Unit) {
-    val priorityColor = when (label) {
-        "Alta" -> Color(0xFFE5484D)
-        "Média" -> Color(0xFFFF9F1C)
-        else -> Color(0xFF18A66A)
-    }
+    val priorityColor = taskPriorityColor(label)
     val backgroundColor by animateColorAsState(
         targetValue = if (selected) priorityColor else Color.Transparent,
         animationSpec = tween(220),
@@ -4641,12 +4635,13 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Unit, onOpen: () -> Unit) {
     val completedVisual = task.completed || isCompleting
     val isOverdue = isTaskOverdue(task) && !isCompleting
+    val isUrgent = task.priority == "Urgente" && !completedVisual
     val isLightTheme = MaterialTheme.colorScheme.background.luminance() > .5f
-    val overdueBackground = if (isLightTheme) Color(0xFFD63843) else Color(0xFFB52D3A)
+    val urgentBackground = if (isLightTheme) Color(0xFFD63843) else Color(0xFFB52D3A)
     val cardColor by animateColorAsState(
         targetValue = when {
             completedVisual -> Color(0xFF141717)
-            isOverdue -> overdueBackground
+            isUrgent -> urgentBackground
             else -> PopSurface
         },
         animationSpec = tween(260),
@@ -4677,7 +4672,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor = cardColor,
-            contentColor = if (isOverdue || completedVisual) Color.White else PopText,
+            contentColor = if (isUrgent || completedVisual) Color.White else PopText,
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -4719,7 +4714,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                             2.dp,
                             when {
                                 completedVisual -> PopBlue
-                                isOverdue -> Color.White.copy(alpha = .72f)
+                                isUrgent -> Color.White.copy(alpha = .72f)
                                 else -> PopMuted.copy(alpha = .55f)
                             },
                             CircleShape,
@@ -4742,7 +4737,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
             Column(Modifier.weight(1f)) {
                 Text(
                     task.title,
-                    color = if (isOverdue) Color.White else Color.Unspecified,
+                    color = if (isUrgent) Color.White else Color.Unspecified,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     maxLines = 1,
@@ -4757,7 +4752,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                         Icon(
                             Icons.Rounded.Repeat,
                             "Tarefa recorrente",
-                            tint = if (isOverdue) Color.White.copy(alpha = .82f) else PopMuted,
+                            tint = if (isUrgent) Color.White.copy(alpha = .82f) else PopMuted,
                             modifier = Modifier.padding(start = 5.dp).size(14.dp),
                         )
                     }
@@ -4768,21 +4763,25 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                         Icon(
                             Icons.Rounded.Description,
                             "Possui anotação",
-                            tint = if (isOverdue) Color.White.copy(alpha = .82f) else PopMuted,
+                            tint = if (isUrgent) Color.White.copy(alpha = .82f) else PopMuted,
                             modifier = Modifier.size(14.dp),
                         )
                     }
                     if (hasRecurrence || hasDescription) {
                         Text(
                             "•",
-                            color = if (isOverdue) Color.White.copy(alpha = .82f) else PopMuted,
+                            color = if (isUrgent) Color.White.copy(alpha = .82f) else PopMuted,
                             fontSize = 10.sp,
                             modifier = Modifier.padding(horizontal = 5.dp),
                         )
                     }
                     Text(
                         dueText,
-                        color = if (isOverdue) Color.White.copy(alpha = .9f) else PopMuted,
+                        color = when {
+                            isUrgent -> Color.White.copy(alpha = .9f)
+                            isOverdue -> taskPriorityColor("Urgente")
+                            else -> PopMuted
+                        },
                         fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -4790,7 +4789,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                     )
                 }
             }
-            PriorityPill(task.priority, if (isOverdue) Color.White else null)
+            PriorityPill(task.priority, if (isUrgent) Color.White else null)
         }
         }
     }
@@ -4871,10 +4870,21 @@ private fun taskEditorFieldColors(containerColor: Color = PopSurfaceAlt) = TextF
 
 @Composable
 private fun PriorityPill(priority: String, colorOverride: Color? = null) {
-    val color = when (priority) {
-        "Alta" -> Color(0xFFE5484D)
-        "Média" -> Color(0xFFFF9F1C)
-        else -> Color(0xFF18A66A)
+    val color = taskPriorityColor(priority)
+    if (priority == "Urgente" && colorOverride == null) {
+        Surface(
+            color = color,
+            contentColor = Color.White,
+            shape = CircleShape,
+        ) {
+            Text(
+                "URGENTE",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            )
+        }
+        return
     }
     Text(
         priority,
@@ -4883,6 +4893,13 @@ private fun PriorityPill(priority: String, colorOverride: Color? = null) {
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
     )
+}
+
+private fun taskPriorityColor(priority: String): Color = when (priority) {
+    "Urgente" -> Color(0xFFE32636)
+    "Alta" -> Color(0xFFFF7A1A)
+    "Média" -> Color(0xFFFFB000)
+    else -> Color(0xFF159B62)
 }
 
 @Composable
@@ -5027,7 +5044,14 @@ private fun CalendarTaskDetails(task: PopTask, onDismiss: () -> Unit) {
                             }
                         }
                     }
-                    item { CalendarTaskInfoRow(Icons.Rounded.CalendarMonth, "Data", displayDueLabel(task) + task.dueTime.takeIf { it.isNotBlank() }?.let { ", $it" }.orEmpty()) }
+                    item {
+                        CalendarTaskInfoRow(
+                            Icons.Rounded.CalendarMonth,
+                            "Data",
+                            displayDueLabel(task) + task.dueTime.takeIf { it.isNotBlank() }?.let { ", $it" }.orEmpty(),
+                            valueColor = if (isTaskOverdue(task)) taskPriorityColor("Urgente") else null,
+                        )
+                    }
                     item { CalendarTaskInfoRow(Icons.Rounded.TaskAlt, "Prioridade", task.priority) }
                     if (task.recurrenceRule != "Não repetir") {
                         item { CalendarTaskInfoRow(Icons.Rounded.Repeat, "Recorrência", task.recurrence) }
@@ -5051,16 +5075,28 @@ private fun CalendarTaskDetails(task: PopTask, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun CalendarTaskInfoRow(icon: ImageVector, label: String, value: String) {
+private fun CalendarTaskInfoRow(icon: ImageVector, label: String, value: String, valueColor: Color? = null) {
+    val isUrgentPriority = label == "Prioridade" && value == "Urgente"
     Row(
-        modifier = Modifier.fillMaxWidth().background(PopSurfaceAlt, RoundedCornerShape(16.dp)).padding(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (isUrgentPriority) taskPriorityColor("Urgente").copy(alpha = .14f) else PopSurfaceAlt,
+                RoundedCornerShape(16.dp),
+            )
+            .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = PopMuted, modifier = Modifier.size(21.dp))
+        Icon(icon, null, tint = if (isUrgentPriority) taskPriorityColor("Urgente") else PopMuted, modifier = Modifier.size(21.dp))
         Spacer(Modifier.width(13.dp))
         Column(Modifier.weight(1f)) {
             Text(label, color = PopMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            Text(value, color = PopText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                value,
+                color = valueColor ?: if (isUrgentPriority) taskPriorityColor("Urgente") else PopText,
+                fontSize = 13.sp,
+                fontWeight = if (isUrgentPriority) FontWeight.ExtraBold else FontWeight.SemiBold,
+            )
         }
     }
 }
@@ -5106,11 +5142,7 @@ private fun CalendarGrid(
                                         val orbitRadius = size.minDimension / 2f - 2.4.dp.toPx()
                                         visibleTasks.forEachIndexed { index, task ->
                                             val angle = Math.toRadians((startAngle + angleStep * index).toDouble())
-                                            val dotColor = when (task.priority) {
-                                                "Alta" -> Color(0xFFE5484D)
-                                                "Média" -> Color(0xFFFF9F1C)
-                                                else -> Color(0xFF18A66A)
-                                            }
+                                            val dotColor = taskPriorityColor(task.priority)
                                             drawCircle(
                                                 color = dotColor,
                                                 radius = 2.dp.toPx(),
@@ -5142,10 +5174,11 @@ private fun CalendarGrid(
             }
         }
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
-            PriorityLegend("Urgente", Color(0xFFE5484D))
-            PriorityLegend("Média", Color(0xFFFF9F1C))
-            PriorityLegend("Baixa", Color(0xFF18A66A))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
+            PriorityLegend("Urgente", taskPriorityColor("Urgente"))
+            PriorityLegend("Alta", taskPriorityColor("Alta"))
+            PriorityLegend("Média", taskPriorityColor("Média"))
+            PriorityLegend("Baixa", taskPriorityColor("Baixa"))
         }
     }
 }

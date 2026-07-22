@@ -531,41 +531,97 @@ private fun TaskRow(
     onToggle: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    PopCard(modifier = Modifier.animateContentSize().clickable(onClick = onOpen)) {
+    val isUrgent = task.priority == Priority.Urgent && !task.completed
+    val isOverdue = !task.completed && task.dueDate < todayIso()
+    PopCard(
+        modifier = Modifier.animateContentSize().clickable(onClick = onOpen),
+        containerColor = if (isUrgent) PopRed else MaterialTheme.colorScheme.surface,
+        contentColor = if (isUrgent) Color.White else MaterialTheme.colorScheme.onSurface,
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onToggle) {
                 Icon(
                     if (task.completed) Icons.Rounded.CheckCircle else Icons.Rounded.Check,
                     if (task.completed) "Reabrir" else "Concluir",
-                    tint = if (task.completed) PopGreen else priorityColor(task.priority),
+                    tint = when {
+                        task.completed -> PopGreen
+                        isUrgent -> Color.White
+                        else -> priorityColor(task.priority)
+                    },
                 )
             }
             Column(Modifier.weight(1f)) {
-                Text(task.title, fontWeight = FontWeight.Bold, color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
-                if (task.description.isNotBlank()) Text(task.description, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 2)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        task.title,
+                        fontWeight = FontWeight.Bold,
+                        color = when {
+                            task.completed -> MaterialTheme.colorScheme.onSurfaceVariant
+                            isUrgent -> Color.White
+                            else -> MaterialTheme.colorScheme.onSurface
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (isUrgent) {
+                        Text("URGENTE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+                if (task.description.isNotBlank()) {
+                    Text(
+                        task.description,
+                        color = if (isUrgent) Color.White.copy(alpha = .82f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                    )
+                }
                 Spacer(Modifier.height(5.dp))
                 Text(
                     listOf(task.dueDate, task.dueTime).filter { it.isNotBlank() }.joinToString(" • "),
-                    color = priorityColor(task.priority),
+                    color = when {
+                        isUrgent -> Color.White.copy(alpha = .9f)
+                        isOverdue -> PopRed
+                        else -> priorityColor(task.priority)
+                    },
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            IconButton(onClick = onDelete) { Icon(Icons.Rounded.DeleteOutline, "Remover", tint = MaterialTheme.colorScheme.error) }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Rounded.DeleteOutline, "Remover", tint = if (isUrgent) Color.White else MaterialTheme.colorScheme.error)
+            }
         }
     }
 }
 
 @Composable
 private fun CompactTaskRow(task: PopTask) {
-    PopCard {
+    val isUrgent = task.priority == Priority.Urgent && !task.completed
+    val isOverdue = !task.completed && task.dueDate < todayIso()
+    PopCard(
+        containerColor = if (isUrgent) PopRed else MaterialTheme.colorScheme.surface,
+        contentColor = if (isUrgent) Color.White else MaterialTheme.colorScheme.onSurface,
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(9.dp).background(priorityColor(task.priority), CircleShape))
+            Box(Modifier.size(9.dp).background(if (isUrgent) Color.White else priorityColor(task.priority), CircleShape))
             Spacer(Modifier.size(11.dp))
             Column(Modifier.weight(1f)) {
                 Text(task.title, fontWeight = FontWeight.SemiBold)
-                Text(task.dueDate + task.dueTime.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Text(
+                    task.dueDate + task.dueTime.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty(),
+                    color = when {
+                        isUrgent -> Color.White.copy(alpha = .9f)
+                        isOverdue -> PopRed
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    fontSize = 11.sp,
+                )
             }
+            Text(
+                task.priority.label,
+                color = if (isUrgent) Color.White else priorityColor(task.priority),
+                fontSize = 10.sp,
+                fontWeight = if (isUrgent) FontWeight.ExtraBold else FontWeight.SemiBold,
+            )
         }
     }
 }
@@ -877,8 +933,16 @@ private fun SimpleEntityEditorDialog(title: String, onSave: (String, String) -> 
 }
 
 @Composable
-private fun PopCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+private fun PopCard(
+    modifier: Modifier = Modifier,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = containerColor, contentColor = contentColor),
+    ) {
         Column(Modifier.fillMaxWidth().padding(16.dp), content = content)
     }
 }
@@ -898,6 +962,7 @@ private fun EmptyState(title: String, detail: String) {
 
 private fun priorityColor(priority: Priority): Color = when (priority) {
     Priority.Low -> PopGreen
-    Priority.Medium -> PopOrange
-    Priority.High, Priority.Urgent -> PopRed
+    Priority.Medium -> Color(0xFFFFB000)
+    Priority.High -> PopOrange
+    Priority.Urgent -> PopRed
 }

@@ -193,7 +193,7 @@ export function TaskFilterBar({
       .map((group) => ({ value: group.id, label: group.name }));
   }, [groups, tasks]);
   const responsibleOptions = useMemo(() => {
-    const ids = new Set(tasks.map((task) => task.responsibleId));
+    const ids = new Set(tasks.map((task) => task.responsibleId).filter(Boolean));
     return employees
       .filter((employee) => ids.has(employee.id))
       .map((employee) => ({ value: employee.id, label: employee.name }));

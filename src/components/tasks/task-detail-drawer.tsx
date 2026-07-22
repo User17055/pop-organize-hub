@@ -325,7 +325,8 @@ export function TaskDetailDrawer({
                   Responsável
                 </div>
                 <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
-                  {getEmployee(task.responsibleId)?.name}
+                  {getEmployee(task.responsibleId)?.name ??
+                    (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
                 </div>
               </div>
             </div>

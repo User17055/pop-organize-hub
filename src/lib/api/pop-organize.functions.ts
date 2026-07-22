@@ -86,7 +86,7 @@ const createTaskSchema = z.object({
   priority: prioritySchema.default("medium"),
   dueDate: z.string().min(10).default(defaultDueDate()),
   target: targetSchema,
-  responsibleId: z.string().min(1),
+  responsibleId: z.string().default(""),
   reviewerId: z.string().optional(),
   requiresReview: z.boolean().default(false),
   tags: z.array(z.string().trim().min(1)).default([]),
@@ -893,8 +893,15 @@ export const createTask = createServerFn({ method: "POST" })
         "Seu grupo de permissão não pode criar tarefas.",
       );
 
-      const responsible = db.employees.find((employee) => employee.id === data.responsibleId);
-      if (!responsible) throw createHttpError("Responsável não encontrado.");
+      const responsible = data.responsibleId
+        ? db.employees.find((employee) => employee.id === data.responsibleId)
+        : undefined;
+      if (data.responsibleId && !responsible) {
+        throw createHttpError("Responsável não encontrado.");
+      }
+      if (!data.responsibleId && data.target.type !== "department") {
+        throw createHttpError("Escolha um responsável para esta tarefa.");
+      }
 
       const reviewerId = data.requiresReview ? data.reviewerId : undefined;
       if (reviewerId && !db.employees.some((employee) => employee.id === reviewerId)) {

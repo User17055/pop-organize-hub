@@ -67,7 +67,10 @@ export function DaySheet({
                     <StatusBadge status={task.status} />
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <span className="truncate">{emp?.name}</span>
+                    <span className="truncate">
+                      {emp?.name ??
+                        (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
+                    </span>
                     {subtasks.length > 0 && (
                       <span className="task-chip inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1">
                         <ListChecks className="h-3 w-3" />

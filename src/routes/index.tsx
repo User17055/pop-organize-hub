@@ -176,14 +176,14 @@ function Dashboard() {
                         .split(" ")
                         .map((n) => n[0])
                         .slice(0, 2)
-                        .join("")}
+                        .join("") ?? "ST"}
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm truncate">{t.title}</div>
                     <div className="text-xs text-muted-foreground truncate">
                       {canSeePeopleContext
-                        ? `${emp?.name ?? ""} - ${t.target.label}`
+                        ? `${emp?.name ?? (t.target.type === "department" ? "Setor inteiro" : "Sem responsável")} - ${t.target.label}`
                         : t.target.label}
                     </div>
                   </div>

@@ -143,6 +143,21 @@ function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
     };
   }
 
+  const currentEmployee = input.employees.find((employee) => employee.id === userId);
+  if (
+    !input.task.responsibleId &&
+    input.task.target.type === "department" &&
+    input.task.target.id === currentEmployee?.departmentId
+  ) {
+    return {
+      canEditContent: false,
+      canChangeStatus: true,
+      canComplete: true,
+      canDelete: false,
+      roleLabel: "Membro do setor",
+    };
+  }
+
   return {
     canEditContent: false,
     canChangeStatus: false,

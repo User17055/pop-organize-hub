@@ -40,6 +40,7 @@ export function TaskCreateDrawer({
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(0);
   const isLastStep = step === steps.length - 1;
+  const isDepartmentTarget = form.targetKey.startsWith("department:");
   const canContinue =
     step !== 0 || Boolean(form.title.trim() && form.description.trim() && form.dueDate);
 
@@ -214,17 +215,25 @@ export function TaskCreateDrawer({
                         onFormChange((current) => ({
                           ...current,
                           targetKey,
+                          responsibleId: targetKey.startsWith("department:")
+                            ? ""
+                            : current.responsibleId || (employees[0]?.id ?? ""),
                         }))
                       }
                     />
                   </Field>
-                  <Field label="Responsavel">
+                  <Field label={isDepartmentTarget ? "Responsável (opcional)" : "Responsável"}>
                     <GlassSelect
                       value={form.responsibleId}
-                      options={employees.map((employee) => ({
-                        value: employee.id,
-                        label: employee.name,
-                      }))}
+                      options={[
+                        ...(isDepartmentTarget
+                          ? [{ value: "", label: "Sem responsável — setor inteiro" }]
+                          : []),
+                        ...employees.map((employee) => ({
+                          value: employee.id,
+                          label: employee.name,
+                        })),
+                      ]}
                       onChange={(responsibleId) =>
                         onFormChange((current) => ({
                           ...current,
@@ -247,6 +256,10 @@ export function TaskCreateDrawer({
                       onFormChange((current) => ({
                         ...current,
                         requiresReview: event.target.checked,
+                        reviewerId:
+                          event.target.checked && !current.responsibleId && !current.reviewerId
+                            ? (employees[0]?.id ?? "")
+                            : current.reviewerId,
                       }))
                     }
                     className="sr-only"
@@ -267,7 +280,10 @@ export function TaskCreateDrawer({
                     <GlassSelect
                       value={form.reviewerId}
                       options={[
-                        { value: "", label: "Usar o responsável" },
+                        {
+                          value: "",
+                          label: form.responsibleId ? "Usar o responsável" : "Selecione um revisor",
+                        },
                         ...employees.map((employee) => ({
                           value: employee.id,
                           label: employee.name,

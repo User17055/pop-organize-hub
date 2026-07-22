@@ -200,6 +200,7 @@ function TasksPage() {
         employees,
         departments,
         groups,
+        permissionGroups: data.permissionGroups,
       })
     : null;
   const targetOptions = [
@@ -253,8 +254,9 @@ function TasksPage() {
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const [type, id] = form.targetKey.split(":") as [TargetType, string];
-    const responsibleId = form.responsibleId || employees[0]?.id;
-    if (!responsibleId) return;
+    const responsibleId =
+      form.responsibleId || (type === "department" ? "" : (employees[0]?.id ?? ""));
+    if (type !== "department" && !responsibleId) return;
 
     createTaskMutation.mutate({
       title: form.title,
@@ -263,7 +265,7 @@ function TasksPage() {
       dueDate: form.dueDate,
       target: { type, id },
       responsibleId,
-      reviewerId: form.requiresReview ? form.reviewerId || responsibleId : undefined,
+      reviewerId: form.requiresReview ? form.reviewerId || responsibleId || undefined : undefined,
       requiresReview: form.requiresReview,
       tags: form.tags
         .split(",")
@@ -485,6 +487,7 @@ function TasksPage() {
         employees={employees}
         departments={departments}
         groups={groups}
+        permissionGroups={data.permissionGroups}
         currentUser={currentUser}
         showResponsible={canSeePeopleContext}
         selectedTaskId={selectedTaskId}
@@ -564,7 +567,11 @@ function TasksPage() {
                         canSeePeopleContext ? "justify-between" : "justify-end",
                       )}
                     >
-                      {canSeePeopleContext && <span className="truncate">{emp?.name}</span>}
+                      {canSeePeopleContext && (
+                        <span className="truncate">
+                          {emp?.name ?? (task.target.type === "department" ? "Setor inteiro" : "")}
+                        </span>
+                      )}
                       <span>
                         {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                       </span>

@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { CurrentUser, Department, Employee, Group, Task } from "@/lib/domain";
+import type { CurrentUser, Department, Employee, Group, PermissionGroup, Task } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import { EmployeeAvatar } from "./employee-avatar";
 import { isOverdue } from "./task-form-types";
@@ -27,6 +27,7 @@ export function TaskList({
   employees,
   departments,
   groups,
+  permissionGroups,
   currentUser,
   showResponsible = true,
   selectedTaskId,
@@ -38,6 +39,7 @@ export function TaskList({
   employees: Employee[];
   departments: Department[];
   groups: Group[];
+  permissionGroups: PermissionGroup[];
   currentUser: CurrentUser;
   showResponsible?: boolean;
   selectedTaskId: string | null;
@@ -92,6 +94,7 @@ export function TaskList({
                 employees,
                 departments,
                 groups,
+                permissionGroups,
               });
               const progress = subtaskProgress(task);
               return (
@@ -148,7 +151,10 @@ export function TaskList({
                       <div className="flex items-center gap-2">
                         <EmployeeAvatar employee={emp} departments={departments} size="sm" />
                         <span className="truncate text-sm font-medium text-foreground/75">
-                          {emp?.name}
+                          {emp?.name ??
+                            (task.target.type === "department"
+                              ? "Setor inteiro"
+                              : "Sem responsável")}
                         </span>
                       </div>
                     </TableCell>
@@ -214,6 +220,7 @@ export function TaskList({
             employees,
             departments,
             groups,
+            permissionGroups,
           });
           const progress = subtaskProgress(task);
           return (
@@ -319,7 +326,17 @@ export function TaskList({
                 </div>
               </div>
 
-              {showResponsible && <EmployeeAvatar employee={emp} departments={departments} />}
+              {showResponsible && (
+                <div
+                  className="shrink-0"
+                  title={
+                    emp?.name ??
+                    (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")
+                  }
+                >
+                  <EmployeeAvatar employee={emp} departments={departments} />
+                </div>
+              )}
             </motion.div>
           );
         })}

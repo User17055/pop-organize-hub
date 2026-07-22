@@ -12,6 +12,7 @@ const mobileTaskSchema = z.object({
   completed: z.boolean(),
   description: z.string().max(10_000),
   assignee: z.string().max(200),
+  assignedBy: z.string().max(200).default(""),
   recurrence: z.string().max(500),
   reminder: z.string().max(200),
   attachmentName: z.string().max(500),
@@ -47,9 +48,12 @@ export const Route = createFileRoute("/api/mobile/tasks")({
       GET: async ({ request }) => {
         try {
           const { readMobileTasks } = await import("@/lib/mobile-api.server");
-          return Response.json({ tasks: await readMobileTasks(request) }, {
-            headers: { "cache-control": "no-store" },
-          });
+          return Response.json(
+            { tasks: await readMobileTasks(request) },
+            {
+              headers: { "cache-control": "no-store" },
+            },
+          );
         } catch (error) {
           return errorResponse(error);
         }
@@ -57,7 +61,8 @@ export const Route = createFileRoute("/api/mobile/tasks")({
       PUT: async ({ request }) => {
         try {
           const parsed = mobileTasksPayloadSchema.safeParse(await request.json());
-          if (!parsed.success) return Response.json({ error: "Lista de tarefas inválida." }, { status: 400 });
+          if (!parsed.success)
+            return Response.json({ error: "Lista de tarefas inválida." }, { status: 400 });
           const { replaceMobileTasks } = await import("@/lib/mobile-api.server");
           return Response.json(await replaceMobileTasks(request, parsed.data.tasks), {
             headers: { "cache-control": "no-store" },

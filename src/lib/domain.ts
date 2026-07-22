@@ -183,12 +183,16 @@ export interface Task {
   createdAt: string;
   target: { type: TargetType; id: string; label: string };
   responsibleId: string;
+  assignedById?: string;
+  assignedAt?: string;
   reviewerId?: string;
   requiresReview: boolean;
   tags: string[];
   comments: number;
   attachments: number;
   recurrence?: TaskRecurrence;
+  recurrenceParentId?: string;
+  recurrenceOccurrence?: number;
   commentItems?: TaskComment[];
   attachmentItems?: TaskAttachment[];
   subtasks?: TaskSubtask[];

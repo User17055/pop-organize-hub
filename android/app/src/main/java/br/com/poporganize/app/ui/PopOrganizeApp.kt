@@ -184,6 +184,7 @@ import androidx.credentials.exceptions.NoCredentialException
 import br.com.poporganize.app.R
 import br.com.poporganize.app.notifications.NotificationTaskSnapshot
 import br.com.poporganize.app.notifications.saveNotificationTaskSnapshot
+import br.com.poporganize.app.notifications.showAssignedTaskNotification
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
@@ -226,6 +227,7 @@ private data class PopTask(
     val completed: Boolean = false,
     val description: String = "",
     val assignee: String = "Eu",
+    val assignedBy: String = "",
     val recurrence: String = "Não repetir",
     val reminder: String = "Sem lembrete",
     val attachmentName: String = "",
@@ -266,6 +268,7 @@ private const val GOOGLE_ACCOUNT_PHOTO_STORAGE = "pop_organize_google_account_ph
 private const val API_SESSION_TOKEN_STORAGE = "pop_organize_api_session_token"
 private const val ACCOUNT_TASKS_STORAGE_PREFIX = "pop_organize_account_tasks_"
 private const val ACCOUNT_TASKS_DIRTY_PREFIX = "pop_organize_account_tasks_dirty_"
+private const val ASSIGNED_TASKS_SEEN_PREFIX = "pop_organize_assigned_tasks_seen_"
 private const val MOBILE_API_BASE_URL = "https://app.poporganize.com.br/api/mobile"
 private const val LIGHT_THEME_STORAGE = "pop_organize_light_theme"
 private const val LOCAL_PREFERENCES = "pop_organize_local"
@@ -314,14 +317,14 @@ private fun dueLabelForDate(date: LocalDate): String {
 private fun nextRecurrenceDate(task: PopTask): LocalDate? {
     val currentDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return null
     val interval = task.recurrenceInterval.coerceAtLeast(1)
-    val nextDate = when (task.recurrenceRule) {
-        "Diária" -> currentDate.plusDays(interval.toLong())
+    fun advanceRecurrenceDate(from: LocalDate): LocalDate? = when (task.recurrenceRule) {
+        "Diária" -> from.plusDays(interval.toLong())
         "Semanal" -> {
             val dayMap = mapOf("S" to 1, "T" to 2, "Q" to 3, "Q2" to 4, "S2" to 5, "Sá" to 6, "D" to 7)
             val selectedDays = task.recurrenceDetail.split(",").mapNotNull(dayMap::get).sorted()
-                .ifEmpty { listOf(currentDate.dayOfWeek.value) }
-            val weekStart = currentDate.minusDays((currentDate.dayOfWeek.value - 1).toLong())
-            val laterThisWeek = selectedDays.firstOrNull { it > currentDate.dayOfWeek.value }
+                .ifEmpty { listOf(from.dayOfWeek.value) }
+            val weekStart = from.minusDays((from.dayOfWeek.value - 1).toLong())
+            val laterThisWeek = selectedDays.firstOrNull { it > from.dayOfWeek.value }
             if (laterThisWeek != null) {
                 weekStart.plusDays((laterThisWeek - 1).toLong())
             } else {
@@ -329,14 +332,23 @@ private fun nextRecurrenceDate(task: PopTask): LocalDate? {
             }
         }
         "Mensal" -> {
-            val targetMonth = currentDate.plusMonths(interval.toLong())
+            val targetMonth = from.plusMonths(interval.toLong())
             val targetDay = task.recurrenceDetail.toIntOrNull()?.coerceIn(1, targetMonth.lengthOfMonth())
-                ?: currentDate.dayOfMonth.coerceAtMost(targetMonth.lengthOfMonth())
+                ?: from.dayOfMonth.coerceAtMost(targetMonth.lengthOfMonth())
             targetMonth.withDayOfMonth(targetDay)
         }
-        "Anual" -> currentDate.plusYears(interval.toLong())
-        else -> return null
+        "Anual" -> from.plusYears(interval.toLong())
+        else -> null
     }
+
+    var nextDate = advanceRecurrenceDate(currentDate) ?: return null
+    val today = LocalDate.now()
+    var skippedDates = 0
+    while (!nextDate.isAfter(today) && skippedDates < 10_000) {
+        nextDate = advanceRecurrenceDate(nextDate) ?: return null
+        skippedDates += 1
+    }
+    if (!nextDate.isAfter(today)) return null
 
     val nextOccurrence = task.recurrenceOccurrence + 1
     return when (task.recurrenceEndMode) {
@@ -368,6 +380,7 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 completed = item.optBoolean("completed"),
                 description = item.optString("description"),
                 assignee = item.optString("assignee", "Eu"),
+                assignedBy = item.optString("assignedBy"),
                 recurrence = item.optString("recurrence", "Não repetir"),
                 reminder = item.optString("reminder", "Sem lembrete"),
                 attachmentName = item.optString("attachmentName"),
@@ -417,6 +430,7 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("completed", task.completed)
                 .put("description", task.description)
                 .put("assignee", task.assignee)
+                .put("assignedBy", task.assignedBy)
                 .put("recurrence", task.recurrence)
                 .put("reminder", task.reminder)
                 .put("attachmentName", task.attachmentName)
@@ -753,7 +767,10 @@ private val onboardingSlides = listOf(
 )
 
 @Composable
-fun PopOrganizeApp() {
+fun PopOrganizeApp(
+    externalTaskId: Int? = null,
+    onExternalTaskOpened: () -> Unit = {},
+) {
     val context = LocalContext.current
     var lightTheme by remember {
         mutableStateOf(
@@ -909,6 +926,8 @@ fun PopOrganizeApp() {
                 AppStage.Main -> PopMainContent(
                     sessionMode = sessionMode ?: SessionMode.Guest,
                     googleAccount = googleAccount,
+                    externalTaskId = externalTaskId,
+                    onExternalTaskOpened = onExternalTaskOpened,
                     lightTheme = lightTheme,
                     onLightThemeChange = { enabled ->
                         lightTheme = enabled
@@ -1615,6 +1634,8 @@ private fun DarkLoginField(
 private fun PopMainContent(
     sessionMode: SessionMode,
     googleAccount: GoogleAccount?,
+    externalTaskId: Int?,
+    onExternalTaskOpened: () -> Unit,
     lightTheme: Boolean,
     onLightThemeChange: (Boolean) -> Unit,
     onRequireLogin: () -> Unit,
@@ -1653,6 +1674,26 @@ private fun PopMainContent(
     var lastSyncedTasksJson by remember(sessionMode, googleAccount?.id) { mutableStateOf("") }
     val lastSyncedCompanyTasks = remember(sessionMode, googleAccount?.id) { mutableStateMapOf<String, String>() }
     val companyTaskGroups = remember(sessionMode) { mutableStateListOf<MutableList<PopTask>>() }
+    val assignmentPreferences = remember {
+        context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+    }
+    val assignmentSeenKey = remember(googleAccount?.id) {
+        "$ASSIGNED_TASKS_SEEN_PREFIX${googleAccount?.id.orEmpty()}"
+    }
+    val seenAssignedTaskIds = remember(assignmentSeenKey) {
+        mutableStateListOf<String>().apply {
+            val raw = assignmentPreferences.getString(assignmentSeenKey, null)
+            if (!raw.isNullOrBlank()) {
+                runCatching {
+                    val values = JSONArray(raw)
+                    repeat(values.length()) { index -> add(values.optString(index)) }
+                }
+            }
+        }
+    }
+    var assignmentAlertsReady by remember(assignmentSeenKey) {
+        mutableStateOf(assignmentPreferences.contains(assignmentSeenKey))
+    }
     val tasks = if (workSpace == WorkSpace.Personal) {
         personalTasks
     } else {
@@ -1711,6 +1752,32 @@ private fun PopMainContent(
         if (selectedCompanyIndex !in companyTaskGroups.indices) selectedCompanyIndex = 0
     }
 
+    fun rememberAssignedTasks(remoteTasks: List<PopTask>, notify: Boolean) {
+        val assignedTasks = remoteTasks.filter { it.assignedBy.isNotBlank() }
+        val fresh = assignedTasks.filter { task ->
+            val identity = task.serverId.ifBlank { task.id.toString() }
+            identity !in seenAssignedTaskIds
+        }
+        if (notify) {
+            fresh.forEach { task ->
+                showAssignedTaskNotification(context, task.title, task.assignedBy, task.id)
+            }
+        }
+        var changed = false
+        assignedTasks.forEach { task ->
+            val identity = task.serverId.ifBlank { task.id.toString() }
+            if (identity !in seenAssignedTaskIds) {
+                seenAssignedTaskIds.add(identity)
+                changed = true
+            }
+        }
+        if (changed || !assignmentPreferences.contains(assignmentSeenKey)) {
+            assignmentPreferences.edit()
+                .putString(assignmentSeenKey, JSONArray(seenAssignedTaskIds).toString())
+                .apply()
+        }
+    }
+
     fun applyRemoteTasks(remoteTasks: List<PopTask>) {
         lastSyncedTasksJson = tasksToJson(remoteTasks).toString()
         personalTasks.clear()
@@ -1766,6 +1833,7 @@ private fun PopMainContent(
                     applyCompanyWorkspaces(workspaces)
                     companyIds.forEachIndexed { index, workspaceId ->
                         runCatching { loadRemoteTasks(token, workspaceId) }.onSuccess { remoteTasks ->
+                            rememberAssignedTasks(remoteTasks, assignmentAlertsReady)
                             val remoteJson = tasksToJson(remoteTasks).toString()
                             val localJson = companyTaskGroups.getOrNull(index)?.let(::tasksToJson)?.toString()
                             if (lastSyncedCompanyTasks[workspaceId].isNullOrBlank() || localJson == lastSyncedCompanyTasks[workspaceId]) {
@@ -1777,6 +1845,7 @@ private fun PopMainContent(
                             }
                         }
                     }
+                    assignmentAlertsReady = true
                 }
                 runCatching { loadMobileInvitations(token) }.onSuccess { invitations ->
                     pendingInvitations.clear()
@@ -1942,6 +2011,32 @@ private fun PopMainContent(
                     )
                 }
             }
+    }
+
+    LaunchedEffect(
+        externalTaskId,
+        personalTasks.toList(),
+        companyTaskGroups.map { it.toList() },
+    ) {
+        val requestedTaskId = externalTaskId ?: return@LaunchedEffect
+        val personalTask = personalTasks.firstOrNull { it.id == requestedTaskId }
+        if (personalTask != null) {
+            workSpace = WorkSpace.Personal
+            destination = PopDestination.Tasks
+            taskToOpenId = personalTask.id
+            onExternalTaskOpened()
+            return@LaunchedEffect
+        }
+        val companyIndex = companyTaskGroups.indexOfFirst { group ->
+            group.any { it.id == requestedTaskId }
+        }
+        if (companyIndex >= 0) {
+            selectedCompanyIndex = companyIndex
+            workSpace = WorkSpace.Company
+            destination = PopDestination.Tasks
+            taskToOpenId = requestedTaskId
+            onExternalTaskOpened()
+        }
     }
     LaunchedEffect(companyTaskGroups.map { it.toList() }, companyIds.toList(), googleAccount?.apiToken) {
         val token = googleAccount?.apiToken.orEmpty()

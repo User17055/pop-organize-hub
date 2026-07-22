@@ -317,7 +317,7 @@ export function AppShell({
     });
   }
 
-  useTaskAlerts(data?.tasks, data?.currentUser.id);
+  useTaskAlerts(data?.tasks, data?.employees, data?.currentUser.id);
   const [profileForm, setProfileForm] = useState({
     name: currentEmployee?.name ?? currentUser?.name ?? "",
     avatar: avatar ?? "",
@@ -913,57 +913,61 @@ export function AppShell({
       </Dialog>
 
       <main className="app-main-shell flex min-w-0 flex-1 flex-col">
-      {/* Mobile header */}
-      <header className="mobile-fixed-header glass-header safe-top relative z-[70] shrink-0 lg:hidden">
-        <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-3 px-4 py-3">
-          <div className="app-page-heading min-w-0 flex-1">
-            <div className="mb-0.5 w-fit max-w-full">
-              <WorkspaceSwitcher />
+        {/* Mobile header */}
+        <header className="mobile-fixed-header glass-header safe-top relative z-[70] shrink-0 lg:hidden">
+          <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-3 px-4 py-3">
+            <div className="app-page-heading min-w-0 flex-1">
+              <div className="mb-0.5 w-fit max-w-full">
+                <WorkspaceSwitcher />
+              </div>
+              <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground">
+                {title}
+              </h1>
+              {subtitle && (
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{subtitle}</p>
+              )}
             </div>
-            <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground">
-              {title}
-            </h1>
-            {subtitle && (
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">{subtitle}</p>
-            )}
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <NotificationsMenu
+                tasks={data?.tasks ?? []}
+                employees={data?.employees ?? []}
+                currentUserId={data?.currentUser.id}
+              />
+              {actions}
+              {data.accessMode === "personal" ? (
+                <Link
+                  to="/login"
+                  className="glass-icon-button flex h-9 w-9 items-center justify-center rounded-xl text-foreground/70"
+                  aria-label="Entrar"
+                  title="Entrar"
+                >
+                  <UserRound className="h-[18px] w-[18px]" />
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={openProfile}
+                  className="glass-icon-button flex h-9 w-9 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-primary-foreground"
+                  aria-label="Abrir perfil"
+                  title="Perfil"
+                >
+                  {avatar ? (
+                    <img src={avatar} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <span
+                      className="flex h-full w-full items-center justify-center"
+                      style={{ background: getAvatarGradient(currentUser.id) }}
+                    >
+                      {initials}
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            <NotificationsMenu tasks={data?.tasks ?? []} currentUserId={data?.currentUser.id} />
-            {actions}
-            {data.accessMode === "personal" ? (
-              <Link
-                to="/login"
-                className="glass-icon-button flex h-9 w-9 items-center justify-center rounded-xl text-foreground/70"
-                aria-label="Entrar"
-                title="Entrar"
-              >
-                <UserRound className="h-[18px] w-[18px]" />
-              </Link>
-            ) : (
-              <button
-                type="button"
-                onClick={openProfile}
-                className="glass-icon-button flex h-9 w-9 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-primary-foreground"
-                aria-label="Abrir perfil"
-                title="Perfil"
-              >
-                {avatar ? (
-                  <img src={avatar} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <span
-                    className="flex h-full w-full items-center justify-center"
-                    style={{ background: getAvatarGradient(currentUser.id) }}
-                  >
-                    {initials}
-                  </span>
-                )}
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Main content */}
+        {/* Main content */}
         <header className="glass-header safe-top sticky top-0 z-30 hidden lg:block">
           <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-4 px-8 py-4 xl:px-12">
             <div className="app-page-heading min-w-0 flex-1">
@@ -971,9 +975,7 @@ export function AppShell({
                 {title}
               </h1>
               {subtitle && (
-                <p className="mt-1 truncate text-sm text-muted-foreground">
-                  {subtitle}
-                </p>
+                <p className="mt-1 truncate text-sm text-muted-foreground">{subtitle}</p>
               )}
             </div>
             <div className="glass-surface hidden h-9 w-64 items-center gap-2 rounded-xl border border-white/70 bg-white/50 px-3 soft-transition transition-colors focus-within:border-primary/40 focus-within:bg-white/85 lg:flex">
@@ -984,7 +986,11 @@ export function AppShell({
               />
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2">
-              <NotificationsMenu tasks={data?.tasks ?? []} currentUserId={data?.currentUser.id} />
+              <NotificationsMenu
+                tasks={data?.tasks ?? []}
+                employees={data?.employees ?? []}
+                currentUserId={data?.currentUser.id}
+              />
               {actions}
               {data.accessMode === "personal" ? (
                 <Link

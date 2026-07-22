@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, Bell, CalendarClock, ShieldCheck, Sparkles } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import type { Task } from "@/lib/domain";
+import type { Employee, Task } from "@/lib/domain";
 
 export const PENDING_TASK_KEY = "pop-organize:open-task";
 
@@ -31,7 +31,11 @@ const toneIcon: Record<NotificationTone, typeof AlertTriangle> = {
 
 const toneRank: Record<NotificationTone, number> = { destructive: 0, warning: 1, primary: 2 };
 
-function computeNotifications(tasks: Task[], currentUserId?: string): NotificationItem[] {
+function computeNotifications(
+  tasks: Task[],
+  employees: Employee[],
+  currentUserId?: string,
+): NotificationItem[] {
   if (!currentUserId) return [];
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -43,6 +47,17 @@ function computeNotifications(tasks: Task[], currentUserId?: string): Notificati
     const due = new Date(`${task.dueDate}T00:00:00`).getTime();
     const isMine = task.responsibleId === currentUserId;
     const isReviewer = task.reviewerId === currentUserId;
+    const assignedBy = employees.find((employee) => employee.id === task.assignedById)?.name;
+
+    if (isMine && task.assignedById && task.assignedById !== currentUserId) {
+      items.push({
+        id: `assigned-${task.id}`,
+        taskId: task.id,
+        tone: "primary",
+        title: `${assignedBy || "Alguém"} colocou uma tarefa para você`,
+        description: `${task.title} · Clique aqui para ver`,
+      });
+    }
 
     if (isMine && task.status === "reopened") {
       items.push({
@@ -81,21 +96,27 @@ function computeNotifications(tasks: Task[], currentUserId?: string): Notificati
     }
   }
 
-  return items.sort((a, b) => toneRank[a.tone] - toneRank[b.tone]);
+  return items.sort((a, b) => {
+    const assignmentRank =
+      Number(!a.id.startsWith("assigned-")) - Number(!b.id.startsWith("assigned-"));
+    return assignmentRank || toneRank[a.tone] - toneRank[b.tone];
+  });
 }
 
 export function NotificationsMenu({
   tasks,
+  employees,
   currentUserId,
 }: {
   tasks: Task[];
+  employees: Employee[];
   currentUserId?: string;
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const notifications = useMemo(
-    () => computeNotifications(tasks, currentUserId),
-    [tasks, currentUserId],
+    () => computeNotifications(tasks, employees, currentUserId),
+    [tasks, employees, currentUserId],
   );
 
   function openTask(taskId: string) {

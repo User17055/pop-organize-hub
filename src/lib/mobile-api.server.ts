@@ -29,6 +29,7 @@ export type MobileTask = {
   completed: boolean;
   description: string;
   assignee: string;
+  assignedBy?: string;
   recurrence: string;
   reminder: string;
   attachmentName: string;
@@ -64,7 +65,12 @@ function emailCodeHash(email: string, code: string) {
 }
 
 function publicUser(account: PlatformDatabase["accounts"][number]) {
-  return { id: account.id, name: account.name, email: account.email, photoUrl: account.avatar ?? "" };
+  return {
+    id: account.id,
+    name: account.name,
+    email: account.email,
+    photoUrl: account.avatar ?? "",
+  };
 }
 
 function workspaceSummaries(platform: PlatformDatabase, userId: string) {
@@ -142,7 +148,11 @@ export async function verifyMobileEmailCode(rawEmail: string, code: string) {
     if (!account) {
       account = {
         id: nextId("u", platform.accounts),
-        name: email.split("@")[0].replace(/[._-]+/g, " ").trim() || "Usuário",
+        name:
+          email
+            .split("@")[0]
+            .replace(/[._-]+/g, " ")
+            .trim() || "Usuário",
         email,
         passwordHash: `disabled$${hashToken(createSessionToken())}`,
         emailVerifiedAt: new Date().toISOString(),
@@ -155,9 +165,11 @@ export async function verifyMobileEmailCode(rawEmail: string, code: string) {
     }
 
     const personalWorkspace = platform.workspaces.find(
-      (workspace) => workspace.company.kind === "personal" && workspace.company.ownerId === account!.id,
+      (workspace) =>
+        workspace.company.kind === "personal" && workspace.company.ownerId === account!.id,
     );
-    if (!personalWorkspace) throw Object.assign(new Error("Conta sem espaço pessoal."), { statusCode: 409 });
+    if (!personalWorkspace)
+      throw Object.assign(new Error("Conta sem espaço pessoal."), { statusCode: 409 });
 
     platform.sessions.push({
       id: nextId("s", platform.sessions),
@@ -250,7 +262,9 @@ async function requireMobileWorkspace(request: Request) {
   const workspace = platform.workspaces.find(
     (item) =>
       item.company.id === (requestedWorkspaceId || session.activeCompanyId) &&
-      item.employees.some((employee) => employee.id === session.userId && employee.status === "active"),
+      item.employees.some(
+        (employee) => employee.id === session.userId && employee.status === "active",
+      ),
   );
   const account = platform.accounts.find((item) => item.id === session.userId);
   if (!workspace || !account) {
@@ -284,8 +298,8 @@ export async function readMobileInvitations(request: Request) {
         companyName: workspace.company.name,
         role: invitation.role,
         permissionGroupName:
-          workspace.permissionGroups.find((group) => group.id === invitation.permissionGroupId)?.name ??
-          "Padrão",
+          workspace.permissionGroups.find((group) => group.id === invitation.permissionGroupId)
+            ?.name ?? "Padrão",
         expiresAt: invitation.expiresAt,
       })),
   );
@@ -306,7 +320,8 @@ export async function respondToMobileInvitation(
       (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > Date.now(),
     );
     const account = platform.accounts.find((item) => item.id === session?.userId);
-    if (!session || !account) throw Object.assign(new Error("Sessão expirada."), { statusCode: 401 });
+    if (!session || !account)
+      throw Object.assign(new Error("Sessão expirada."), { statusCode: 401 });
 
     const workspace = platform.workspaces.find((item) =>
       item.invitations.some((invitation) => invitation.id === invitationId),
@@ -315,8 +330,13 @@ export async function respondToMobileInvitation(
     if (!workspace || !invitation || new Date(invitation.expiresAt).getTime() <= Date.now()) {
       throw Object.assign(new Error("Convite inválido ou expirado."), { statusCode: 410 });
     }
-    if (invitation.email.toLowerCase() !== account.email.toLowerCase() || !account.emailVerifiedAt) {
-      throw Object.assign(new Error("Confirme o e-mail que recebeu este convite."), { statusCode: 403 });
+    if (
+      invitation.email.toLowerCase() !== account.email.toLowerCase() ||
+      !account.emailVerifiedAt
+    ) {
+      throw Object.assign(new Error("Confirme o e-mail que recebeu este convite."), {
+        statusCode: 403,
+      });
     }
 
     if (accept && !workspace.employees.some((employee) => employee.id === account.id)) {
@@ -366,7 +386,7 @@ export async function readMobileTasks(request: Request) {
 function mobileId(taskId: string) {
   let hash = 0;
   for (let index = 0; index < taskId.length; index += 1) {
-    hash = Math.imul(31, hash) + taskId.charCodeAt(index) | 0;
+    hash = (Math.imul(31, hash) + taskId.charCodeAt(index)) | 0;
   }
   return -(Math.abs(hash) || 1);
 }
@@ -377,7 +397,8 @@ function mobilePriority(value: Task["priority"]) {
 
 function mobileRecurrence(task: Task) {
   const recurrence = task.recurrence;
-  if (!recurrence) return { rule: "Não repetir", detail: "", interval: 1, endMode: "Nunca", endValue: "" };
+  if (!recurrence)
+    return { rule: "Não repetir", detail: "", interval: 1, endMode: "Nunca", endValue: "" };
   const rule = {
     daily: "Diária",
     weekly: "Semanal",
@@ -386,7 +407,8 @@ function mobileRecurrence(task: Task) {
     yearly: "Anual",
     custom: "Personalizada",
   }[recurrence.frequency];
-  const interval = recurrence.frequency === "biweekly" ? 2 : (recurrence.interval ?? recurrence.intervalDays ?? 1);
+  const interval =
+    recurrence.frequency === "biweekly" ? 2 : (recurrence.interval ?? recurrence.intervalDays ?? 1);
   return {
     rule,
     detail: recurrence.dayOfMonth ? String(recurrence.dayOfMonth) : "",
@@ -411,7 +433,13 @@ function taskToMobileTask(
   });
   const native = task.nativeData;
   const recurrence = mobileRecurrence(task);
-  const assignee = workspace.employees.find((employee) => employee.id === task.responsibleId)?.name ?? "Sem responsável";
+  const assignee =
+    workspace.employees.find((employee) => employee.id === task.responsibleId)?.name ??
+    "Sem responsável";
+  const assignedBy =
+    task.assignedById && task.assignedById !== currentUser.id
+      ? (workspace.employees.find((employee) => employee.id === task.assignedById)?.name ?? "")
+      : "";
   return {
     id: native?.id ?? mobileId(task.id),
     serverId: task.id,
@@ -423,6 +451,7 @@ function taskToMobileTask(
     completed: task.status === "completed" || task.status === "waiting_review",
     description: task.description,
     assignee,
+    assignedBy: native?.assignedBy ?? assignedBy,
     recurrence: native?.recurrence ?? recurrence.rule,
     reminder: native?.reminder ?? "Sem lembrete",
     attachmentName: native?.attachmentName ?? "",
@@ -433,7 +462,7 @@ function taskToMobileTask(
     recurrenceInterval: native?.recurrenceInterval ?? recurrence.interval,
     recurrenceEndMode: native?.recurrenceEndMode ?? recurrence.endMode,
     recurrenceEndValue: native?.recurrenceEndValue ?? recurrence.endValue,
-    recurrenceOccurrence: native?.recurrenceOccurrence ?? 1,
+    recurrenceOccurrence: native?.recurrenceOccurrence ?? task.recurrenceOccurrence ?? 1,
     canEdit: permissions.canEditContent,
     canComplete: permissions.canComplete || permissions.canReopen,
     canDelete: permissions.canDelete,
@@ -468,7 +497,9 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
     const workspace = platform.workspaces.find(
       (item) =>
         item.company.id === (requestedWorkspaceId || session.activeCompanyId) &&
-        item.employees.some((employee) => employee.id === session.userId && employee.status === "active"),
+        item.employees.some(
+          (employee) => employee.id === session.userId && employee.status === "active",
+        ),
     );
     const account = platform.accounts.find((item) => item.id === session.userId);
     if (!workspace || !account) {
@@ -476,7 +507,8 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
     }
 
     const currentUser = workspace.employees.find((employee) => employee.id === account.id);
-    if (!currentUser) throw Object.assign(new Error("Usuário sem acesso ao espaço."), { statusCode: 403 });
+    if (!currentUser)
+      throw Object.assign(new Error("Usuário sem acesso ao espaço."), { statusCode: 403 });
     const department = workspace.departments[0];
     let created = 0;
     let updated = 0;
@@ -484,12 +516,25 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
     for (const item of tasks) {
       const existing = workspace.tasks.find((rawTask) => {
         const task = rawTask as NativeTask;
-        return task.id === item.serverId ||
-          (task.nativeSource === NATIVE_SOURCE && task.nativeOwnerId === account.id && task.nativeData?.id === item.id);
+        return (
+          task.id === item.serverId ||
+          (task.nativeSource === NATIVE_SOURCE &&
+            task.nativeOwnerId === account.id &&
+            task.nativeData?.id === item.id)
+        );
       }) as NativeTask | undefined;
 
       if (existing) {
-        if (!canViewTask({ task: existing, currentUser, employees: workspace.employees, departments: workspace.departments, groups: workspace.groups })) continue;
+        if (
+          !canViewTask({
+            task: existing,
+            currentUser,
+            employees: workspace.employees,
+            departments: workspace.departments,
+            groups: workspace.groups,
+          })
+        )
+          continue;
         const permissions = getTaskPermissions({
           task: existing,
           currentUser,
@@ -498,8 +543,12 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
           groups: workspace.groups,
           permissionGroups: workspace.permissionGroups,
         });
-        if (item.completed !== (existing.status === "completed" || existing.status === "waiting_review")) {
-          if (item.completed && permissions.canComplete) existing.status = existing.requiresReview ? "waiting_review" : "completed";
+        if (
+          item.completed !==
+          (existing.status === "completed" || existing.status === "waiting_review")
+        ) {
+          if (item.completed && permissions.canComplete)
+            existing.status = existing.requiresReview ? "waiting_review" : "completed";
           if (!item.completed && permissions.canReopen) existing.status = "reopened";
         }
         if (permissions.canEditContent || existing.nativeOwnerId === account.id) {
@@ -524,7 +573,11 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
         status: item.completed ? "completed" : "pending",
         dueDate: item.dueDate,
         createdAt: new Date().toISOString().slice(0, 10),
-        target: { type: department ? "department" : "user", id: department?.id ?? account.id, label: department?.name ?? account.name },
+        target: {
+          type: department ? "department" : "user",
+          id: department?.id ?? account.id,
+          label: department?.name ?? account.name,
+        },
         responsibleId: account.id,
         requiresReview: false,
         tags: ["Aplicativo"],

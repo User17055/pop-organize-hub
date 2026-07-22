@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { PENDING_TASK_KEY } from "@/components/notifications-menu";
-import type { Task } from "@/lib/domain";
+import type { Employee, Task } from "@/lib/domain";
 
 const SEEN_KEY_PREFIX = "pop-organize:seen-tasks:";
 const OVERDUE_KEY_PREFIX = "pop-organize:overdue-alert:";
@@ -34,7 +34,11 @@ function writeSeen(userId: string, ids: Set<string>) {
  * - avisa quando uma nova tarefa é atribuída ao usuário;
  * - avisa uma vez por dia quando há tarefas atrasadas do usuário.
  */
-export function useTaskAlerts(tasks: Task[] | undefined, currentUserId: string | undefined) {
+export function useTaskAlerts(
+  tasks: Task[] | undefined,
+  employees: Employee[] | undefined,
+  currentUserId: string | undefined,
+) {
   const navigate = useNavigate();
   const checkedOverdueRef = useRef(false);
 
@@ -62,11 +66,17 @@ export function useTaskAlerts(tasks: Task[] | undefined, currentUserId: string |
     } else {
       const fresh = myOpenTasks.filter((task) => !seen.has(task.id));
       for (const task of fresh.slice(0, 3)) {
-        toast.info("Nova tarefa para você", {
-          description: task.title,
-          action: { label: "Abrir", onClick: () => openTask(task.id) },
-          duration: 8000,
-        });
+        const assignedBy = employees?.find((employee) => employee.id === task.assignedById)?.name;
+        toast.info(
+          task.assignedById && task.assignedById !== currentUserId
+            ? `${assignedBy || "Alguém"} colocou uma tarefa para você`
+            : "Nova tarefa para você",
+          {
+            description: task.title,
+            action: { label: "Ver tarefa", onClick: () => openTask(task.id) },
+            duration: 8000,
+          },
+        );
       }
       if (fresh.length > 0) {
         writeSeen(currentUserId, new Set([...seen, ...currentIds]));
@@ -94,5 +104,5 @@ export function useTaskAlerts(tasks: Task[] | undefined, currentUserId: string |
         );
       }
     }
-  }, [tasks, currentUserId, navigate]);
+  }, [tasks, employees, currentUserId, navigate]);
 }

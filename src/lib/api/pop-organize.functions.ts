@@ -427,33 +427,43 @@ function addYears(
   return dateString(year + years, preferredMonth ?? month, preferredDay ?? day);
 }
 
+function advanceRecurringDueDate(date: string, recurrence: NonNullable<Task["recurrence"]>) {
+  return recurrence.frequency === "daily"
+    ? addDays(date, 1)
+    : recurrence.frequency === "weekly"
+      ? addDays(date, 7)
+      : recurrence.frequency === "biweekly"
+        ? addDays(date, 14)
+        : recurrence.frequency === "monthly"
+          ? addMonths(date, 1, recurrence.dayOfMonth)
+          : recurrence.frequency === "yearly"
+            ? addYears(date, 1, recurrence.monthOfYear, recurrence.dayOfMonth)
+            : recurrence.customUnit === "weeks"
+              ? addDays(date, (recurrence.interval ?? recurrence.intervalDays ?? 1) * 7)
+              : recurrence.customUnit === "months"
+                ? addMonths(date, recurrence.interval ?? 1, recurrence.dayOfMonth)
+                : recurrence.customUnit === "years"
+                  ? addYears(
+                      date,
+                      recurrence.interval ?? 1,
+                      recurrence.monthOfYear,
+                      recurrence.dayOfMonth,
+                    )
+                  : addDays(date, recurrence.interval ?? recurrence.intervalDays ?? 1);
+}
+
 function getNextRecurringDueDate(task: Task) {
   if (!task.recurrence) return null;
 
   const { recurrence } = task;
-  const nextDueDate =
-    recurrence.frequency === "daily"
-      ? addDays(task.dueDate, 1)
-      : recurrence.frequency === "weekly"
-        ? addDays(task.dueDate, 7)
-        : recurrence.frequency === "biweekly"
-          ? addDays(task.dueDate, 14)
-          : recurrence.frequency === "monthly"
-            ? addMonths(task.dueDate, 1, recurrence.dayOfMonth)
-            : recurrence.frequency === "yearly"
-              ? addYears(task.dueDate, 1, recurrence.monthOfYear, recurrence.dayOfMonth)
-              : recurrence.customUnit === "weeks"
-                ? addDays(task.dueDate, (recurrence.interval ?? recurrence.intervalDays ?? 1) * 7)
-                : recurrence.customUnit === "months"
-                  ? addMonths(task.dueDate, recurrence.interval ?? 1, recurrence.dayOfMonth)
-                  : recurrence.customUnit === "years"
-                    ? addYears(
-                        task.dueDate,
-                        recurrence.interval ?? 1,
-                        recurrence.monthOfYear,
-                        recurrence.dayOfMonth,
-                      )
-                    : addDays(task.dueDate, recurrence.interval ?? recurrence.intervalDays ?? 1);
+  const currentDate = today();
+  let nextDueDate = advanceRecurringDueDate(task.dueDate, recurrence);
+  let skippedDates = 0;
+  while (nextDueDate <= currentDate && skippedDates < 10_000) {
+    nextDueDate = advanceRecurringDueDate(nextDueDate, recurrence);
+    skippedDates += 1;
+  }
+  if (nextDueDate <= currentDate) return null;
 
   if (recurrence.endDate && nextDueDate > recurrence.endDate) return null;
   return nextDueDate;
@@ -479,6 +489,8 @@ function createNextRecurringTask(db: Database, task: Task) {
     comments: 0,
     attachments: 0,
     recurrence: task.recurrence,
+    recurrenceParentId: task.recurrenceParentId ?? task.id,
+    recurrenceOccurrence: (task.recurrenceOccurrence ?? 1) + 1,
     subtasks: [],
   });
 }
@@ -902,6 +914,8 @@ export const createTask = createServerFn({ method: "POST" })
         createdAt: today(),
         target: { ...data.target, label: targetLabel },
         responsibleId: data.responsibleId,
+        assignedById: currentUserId,
+        assignedAt: new Date().toISOString(),
         reviewerId,
         requiresReview: Boolean(reviewerId),
         tags: data.tags,

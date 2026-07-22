@@ -489,6 +489,7 @@ private data class ApiWorkspaceSummary(
     val name: String,
     val description: String,
     val kind: String,
+    val canCreateTasks: Boolean,
     val sectors: List<CompanySector>,
     val groups: List<CompanyGroup>,
 )
@@ -533,6 +534,7 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         name = item.optString("name"),
                         description = item.optString("description"),
                         kind = item.optString("kind"),
+                        canCreateTasks = item.optBoolean("canCreateTasks", false),
                         sectors = sectors,
                         groups = groups,
                     ),
@@ -1841,6 +1843,7 @@ private fun PopMainContent(
     val companyNames = remember { mutableStateListOf<String>() }
     val companyIds = remember { mutableStateListOf<String>() }
     val companyDescriptions = remember { mutableStateListOf<String>() }
+    val companyCanCreateTasks = remember { mutableStateListOf<Boolean>() }
     val companyMembers = remember { mutableStateListOf<CompanyMember>() }
     val companySectors = remember { mutableStateListOf<CompanySector>() }
     val companyGroups = remember { mutableStateListOf<CompanyGroup>() }
@@ -1891,6 +1894,8 @@ private fun PopMainContent(
     } else {
         companyTaskGroups.getOrElse(selectedCompanyIndex) { personalTasks }
     }
+    val canCreateTask =
+        workSpace == WorkSpace.Personal || companyCanCreateTasks.getOrElse(selectedCompanyIndex) { false }
 
     fun selectWorkSpace(next: WorkSpace) {
         if (next == WorkSpace.Company && sessionMode == SessionMode.Guest) {
@@ -1943,6 +1948,8 @@ private fun PopMainContent(
         companyNames.addAll(companies.map { it.name })
         companyDescriptions.clear()
         companyDescriptions.addAll(companies.map { it.description.ifBlank { "Empresa e equipe" } })
+        companyCanCreateTasks.clear()
+        companyCanCreateTasks.addAll(companies.map { it.canCreateTasks })
         companySectorLists.clear()
         companySectorLists.addAll(companies.map { it.sectors })
         companyGroupLists.clear()
@@ -2156,6 +2163,7 @@ private fun PopMainContent(
                 when (page) {
                     PopDestination.Dashboard -> DashboardScreen(
                         tasks = tasks,
+                        canCreateTask = canCreateTask,
                         isGuest = sessionMode == SessionMode.Guest,
                         displayName = when {
                             sessionMode == SessionMode.Guest -> "Visitante"
@@ -2181,6 +2189,7 @@ private fun PopMainContent(
                     )
                     PopDestination.Tasks -> TasksScreen(
                         tasks = tasks,
+                        canCreateTask = canCreateTask,
                         workSpace = workSpace,
                         onWorkSpaceChange = ::selectWorkSpace,
                         companyNames = companyNames,
@@ -2440,18 +2449,20 @@ private fun WorkSpaceSelector(
                     },
                 )
             }
-            DropdownMenuItem(
-                text = {
-                    Column {
-                        Text("Empresas", color = PopBlue, fontWeight = FontWeight.ExtraBold)
-                        Text("Em breve na versão Web", color = PopMuted, fontSize = 11.sp)
-                    }
-                },
-                onClick = {
-                    expanded = false
-                    onCreateCompany()
-                },
-            )
+            if (companyNames.isEmpty()) {
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Empresas", color = PopBlue, fontWeight = FontWeight.ExtraBold)
+                            Text("Em breve na versão Web", color = PopMuted, fontSize = 11.sp)
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onCreateCompany()
+                    },
+                )
+            }
         }
     }
 
@@ -2542,6 +2553,7 @@ private fun WorkSpaceHeader(
 @Composable
 private fun DashboardScreen(
     tasks: List<PopTask>,
+    canCreateTask: Boolean,
     isGuest: Boolean,
     displayName: String,
     workSpace: WorkSpace,
@@ -2583,7 +2595,7 @@ private fun DashboardScreen(
         }
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                HeroCard(visibleTasks, displayName, onViewTasks)
+                HeroCard(visibleTasks, displayName, canCreateTask, onViewTasks)
                 Spacer(Modifier.height(18.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -2649,7 +2661,12 @@ private fun DashboardScreen(
 }
 
 @Composable
-private fun HeroCard(tasks: List<PopTask>, displayName: String, onStartNow: () -> Unit) {
+private fun HeroCard(
+    tasks: List<PopTask>,
+    displayName: String,
+    canCreateTask: Boolean,
+    onStartNow: () -> Unit,
+) {
     val today = LocalDate.now()
     val pendingToday = tasks.count { task ->
         !task.completed && runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == today
@@ -2687,12 +2704,14 @@ private fun HeroCard(tasks: List<PopTask>, displayName: String, onStartNow: () -
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(summary, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 31.sp)
-                    Spacer(Modifier.height(16.dp))
-                    Surface(color = Color.White.copy(alpha = .18f), shape = RoundedCornerShape(14.dp), onClick = onStartNow) {
-                        Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Começar agora", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Spacer(Modifier.width(6.dp))
-                            Icon(Icons.Rounded.ArrowForward, null, tint = Color.White, modifier = Modifier.size(17.dp))
+                    if (canCreateTask) {
+                        Spacer(Modifier.height(16.dp))
+                        Surface(color = Color.White.copy(alpha = .18f), shape = RoundedCornerShape(14.dp), onClick = onStartNow) {
+                            Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Começar agora", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Spacer(Modifier.width(6.dp))
+                                Icon(Icons.Rounded.ArrowForward, null, tint = Color.White, modifier = Modifier.size(17.dp))
+                            }
                         }
                     }
                 }
@@ -2817,6 +2836,7 @@ private fun AssignmentSelector(
 @Composable
 private fun TasksScreen(
     tasks: MutableList<PopTask>,
+    canCreateTask: Boolean,
     workSpace: WorkSpace,
     onWorkSpaceChange: (WorkSpace) -> Unit,
     companyNames: List<String>,
@@ -2917,6 +2937,10 @@ private fun TasksScreen(
             delay(250)
             newTaskTitleFocusRequester.requestFocus()
         }
+    }
+
+    LaunchedEffect(canCreateTask) {
+        if (!canCreateTask) showCreate = false
     }
 
     val filtered = tasks
@@ -3055,6 +3079,21 @@ private fun TasksScreen(
             attachmentName = editAttachment,
         )
         editingTaskId = null
+    }
+
+    fun dismissTaskDetails() {
+        val currentTask = tasks.firstOrNull { it.id == editingTaskId }
+        if (currentTask?.canEdit == true) {
+            saveEditedTask()
+        } else {
+            editingTaskId = null
+        }
+    }
+
+    fun updateTaskReminder(reminder: String) {
+        editReminder = reminder
+        val index = tasks.indexOfFirst { it.id == editingTaskId }
+        if (index >= 0) tasks[index] = tasks[index].copy(reminder = reminder)
     }
 
     fun addTask() {
@@ -3229,19 +3268,21 @@ private fun TasksScreen(
                 }
             }
         }
-        FloatingActionButton(
-            onClick = {
-                showAdvancedOptions = false
-                showCreate = true
-            },
-            containerColor = PopBlue,
-            contentColor = Color.White,
-            shape = CircleShape,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-        ) { Icon(Icons.Rounded.Add, "Nova tarefa") }
+        if (canCreateTask) {
+            FloatingActionButton(
+                onClick = {
+                    showAdvancedOptions = false
+                    showCreate = true
+                },
+                containerColor = PopBlue,
+                contentColor = Color.White,
+                shape = CircleShape,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+            ) { Icon(Icons.Rounded.Add, "Nova tarefa") }
+        }
     }
 
-    if (showCreate) {
+    if (showCreate && canCreateTask) {
         ModalBottomSheet(
             onDismissRequest = { showCreate = false },
             sheetState = createTaskSheetState,
@@ -3393,11 +3434,12 @@ private fun TasksScreen(
 
     if (editingTaskId != null) {
         Dialog(
-            onDismissRequest = ::saveEditedTask,
+            onDismissRequest = ::dismissTaskDetails,
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
         ) {
             val dialogView = LocalView.current
             val openedTask = tasks.firstOrNull { it.id == editingTaskId }
+            val detailCanEdit = openedTask?.canEdit == true
             val detailIsOverdue = openedTask?.let(::isTaskOverdue) == true
             val detailIsLightTheme = MaterialTheme.colorScheme.background.luminance() > .5f
             val detailOverdueBackground =
@@ -3434,7 +3476,7 @@ private fun TasksScreen(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = ::saveEditedTask) {
+                    IconButton(onClick = ::dismissTaskDetails) {
                         Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText, modifier = Modifier.size(28.dp))
                     }
                     Text(
@@ -3444,8 +3486,10 @@ private fun TasksScreen(
                         fontSize = 14.sp,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = ::saveEditedTask, enabled = editTitle.trim().length >= 3) {
-                        Text("Salvar", color = PopBlue, fontWeight = FontWeight.ExtraBold)
+                    if (detailCanEdit) {
+                        TextButton(onClick = ::saveEditedTask, enabled = editTitle.trim().length >= 3) {
+                            Text("Salvar", color = PopBlue, fontWeight = FontWeight.ExtraBold)
+                        }
                     }
                 }
                 LazyColumn(
@@ -3544,6 +3588,7 @@ private fun TasksScreen(
                             TextField(
                                 value = editTitle,
                                 onValueChange = { editTitle = it },
+                                readOnly = !detailCanEdit,
                                 placeholder = { Text("Nome da tarefa") },
                                 minLines = 1,
                                 maxLines = 3,
@@ -3571,10 +3616,12 @@ private fun TasksScreen(
                                     label = "Prioridade",
                                     value = editPriority,
                                     expanded = expandedDetailSection == "priority",
+                                    enabled = detailCanEdit,
+                                    valueColor = taskPriorityColor(editPriority),
                                 ) {
                                     expandedDetailSection = if (expandedDetailSection == "priority") null else "priority"
                                 }
-                                AnimatedVisibility(visible = expandedDetailSection == "priority") {
+                                AnimatedVisibility(visible = detailCanEdit && expandedDetailSection == "priority") {
                                     LazyRow(
                                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -3597,11 +3644,12 @@ private fun TasksScreen(
                                     label = "Data de conclusão",
                                     value = listOf(editDueDate, editDueTime).filter { it.isNotBlank() }.joinToString(" • "),
                                     expanded = expandedDetailSection == "date",
+                                    enabled = detailCanEdit,
                                     valueColor = if (detailIsOverdue) detailOverdueBackground else PopMuted,
                                 ) {
                                     expandedDetailSection = if (expandedDetailSection == "date") null else "date"
                                 }
-                                AnimatedVisibility(visible = expandedDetailSection == "date") {
+                                AnimatedVisibility(visible = detailCanEdit && expandedDetailSection == "date") {
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                                         horizontalArrangement = Arrangement.spacedBy(9.dp),
@@ -3650,13 +3698,13 @@ private fun TasksScreen(
                                     ) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                                             listOf("Sem lembrete", "No horário").forEach { option ->
-                                                DetailChoicePill(option, editReminder == option) { editReminder = option }
+                                                DetailChoicePill(option, editReminder == option) { updateTaskReminder(option) }
                                                 if (option != "No horário") Spacer(Modifier.width(7.dp))
                                             }
                                         }
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                                             listOf("15 min", "1 hora antes", "1 dia antes").forEach { option ->
-                                                DetailChoicePill(option, editReminder == option) { editReminder = option }
+                                                DetailChoicePill(option, editReminder == option) { updateTaskReminder(option) }
                                                 if (option != "1 dia antes") Spacer(Modifier.width(7.dp))
                                             }
                                         }
@@ -3673,10 +3721,11 @@ private fun TasksScreen(
                                     label = "Repetir",
                                     value = editRecurrence.takeUnless { it == "Não repetir" }.orEmpty(),
                                     expanded = expandedDetailSection == "recurrence",
+                                    enabled = detailCanEdit,
                                 ) {
                                     expandedDetailSection = if (expandedDetailSection == "recurrence") null else "recurrence"
                                 }
-                                AnimatedVisibility(visible = expandedDetailSection == "recurrence") {
+                                AnimatedVisibility(visible = detailCanEdit && expandedDetailSection == "recurrence") {
                                 Column(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -3766,6 +3815,7 @@ private fun TasksScreen(
                             TextField(
                                 value = editAssignee,
                                 onValueChange = { editAssignee = it },
+                                readOnly = !detailCanEdit,
                                 label = { Text("Responsável") },
                                 leadingIcon = { Icon(Icons.Rounded.PersonOutline, null, tint = PopMuted) },
                                 singleLine = true,
@@ -3782,6 +3832,7 @@ private fun TasksScreen(
                                 TextField(
                                     value = editDescription,
                                     onValueChange = { editDescription = it },
+                                    readOnly = !detailCanEdit,
                                     placeholder = { Text("Adicionar descrição, links ou observações") },
                                     minLines = 4,
                                     maxLines = 8,
@@ -3795,6 +3846,7 @@ private fun TasksScreen(
                     item {
                         Surface(
                             onClick = { editAttachmentPicker.launch(arrayOf("*/*")) },
+                            enabled = detailCanEdit,
                             color = PopSurface,
                             contentColor = if (editAttachment.isBlank()) PopMuted else PopText,
                             shape = RoundedCornerShape(16.dp),
@@ -4881,11 +4933,17 @@ private fun DetailSettingRow(
     label: String,
     value: String,
     expanded: Boolean,
+    enabled: Boolean = true,
     valueColor: Color = PopMuted,
     onClick: () -> Unit,
 ) {
+    val rowModifier = if (enabled) {
+        Modifier.fillMaxWidth().clickable(onClick = onClick)
+    } else {
+        Modifier.fillMaxWidth()
+    }
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 15.dp, vertical = 14.dp),
+        modifier = rowModifier.padding(horizontal = 15.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = PopMuted, modifier = Modifier.size(23.dp))
@@ -4896,12 +4954,14 @@ private fun DetailSettingRow(
                 Text(value, color = valueColor, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Icon(
-            Icons.Rounded.KeyboardArrowDown,
-            if (expanded) "Recolher" else "Editar",
-            tint = PopMuted,
-            modifier = Modifier.size(21.dp).graphicsLayer { rotationZ = if (expanded) 180f else 0f },
-        )
+        if (enabled) {
+            Icon(
+                Icons.Rounded.KeyboardArrowDown,
+                if (expanded) "Recolher" else "Editar",
+                tint = PopMuted,
+                modifier = Modifier.size(21.dp).graphicsLayer { rotationZ = if (expanded) 180f else 0f },
+            )
+        }
     }
 }
 

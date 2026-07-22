@@ -10,6 +10,7 @@ import {
   verifyGoogleCredential,
 } from "./database.server";
 import type { Task } from "./domain";
+import { hasPermission, resolvePermissionSet } from "./permission-groups";
 import { canViewTask, getTaskPermissions } from "./permissions";
 
 const MOBILE_SESSION_EXPIRY = "9999-12-31T23:59:59.999Z";
@@ -51,6 +52,7 @@ type NativeTask = Task & {
   nativeSource?: string;
   nativeOwnerId?: string;
   nativeData?: MobileTask;
+  nativeRemindersByUser?: Record<string, string>;
 };
 
 function sessionExpiry() {
@@ -81,22 +83,31 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         (employee) => employee.id === userId && employee.status === "active",
       ),
     )
-    .map((workspace) => ({
-      id: workspace.company.id,
-      name: workspace.company.name,
-      description: workspace.company.description ?? "",
-      kind: workspace.company.kind ?? "company",
-      sectors: workspace.departments.map((department) => ({
-        id: department.id,
-        name: department.name,
-        description: department.description ?? "",
-      })),
-      groups: workspace.groups.map((group) => ({
-        id: group.id,
-        name: group.name,
-        description: group.description ?? "",
-      })),
-    }));
+    .map((workspace) => {
+      const currentUser = workspace.employees.find((employee) => employee.id === userId);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
+      return {
+        id: workspace.company.id,
+        name: workspace.company.name,
+        description: workspace.company.description ?? "",
+        kind: workspace.company.kind ?? "company",
+        canCreateTasks: hasPermission(permissionSet, "tasks.create"),
+        sectors: workspace.departments.map((department) => ({
+          id: department.id,
+          name: department.name,
+          description: department.description ?? "",
+        })),
+        groups: workspace.groups.map((group) => ({
+          id: group.id,
+          name: group.name,
+          description: group.description ?? "",
+        })),
+      };
+    });
 }
 
 export async function requestMobileEmailCode(rawEmail: string) {
@@ -465,7 +476,7 @@ function taskToMobileTask(
     assignedBy: native?.assignedBy ?? assignedBy,
     createdBy: native?.createdBy ?? createdBy,
     recurrence: native?.recurrence ?? recurrence.rule,
-    reminder: native?.reminder ?? "Sem lembrete",
+    reminder: task.nativeRemindersByUser?.[currentUser.id] ?? native?.reminder ?? "Sem lembrete",
     attachmentName: native?.attachmentName ?? "",
     dueTime: native?.dueTime ?? "",
     duration: native?.duration ?? "Sem duração",
@@ -519,6 +530,12 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
     const currentUser = workspace.employees.find((employee) => employee.id === account.id);
     if (!currentUser)
       throw Object.assign(new Error("Usuário sem acesso ao espaço."), { statusCode: 403 });
+    const permissionSet = resolvePermissionSet({
+      currentUser,
+      employees: workspace.employees,
+      permissionGroups: workspace.permissionGroups,
+    });
+    const canCreateTasks = hasPermission(permissionSet, "tasks.create");
     const department = workspace.departments[0];
     let created = 0;
     let updated = 0;
@@ -553,6 +570,10 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
           groups: workspace.groups,
           permissionGroups: workspace.permissionGroups,
         });
+        existing.nativeRemindersByUser = {
+          ...existing.nativeRemindersByUser,
+          [account.id]: item.reminder,
+        };
         if (
           item.completed !==
           (existing.status === "completed" || existing.status === "waiting_review")
@@ -573,6 +594,12 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
         }
         updated += 1;
         continue;
+      }
+
+      if (!canCreateTasks) {
+        throw Object.assign(new Error("Seu grupo de permissão não pode criar tarefas."), {
+          statusCode: 403,
+        });
       }
 
       const newTask: NativeTask = {

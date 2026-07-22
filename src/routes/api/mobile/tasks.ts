@@ -13,6 +13,7 @@ const mobileTaskSchema = z.object({
   description: z.string().max(10_000),
   assignee: z.string().max(200),
   assignedBy: z.string().max(200).default(""),
+  createdBy: z.string().max(200).default(""),
   recurrence: z.string().max(500),
   reminder: z.string().max(200),
   attachmentName: z.string().max(500),

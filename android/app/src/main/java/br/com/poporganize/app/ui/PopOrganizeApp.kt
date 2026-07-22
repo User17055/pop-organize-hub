@@ -228,6 +228,7 @@ private data class PopTask(
     val description: String = "",
     val assignee: String = "Eu",
     val assignedBy: String = "",
+    val createdBy: String = "",
     val recurrence: String = "Não repetir",
     val reminder: String = "Sem lembrete",
     val attachmentName: String = "",
@@ -381,6 +382,7 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 description = item.optString("description"),
                 assignee = item.optString("assignee", "Eu"),
                 assignedBy = item.optString("assignedBy"),
+                createdBy = item.optString("createdBy"),
                 recurrence = item.optString("recurrence", "Não repetir"),
                 reminder = item.optString("reminder", "Sem lembrete"),
                 attachmentName = item.optString("attachmentName"),
@@ -431,6 +433,7 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("description", task.description)
                 .put("assignee", task.assignee)
                 .put("assignedBy", task.assignedBy)
+                .put("createdBy", task.createdBy)
                 .put("recurrence", task.recurrence)
                 .put("reminder", task.reminder)
                 .put("attachmentName", task.attachmentName)
@@ -479,7 +482,14 @@ private data class ApiEmailSession(
     val email: String,
     val photoUrl: String,
 )
-private data class ApiWorkspaceSummary(val id: String, val name: String, val description: String, val kind: String)
+private data class ApiWorkspaceSummary(
+    val id: String,
+    val name: String,
+    val description: String,
+    val kind: String,
+    val sectors: List<CompanySector>,
+    val groups: List<CompanyGroup>,
+)
 private data class ApiInvitation(
     val id: String,
     val companyName: String,
@@ -505,7 +515,26 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
         buildList {
             repeat(items.length()) { index ->
                 val item = items.optJSONObject(index) ?: return@repeat
-                add(ApiWorkspaceSummary(item.optString("id"), item.optString("name"), item.optString("description"), item.optString("kind")))
+                val sectorsJson = item.optJSONArray("sectors") ?: JSONArray()
+                val groupsJson = item.optJSONArray("groups") ?: JSONArray()
+                val sectors = List(sectorsJson.length()) { sectorIndex ->
+                    val sector = sectorsJson.optJSONObject(sectorIndex) ?: JSONObject()
+                    CompanySector(sector.optString("name"), sector.optString("description"))
+                }
+                val groups = List(groupsJson.length()) { groupIndex ->
+                    val group = groupsJson.optJSONObject(groupIndex) ?: JSONObject()
+                    CompanyGroup(group.optString("name"), group.optString("description"))
+                }
+                add(
+                    ApiWorkspaceSummary(
+                        id = item.optString("id"),
+                        name = item.optString("name"),
+                        description = item.optString("description"),
+                        kind = item.optString("kind"),
+                        sectors = sectors,
+                        groups = groups,
+                    ),
+                )
             }
         }
     } finally {
@@ -1654,6 +1683,8 @@ private fun PopMainContent(
     val companyMembers = remember { mutableStateListOf<CompanyMember>() }
     val companySectors = remember { mutableStateListOf<CompanySector>() }
     val companyGroups = remember { mutableStateListOf<CompanyGroup>() }
+    val companySectorLists = remember { mutableStateListOf<List<CompanySector>>() }
+    val companyGroupLists = remember { mutableStateListOf<List<CompanyGroup>>() }
     val pendingInvitations = remember { mutableStateListOf<ApiInvitation>() }
     var invitationActionPending by remember { mutableStateOf(false) }
     val personalTasks = remember(sessionMode, googleAccount?.id) {
@@ -1719,6 +1750,10 @@ private fun PopMainContent(
         } else {
             selectedCompanyIndex = index
             workSpace = WorkSpace.Company
+            companySectors.clear()
+            companySectors.addAll(companySectorLists.getOrElse(index) { emptyList() })
+            companyGroups.clear()
+            companyGroups.addAll(companyGroupLists.getOrElse(index) { emptyList() })
             val token = googleAccount?.apiToken.orEmpty()
             val workspaceId = companyIds.getOrNull(index).orEmpty()
             if (token.isNotBlank() && workspaceId.isNotBlank()) {
@@ -1747,9 +1782,17 @@ private fun PopMainContent(
         companyNames.addAll(companies.map { it.name })
         companyDescriptions.clear()
         companyDescriptions.addAll(companies.map { it.description.ifBlank { "Empresa e equipe" } })
+        companySectorLists.clear()
+        companySectorLists.addAll(companies.map { it.sectors })
+        companyGroupLists.clear()
+        companyGroupLists.addAll(companies.map { it.groups })
         while (companyTaskGroups.size < companies.size) companyTaskGroups.add(mutableStateListOf())
         while (companyTaskGroups.size > companies.size) companyTaskGroups.removeAt(companyTaskGroups.lastIndex)
         if (selectedCompanyIndex !in companyTaskGroups.indices) selectedCompanyIndex = 0
+        companySectors.clear()
+        companySectors.addAll(companySectorLists.getOrElse(selectedCompanyIndex) { emptyList() })
+        companyGroups.clear()
+        companyGroups.addAll(companyGroupLists.getOrElse(selectedCompanyIndex) { emptyList() })
     }
 
     fun rememberAssignedTasks(remoteTasks: List<PopTask>, notify: Boolean) {
@@ -3649,6 +3692,15 @@ private fun TasksScreen(
                         }
                     }
                     }
+                    if (!openedTask?.createdBy.isNullOrBlank()) {
+                        item {
+                            CalendarTaskInfoRow(
+                                Icons.Rounded.PersonOutline,
+                                "Criada por",
+                                openedTask?.createdBy.orEmpty(),
+                            )
+                        }
+                    }
                     if (workSpace == WorkSpace.Company) {
                         item {
                             TextField(
@@ -4683,7 +4735,6 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                 val dueText = if (task.dueTime.isBlank()) dueLabel else "$dueLabel, ${task.dueTime}"
                 val hasRecurrence = task.recurrenceRule != "Não repetir"
                 val hasDescription = task.description.isNotBlank()
-                val showAssignee = task.assignee.isNotBlank() && task.assignee != "Eu" && task.assignee != "Sem responsável"
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (hasRecurrence) {
                         Icon(
@@ -4713,7 +4764,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                         )
                     }
                     Text(
-                        if (showAssignee) "$dueText  •  ${task.assignee}" else dueText,
+                        dueText,
                         color = if (isOverdue) Color.White.copy(alpha = .9f) else PopMuted,
                         fontSize = 11.sp,
                         maxLines = 1,
@@ -4739,7 +4790,6 @@ private fun TaskRow(task: PopTask, onClick: (() -> Unit)? = null) {
     Row(rowModifier, verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(task.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val showAssignee = task.assignee.isNotBlank() && task.assignee != "Eu" && task.assignee != "Sem responsável"
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (task.recurrenceRule != "Não repetir") {
                     Icon(Icons.Rounded.Repeat, "Recorrente", tint = PopMuted, modifier = Modifier.size(13.dp))
@@ -4752,7 +4802,7 @@ private fun TaskRow(task: PopTask, onClick: (() -> Unit)? = null) {
                     Text("•", color = PopMuted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 5.dp))
                 }
                 Text(
-                    if (showAssignee) "${displayDueLabel(task)}  •  ${task.assignee}" else displayDueLabel(task),
+                    displayDueLabel(task),
                     fontSize = 11.sp,
                     color = if (isOverdue) Color(0xFFE5484D) else PopMuted,
                     maxLines = 1,
@@ -4971,6 +5021,9 @@ private fun CalendarTaskDetails(task: PopTask, onDismiss: () -> Unit) {
                     if (task.assignee.isNotBlank() && task.assignee != "Eu" && task.assignee != "Sem responsável") {
                         item { CalendarTaskInfoRow(Icons.Rounded.PersonOutline, "Responsável", task.assignee) }
                     }
+                    if (task.createdBy.isNotBlank()) {
+                        item { CalendarTaskInfoRow(Icons.Rounded.PersonOutline, "Criada por", task.createdBy) }
+                    }
                     if (task.attachmentName.isNotBlank()) {
                         item { CalendarTaskInfoRow(Icons.Rounded.AttachFile, "Anexo", task.attachmentName) }
                     }
@@ -5112,13 +5165,12 @@ private fun MoreScreen(
     val context = LocalContext.current
     var showThemeDialog by remember { mutableStateOf(false) }
     var showTeamDialog by remember { mutableStateOf(false) }
-    var showStructureDialog by remember { mutableStateOf(false) }
+    var showSectorsDialog by remember { mutableStateOf(false) }
+    var showGroupsDialog by remember { mutableStateOf(false) }
     var memberName by remember { mutableStateOf("") }
     var memberEmail by remember { mutableStateOf("") }
     var memberRole by remember { mutableStateOf("Funcionário") }
     var memberSector by remember { mutableStateOf("") }
-    var sectorName by remember { mutableStateOf("") }
-    var groupName by remember { mutableStateOf("") }
 
     fun sendContactEmail(subject: String) {
         runCatching {
@@ -5256,9 +5308,15 @@ private fun MoreScreen(
                     )
                     MoreItem(
                         Icons.Rounded.AccountTree,
-                        "Setores e grupos",
-                        "${companySectors.size} setores • ${companyGroups.size} grupos",
-                        onClick = { showStructureDialog = true },
+                        "Setores",
+                        if (companySectors.size == 1) "1 setor" else "${companySectors.size} setores",
+                        onClick = { showSectorsDialog = true },
+                    )
+                    MoreItem(
+                        Icons.Rounded.Groups,
+                        "Grupos",
+                        if (companyGroups.size == 1) "1 grupo" else "${companyGroups.size} grupos",
+                        onClick = { showGroupsDialog = true },
                     )
                 }
 
@@ -5389,43 +5447,57 @@ private fun MoreScreen(
         )
     }
 
-    if (showStructureDialog) {
+    if (showSectorsDialog) {
         AlertDialog(
-            onDismissRequest = { showStructureDialog = false },
-            title = { Text("Setores e grupos", fontWeight = FontWeight.ExtraBold) },
+            onDismissRequest = { showSectorsDialog = false },
+            title = { Text("Setores", fontWeight = FontWeight.ExtraBold) },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text("Setores", color = PopBlue, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
-                    companySectors.forEach { sector -> ManagementListItem("Setor", sector.name) }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.weight(1f)) { ManagementField(sectorName, { sectorName = it }, "Novo setor") }
-                        TextButton(
-                            enabled = sectorName.trim().length >= 2,
-                            onClick = {
-                                companySectors.add(CompanySector(sectorName.trim(), ""))
-                                sectorName = ""
-                            },
-                        ) { Text("Adicionar", color = PopBlue) }
-                    }
-                    HorizontalDivider(color = PopMuted.copy(alpha = .18f))
-                    Text("Grupos", color = PopBlue, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
-                    companyGroups.forEach { group -> ManagementListItem("Grupo", group.name) }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.weight(1f)) { ManagementField(groupName, { groupName = it }, "Novo grupo") }
-                        TextButton(
-                            enabled = groupName.trim().length >= 2,
-                            onClick = {
-                                companyGroups.add(CompanyGroup(groupName.trim(), ""))
-                                groupName = ""
-                            },
-                        ) { Text("Adicionar", color = PopBlue) }
+                    if (companySectors.isEmpty()) {
+                        Text("Nenhum setor cadastrado nesta empresa.", color = PopMuted, fontSize = 12.sp)
+                    } else {
+                        companySectors.forEach { sector ->
+                            ManagementListItem(
+                                "Setor",
+                                sector.name,
+                                sector.description,
+                            )
+                        }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showStructureDialog = false }) { Text("Concluir") } },
+            confirmButton = { TextButton(onClick = { showSectorsDialog = false }) { Text("Fechar") } },
+            shape = RoundedCornerShape(26.dp),
+            containerColor = PopSurface,
+        )
+    }
+
+    if (showGroupsDialog) {
+        AlertDialog(
+            onDismissRequest = { showGroupsDialog = false },
+            title = { Text("Grupos", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (companyGroups.isEmpty()) {
+                        Text("Nenhum grupo cadastrado nesta empresa.", color = PopMuted, fontSize = 12.sp)
+                    } else {
+                        companyGroups.forEach { group ->
+                            ManagementListItem(
+                                "Grupo",
+                                group.name,
+                                group.description,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showGroupsDialog = false }) { Text("Fechar") } },
             shape = RoundedCornerShape(26.dp),
             containerColor = PopSurface,
         )
@@ -5451,16 +5523,16 @@ private fun ManagementField(value: String, onValueChange: (String) -> Unit, plac
 }
 
 @Composable
-private fun ManagementListItem(kind: String, name: String) {
+private fun ManagementListItem(kind: String, name: String, description: String = "") {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(PopSurfaceAlt).padding(11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Rounded.AccountTree, null, tint = PopBlue, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(9.dp))
-        Column {
+        Column(Modifier.weight(1f)) {
             Text(name, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Text(kind, color = PopMuted, fontSize = 9.sp)
+            Text(description.ifBlank { kind }, color = PopMuted, fontSize = 9.sp)
         }
     }
 }

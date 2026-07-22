@@ -94,6 +94,7 @@ class PopStore(private val platform: PopPlatformServices) {
             workspace = state.workspace,
             companyId = state.selectedCompanyId.takeIf { state.workspace == WorkspaceKind.Company },
             assignment = assignment,
+            createdBy = state.currentUser?.name.orEmpty(),
         )
         update { copy(tasks = listOf(task) + tasks) }
         platform.playActionSound()

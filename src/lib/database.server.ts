@@ -598,9 +598,9 @@ function normalizeDatabase(value: Database): Database {
     groups,
     tasks: value.tasks ?? [],
     permissionGroups,
-    sessions: (value.sessions ?? []).filter(
-      (session) => new Date(session.expiresAt).getTime() > now,
-    ),
+    // Mobile bearer sessions are intentionally persistent. Web authentication
+    // still checks expiresAt before accepting its cookie.
+    sessions: value.sessions ?? [],
     invitations: (value.invitations ?? []).filter(
       (invitation) => new Date(invitation.expiresAt).getTime() > now,
     ),
@@ -788,9 +788,7 @@ function normalizePlatformDatabase(value: PlatformDatabase | Database): Platform
   }
 
   const sessions = (value.sessions ?? [])
-    .filter(
-      (session) => accountById.has(session.userId) && new Date(session.expiresAt).getTime() > now,
-    )
+    .filter((session) => accountById.has(session.userId))
     .map((session) => {
       const validIds = validWorkspacesByAccount.get(session.userId) ?? [];
       const personalId = workspaces.find(

@@ -87,6 +87,7 @@ data class PopTask(
     val workspace: WorkspaceKind = WorkspaceKind.Personal,
     val companyId: String? = null,
     val assignment: AssignmentTarget = AssignmentTarget(),
+    val createdBy: String = "",
 )
 
 @Serializable

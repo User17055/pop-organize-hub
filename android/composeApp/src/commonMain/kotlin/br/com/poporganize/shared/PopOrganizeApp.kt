@@ -334,6 +334,7 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
                 MainTab.Calendar -> CalendarScreen(store)
                 MainTab.More -> when (page) {
                     MorePage.Menu -> MoreScreen(
+                        store = store,
                         onPage = { morePage = it },
                     )
                     MorePage.Team -> TeamScreen(store)
@@ -456,6 +457,7 @@ private fun MetricCard(label: String, value: String, color: Color, modifier: Mod
 private fun TasksScreen(store: PopStore) {
     val tasks = store.visibleTasks
     var removingId by remember { mutableStateOf<String?>(null) }
+    var selectedTask by remember { mutableStateOf<PopTask?>(null) }
     val scope = rememberCoroutineScope()
 
     LazyColumn(
@@ -478,6 +480,7 @@ private fun TasksScreen(store: PopStore) {
             ) {
                 TaskRow(
                     task = task,
+                    onOpen = { selectedTask = task },
                     onToggle = { store.toggleTask(task.id) },
                     onDelete = {
                         removingId = task.id
@@ -491,11 +494,44 @@ private fun TasksScreen(store: PopStore) {
             }
         }
     }
+
+    selectedTask?.let { task ->
+        AlertDialog(
+            onDismissRequest = { selectedTask = null },
+            title = { Text(task.title, fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (task.description.isNotBlank()) Text(task.description)
+                    Text("Prazo: ${task.dueDate}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (task.assignment.label != "Sem responsável") {
+                        Text(
+                            "Responsável: ${task.assignment.label}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (task.createdBy.isNotBlank()) {
+                        Text(
+                            "Criada por: ${task.createdBy}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { selectedTask = null }) { Text("Fechar") }
+            },
+        )
+    }
 }
 
 @Composable
-private fun TaskRow(task: PopTask, onToggle: () -> Unit, onDelete: () -> Unit) {
-    PopCard(modifier = Modifier.animateContentSize()) {
+private fun TaskRow(
+    task: PopTask,
+    onOpen: () -> Unit,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    PopCard(modifier = Modifier.animateContentSize().clickable(onClick = onOpen)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onToggle) {
                 Icon(
@@ -509,7 +545,7 @@ private fun TaskRow(task: PopTask, onToggle: () -> Unit, onDelete: () -> Unit) {
                 if (task.description.isNotBlank()) Text(task.description, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 2)
                 Spacer(Modifier.height(5.dp))
                 Text(
-                    listOf(task.dueDate, task.dueTime, task.assignment.label.takeUnless { it == "Sem responsável" }).filterNotNull().filter { it.isNotBlank() }.joinToString(" • "),
+                    listOf(task.dueDate, task.dueTime).filter { it.isNotBlank() }.joinToString(" • "),
                     color = priorityColor(task.priority),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -555,7 +591,7 @@ private fun CalendarScreen(store: PopStore) {
 }
 
 @Composable
-private fun MoreScreen(onPage: (MorePage) -> Unit) {
+private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(18.dp),
@@ -577,6 +613,23 @@ private fun MoreScreen(onPage: (MorePage) -> Unit) {
         }
         item { SectionTitle("Aplicativo") }
         item { MoreItem(Icons.Rounded.Settings, "Configurações", "Tema, conta e suporte") { onPage(MorePage.Settings) } }
+        if (store.state.companies.isNotEmpty()) {
+            item { SectionTitle("Empresa") }
+            item {
+                MoreItem(
+                    Icons.Rounded.Apartment,
+                    "Setores",
+                    "Visualizar os setores da empresa",
+                ) { onPage(MorePage.Sectors) }
+            }
+            item {
+                MoreItem(
+                    Icons.Rounded.Groups,
+                    "Grupos",
+                    "Visualizar os grupos da empresa",
+                ) { onPage(MorePage.Groups) }
+            }
+        }
     }
 }
 
@@ -611,39 +664,38 @@ private fun TeamScreen(store: PopStore) {
 
 @Composable
 private fun SectorsScreen(store: PopStore) {
-    val company = store.selectedCompany
-    var showEditor by remember { mutableStateOf(false) }
+    val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     EntityListScreen(
         title = "Estrutura por setores",
         emptyTitle = "Nenhum setor",
         items = company?.sectors.orEmpty().map { it.name to it.description },
-        onAdd = { showEditor = true },
     )
-    if (showEditor) SimpleEntityEditorDialog("Novo setor", store::addSector) { showEditor = false }
 }
 
 @Composable
 private fun GroupsScreen(store: PopStore) {
-    val company = store.selectedCompany
-    var showEditor by remember { mutableStateOf(false) }
+    val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     EntityListScreen(
         title = "Grupos de trabalho",
         emptyTitle = "Nenhum grupo",
         items = company?.groups.orEmpty().map { it.name to it.description },
-        onAdd = { showEditor = true },
     )
-    if (showEditor) SimpleEntityEditorDialog("Novo grupo", store::addGroup) { showEditor = false }
 }
 
 @Composable
-private fun EntityListScreen(title: String, emptyTitle: String, items: List<Pair<String, String>>, onAdd: () -> Unit) {
+private fun EntityListScreen(
+    title: String,
+    emptyTitle: String,
+    items: List<Pair<String, String>>,
+    onAdd: (() -> Unit)? = null,
+) {
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             contentPadding = PaddingValues(18.dp, 14.dp, 18.dp, 88.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item { Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            if (items.isEmpty()) item { EmptyState(emptyTitle, "Use o botão + para cadastrar.") }
+            if (items.isEmpty()) item { EmptyState(emptyTitle, "Cadastre pela versão web.") }
             items(items) { item ->
                 PopCard {
                     Text(item.first, fontWeight = FontWeight.Bold)
@@ -651,8 +703,10 @@ private fun EntityListScreen(title: String, emptyTitle: String, items: List<Pair
                 }
             }
         }
-        FloatingActionButton(onClick = onAdd, modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp)) {
-            Icon(Icons.Rounded.Add, "Adicionar")
+        if (onAdd != null) {
+            FloatingActionButton(onClick = onAdd, modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp)) {
+                Icon(Icons.Rounded.Add, "Adicionar")
+            }
         }
     }
 }

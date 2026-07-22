@@ -30,6 +30,7 @@ export type MobileTask = {
   description: string;
   assignee: string;
   assignedBy?: string;
+  createdBy?: string;
   recurrence: string;
   reminder: string;
   attachmentName: string;
@@ -85,6 +86,16 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
       name: workspace.company.name,
       description: workspace.company.description ?? "",
       kind: workspace.company.kind ?? "company",
+      sectors: workspace.departments.map((department) => ({
+        id: department.id,
+        name: department.name,
+        description: department.description ?? "",
+      })),
+      groups: workspace.groups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        description: group.description ?? "",
+      })),
     }));
 }
 
@@ -253,9 +264,7 @@ async function requireMobileWorkspace(request: Request) {
 
   const platform = await readDatabase();
   const tokenHash = hashToken(token);
-  const session = platform.sessions.find(
-    (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > Date.now(),
-  );
+  const session = platform.sessions.find((item) => item.tokenHash === tokenHash);
   if (!session) throw Object.assign(new Error("Sessão expirada."), { statusCode: 401 });
 
   const requestedWorkspaceId = request.headers.get("x-workspace-id")?.trim();
@@ -316,9 +325,7 @@ export async function respondToMobileInvitation(
   const tokenHash = hashToken(token);
 
   return mutateDatabase((platform) => {
-    const session = platform.sessions.find(
-      (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > Date.now(),
-    );
+    const session = platform.sessions.find((item) => item.tokenHash === tokenHash);
     const account = platform.accounts.find((item) => item.id === session?.userId);
     if (!session || !account)
       throw Object.assign(new Error("Sessão expirada."), { statusCode: 401 });
@@ -440,6 +447,10 @@ function taskToMobileTask(
     task.assignedById && task.assignedById !== currentUser.id
       ? (workspace.employees.find((employee) => employee.id === task.assignedById)?.name ?? "")
       : "";
+  const creatorId = task.assignedById ?? task.nativeOwnerId;
+  const createdBy = creatorId
+    ? (workspace.employees.find((employee) => employee.id === creatorId)?.name ?? "")
+    : "";
   return {
     id: native?.id ?? mobileId(task.id),
     serverId: task.id,
@@ -452,6 +463,7 @@ function taskToMobileTask(
     description: task.description,
     assignee,
     assignedBy: native?.assignedBy ?? assignedBy,
+    createdBy: native?.createdBy ?? createdBy,
     recurrence: native?.recurrence ?? recurrence.rule,
     reminder: native?.reminder ?? "Sem lembrete",
     attachmentName: native?.attachmentName ?? "",
@@ -490,9 +502,7 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
   const requestedWorkspaceId = request.headers.get("x-workspace-id")?.trim();
 
   return mutateDatabase((platform: PlatformDatabase) => {
-    const session = platform.sessions.find(
-      (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > Date.now(),
-    );
+    const session = platform.sessions.find((item) => item.tokenHash === tokenHash);
     if (!session) throw Object.assign(new Error("Sessão expirada."), { statusCode: 401 });
     const workspace = platform.workspaces.find(
       (item) =>
@@ -579,6 +589,7 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
           label: department?.name ?? account.name,
         },
         responsibleId: account.id,
+        assignedById: account.id,
         requiresReview: false,
         tags: ["Aplicativo"],
         comments: 0,

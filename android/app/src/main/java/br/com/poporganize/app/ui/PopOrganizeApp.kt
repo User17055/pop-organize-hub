@@ -1875,11 +1875,29 @@ private fun PopMainContent(
                 runCatching { loadMobileWorkspaces(token) }.onSuccess { workspaces ->
                     applyCompanyWorkspaces(workspaces)
                     companyIds.forEachIndexed { index, workspaceId ->
+                        val companyTasks = companyTaskGroups.getOrNull(index)
+                        val localJson = companyTasks?.let(::tasksToJson)?.toString()
+                        val lastSyncedJson = lastSyncedCompanyTasks[workspaceId]
+                        if (
+                            companyTasks != null &&
+                            localJson != null &&
+                            lastSyncedJson != null &&
+                            localJson != lastSyncedJson
+                        ) {
+                            runCatching { syncRemoteTasks(token, companyTasks.toList(), workspaceId) }
+                                .onSuccess { lastSyncedCompanyTasks[workspaceId] = localJson }
+                        }
                         runCatching { loadRemoteTasks(token, workspaceId) }.onSuccess { remoteTasks ->
                             rememberAssignedTasks(remoteTasks, assignmentAlertsReady)
                             val remoteJson = tasksToJson(remoteTasks).toString()
-                            val localJson = companyTaskGroups.getOrNull(index)?.let(::tasksToJson)?.toString()
-                            if (lastSyncedCompanyTasks[workspaceId].isNullOrBlank() || localJson == lastSyncedCompanyTasks[workspaceId]) {
+                            val currentLocalJson = companyTaskGroups
+                                .getOrNull(index)
+                                ?.let(::tasksToJson)
+                                ?.toString()
+                            if (
+                                lastSyncedCompanyTasks[workspaceId].isNullOrBlank() ||
+                                currentLocalJson == lastSyncedCompanyTasks[workspaceId]
+                            ) {
                                 lastSyncedCompanyTasks[workspaceId] = remoteJson
                                 companyTaskGroups.getOrNull(index)?.let { group ->
                                     group.clear()
@@ -1904,8 +1922,7 @@ private fun PopMainContent(
             refreshRemoteTasks(showFeedback = true)
             while (true) {
                 delay(15_000)
-                val hasLocalChanges = tasksToJson(personalTasks).toString() != lastSyncedTasksJson
-                if (!accountTasksAreDirty(context, googleAccount!!.id) && !hasLocalChanges) refreshRemoteTasks()
+                refreshRemoteTasks()
             }
         }
     }

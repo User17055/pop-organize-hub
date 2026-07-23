@@ -357,6 +357,11 @@ function CalendarPage() {
           if (!open) setSelectedDay(null);
         }}
         onOpenTask={openTask}
+        isTaskAvailable={(task) =>
+          tasks.some(
+            (sourceTask) => sourceTask.id === task.id && sourceTask.dueDate === task.dueDate,
+          )
+        }
       />
 
       {taskDetailLayer}

@@ -19,6 +19,7 @@ export function DaySheet({
   departments,
   onOpenChange,
   onOpenTask,
+  isTaskAvailable = () => true,
 }: {
   day: Date | null;
   tasks: Task[];
@@ -26,6 +27,7 @@ export function DaySheet({
   departments: Department[];
   onOpenChange: (open: boolean) => void;
   onOpenTask: (task: Task) => void;
+  isTaskAvailable?: (task: Task) => boolean;
 }) {
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
 
@@ -52,12 +54,14 @@ export function DaySheet({
           {tasks.map((task) => {
             const emp = getEmployee(task.responsibleId);
             const subtasks = task.subtasks ?? [];
+            const available = isTaskAvailable(task);
             return (
               <button
                 key={task.id}
                 type="button"
+                disabled={!available}
                 onClick={() => onOpenTask(task)}
-                className="task-glass-panel pressable flex w-full items-start gap-3 rounded-[22px] p-4 text-left hover:border-primary/30"
+                className="task-glass-panel pressable flex w-full items-start gap-3 rounded-[22px] p-4 text-left hover:border-primary/30 disabled:cursor-default disabled:opacity-65"
               >
                 <EmployeeAvatar employee={emp} departments={departments} size="sm" />
                 <div className="min-w-0 flex-1">
@@ -88,6 +92,11 @@ export function DaySheet({
                       </span>
                     )}
                   </div>
+                  {!available && (
+                    <div className="mt-2 text-[10px] font-medium text-muted-foreground">
+                      Ocorrência futura — disponível somente nesta data.
+                    </div>
+                  )}
                 </div>
               </button>
             );

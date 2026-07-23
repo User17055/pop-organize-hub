@@ -866,6 +866,9 @@ export async function replaceMobileTasks(
     });
     const canCreateTasks = hasPermission(permissionSet, "tasks.create");
     const department = workspace.departments[0];
+    const today = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date());
     let created = 0;
     let updated = 0;
     let deleted = 0;
@@ -906,6 +909,17 @@ export async function replaceMobileTasks(
     }
 
     for (const item of tasks) {
+      if (
+        item.completed &&
+        item.recurrenceOccurrence > 1 &&
+        /^\d{4}-\d{2}-\d{2}$/.test(item.dueDate) &&
+        item.dueDate > today
+      ) {
+        throw Object.assign(
+          new Error("Uma ocorrência recorrente só pode ser concluída quando chegar a sua data."),
+          { statusCode: 409 },
+        );
+      }
       const existing = workspace.tasks.find((rawTask) => {
         const task = rawTask as NativeTask;
         return (

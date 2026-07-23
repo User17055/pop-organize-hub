@@ -22,10 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  createEmployee,
-  resendEmployeeInvitation,
-} from "@/lib/api/pop-organize.functions";
+import { createEmployee, resendEmployeeInvitation } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import { Check, Copy, Link2, Mail, Plus } from "lucide-react";
 
@@ -67,8 +64,7 @@ function FuncionariosPage() {
     },
   });
   const resendMutation = useMutation({
-    mutationFn: (invitationId: string) =>
-      resendEmployeeInvitation({ data: { id: invitationId } }),
+    mutationFn: (invitationId: string) => resendEmployeeInvitation({ data: { id: invitationId } }),
     onSuccess: ({ invitationId }) => {
       setResentInvitationId(invitationId);
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
@@ -154,7 +150,7 @@ function FuncionariosPage() {
           type="button"
           onClick={openForm}
           style={{ background: "var(--gradient-primary)" }}
-          className="mb-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium text-primary-foreground shadow-[var(--shadow-elegant)] transition hover:opacity-90 active:scale-[0.99] md:hidden sm:w-auto"
+          className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium text-primary-foreground shadow-[var(--shadow-elegant)] transition hover:opacity-90 active:scale-[0.99] md:hidden"
         >
           <Plus className="h-4 w-4" /> Novo funcionário
         </button>
@@ -208,7 +204,61 @@ function FuncionariosPage() {
           </div>
         </div>
       )}
-      <div className="bg-card border border-border rounded-2xl overflow-x-auto">
+      <div className="grid grid-cols-1 gap-3 md:hidden">
+        {employees.map((employee) => {
+          const department = getDepartment(employee.departmentId);
+          const taskCount = tasks.filter((task) => task.responsibleId === employee.id).length;
+          return (
+            <article
+              key={employee.id}
+              className="rounded-2xl border border-border bg-card p-4 shadow-sm"
+            >
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                  {employee.name
+                    .split(" ")
+                    .map((name) => name[0])
+                    .slice(0, 2)
+                    .join("")}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold">{employee.name}</div>
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {employee.email}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium">
+                      {employee.role}
+                    </span>
+                    <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary">
+                      {getPermissionGroup(employee.permissionGroupId)?.name ?? "Padrão"}
+                    </span>
+                  </div>
+                </div>
+                <span
+                  className={
+                    employee.status === "active"
+                      ? "shrink-0 rounded-full bg-success/15 px-2 py-1 text-[10px] font-semibold text-success"
+                      : "shrink-0 rounded-full bg-muted px-2 py-1 text-[10px] font-semibold text-muted-foreground"
+                  }
+                >
+                  {employee.status === "active" ? "Ativo" : "Inativo"}
+                </span>
+              </div>
+              <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-3 text-xs">
+                <span className="min-w-0 truncate text-muted-foreground">
+                  Setor: <strong className="text-foreground">{department?.name ?? "—"}</strong>
+                </span>
+                <span className="shrink-0 font-semibold">
+                  {taskCount} {taskCount === 1 ? "tarefa" : "tarefas"}
+                </span>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-2xl border border-border bg-card md:block">
         <Table className="min-w-[820px]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">

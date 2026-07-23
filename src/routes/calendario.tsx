@@ -1,9 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, retainSearchParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { addMonths, format, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Kayak } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
@@ -21,6 +21,7 @@ import {
   recurrenceToForm,
   type TaskEditState,
 } from "@/components/tasks/task-form-types";
+import { ifError } from "assert";
 
 export const Route = createFileRoute("/calendario")({
   head: () => ({

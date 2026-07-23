@@ -48,8 +48,8 @@ export function BottomTabBar({
 
   return (
     <>
-      <div className="app-bottom-tabs fixed bottom-0 left-0 right-0 z-40 px-3 lg:hidden">
-        <nav className="app-surface bottom-tab-glass mx-auto flex max-w-md items-center gap-1 rounded-[28px] px-2 py-2">
+      <div className="app-bottom-tabs fixed bottom-0 left-0 right-0 z-40 px-2 sm:px-3 lg:hidden">
+        <nav className="app-surface bottom-tab-glass mx-auto flex w-full max-w-md items-center gap-0.5 rounded-[24px] px-1.5 py-1.5 sm:gap-1 sm:rounded-[28px] sm:px-2 sm:py-2">
           {primaryItems.map((item) => {
             const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
             const Icon = item.icon;
@@ -60,7 +60,7 @@ export function BottomTabBar({
                   animate={{ y: active ? -1 : 0 }}
                   transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.8 }}
                   className={cn(
-                    "relative flex min-w-0 flex-col items-center gap-1 overflow-hidden rounded-2xl px-1.5 py-2 text-[10.5px] font-semibold",
+                    "relative flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl px-1 py-1.5 text-[10px] font-semibold sm:px-1.5 sm:py-2 sm:text-[10.5px]",
                     active ? "text-primary-foreground" : "text-muted-foreground",
                   )}
                 >
@@ -88,7 +88,7 @@ export function BottomTabBar({
               animate={{ y: moreActive ? -1 : 0 }}
               transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.8 }}
               className={cn(
-                "relative flex min-w-0 flex-1 flex-col items-center gap-1 overflow-hidden rounded-2xl px-1.5 py-2 text-[10.5px] font-semibold",
+                "relative flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl px-1 py-1.5 text-[10px] font-semibold sm:px-1.5 sm:py-2 sm:text-[10.5px]",
                 moreActive ? "text-primary-foreground" : "text-muted-foreground",
               )}
             >
@@ -112,13 +112,13 @@ export function BottomTabBar({
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
           side="bottom"
-          className="safe-bottom-bar rounded-t-[28px] border-border/70 bg-card/98 backdrop-blur-2xl"
+          className="safe-bottom-bar max-h-[min(88dvh,48rem)] overflow-y-auto rounded-t-[28px] border-border/70 bg-card/98 px-4 pb-4 pt-5 backdrop-blur-2xl sm:left-1/2 sm:max-w-xl sm:-translate-x-1/2 sm:px-6"
         >
           <SheetHeader className="text-left">
             <SheetTitle>Mais opções</SheetTitle>
             <SheetDescription>Navegação e conta</SheetDescription>
           </SheetHeader>
-          <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">
             {moreItems.map((item) => {
               const Icon = item.icon;
               const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
@@ -128,10 +128,10 @@ export function BottomTabBar({
                   to={item.to}
                   onClick={() => setMoreOpen(false)}
                   className={cn(
-                    "pressable flex flex-col items-center gap-2 rounded-2xl border p-3 text-center text-xs font-semibold",
+                    "pressable flex min-h-[74px] min-w-0 flex-col items-center justify-center gap-2 rounded-2xl p-2 text-center text-[11px] font-semibold sm:p-3 sm:text-xs",
                     active
-                      ? "border-primary/35 text-primary"
-                      : "border-border bg-card/95 text-foreground/85 hover:bg-muted",
+                      ? "bg-primary/12 text-primary"
+                      : "bg-muted/55 text-foreground/85 hover:bg-muted",
                   )}
                   style={
                     active

@@ -123,14 +123,17 @@ function Dashboard() {
       }
     >
       {/* Stats */}
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+      <div className="mb-5 grid grid-cols-2 gap-2.5 sm:mb-6 sm:gap-3 lg:grid-cols-4 lg:gap-4">
         {stats.map((s) => {
           const Icon = s.icon;
           return (
-            <div key={s.label} className="mobile-card hover-lift rounded-[24px] p-4 md:rounded-2xl">
+            <div
+              key={s.label}
+              className="mobile-card hover-lift min-w-0 rounded-[20px] p-3.5 sm:rounded-[24px] sm:p-4 md:rounded-2xl"
+            >
               <div className="flex items-start justify-between">
                 <div>
-                  <div className="text-sm text-muted-foreground">{s.label}</div>
+                  <div className="truncate text-xs text-muted-foreground sm:text-sm">{s.label}</div>
                   <div className="text-2xl font-display font-bold text-foreground mt-2">
                     {s.value}
                   </div>
@@ -146,15 +149,15 @@ function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Recent tasks */}
-        <div className="mobile-card rounded-[24px] p-5 md:rounded-2xl lg:col-span-2">
-          <div className="flex items-center justify-between mb-3">
-            <div>
+        <div className="mobile-card min-w-0 rounded-[24px] p-4 sm:p-5 md:rounded-2xl lg:col-span-2">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
               <h2 className="text-base font-display font-semibold">Tarefas recentes</h2>
               <p className="text-sm text-muted-foreground">Atualizadas nas últimas horas</p>
             </div>
             <Link
               to="/tarefas"
-              className="text-sm text-primary font-medium hover:underline inline-flex items-center gap-1"
+              className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline sm:text-sm"
             >
               Ver todas <ArrowRight className="h-3.5 w-3.5" />
             </Link>

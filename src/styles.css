@@ -406,12 +406,7 @@
   --sidebar-border: #c9e1f5;
   --sidebar-ring: #1687f8;
 
-  --gradient-primary: linear-gradient(
-    135deg,
-    #45adff 0%,
-    #1687f8 52%,
-    #0864dc 100%
-  );
+  --gradient-primary: linear-gradient(135deg, #45adff 0%, #1687f8 52%, #0864dc 100%);
   --gradient-login: linear-gradient(135deg, #1687f8, #0762d5);
   --gradient-hero: linear-gradient(135deg, #2da4ff, #0872e8 56%, #0754c7);
   --gradient-sidebar: linear-gradient(180deg, #f8fcff, #eaf5ff);
@@ -729,7 +724,11 @@
 
   .glass-sidebar {
     background:
-      linear-gradient(180deg, color-mix(in oklab, var(--card) 82%, transparent), color-mix(in oklab, var(--primary) 8%, transparent)),
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, var(--card) 82%, transparent),
+        color-mix(in oklab, var(--primary) 8%, transparent)
+      ),
       color-mix(in oklab, var(--background) 70%, transparent);
     backdrop-filter: blur(28px) saturate(170%);
     -webkit-backdrop-filter: blur(28px) saturate(170%);
@@ -1130,8 +1129,10 @@
   @media (max-width: 1023px) {
     html,
     body {
-      height: 100%;
-      overflow: hidden;
+      min-height: 100%;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
     }
 
     .native-viewport,
@@ -1144,7 +1145,10 @@
     .app-scroll-content {
       min-height: 0;
       height: auto;
+      width: 100%;
+      max-width: 100%;
       flex: 1 1 0%;
+      overflow-x: hidden;
       overflow-y: auto;
       overscroll-behavior-y: contain;
       -webkit-overflow-scrolling: touch;
@@ -1156,9 +1160,49 @@
     .mobile-fixed-header {
       position: relative !important;
       flex: 0 0 auto;
+      width: 100%;
+      max-width: 100%;
       transform: none !important;
       border-color: transparent;
       box-shadow: none;
+    }
+
+    input,
+    select,
+    textarea {
+      min-width: 0;
+      max-width: 100%;
+      font-size: 16px !important;
+    }
+
+    button,
+    a,
+    input,
+    select,
+    textarea {
+      touch-action: manipulation;
+    }
+
+    .mobile-horizontal-scroll {
+      margin-inline: -0.75rem;
+      padding-inline: 0.75rem;
+      scroll-padding-inline: 0.75rem;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .mobile-horizontal-scroll::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  @media (max-width: 359px) {
+    .app-bottom-tabs {
+      padding-inline: 0.25rem;
+    }
+
+    .bottom-tab-glass {
+      border-radius: 1.25rem;
     }
   }
 

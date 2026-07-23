@@ -215,16 +215,19 @@ function PermissoesPage() {
       <button
         onClick={openCreate}
         style={{ background: "var(--gradient-primary)" }}
-        className="md:hidden mb-4 inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:opacity-90 shadow-[var(--shadow-elegant)]"
+        className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium text-primary-foreground shadow-[var(--shadow-elegant)] transition hover:opacity-90 md:hidden"
       >
         <Plus className="h-4 w-4" /> Novo grupo
       </button>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4 xl:grid-cols-3">
         {permissionGroups.map((group) => {
           const members = employees.filter((employee) => employee.permissionGroupId === group.id);
           return (
-            <div key={group.id} className="hover-lift bg-card border border-border rounded-2xl p-5">
+            <div
+              key={group.id}
+              className="hover-lift rounded-2xl border border-border bg-card p-4 sm:p-5"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <div

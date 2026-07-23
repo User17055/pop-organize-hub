@@ -73,8 +73,8 @@ function RelatoriosPage() {
 
   return (
     <AppShell title="Relatórios" subtitle="Indicadores de produtividade da empresa">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2 bg-card border border-border rounded-md p-5">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-5">
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 lg:col-span-2">
           <div className="flex items-center gap-2 mb-5">
             <TrendingUp className="h-4.5 w-4.5 text-primary" />
             <h2 className="font-display font-semibold text-base">Tarefas por setor</h2>
@@ -84,9 +84,9 @@ function RelatoriosPage() {
               const pct = d.total ? (d.done / d.total) * 100 : 0;
               return (
                 <div key={d.id}>
-                  <div className="flex items-center justify-between mb-2 gap-3">
-                    <span className="font-medium text-sm">{d.name}</span>
-                    <div className="flex items-center gap-3 text-xs">
+                  <div className="mb-2 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                    <span className="truncate text-sm font-medium">{d.name}</span>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs">
                       <span className="text-success">{d.done} concluídas</span>
                       {d.late > 0 && <span className="text-destructive">{d.late} atrasadas</span>}
                       <span className="text-muted-foreground">{d.total} total</span>
@@ -104,7 +104,7 @@ function RelatoriosPage() {
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-md p-5">
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
           <div className="flex items-center gap-2 mb-5">
             <Award className="h-4.5 w-4.5 text-primary" />
             <h2 className="font-display font-semibold text-base">Top produtividade</h2>
@@ -137,7 +137,7 @@ function RelatoriosPage() {
           </div>
         </div>
 
-        <div className="lg:col-span-3 rounded-md border border-border bg-card p-5 flex items-center justify-between flex-wrap gap-4">
+        <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5 lg:col-span-3">
           <div className="flex items-center gap-4">
             <div className="h-11 w-11 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
               <Clock className="h-5 w-5 text-primary" />

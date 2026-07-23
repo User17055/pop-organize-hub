@@ -915,19 +915,21 @@ export function AppShell({
       <main className="app-main-shell flex min-w-0 flex-1 flex-col">
         {/* Mobile header */}
         <header className="mobile-fixed-header glass-header safe-top relative z-[70] shrink-0 lg:hidden">
-          <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-3 px-4 py-3">
+          <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-5 sm:py-3 md:px-6">
             <div className="app-page-heading min-w-0 flex-1">
               <div className="mb-0.5 w-fit max-w-full">
                 <WorkspaceSwitcher />
               </div>
-              <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground">
+              <h1 className="truncate font-display text-[19px] font-bold leading-tight text-foreground sm:text-[22px]">
                 {title}
               </h1>
               {subtitle && (
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">{subtitle}</p>
+                <p className="mt-0.5 truncate text-[11px] text-muted-foreground sm:text-xs">
+                  {subtitle}
+                </p>
               )}
             </div>
-            <div className="ml-auto flex shrink-0 items-center gap-2">
+            <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
               <NotificationsMenu
                 tasks={data?.tasks ?? []}
                 employees={data?.employees ?? []}
@@ -1042,7 +1044,7 @@ export function AppShell({
             exit={{ opacity: 0, y: -6, filter: "blur(3px)" }}
             transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
             className={cn(
-              "app-scroll-content mx-auto w-full max-w-[1600px] flex-1 px-4 pb-32 pt-[calc(var(--safe-area-top)+5.25rem)] lg:px-8 lg:py-8 lg:pb-8 xl:px-12",
+              "app-scroll-content mx-auto w-full max-w-[1600px] min-w-0 flex-1 overflow-x-hidden px-3 pb-32 pt-4 sm:px-5 md:px-6 lg:px-8 lg:py-8 lg:pb-8 xl:px-12",
               contentClassName,
             )}
           >

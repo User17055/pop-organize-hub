@@ -118,7 +118,63 @@ function SetoresPage() {
         ) : undefined
       }
     >
-      <div className="rounded-md border border-border bg-card overflow-hidden">
+      {canManage && (
+        <button
+          type="button"
+          onClick={openForm}
+          style={{ background: "var(--gradient-primary)" }}
+          className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium text-primary-foreground shadow-[var(--shadow-elegant)] transition active:scale-[0.99] md:hidden"
+        >
+          <Plus className="h-4 w-4" /> Novo setor
+        </button>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 md:hidden">
+        {departments.map((department) => {
+          const members = employees.filter((employee) => employee.departmentId === department.id);
+          const departmentTasks = tasks.filter(
+            (task) => task.target.type === "department" && task.target.id === department.id,
+          );
+          const manager = getEmployee(department.managerId);
+          return (
+            <article
+              key={department.id}
+              className="rounded-2xl border border-border bg-card p-4 shadow-sm"
+            >
+              <div className="flex min-w-0 items-start gap-3">
+                <span
+                  className="mt-1 h-3 w-3 shrink-0 rounded-full"
+                  style={{ background: department.color }}
+                />
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-sm font-semibold">{department.name}</h2>
+                  <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                    {department.description}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <div className="min-w-0 rounded-xl bg-muted/55 p-2.5">
+                  <div className="text-[10px] text-muted-foreground">Gestor</div>
+                  <div className="mt-0.5 truncate text-xs font-semibold">
+                    {manager?.name ?? "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-muted/55 p-2.5 text-center">
+                  <div className="text-[10px] text-muted-foreground">Pessoas</div>
+                  <div className="mt-0.5 text-sm font-bold">{members.length}</div>
+                </div>
+                <div className="rounded-xl bg-muted/55 p-2.5 text-center">
+                  <div className="text-[10px] text-muted-foreground">Tarefas</div>
+                  <div className="mt-0.5 text-sm font-bold">{departmentTasks.length}</div>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-card md:block">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">

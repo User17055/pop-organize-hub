@@ -119,17 +119,32 @@ function GruposPage() {
         ) : null
       }
     >
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {canManageGroups && (
+        <button
+          type="button"
+          onClick={openForm}
+          style={{ background: "var(--gradient-primary)" }}
+          className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium text-primary-foreground shadow-[var(--shadow-elegant)] transition active:scale-[0.99] md:hidden"
+        >
+          <Plus className="h-4 w-4" /> Novo grupo
+        </button>
+      )}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
         {visibleGroups.map((g) => {
           const leader = getEmployee(g.leaderId);
           const members = g.memberIds.map(getEmployee).filter(Boolean);
           const gTasks = tasks.filter((t) => t.target.type === "group" && t.target.id === g.id);
           return (
-            <div key={g.id} className="hover-lift bg-card border border-border rounded-2xl p-5">
-              <div className="flex items-start justify-between mb-3 gap-4">
-                <div>
+            <div
+              key={g.id}
+              className="hover-lift rounded-2xl border border-border bg-card p-4 sm:p-5"
+            >
+              <div className="mb-3 flex items-start justify-between gap-3 sm:gap-4">
+                <div className="min-w-0">
                   <h3 className="font-display font-semibold text-base">{g.name}</h3>
-                  <p className="text-sm text-muted-foreground mt-0.5">{g.description}</p>
+                  <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
+                    {g.description}
+                  </p>
                 </div>
                 <span className="text-xs font-medium px-2 py-1 rounded-md bg-primary/10 text-primary whitespace-nowrap">
                   {gTasks.length} {gTasks.length === 1 ? "tarefa" : "tarefas"}

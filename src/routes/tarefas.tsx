@@ -427,20 +427,20 @@ function TasksPage() {
         ) : undefined
       }
     >
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="task-glass-control flex h-12 min-w-[240px] flex-1 items-center gap-2 rounded-[18px] px-4 transition-colors focus-within:border-primary/45 md:h-11">
+      <div className="mb-4 flex min-w-0 items-center gap-2 sm:gap-3">
+        <div className="task-glass-control flex h-12 min-w-0 flex-1 items-center gap-2 rounded-[18px] px-3 transition-colors focus-within:border-primary/45 sm:px-4 md:h-11">
           <Search className="h-4 w-4 text-primary" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por título ou descrição..."
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/75"
+            placeholder="Buscar tarefas..."
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/75"
           />
         </div>
         {canCreateTask && (
           <button
             onClick={openForm}
-            className="pressable inline-flex h-12 items-center gap-2 rounded-full bg-foreground px-4 text-sm font-bold text-background transition hover:bg-foreground/90 lg:hidden"
+            className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full bg-foreground px-3.5 text-sm font-bold text-background transition hover:bg-foreground/90 sm:px-4 lg:hidden"
           >
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
               <Plus className="h-4 w-4" />
@@ -450,7 +450,7 @@ function TasksPage() {
         )}
       </div>
 
-      <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
+      <div className="mobile-horizontal-scroll mb-5 flex gap-2 overflow-x-auto pb-1">
         {statusFilters.map((f) => {
           const count =
             f.key === "all"

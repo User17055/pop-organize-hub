@@ -108,7 +108,17 @@ function EmpresasPage() {
         ) : undefined
       }
     >
-      <div className="hover-lift bg-card border border-border rounded-2xl p-5">
+      {canManage && (
+        <button
+          type="button"
+          onClick={openForm}
+          style={{ background: "var(--gradient-primary)" }}
+          className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium text-primary-foreground shadow-[var(--shadow-elegant)] transition active:scale-[0.99] md:hidden"
+        >
+          <Pencil className="h-4 w-4" /> Editar empresa
+        </button>
+      )}
+      <div className="hover-lift rounded-2xl border border-border bg-card p-4 sm:p-5">
         <div className="flex items-start gap-4">
           <div
             className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0"
@@ -116,9 +126,9 @@ function EmpresasPage() {
           >
             <Building2 className="h-6 w-6 text-primary-foreground" />
           </div>
-          <div className="flex-1">
-            <h2 className="text-lg font-display font-semibold">{company.name}</h2>
-            <p className="text-sm text-muted-foreground">CNPJ: {company.document}</p>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate font-display text-lg font-semibold">{company.name}</h2>
+            <p className="break-words text-sm text-muted-foreground">CNPJ: {company.document}</p>
             <span
               className={
                 company.status === "active"
@@ -131,7 +141,7 @@ function EmpresasPage() {
             </span>
           </div>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
+        <div className="mt-5 grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
           {stats.map((s) => {
             const Icon = s.icon;
             return (

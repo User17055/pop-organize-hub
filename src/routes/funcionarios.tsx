@@ -149,6 +149,17 @@ function FuncionariosPage() {
         ) : undefined
       }
     >
+      {canManage && (
+        <button
+          type="button"
+          onClick={openForm}
+          style={{ background: "var(--gradient-primary)" }}
+          className="mb-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium text-primary-foreground shadow-[var(--shadow-elegant)] transition hover:opacity-90 active:scale-[0.99] md:hidden sm:w-auto"
+        >
+          <Plus className="h-4 w-4" /> Novo funcionário
+        </button>
+      )}
+
       {invitations.length > 0 && (
         <div className="mb-4 rounded-2xl border border-primary/20 bg-primary/5 p-4">
           <div className="flex items-center gap-2 font-medium">

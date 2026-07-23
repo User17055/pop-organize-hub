@@ -5342,161 +5342,206 @@ private fun MoreScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 30.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 30.dp),
     ) {
         item {
-            WorkSpaceHeader(
-                subtitle = "Conta, ajuda e informações",
-                selected = workSpace,
-                companyNames = companyNames,
-                companyDescriptions = companyDescriptions,
-                selectedCompanyIndex = selectedCompanyIndex,
-                onSelect = onWorkSpaceChange,
-                onCompanySelect = onCompanySelect,
-                onCreateCompany = onCreateCompany,
-                showPopBrand = true,
-            )
-        }
-        item {
-            Column(
-                modifier = Modifier.padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+            Surface(
+                color = PopSurface,
+                shape = RoundedCornerShape(
+                    topStart = 30.dp,
+                    topEnd = 30.dp,
+                    bottomStart = 24.dp,
+                    bottomEnd = 24.dp,
+                ),
+                tonalElevation = 1.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(PopSurface).padding(15.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    GoogleProfileAvatar(
-                        photoUrl = googleAccount?.photoUrl,
-                        modifier = Modifier.size(50.dp),
-                        fallbackIcon = if (isGuest) Icons.Rounded.PersonOutline else Icons.Rounded.Groups,
+                    Text(
+                        "Mais opções",
+                        fontSize = 23.sp,
+                        fontWeight = FontWeight.ExtraBold,
                     )
-                    Spacer(Modifier.width(13.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            when {
-                                isGuest -> "Modo sem conta"
-                                sessionMode != SessionMode.Guest && !googleAccount?.name.isNullOrBlank() -> googleAccount?.name.orEmpty()
-                                else -> "Conta conectada"
-                            },
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 16.sp,
-                        )
-                        Text(
-                            when {
-                                isGuest -> "Seus dados ficam neste celular"
-                                sessionMode != SessionMode.Guest && !googleAccount?.email.isNullOrBlank() -> googleAccount?.email.orEmpty()
-                                else -> "Conta conectada"
-                            },
-                            color = PopMuted,
-                            fontSize = 11.sp,
-                        )
-                    }
-                    if (isGuest) {
-                        TextButton(onClick = onRequireLogin) { Text("Entrar", color = PopBlue, fontWeight = FontWeight.Bold) }
-                    }
-                }
+                    Text(
+                        "Navegação e conta",
+                        color = PopMuted,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(top = (-7).dp),
+                    )
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Brush.linearGradient(listOf(Color(0xFF182B41), Color(0xFF142132), Color(0xFF1D1F27))))
-                        .padding(18.dp),
-                ) {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!isGuest && companyNames.isNotEmpty()) {
+                        Text(
+                            "EMPRESA",
+                            color = PopMuted,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 6.dp, start = 2.dp),
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            MoreShortcut(
+                                icon = Icons.Rounded.Groups,
+                                title = "Grupos",
+                                onClick = { showGroupsDialog = true },
+                                modifier = Modifier.weight(1f),
+                            )
+                            MoreShortcut(
+                                icon = Icons.Rounded.AccountTree,
+                                title = "Setores",
+                                onClick = { showSectorsDialog = true },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            MoreShortcut(
+                                icon = Icons.Rounded.Groups,
+                                title = "Funcionários",
+                                onClick = { showTeamDialog = true },
+                                modifier = Modifier.weight(1f),
+                            )
+                            MoreShortcut(
+                                icon = Icons.Rounded.Business,
+                                title = "Empresa",
+                                subtitle = companyNames.getOrElse(selectedCompanyIndex) { "" },
+                                onClick = {
+                                    onCompanySelect(selectedCompanyIndex)
+                                    onWorkSpaceChange(WorkSpace.Company)
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = PopMuted.copy(alpha = .16f),
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        GoogleProfileAvatar(
+                            photoUrl = googleAccount?.photoUrl,
+                            modifier = Modifier.size(48.dp),
+                            fallbackIcon = Icons.Rounded.PersonOutline,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                when {
+                                    isGuest -> "Modo sem conta"
+                                    !googleAccount?.name.isNullOrBlank() -> googleAccount?.name.orEmpty()
+                                    else -> "Conta conectada"
+                                },
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                when {
+                                    isGuest -> "Seus dados ficam neste celular"
+                                    !googleAccount?.email.isNullOrBlank() -> googleAccount?.email.orEmpty()
+                                    else -> "Conta conectada"
+                                },
+                                color = PopMuted,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (isGuest) {
+                            TextButton(onClick = onRequireLogin) {
+                                Text("Entrar", color = PopBlue, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            IconButton(onClick = { showThemeDialog = true }) {
+                                Icon(Icons.Rounded.Settings, "Configurações", tint = PopMuted)
+                            }
+                        }
+                    }
+
+                    if (isGuest) {
+                        MoreAccountAction(
+                            icon = Icons.Rounded.Settings,
+                            label = if (lightTheme) "Tema claro" else "Tema escuro",
+                            onClick = { showThemeDialog = true },
+                        )
+                    } else {
+                        MoreAccountAction(
+                            icon = Icons.Rounded.Logout,
+                            label = "Sair",
+                            accent = Color(0xFFE5484D),
+                            onClick = onSignOut,
+                        )
+                    }
+
+                    HorizontalDivider(
+                        color = PopMuted.copy(alpha = .16f),
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+
+                    Text(
+                        "AJUDA E INFORMAÇÕES",
+                        color = PopMuted,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(start = 2.dp),
+                    )
+                    MoreItem(
+                        Icons.Rounded.ContactSupport,
+                        "Falar com a gente",
+                        "Dúvidas, sugestões ou contato",
+                        onClick = { sendContactEmail("Contato pelo Pop Organize") },
+                    )
+                    MoreItem(
+                        Icons.Rounded.BugReport,
+                        "Relatar um problema",
+                        "Conte o que aconteceu nesta versão beta",
+                        accent = Color(0xFFFFA726),
+                        onClick = { sendContactEmail("Relato de bug — Pop Organize Beta") },
+                    )
+                    MoreItem(
+                        Icons.Rounded.Info,
+                        "Sobre o aplicativo",
+                        "Versão 1.0 Beta • em desenvolvimento",
+                    )
+
+                    Surface(
+                        color = PopBlueSoft,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Box(
-                                Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFFFFA726)).padding(horizontal = 8.dp, vertical = 4.dp),
+                                Modifier
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(Color(0xFFFFA726))
+                                    .padding(horizontal = 7.dp, vertical = 3.dp),
                             ) {
-                                Text("BETA", color = Color(0xFF181818), fontWeight = FontWeight.Black, fontSize = 10.sp)
+                                Text("BETA", color = Color(0xFF181818), fontWeight = FontWeight.Black, fontSize = 9.sp)
                             }
                             Spacer(Modifier.width(9.dp))
-                            Text("Pop Organize 1.0", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                            Text("Pop Organize 1.0", color = PopBlue, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Spacer(Modifier.weight(1f))
+                            Text("© 2026", color = PopMuted, fontSize = 9.sp)
                         }
-                        Spacer(Modifier.height(11.dp))
-                        Text("Estamos construindo com você", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
-                        Text(
-                            "Esta é uma versão de testes. Alguns recursos podem mudar e bugs podem acontecer durante o uso.",
-                            color = Color.White.copy(alpha = .72f),
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp,
-                            modifier = Modifier.padding(top = 5.dp),
-                        )
                     }
                 }
-
-                MoreSectionLabel("CONTA E PREFERÊNCIAS")
-                if (isGuest) {
-                    MoreItem(Icons.Rounded.PersonOutline, "Minhas atividades", "Conteúdo pessoal salvo localmente")
-                } else {
-                    MoreItem(Icons.Rounded.PersonOutline, "Meu perfil", "Conta e preferências")
-                }
-                MoreItem(
-                    Icons.Rounded.Settings,
-                    "Configurações",
-                    if (lightTheme) "Tema claro e preferências" else "Tema escuro e preferências",
-                    onClick = { showThemeDialog = true },
-                )
-                if (!isGuest) {
-                    MoreItem(
-                        Icons.Rounded.Logout,
-                        "Sair da conta",
-                        "Desconectar esta conta do aparelho",
-                        accent = Color(0xFFE5484D),
-                        onClick = onSignOut,
-                    )
-                }
-
-                if (!isGuest && companyNames.isNotEmpty()) {
-                    MoreSectionLabel("GESTÃO DA EMPRESA")
-                    MoreItem(
-                        Icons.Rounded.Business,
-                        companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
-                        companyDescriptions.getOrElse(selectedCompanyIndex) { "Dados e setores da organização" },
-                    )
-                    MoreItem(
-                        Icons.Rounded.Groups,
-                        "Equipe",
-                        if (companyMembers.size == 1) "1 pessoa cadastrada" else "${companyMembers.size} pessoas cadastradas",
-                        onClick = { showTeamDialog = true },
-                    )
-                    MoreItem(
-                        Icons.Rounded.AccountTree,
-                        "Setores",
-                        if (companySectors.size == 1) "1 setor" else "${companySectors.size} setores",
-                        onClick = { showSectorsDialog = true },
-                    )
-                    MoreItem(
-                        Icons.Rounded.Groups,
-                        "Grupos",
-                        if (companyGroups.size == 1) "1 grupo" else "${companyGroups.size} grupos",
-                        onClick = { showGroupsDialog = true },
-                    )
-                }
-
-                MoreSectionLabel("AJUDA E INFORMAÇÕES")
-                MoreItem(
-                    Icons.Rounded.ContactSupport,
-                    "Falar com a gente",
-                    "Dúvidas, sugestões ou contato",
-                    onClick = { sendContactEmail("Contato pelo Pop Organize") },
-                )
-                MoreItem(
-                    Icons.Rounded.BugReport,
-                    "Relatar um problema",
-                    "Conte o que aconteceu nesta versão beta",
-                    accent = Color(0xFFFFA726),
-                    onClick = { sendContactEmail("Relato de bug — Pop Organize Beta") },
-                )
-
-                MoreItem(Icons.Rounded.Info, "Sobre o aplicativo", "Versão 1.0 Beta • em desenvolvimento")
-                Text(
-                    "© 2026 Pop Organize",
-                    color = PopMuted.copy(alpha = .7f),
-                    fontSize = 10.sp,
-                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp),
-                )
             }
         }
     }
@@ -5719,14 +5764,68 @@ private fun ThemeChoice(
 }
 
 @Composable
-private fun MoreSectionLabel(label: String) {
-    Text(
-        label,
-        color = PopMuted,
-        fontSize = 10.sp,
-        fontWeight = FontWeight.ExtraBold,
-        modifier = Modifier.padding(start = 3.dp, top = 10.dp, bottom = 1.dp),
-    )
+private fun MoreShortcut(
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String = "",
+) {
+    val shape = RoundedCornerShape(20.dp)
+    Surface(
+        onClick = onClick,
+        color = PopSurfaceAlt,
+        shape = shape,
+        modifier = modifier
+            .height(86.dp)
+            .border(1.dp, PopBlue.copy(alpha = .20f), shape),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(icon, null, tint = PopMuted, modifier = Modifier.size(23.dp))
+            Spacer(Modifier.height(7.dp))
+            Text(
+                title,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (subtitle.isNotBlank()) {
+                Text(
+                    subtitle,
+                    color = PopMuted,
+                    fontSize = 8.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoreAccountAction(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    accent: Color = PopBlue,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = accent, modifier = Modifier.size(19.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(label, color = accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+    }
 }
 
 @Composable
@@ -5740,20 +5839,23 @@ private fun MoreItem(
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(PopSurface)
+            .clip(RoundedCornerShape(17.dp))
+            .background(PopSurfaceAlt)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(15.dp),
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(accent.copy(alpha = .13f)),
+            Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(accent.copy(alpha = .13f)),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, null, tint = accent, modifier = Modifier.size(21.dp)) }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp); Text(subtitle, color = PopMuted, fontSize = 11.sp) }
+        ) { Icon(icon, null, tint = accent, modifier = Modifier.size(19.dp)) }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(subtitle, color = PopMuted, fontSize = 10.sp)
+        }
         if (onClick != null) {
-            Icon(Icons.Rounded.ArrowForward, null, tint = PopMuted, modifier = Modifier.size(18.dp))
+            Icon(Icons.Rounded.ArrowForward, null, tint = PopMuted, modifier = Modifier.size(17.dp))
         }
     }
 }

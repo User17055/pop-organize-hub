@@ -281,6 +281,7 @@ private const val GOOGLE_ACCOUNT_PHOTO_STORAGE = "pop_organize_google_account_ph
 private const val API_SESSION_TOKEN_STORAGE = "pop_organize_api_session_token"
 private const val ACCOUNT_TASKS_STORAGE_PREFIX = "pop_organize_account_tasks_"
 private const val ACCOUNT_TASKS_DIRTY_PREFIX = "pop_organize_account_tasks_dirty_"
+private const val DELETED_TASKS_STORAGE_PREFIX = "pop_organize_deleted_tasks_"
 private const val ASSIGNED_TASKS_SEEN_PREFIX = "pop_organize_assigned_tasks_seen_"
 private const val MOBILE_API_BASE_URL = "https://app.poporganize.com.br/api/mobile"
 private const val LIGHT_THEME_STORAGE = "pop_organize_light_theme"
@@ -422,6 +423,51 @@ private fun loadGuestTasks(context: Context): List<PopTask> = decodeTasks(
 
 private fun accountTasksKey(accountId: String) = "$ACCOUNT_TASKS_STORAGE_PREFIX$accountId"
 private fun accountTasksDirtyKey(accountId: String) = "$ACCOUNT_TASKS_DIRTY_PREFIX$accountId"
+private fun deletedTasksKey(accountId: String, workspaceId: String) =
+    "$DELETED_TASKS_STORAGE_PREFIX${accountId}_${workspaceId.ifBlank { "personal" }}"
+
+private fun loadPendingTaskDeletions(
+    context: Context,
+    accountId: String,
+    workspaceId: String = "",
+): List<String> {
+    val raw = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .getString(deletedTasksKey(accountId, workspaceId), null)
+        .orEmpty()
+    return runCatching {
+        val values = JSONArray(raw)
+        buildList {
+            repeat(values.length()) { index ->
+                values.optString(index).takeIf(String::isNotBlank)?.let(::add)
+            }
+        }
+    }.getOrDefault(emptyList())
+}
+
+private fun queueTaskDeletion(
+    context: Context,
+    accountId: String,
+    workspaceId: String,
+    serverId: String,
+) {
+    if (serverId.isBlank()) return
+    val pending = (loadPendingTaskDeletions(context, accountId, workspaceId) + serverId).distinct()
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .edit()
+        .putString(deletedTasksKey(accountId, workspaceId), JSONArray(pending).toString())
+        .apply()
+}
+
+private fun clearPendingTaskDeletions(
+    context: Context,
+    accountId: String,
+    workspaceId: String = "",
+) {
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .edit()
+        .remove(deletedTasksKey(accountId, workspaceId))
+        .apply()
+}
 
 private fun loadAccountTasks(context: Context, accountId: String): List<PopTask> = decodeTasks(
     context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
@@ -780,7 +826,12 @@ private suspend fun loadRemoteTasks(apiToken: String, workspaceId: String = ""):
     }
 }
 
-private suspend fun syncRemoteTasks(apiToken: String, tasks: List<PopTask>, workspaceId: String = "") = withContext(Dispatchers.IO) {
+private suspend fun syncRemoteTasks(
+    apiToken: String,
+    tasks: List<PopTask>,
+    workspaceId: String = "",
+    deletedServerIds: List<String> = emptyList(),
+) = withContext(Dispatchers.IO) {
     val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
         requestMethod = "PUT"
         connectTimeout = 15_000
@@ -793,7 +844,12 @@ private suspend fun syncRemoteTasks(apiToken: String, tasks: List<PopTask>, work
     }
     try {
         connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
-            writer.write(JSONObject().put("tasks", tasksToJson(tasks)).toString())
+            writer.write(
+                JSONObject()
+                    .put("tasks", tasksToJson(tasks))
+                    .put("deletedServerIds", JSONArray(deletedServerIds))
+                    .toString(),
+            )
         }
         val responseCode = connection.responseCode
         val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
@@ -2111,6 +2167,23 @@ private fun PopMainContent(
         remoteTasksLoaded = true
     }
 
+    suspend fun syncTasksWithPendingDeletions(
+        account: GoogleAccount,
+        localTasks: List<PopTask>,
+        workspaceId: String = "",
+    ) {
+        val deletedServerIds = loadPendingTaskDeletions(context, account.id, workspaceId)
+        syncRemoteTasks(
+            apiToken = account.apiToken,
+            tasks = localTasks,
+            workspaceId = workspaceId,
+            deletedServerIds = deletedServerIds,
+        )
+        if (deletedServerIds.isNotEmpty()) {
+            clearPendingTaskDeletions(context, account.id, workspaceId)
+        }
+    }
+
     suspend fun refreshRemoteTasks(showFeedback: Boolean = false) {
         val account = googleAccount ?: return
         if (account.apiToken.isBlank()) return
@@ -2120,7 +2193,7 @@ private fun PopMainContent(
         runCatching {
             val localTasksJson = tasksToJson(personalTasks).toString()
             if (accountTasksAreDirty(context, account.id) || (remoteTasksLoaded && localTasksJson != lastSyncedTasksJson)) {
-                syncRemoteTasks(account.apiToken, personalTasks.toList())
+                syncTasksWithPendingDeletions(account, personalTasks.toList())
             }
             loadRemoteTasks(account.apiToken)
         }.onSuccess { remoteTasks ->
@@ -2150,7 +2223,8 @@ private fun PopMainContent(
     }
 
     LaunchedEffect(sessionMode, googleAccount?.apiToken) {
-        val token = googleAccount?.apiToken.orEmpty()
+        val account = googleAccount ?: return@LaunchedEffect
+        val token = account.apiToken
         if (sessionMode != SessionMode.Guest && token.isNotBlank()) {
             while (true) {
                 runCatching { loadMobileWorkspaces(token) }.onSuccess { workspaces ->
@@ -2162,10 +2236,14 @@ private fun PopMainContent(
                         if (
                             companyTasks != null &&
                             localJson != null &&
-                            lastSyncedJson != null &&
-                            localJson != lastSyncedJson
+                            (
+                                (lastSyncedJson != null && localJson != lastSyncedJson) ||
+                                    loadPendingTaskDeletions(context, account.id, workspaceId).isNotEmpty()
+                            )
                         ) {
-                            runCatching { syncRemoteTasks(token, companyTasks.toList(), workspaceId) }
+                            runCatching {
+                                syncTasksWithPendingDeletions(account, companyTasks.toList(), workspaceId)
+                            }
                                 .onSuccess { lastSyncedCompanyTasks[workspaceId] = localJson }
                         }
                         runCatching { loadRemoteTasks(token, workspaceId) }.onSuccess { remoteTasks ->
@@ -2216,7 +2294,9 @@ private fun PopMainContent(
             if (remoteTasksLoaded && googleAccount.apiToken.isNotBlank() && localTasksJson != lastSyncedTasksJson) {
                 setAccountTasksDirty(context, googleAccount.id, true)
                 delay(350)
-                runCatching { syncRemoteTasks(googleAccount.apiToken, personalTasks.toList()) }
+                runCatching {
+                    syncTasksWithPendingDeletions(googleAccount, personalTasks.toList())
+                }
                     .onSuccess {
                         lastSyncedTasksJson = localTasksJson
                         setAccountTasksDirty(context, googleAccount.id, false)
@@ -2322,6 +2402,23 @@ private fun PopMainContent(
                         onCreateCompany = ::requestCreateCompany,
                         initialTaskId = taskToOpenId,
                         onInitialTaskOpened = { taskToOpenId = null },
+                        onTaskDeleted = { deletedTask ->
+                            val account = googleAccount
+                            if (account != null && deletedTask.serverId.isNotBlank()) {
+                                val workspaceId =
+                                    if (workSpace == WorkSpace.Company) {
+                                        companyIds.getOrNull(selectedCompanyIndex).orEmpty()
+                                    } else {
+                                        ""
+                                    }
+                                queueTaskDeletion(
+                                    context = context,
+                                    accountId = account.id,
+                                    workspaceId = workspaceId,
+                                    serverId = deletedTask.serverId,
+                                )
+                            }
+                        },
                     )
                     PopDestination.Calendar -> CalendarScreen(
                         tasks = tasks,
@@ -2438,9 +2535,25 @@ private fun PopMainContent(
             companyTaskGroups.forEachIndexed { index, group ->
                 val workspaceId = companyIds.getOrNull(index).orEmpty()
                 val localJson = tasksToJson(group).toString()
-                if (workspaceId.isNotBlank() && lastSyncedCompanyTasks[workspaceId] != null && localJson != lastSyncedCompanyTasks[workspaceId]) {
+                val account = googleAccount
+                val hasPendingDeletions =
+                    account != null &&
+                        loadPendingTaskDeletions(context, account.id, workspaceId).isNotEmpty()
+                if (
+                    workspaceId.isNotBlank() &&
+                    account != null &&
+                    (
+                        (
+                            lastSyncedCompanyTasks[workspaceId] != null &&
+                                localJson != lastSyncedCompanyTasks[workspaceId]
+                        ) ||
+                            hasPendingDeletions
+                    )
+                ) {
                     delay(350)
-                    runCatching { syncRemoteTasks(token, group.toList(), workspaceId) }
+                    runCatching {
+                        syncTasksWithPendingDeletions(account, group.toList(), workspaceId)
+                    }
                         .onSuccess { lastSyncedCompanyTasks[workspaceId] = localJson }
                 }
             }
@@ -3013,6 +3126,7 @@ private fun TasksScreen(
     onCreateCompany: () -> Unit,
     initialTaskId: Int?,
     onInitialTaskOpened: () -> Unit,
+    onTaskDeleted: (PopTask) -> Unit,
 ) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -4066,6 +4180,7 @@ private fun TasksScreen(
                             deletingTaskId = taskId
                             taskActionScope.launch {
                                 delay(340)
+                                tasks.firstOrNull { it.id == taskId }?.let(onTaskDeleted)
                                 tasks.removeAll { it.id == taskId }
                                 editingTaskId = null
                                 deletingTaskId = null

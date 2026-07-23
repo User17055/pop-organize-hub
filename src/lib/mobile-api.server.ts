@@ -711,7 +711,11 @@ function priority(value: string): Task["priority"] {
   }
 }
 
-export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) {
+export async function replaceMobileTasks(
+  request: Request,
+  tasks: MobileTask[],
+  deletedServerIds: string[] = [],
+) {
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
   if (!token) throw Object.assign(new Error("Sessão ausente."), { statusCode: 401 });
@@ -745,6 +749,42 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
     const department = workspace.departments[0];
     let created = 0;
     let updated = 0;
+    let deleted = 0;
+
+    for (const taskId of new Set(deletedServerIds)) {
+      const taskIndex = workspace.tasks.findIndex((task) => task.id === taskId);
+      if (taskIndex < 0) continue;
+      const task = workspace.tasks[taskIndex];
+      if (
+        !canViewTask({
+          task,
+          currentUser,
+          employees: workspace.employees,
+          departments: workspace.departments,
+          groups: workspace.groups,
+          permissionGroups: workspace.permissionGroups,
+        })
+      ) {
+        throw Object.assign(new Error("Você não tem acesso a uma das tarefas excluídas."), {
+          statusCode: 403,
+        });
+      }
+      const permissions = getTaskPermissions({
+        task,
+        currentUser,
+        employees: workspace.employees,
+        departments: workspace.departments,
+        groups: workspace.groups,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!permissions.canDelete) {
+        throw Object.assign(new Error("Seu grupo de permissão não pode excluir esta tarefa."), {
+          statusCode: 403,
+        });
+      }
+      workspace.tasks.splice(taskIndex, 1);
+      deleted += 1;
+    }
 
     for (const item of tasks) {
       const existing = workspace.tasks.find((rawTask) => {
@@ -835,6 +875,6 @@ export async function replaceMobileTasks(request: Request, tasks: MobileTask[]) 
       workspace.tasks.unshift(newTask as Task);
       created += 1;
     }
-    return { ok: true, count: created + updated, created, updated };
+    return { ok: true, count: created + updated + deleted, created, updated, deleted };
   });
 }

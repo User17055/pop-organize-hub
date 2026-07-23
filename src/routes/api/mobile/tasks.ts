@@ -32,6 +32,7 @@ const mobileTaskSchema = z.object({
 
 const mobileTasksPayloadSchema = z.object({
   tasks: z.array(mobileTaskSchema).max(5_000),
+  deletedServerIds: z.array(z.string().min(1).max(300)).max(5_000).default([]),
 });
 
 function errorResponse(error: unknown) {
@@ -65,9 +66,12 @@ export const Route = createFileRoute("/api/mobile/tasks")({
           if (!parsed.success)
             return Response.json({ error: "Lista de tarefas inválida." }, { status: 400 });
           const { replaceMobileTasks } = await import("@/lib/mobile-api.server");
-          return Response.json(await replaceMobileTasks(request, parsed.data.tasks), {
-            headers: { "cache-control": "no-store" },
-          });
+          return Response.json(
+            await replaceMobileTasks(request, parsed.data.tasks, parsed.data.deletedServerIds),
+            {
+              headers: { "cache-control": "no-store" },
+            },
+          );
         } catch (error) {
           console.error("Mobile task sync failed", error);
           return errorResponse(error);

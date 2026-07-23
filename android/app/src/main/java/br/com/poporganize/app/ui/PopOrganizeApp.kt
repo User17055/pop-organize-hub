@@ -3131,6 +3131,7 @@ private fun MetricCard(
                     modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
                     color = tint,
                     trackColor = PopBorder.copy(alpha = .5f),
+                    drawStopIndicator = {},
                 )
             } else {
                 Spacer(Modifier.height(6.dp))

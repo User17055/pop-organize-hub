@@ -123,6 +123,13 @@ function CalendarPage() {
         else map.set(dueDate, [occurrence]);
       }
     }
+    for (const dayTasks of map.values()) {
+      dayTasks.sort((left, right) => {
+        const leftCompleted = left.status === "completed" || left.status === "waiting_review";
+        const rightCompleted = right.status === "completed" || right.status === "waiting_review";
+        return Number(rightCompleted) - Number(leftCompleted);
+      });
+    }
     return map;
   }, [filteredTasks, visibleMonth]);
 

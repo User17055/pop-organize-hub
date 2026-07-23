@@ -5280,7 +5280,24 @@ private fun TaskRow(task: PopTask, onClick: (() -> Unit)? = null) {
     }
     Row(rowModifier, verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(task.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (task.completed) {
+                    Icon(
+                        Icons.Rounded.CheckCircle,
+                        "Concluída",
+                        tint = PopBlue,
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    task.title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (task.recurrenceRule != "Não repetir") {
                     Icon(Icons.Rounded.Repeat, "Recorrente", tint = PopMuted, modifier = Modifier.size(13.dp))
@@ -5299,6 +5316,14 @@ private fun TaskRow(task: PopTask, onClick: (() -> Unit)? = null) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (task.completed) {
+                    Text(
+                        " • Concluída",
+                        color = PopBlue,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
         }
         PriorityPill(task.priority)
@@ -5403,11 +5428,12 @@ private fun CalendarScreen(
     val today = LocalDate.now()
     val selectedDayTasks = tasks.filter { task ->
         runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == selectedDate
-    }.sortedWith(compareBy<PopTask> { it.completed }.thenBy {
+    }.sortedWith(compareByDescending<PopTask> { it.completed }.thenBy {
         when (it.priority) {
-            "Alta" -> 0
-            "Média" -> 1
-            else -> 2
+            "Urgente" -> 0
+            "Alta" -> 1
+            "Média" -> 2
+            else -> 3
         }
     })
     val selectedDateLabel = if (selectedDate == today) {
@@ -5632,14 +5658,35 @@ private fun CalendarGrid(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Canvas(Modifier.fillMaxSize()) {
-                                    val visibleTasks = dayTasks.take(6)
+                                    val pendingDayTasks = dayTasks.filterNot { it.completed }
+                                    val completedDayTasks = dayTasks.filter { it.completed }
+                                    val markerAngles =
+                                        listOf(
+                                            90f,
+                                            112.5f,
+                                            67.5f,
+                                            135f,
+                                            45f,
+                                            157.5f,
+                                            22.5f,
+                                            180f,
+                                            0f,
+                                            202.5f,
+                                            337.5f,
+                                            225f,
+                                            315f,
+                                            247.5f,
+                                            292.5f,
+                                            270f,
+                                        )
+                                    val visibleTasks =
+                                        (pendingDayTasks + completedDayTasks).take(markerAngles.size)
                                     if (visibleTasks.isNotEmpty()) {
-                                        val angleStep = 18f
-                                        val startAngle = 90f - (angleStep * visibleTasks.lastIndex / 2f)
-                                        val orbitRadius = size.minDimension / 2f - 2.4.dp.toPx()
+                                        val orbitRadius = size.minDimension / 2f - 2.dp.toPx()
                                         visibleTasks.forEachIndexed { index, task ->
-                                            val angle = Math.toRadians((startAngle + angleStep * index).toDouble())
-                                            val dotColor = taskPriorityColor(task.priority)
+                                            val angle = Math.toRadians(markerAngles[index].toDouble())
+                                            val dotColor =
+                                                if (task.completed) PopBlue else taskPriorityColor(task.priority)
                                             drawCircle(
                                                 color = dotColor,
                                                 radius = 2.dp.toPx(),

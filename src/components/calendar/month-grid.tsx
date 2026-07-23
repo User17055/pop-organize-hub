@@ -22,6 +22,24 @@ const priorityDotClass: Record<Task["priority"], string> = {
   urgent: "bg-destructive",
 };
 
+function balancedCalendarTasks(tasks: Task[]) {
+  const completed = tasks.filter(
+    (task) => task.status === "completed" || task.status === "waiting_review",
+  );
+  const pending = tasks.filter(
+    (task) => task.status !== "completed" && task.status !== "waiting_review",
+  );
+  if (completed.length === 0 || pending.length === 0) return tasks;
+
+  const balanced: Task[] = [];
+  const length = Math.max(pending.length, completed.length);
+  for (let index = 0; index < length; index += 1) {
+    if (pending[index]) balanced.push(pending[index]);
+    if (completed[index]) balanced.push(completed[index]);
+  }
+  return balanced;
+}
+
 export function MonthGrid({
   month,
   tasksByDay,
@@ -68,7 +86,9 @@ export function MonthGrid({
           const inMonth = isSameMonth(day, month);
           const today = isToday(day);
           const selected = selectedDay ? isSameDay(day, selectedDay) : false;
-          const visibleTasks = dayTasks.slice(0, 3);
+          const balancedTasks = balancedCalendarTasks(dayTasks);
+          const visibleTasks = balancedTasks.slice(0, 3);
+          const mobileVisibleTasks = balancedTasks.slice(0, 4);
           const overflow = dayTasks.length - visibleTasks.length;
 
           return (
@@ -98,12 +118,14 @@ export function MonthGrid({
               {/* Mobile: dots only */}
               {dayTasks.length > 0 && (
                 <div className="mt-1.5 flex flex-wrap gap-0.5 sm:hidden">
-                  {dayTasks.slice(0, 4).map((task) => (
+                  {mobileVisibleTasks.map((task) => (
                     <span
                       key={task.id}
                       className={cn(
                         "h-1.5 w-2.5 shrink-0 rounded-full",
-                        priorityDotClass[task.priority],
+                        task.status === "completed" || task.status === "waiting_review"
+                          ? "bg-emerald-500"
+                          : priorityDotClass[task.priority],
                       )}
                     />
                   ))}
@@ -122,7 +144,9 @@ export function MonthGrid({
                       <span
                         className={cn(
                           "h-1.5 w-1.5 shrink-0 rounded-full",
-                          priorityDotClass[task.priority],
+                          task.status === "completed" || task.status === "waiting_review"
+                            ? "bg-emerald-500"
+                            : priorityDotClass[task.priority],
                         )}
                       />
                       <span className="truncate">{task.title}</span>

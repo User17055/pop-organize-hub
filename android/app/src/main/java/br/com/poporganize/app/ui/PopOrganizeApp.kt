@@ -5707,7 +5707,7 @@ private fun MoreScreen(
                         }
                     }
 
-                    if (!isGuest && companyNames.isNotEmpty()) {
+                    if (!isGuest && workSpace == WorkSpace.Company && companyNames.isNotEmpty()) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -5865,7 +5865,7 @@ private fun MoreScreen(
         )
     }
 
-    if (showTeamDialog) {
+    if (showTeamDialog && workSpace == WorkSpace.Company) {
         AlertDialog(
             onDismissRequest = { showTeamDialog = false },
             title = { Text("Equipe", fontWeight = FontWeight.ExtraBold) },
@@ -5971,7 +5971,7 @@ private fun MoreScreen(
         )
     }
 
-    if (showSectorsDialog) {
+    if (showSectorsDialog && workSpace == WorkSpace.Company) {
         AlertDialog(
             onDismissRequest = { showSectorsDialog = false },
             title = { Text("Setores", fontWeight = FontWeight.ExtraBold) },
@@ -6039,7 +6039,7 @@ private fun MoreScreen(
         )
     }
 
-    if (showGroupsDialog) {
+    if (showGroupsDialog && workSpace == WorkSpace.Company) {
         AlertDialog(
             onDismissRequest = { showGroupsDialog = false },
             title = { Text("Grupos", fontWeight = FontWeight.ExtraBold) },

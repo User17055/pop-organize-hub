@@ -80,32 +80,30 @@ export function BottomTabBar({
               </Link>
             );
           })}
-          {moreItems.length > 0 && (
-            <motion.button
-              type="button"
-              onClick={() => setMoreOpen(true)}
-              whileTap={{ scale: 0.98 }}
-              animate={{ y: moreActive ? -1 : 0 }}
-              transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.8 }}
-              className={cn(
-                "relative flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl px-1 py-1.5 text-[10px] font-semibold sm:px-1.5 sm:py-2 sm:text-[10.5px]",
-                moreActive ? "text-primary-foreground" : "text-muted-foreground",
-              )}
-            >
-              {moreActive && (
-                <motion.span
-                  layoutId="bottom-tab-active"
-                  className="bottom-tab-active-indicator absolute inset-0 rounded-2xl"
-                  style={{ background: "var(--gradient-primary)" }}
-                  transition={{ type: "spring", stiffness: 280, damping: 32, mass: 0.9 }}
-                />
-              )}
-              <span className="relative z-10 flex flex-col items-center gap-1">
-                <MoreHorizontal className="h-[19px] w-[19px]" />
-                <span>Mais</span>
-              </span>
-            </motion.button>
-          )}
+          <motion.button
+            type="button"
+            onClick={() => setMoreOpen(true)}
+            whileTap={{ scale: 0.98 }}
+            animate={{ y: moreActive ? -1 : 0 }}
+            transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.8 }}
+            className={cn(
+              "relative flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl px-1 py-1.5 text-[10px] font-semibold sm:px-1.5 sm:py-2 sm:text-[10.5px]",
+              moreActive ? "text-primary-foreground" : "text-muted-foreground",
+            )}
+          >
+            {moreActive && (
+              <motion.span
+                layoutId="bottom-tab-active"
+                className="bottom-tab-active-indicator absolute inset-0 rounded-2xl"
+                style={{ background: "var(--gradient-primary)" }}
+                transition={{ type: "spring", stiffness: 280, damping: 32, mass: 0.9 }}
+              />
+            )}
+            <span className="relative z-10 flex flex-col items-center gap-1">
+              <MoreHorizontal className="h-[19px] w-[19px]" />
+              <span>Mais</span>
+            </span>
+          </motion.button>
         </nav>
       </div>
 
@@ -118,34 +116,38 @@ export function BottomTabBar({
             <SheetTitle>Mais opções</SheetTitle>
             <SheetDescription>Navegação e conta</SheetDescription>
           </SheetHeader>
-          <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">
-            {moreItems.map((item) => {
-              const Icon = item.icon;
-              const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  onClick={() => setMoreOpen(false)}
-                  className={cn(
-                    "pressable flex min-h-[74px] min-w-0 flex-col items-center justify-center gap-2 rounded-2xl p-2 text-center text-[11px] font-semibold sm:p-3 sm:text-xs",
-                    active
-                      ? "bg-primary/12 text-primary"
-                      : "bg-muted/55 text-foreground/85 hover:bg-muted",
-                  )}
-                  style={
-                    active
-                      ? { background: "color-mix(in oklab, var(--primary) 12%, white)" }
-                      : undefined
-                  }
-                >
-                  <Icon className="h-5 w-5" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-          <div className="mt-5 border-t border-border pt-4">
+          {moreItems.length > 0 && (
+            <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">
+              {moreItems.map((item) => {
+                const Icon = item.icon;
+                const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    onClick={() => setMoreOpen(false)}
+                    className={cn(
+                      "pressable flex min-h-[74px] min-w-0 flex-col items-center justify-center gap-2 rounded-2xl p-2 text-center text-[11px] font-semibold sm:p-3 sm:text-xs",
+                      active
+                        ? "bg-primary/12 text-primary"
+                        : "bg-muted/55 text-foreground/85 hover:bg-muted",
+                    )}
+                    style={
+                      active
+                        ? { background: "color-mix(in oklab, var(--primary) 12%, white)" }
+                        : undefined
+                    }
+                  >
+                    <Icon className="h-5 w-5" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+          <div
+            className={cn("border-border pt-4", moreItems.length > 0 ? "mt-5 border-t" : "mt-3")}
+          >
             {showInstall && onInstall && (
               <button
                 type="button"

@@ -669,7 +669,10 @@ private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
         }
         item { SectionTitle("Aplicativo") }
         item { MoreItem(Icons.Rounded.Settings, "Configurações", "Tema, conta e suporte") { onPage(MorePage.Settings) } }
-        if (store.state.companies.isNotEmpty()) {
+        if (
+            store.state.workspace == WorkspaceKind.Company &&
+            store.selectedCompany != null
+        ) {
             item { SectionTitle("Empresa") }
             item {
                 MoreItem(

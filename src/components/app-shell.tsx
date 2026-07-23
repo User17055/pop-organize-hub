@@ -85,6 +85,14 @@ const nav: Array<NavItem & { visibility: NavVisibility }> = [
 
 const SIDEBAR_COLLAPSED_KEY = "pop-organize:sidebar-collapsed";
 const THEME_KEY = "pop-organize:theme";
+const companyOnlyPaths = [
+  "/grupos",
+  "/setores",
+  "/relatorios",
+  "/funcionarios",
+  "/empresas",
+  "/permissoes",
+];
 
 type ScrollEdge = "top" | "bottom" | null;
 
@@ -226,7 +234,7 @@ export function AppShell({
   });
   const isAdmin = isAdminUser({ currentUser, employees: data?.employees ?? [] });
   const visibleNav = nav.filter((item) => {
-    if (data?.company.kind === "personal" && !["/", "/tarefas", "/calendario"].includes(item.to)) {
+    if (data?.company.kind === "personal" && companyOnlyPaths.includes(item.to)) {
       return false;
     }
     if (item.visibility === "all") return true;
@@ -252,6 +260,15 @@ export function AppShell({
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
   });
+
+  useEffect(() => {
+    if (
+      data?.company.kind === "personal" &&
+      companyOnlyPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+    ) {
+      navigate({ to: "/" });
+    }
+  }, [data?.company.kind, navigate, pathname]);
 
   useEffect(() => {
     if (error && isAuthError(error) && pathname !== "/login") {

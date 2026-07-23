@@ -5660,31 +5660,17 @@ private fun CalendarGrid(
                                 Canvas(Modifier.fillMaxSize()) {
                                     val pendingDayTasks = dayTasks.filterNot { it.completed }
                                     val completedDayTasks = dayTasks.filter { it.completed }
-                                    val markerAngles =
-                                        listOf(
-                                            90f,
-                                            112.5f,
-                                            67.5f,
-                                            135f,
-                                            45f,
-                                            157.5f,
-                                            22.5f,
-                                            180f,
-                                            0f,
-                                            202.5f,
-                                            337.5f,
-                                            225f,
-                                            315f,
-                                            247.5f,
-                                            292.5f,
-                                            270f,
-                                        )
+                                    val angleStep = 18f
+                                    val maximumMarkers = (360f / angleStep).toInt()
                                     val visibleTasks =
-                                        (pendingDayTasks + completedDayTasks).take(markerAngles.size)
+                                        (pendingDayTasks + completedDayTasks).take(maximumMarkers)
                                     if (visibleTasks.isNotEmpty()) {
-                                        val orbitRadius = size.minDimension / 2f - 2.dp.toPx()
+                                        val startAngle =
+                                            90f - (angleStep * visibleTasks.lastIndex / 2f)
+                                        val orbitRadius = size.minDimension / 2f - 2.4.dp.toPx()
                                         visibleTasks.forEachIndexed { index, task ->
-                                            val angle = Math.toRadians(markerAngles[index].toDouble())
+                                            val angle =
+                                                Math.toRadians((startAngle + angleStep * index).toDouble())
                                             val dotColor =
                                                 if (task.completed) PopBlue else taskPriorityColor(task.priority)
                                             drawCircle(

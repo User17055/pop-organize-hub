@@ -74,13 +74,14 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Business
-import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -90,12 +91,11 @@ import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.ContactSupport
 import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.LightMode
@@ -163,6 +163,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
@@ -1836,6 +1837,8 @@ private fun PopMainContent(
     val context = LocalContext.current
     val navigationScope = rememberCoroutineScope()
     var destination by remember { mutableStateOf(PopDestination.Dashboard) }
+    var showMoreSheet by remember { mutableStateOf(false) }
+    val moreSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var taskToOpenId by remember { mutableStateOf<Int?>(null) }
     var workSpace by remember { mutableStateOf(WorkSpace.Personal) }
     var selectedCompanyIndex by remember { mutableIntStateOf(0) }
@@ -2147,8 +2150,15 @@ private fun PopMainContent(
             containerColor = PopBackground,
             bottomBar = {
                 PopBottomBar(
-                    selected = destination,
-                    onSelect = { destination = it },
+                    selected = if (showMoreSheet) PopDestination.More else destination,
+                    onSelect = { selectedDestination ->
+                        if (selectedDestination == PopDestination.More) {
+                            showMoreSheet = true
+                        } else {
+                            showMoreSheet = false
+                            destination = selectedDestination
+                        }
+                    },
                 )
             },
         ) { innerPadding ->
@@ -2238,9 +2248,42 @@ private fun PopMainContent(
                         onCreateCompany = ::requestCreateCompany,
                         onRequireLogin = onRequireLogin,
                         onSignOut = onSignOut,
+                        onDismiss = { destination = PopDestination.Dashboard },
                     )
                 }
             }
+    }
+
+    if (showMoreSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showMoreSheet = false },
+            sheetState = moreSheetState,
+            containerColor = PopSurface,
+            shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+            dragHandle = null,
+            sheetMaxWidth = Dp.Unspecified,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            MoreScreen(
+                sessionMode = sessionMode,
+                googleAccount = googleAccount,
+                lightTheme = lightTheme,
+                onLightThemeChange = onLightThemeChange,
+                workSpace = workSpace,
+                onWorkSpaceChange = ::selectWorkSpace,
+                companyNames = companyNames,
+                companyDescriptions = companyDescriptions,
+                companyMembers = companyMembers,
+                companySectors = companySectors,
+                companyGroups = companyGroups,
+                selectedCompanyIndex = selectedCompanyIndex,
+                onCompanySelect = ::selectCompany,
+                onCreateCompany = ::requestCreateCompany,
+                onRequireLogin = onRequireLogin,
+                onSignOut = onSignOut,
+                onDismiss = { showMoreSheet = false },
+            )
+        }
     }
 
     LaunchedEffect(
@@ -5315,6 +5358,7 @@ private fun MoreScreen(
     onCreateCompany: () -> Unit,
     onRequireLogin: () -> Unit,
     onSignOut: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val isGuest = sessionMode == SessionMode.Guest
     val context = LocalContext.current
@@ -5327,64 +5371,67 @@ private fun MoreScreen(
     var memberRole by remember { mutableStateOf("Funcionário") }
     var memberSector by remember { mutableStateOf("") }
 
-    fun sendContactEmail(subject: String) {
-        runCatching {
-            context.startActivity(
-                Intent(Intent.ACTION_SENDTO).apply {
-                    data = Uri.parse("mailto:contato@poporganize.com")
-                    putExtra(Intent.EXTRA_SUBJECT, subject)
-                },
-            )
-        }.onFailure {
-            Toast.makeText(context, "Nenhum aplicativo de e-mail disponível", Toast.LENGTH_SHORT).show()
-        }
+    fun openWebPage(path: String) {
+        context.startActivity(
+            Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse("https://app.poporganize.com.br$path"),
+            ),
+        )
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 30.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 530.dp),
+        contentPadding = PaddingValues(bottom = 18.dp),
     ) {
         item {
             Surface(
                 color = PopSurface,
-                shape = RoundedCornerShape(
-                    topStart = 30.dp,
-                    topEnd = 30.dp,
-                    bottomStart = 24.dp,
-                    bottomEnd = 24.dp,
-                ),
-                tonalElevation = 1.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp),
+                shape = RoundedCornerShape(0.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text(
-                        "Mais opções",
-                        fontSize = 23.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                    Text(
-                        "Navegação e conta",
-                        color = PopMuted,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(top = (-7).dp),
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Mais opções",
+                                fontSize = 23.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                            Spacer(Modifier.height(5.dp))
+                            Text(
+                                "Navegação e conta",
+                                color = PopMuted,
+                                fontSize = 13.sp,
+                            )
+                        }
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .border(1.5.dp, PopBlue.copy(alpha = .65f), CircleShape),
+                        ) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                "Fechar",
+                                tint = PopBlue,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
 
                     if (!isGuest && companyNames.isNotEmpty()) {
-                        Text(
-                            "EMPRESA",
-                            color = PopMuted,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(top = 6.dp, start = 2.dp),
-                        )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             MoreShortcut(
                                 icon = Icons.Rounded.Groups,
@@ -5398,10 +5445,16 @@ private fun MoreScreen(
                                 onClick = { showSectorsDialog = true },
                                 modifier = Modifier.weight(1f),
                             )
+                            MoreShortcut(
+                                icon = Icons.Rounded.BarChart,
+                                title = "Relatórios",
+                                onClick = { openWebPage("/relatorios") },
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             MoreShortcut(
                                 icon = Icons.Rounded.Groups,
@@ -5411,12 +5464,17 @@ private fun MoreScreen(
                             )
                             MoreShortcut(
                                 icon = Icons.Rounded.Business,
-                                title = "Empresa",
-                                subtitle = companyNames.getOrElse(selectedCompanyIndex) { "" },
+                                title = "Empresas",
                                 onClick = {
                                     onCompanySelect(selectedCompanyIndex)
                                     onWorkSpaceChange(WorkSpace.Company)
                                 },
+                                modifier = Modifier.weight(1f),
+                            )
+                            MoreShortcut(
+                                icon = Icons.Rounded.Shield,
+                                title = "Permissões",
+                                onClick = { openWebPage("/permissoes") },
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -5485,61 +5543,6 @@ private fun MoreScreen(
                             accent = Color(0xFFE5484D),
                             onClick = onSignOut,
                         )
-                    }
-
-                    HorizontalDivider(
-                        color = PopMuted.copy(alpha = .16f),
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-
-                    Text(
-                        "AJUDA E INFORMAÇÕES",
-                        color = PopMuted,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(start = 2.dp),
-                    )
-                    MoreItem(
-                        Icons.Rounded.ContactSupport,
-                        "Falar com a gente",
-                        "Dúvidas, sugestões ou contato",
-                        onClick = { sendContactEmail("Contato pelo Pop Organize") },
-                    )
-                    MoreItem(
-                        Icons.Rounded.BugReport,
-                        "Relatar um problema",
-                        "Conte o que aconteceu nesta versão beta",
-                        accent = Color(0xFFFFA726),
-                        onClick = { sendContactEmail("Relato de bug — Pop Organize Beta") },
-                    )
-                    MoreItem(
-                        Icons.Rounded.Info,
-                        "Sobre o aplicativo",
-                        "Versão 1.0 Beta • em desenvolvimento",
-                    )
-
-                    Surface(
-                        color = PopBlueSoft,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(7.dp))
-                                    .background(Color(0xFFFFA726))
-                                    .padding(horizontal = 7.dp, vertical = 3.dp),
-                            ) {
-                                Text("BETA", color = Color(0xFF181818), fontWeight = FontWeight.Black, fontSize = 9.sp)
-                            }
-                            Spacer(Modifier.width(9.dp))
-                            Text("Pop Organize 1.0", color = PopBlue, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            Spacer(Modifier.weight(1f))
-                            Text("© 2026", color = PopMuted, fontSize = 9.sp)
-                        }
                     }
                 }
             }
@@ -5769,40 +5772,30 @@ private fun MoreShortcut(
     title: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    subtitle: String = "",
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(17.dp)
     Surface(
         onClick = onClick,
         color = PopSurfaceAlt,
         shape = shape,
         modifier = modifier
-            .height(86.dp)
+            .height(72.dp)
             .border(1.dp, PopBlue.copy(alpha = .20f), shape),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 9.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(icon, null, tint = PopMuted, modifier = Modifier.size(23.dp))
-            Spacer(Modifier.height(7.dp))
+            Icon(icon, null, tint = PopMuted, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.height(5.dp))
             Text(
                 title,
-                fontSize = 12.sp,
+                fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (subtitle.isNotBlank()) {
-                Text(
-                    subtitle,
-                    color = PopMuted,
-                    fontSize = 8.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
     }
 }
@@ -5825,38 +5818,6 @@ private fun MoreAccountAction(
         Icon(icon, null, tint = accent, modifier = Modifier.size(19.dp))
         Spacer(Modifier.width(10.dp))
         Text(label, color = accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun MoreItem(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    accent: Color = PopBlue,
-    onClick: (() -> Unit)? = null,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(17.dp))
-            .background(PopSurfaceAlt)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(accent.copy(alpha = .13f)),
-            contentAlignment = Alignment.Center,
-        ) { Icon(icon, null, tint = accent, modifier = Modifier.size(19.dp)) }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            Text(subtitle, color = PopMuted, fontSize = 10.sp)
-        }
-        if (onClick != null) {
-            Icon(Icons.Rounded.ArrowForward, null, tint = PopMuted, modifier = Modifier.size(17.dp))
-        }
     }
 }
 

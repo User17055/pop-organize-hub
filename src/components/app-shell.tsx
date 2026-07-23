@@ -245,6 +245,10 @@ export function AppShell({
     ["/", "/tarefas", "/calendario"].includes(item.to),
   );
   const moreMobileNav = visibleNav.filter((item) => !primaryMobileNav.includes(item));
+  const ownedCompanyCount =
+    data?.workspaces.filter((workspace) => workspace.kind === "company" && workspace.isOwner)
+      .length ?? 0;
+  const canCreateCompany = ownedCompanyCount < 3;
   const [profileOpen, setProfileOpen] = useState(false);
   const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
@@ -519,11 +523,16 @@ export function AppShell({
           ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onSelect={() => setCreateCompanyOpen(true)}
+            disabled={!canCreateCompany}
+            onSelect={() => {
+              if (canCreateCompany) setCreateCompanyOpen(true);
+            }}
             className="h-9 cursor-pointer rounded-xl text-xs font-semibold text-primary focus:text-primary"
           >
             <Plus className="h-3.5 w-3.5" />
-            Criar minha empresa
+            {canCreateCompany
+              ? `Criar empresa (${ownedCompanyCount}/3)`
+              : "Limite de 3 empresas atingido"}
           </DropdownMenuItem>
           {workspaceData.canLeaveCompany && (
             <DropdownMenuItem

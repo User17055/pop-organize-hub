@@ -2,10 +2,12 @@ import type { Database, PlatformDatabase } from "./database";
 import { randomInt } from "node:crypto";
 import { nextId, toCurrentUser } from "./database";
 import {
+  createCompanyWorkspace,
   createPersonalWorkspace,
   createSessionToken,
   hashToken,
   mutateDatabase,
+  nextCompanyId,
   readDatabase,
   verifyGoogleCredential,
 } from "./database.server";
@@ -18,6 +20,7 @@ const NATIVE_SOURCE = "android";
 const EMAIL_CODE_TTL_MS = 10 * 60 * 1000;
 const EMAIL_CODE_RESEND_MS = 60 * 1000;
 const EMAIL_CODE_MAX_ATTEMPTS = 5;
+const MAX_COMPANIES_PER_OWNER = 3;
 
 export type MobileTask = {
   id: number;
@@ -99,6 +102,7 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         name: workspace.company.name,
         description: workspace.company.description ?? "",
         kind: workspace.company.kind ?? "company",
+        isOwner: workspace.company.ownerId === userId,
         canCreateTasks: hasPermission(permissionSet, "tasks.create"),
         canManageEmployees: isCompany && hasPermission(permissionSet, "manage.employees"),
         canManageDepartments: isCompany && hasPermission(permissionSet, "manage.departments"),
@@ -363,13 +367,57 @@ function requiredText(value: unknown, label: string, minimum = 2) {
 }
 
 export async function mutateMobileWorkspace(request: Request, rawInput: unknown) {
-  const { workspace: authorizedWorkspace, account } = await requireMobileWorkspace(request);
-  if ((authorizedWorkspace.company.kind ?? "company") !== "company") {
-    throw mobileHttpError("Os cadastros de equipe estão disponíveis apenas em empresas.", 409);
-  }
+  const {
+    workspace: authorizedWorkspace,
+    account,
+    session,
+  } = await requireMobileWorkspace(request);
   const input =
     typeof rawInput === "object" && rawInput !== null ? (rawInput as Record<string, unknown>) : {};
   const action = input.action;
+
+  if (action === "createCompany") {
+    const name = requiredText(input.name, "O nome");
+    const description =
+      typeof input.description === "string" ? input.description.trim().slice(0, 160) : "";
+    const createdCompanyId = await mutateDatabase((platform) => {
+      const ownedCompanies = platform.workspaces.filter(
+        (workspace) =>
+          workspace.company.kind === "company" && workspace.company.ownerId === account.id,
+      );
+      if (ownedCompanies.length >= MAX_COMPANIES_PER_OWNER) {
+        throw mobileHttpError("Você pode criar no máximo 3 empresas.", 409);
+      }
+      if (
+        ownedCompanies.some(
+          (workspace) => workspace.company.name.toLowerCase() === name.toLowerCase(),
+        )
+      ) {
+        throw mobileHttpError("Você já possui uma empresa com este nome.", 409);
+      }
+
+      const workspace = createCompanyWorkspace(account, {
+        id: nextCompanyId(platform),
+        name,
+        description: description || undefined,
+        document: "",
+      });
+      platform.workspaces.push(workspace);
+      const activeSession = platform.sessions.find((item) => item.id === session.id);
+      if (activeSession) activeSession.activeCompanyId = workspace.company.id;
+      return workspace.company.id;
+    });
+
+    return {
+      ok: true,
+      createdCompanyId,
+      ...(await readMobileWorkspaces(request)),
+    };
+  }
+
+  if ((authorizedWorkspace.company.kind ?? "company") !== "company") {
+    throw mobileHttpError("Os cadastros de equipe estão disponíveis apenas em empresas.", 409);
+  }
   const workspaceId = authorizedWorkspace.company.id;
 
   if (action === "createDepartment") {

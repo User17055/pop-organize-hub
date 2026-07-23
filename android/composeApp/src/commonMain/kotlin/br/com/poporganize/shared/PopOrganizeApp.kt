@@ -886,10 +886,14 @@ private fun CompanyEditorDialog(store: PopStore, onDismiss: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("Nome da empresa") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(description, { description = it }, label = { Text("Pequena descrição") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+                Text("${store.state.companies.size}/3 empresas criadas", style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = {
-            Button(enabled = name.isNotBlank(), onClick = { store.createCompany(name, description); onDismiss() }) { Text("Criar") }
+            Button(
+                enabled = name.isNotBlank() && store.state.companies.size < 3,
+                onClick = { store.createCompany(name, description); onDismiss() },
+            ) { Text("Criar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )

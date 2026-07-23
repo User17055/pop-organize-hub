@@ -580,6 +580,7 @@ const createCompanySchema = z.object({
   description: z.string().trim().max(160, "Use no máximo 160 caracteres").default(""),
   document: z.string().trim().max(30).default(""),
 });
+const MAX_COMPANIES_PER_OWNER = 3;
 
 const switchWorkspaceSchema = z.object({
   companyId: z.string().min(1),
@@ -593,6 +594,14 @@ export const createCompany = createServerFn({ method: "POST" })
     return mutateDatabase((platform) => {
       const context = resolveSessionContext(platform, tokenHash);
       if (!context) throw createHttpError("Sessão expirada. Faça login novamente.", 401);
+
+      const ownedCompanyCount = platform.workspaces.filter(
+        (workspace) =>
+          workspace.company.kind === "company" && workspace.company.ownerId === context.account.id,
+      ).length;
+      if (ownedCompanyCount >= MAX_COMPANIES_PER_OWNER) {
+        throw createHttpError("Você pode criar no máximo 3 empresas.", 409);
+      }
 
       const normalizedName = data.name.toLocaleLowerCase("pt-BR");
       if (

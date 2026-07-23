@@ -71,6 +71,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddBusiness
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AttachFile
@@ -115,6 +116,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -545,6 +547,7 @@ private data class ApiWorkspaceSummary(
     val name: String,
     val description: String,
     val kind: String,
+    val isOwner: Boolean,
     val canCreateTasks: Boolean,
     val canManageEmployees: Boolean,
     val canManageDepartments: Boolean,
@@ -614,6 +617,7 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         name = item.optString("name"),
                         description = item.optString("description"),
                         kind = item.optString("kind"),
+                        isOwner = item.optBoolean("isOwner", false),
                         canCreateTasks = item.optBoolean("canCreateTasks", false),
                         canManageEmployees = item.optBoolean("canManageEmployees", false),
                         canManageDepartments = item.optBoolean("canManageDepartments", false),
@@ -1107,7 +1111,7 @@ private suspend fun mutateMobileWorkspace(
     apiToken: String,
     workspaceId: String,
     payload: JSONObject,
-) = withContext(Dispatchers.IO) {
+): JSONObject = withContext(Dispatchers.IO) {
     val connection = (URL("$MOBILE_API_BASE_URL/workspaces").openConnection() as java.net.HttpURLConnection).apply {
         requestMethod = "POST"
         connectTimeout = 15_000
@@ -1129,6 +1133,7 @@ private suspend fun mutateMobileWorkspace(
         if (responseCode !in 200..299) {
             throw IllegalStateException(response.optString("error", "Falha ao salvar o cadastro."))
         }
+        response
     } finally {
         connection.disconnect()
     }
@@ -1993,8 +1998,13 @@ private fun PopMainContent(
     var workSpace by remember { mutableStateOf(WorkSpace.Personal) }
     var selectedCompanyIndex by remember { mutableIntStateOf(0) }
     var showCreateCompany by remember { mutableStateOf(false) }
+    var createCompanyName by remember { mutableStateOf("") }
+    var createCompanyDescription by remember { mutableStateOf("") }
+    var createCompanyPending by remember { mutableStateOf(false) }
+    var createCompanyError by remember { mutableStateOf<String?>(null) }
     val companyNames = remember { mutableStateListOf<String>() }
     val companyIds = remember { mutableStateListOf<String>() }
+    val companyOwnership = remember { mutableStateListOf<Boolean>() }
     val companyDescriptions = remember { mutableStateListOf<String>() }
     val companyCanCreateTasks = remember { mutableStateListOf<Boolean>() }
     val companyCanManageEmployees = remember { mutableStateListOf<Boolean>() }
@@ -2096,6 +2106,15 @@ private fun PopMainContent(
     }
 
     fun requestCreateCompany() {
+        if (sessionMode == SessionMode.Guest || googleAccount?.apiToken.isNullOrBlank()) {
+            Toast.makeText(context, "Entre na sua conta para criar uma empresa.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (companyOwnership.count { it } >= 3) {
+            Toast.makeText(context, "Você pode criar no máximo 3 empresas.", Toast.LENGTH_LONG).show()
+            return
+        }
+        createCompanyError = null
         showCreateCompany = true
     }
 
@@ -2103,6 +2122,8 @@ private fun PopMainContent(
         val companies = workspaces.filter { it.kind == "company" }
         companyIds.clear()
         companyIds.addAll(companies.map { it.id })
+        companyOwnership.clear()
+        companyOwnership.addAll(companies.map { it.isOwner })
         companyNames.clear()
         companyNames.addAll(companies.map { it.name })
         companyDescriptions.clear()
@@ -2563,19 +2584,97 @@ private fun PopMainContent(
 
     if (showCreateCompany) {
         AlertDialog(
-            onDismissRequest = { showCreateCompany = false },
-            title = { Text("Empresas em breve", fontWeight = FontWeight.ExtraBold) },
+            onDismissRequest = {
+                if (!createCompanyPending) showCreateCompany = false
+            },
+            title = { Text("Criar empresa", fontWeight = FontWeight.ExtraBold) },
             text = {
-                Text(
-                    "A criação e a gestão de empresas serão disponibilizadas pela versão Web. " +
-                        "No aplicativo, você continua organizando suas tarefas pessoais normalmente.",
-                    color = PopMuted,
-                    lineHeight = 20.sp,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "A empresa terá tarefas, funcionários, setores e grupos separados do Meu espaço.",
+                        color = PopMuted,
+                        lineHeight = 20.sp,
+                    )
+                    OutlinedTextField(
+                        value = createCompanyName,
+                        onValueChange = { createCompanyName = it.take(80) },
+                        enabled = !createCompanyPending,
+                        label = { Text("Nome da empresa") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = createCompanyDescription,
+                        onValueChange = { createCompanyDescription = it.take(160) },
+                        enabled = !createCompanyPending,
+                        label = { Text("Pequena descrição") },
+                        minLines = 2,
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "${companyOwnership.count { it }}/3 empresas criadas",
+                        color = PopMuted,
+                        fontSize = 12.sp,
+                    )
+                    createCompanyError?.let {
+                        Text(it, color = Color(0xFFD32F2F), fontSize = 12.sp)
+                    }
+                }
             },
             confirmButton = {
-                TextButton(onClick = { showCreateCompany = false }) {
-                    Text("Entendi", color = PopBlue, fontWeight = FontWeight.Bold)
+                TextButton(
+                    enabled = !createCompanyPending && createCompanyName.trim().length >= 2,
+                    onClick = {
+                        val account = googleAccount ?: return@TextButton
+                        createCompanyPending = true
+                        createCompanyError = null
+                        navigationScope.launch {
+                            runCatching {
+                                val response = mutateMobileWorkspace(
+                                    apiToken = account.apiToken,
+                                    workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
+                                    payload = JSONObject()
+                                        .put("action", "createCompany")
+                                        .put("name", createCompanyName.trim())
+                                        .put("description", createCompanyDescription.trim()),
+                                )
+                                val createdCompanyId = response.optString("createdCompanyId")
+                                val workspaces = loadMobileWorkspaces(account.apiToken)
+                                applyCompanyWorkspaces(workspaces)
+                                companyIds.indexOf(createdCompanyId)
+                                    .takeIf { it >= 0 }
+                                    ?.let { selectedCompanyIndex = it }
+                                workSpace = WorkSpace.Company
+                            }.onSuccess {
+                                createCompanyName = ""
+                                createCompanyDescription = ""
+                                showCreateCompany = false
+                                Toast.makeText(context, "Empresa criada com sucesso.", Toast.LENGTH_LONG).show()
+                            }.onFailure { error ->
+                                createCompanyError = error.localizedMessage ?: "Não foi possível criar a empresa."
+                            }
+                            createCompanyPending = false
+                        }
+                    },
+                ) {
+                    if (createCompanyPending) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = PopBlue,
+                        )
+                    } else {
+                        Text("Criar", color = PopBlue, fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !createCompanyPending,
+                    onClick = { showCreateCompany = false },
+                ) {
+                    Text("Cancelar", color = PopMuted)
                 }
             },
             shape = RoundedCornerShape(26.dp),
@@ -2726,20 +2825,19 @@ private fun WorkSpaceSelector(
                     },
                 )
             }
-            if (companyNames.isEmpty()) {
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text("Empresas", color = PopBlue, fontWeight = FontWeight.ExtraBold)
-                            Text("Em breve na versão Web", color = PopMuted, fontSize = 11.sp)
-                        }
-                    },
-                    onClick = {
-                        expanded = false
-                        onCreateCompany()
-                    },
-                )
-            }
+            DropdownMenuItem(
+                text = {
+                    Column {
+                        Text("Criar empresa", color = PopBlue, fontWeight = FontWeight.ExtraBold)
+                        Text("Máximo de 3 por conta", color = PopMuted, fontSize = 11.sp)
+                    }
+                },
+                leadingIcon = { Icon(Icons.Rounded.AddBusiness, null, tint = PopBlue) },
+                onClick = {
+                    expanded = false
+                    onCreateCompany()
+                },
+            )
         }
     }
 

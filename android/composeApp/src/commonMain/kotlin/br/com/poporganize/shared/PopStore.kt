@@ -59,6 +59,7 @@ class PopStore(private val platform: PopPlatformServices) {
     }
 
     fun createCompany(name: String, description: String) {
+        if (state.companies.size >= 3) return
         val company = CompanyWorkspace(
             id = newId("company"),
             name = name.trim(),

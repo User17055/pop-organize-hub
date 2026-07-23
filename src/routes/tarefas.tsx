@@ -230,7 +230,7 @@ function TasksPage() {
       priority: "medium",
       dueDate,
       targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : `company:${company.id}`,
-      responsibleId: isPersonalWorkspace ? currentUser.id : (employees[0]?.id ?? ""),
+      responsibleId: "",
       reviewerId: "",
       requiresReview: false,
       tags: "",
@@ -259,10 +259,7 @@ function TasksPage() {
     const [selectedType, selectedId] = form.targetKey.split(":") as [TargetType, string];
     const type = isPersonalWorkspace ? "user" : selectedType;
     const id = isPersonalWorkspace ? currentUser.id : selectedId;
-    const responsibleId =
-      (isPersonalWorkspace ? currentUser.id : form.responsibleId) ||
-      (type === "department" ? "" : (employees[0]?.id ?? ""));
-    if (type !== "department" && !responsibleId) return;
+    const responsibleId = form.responsibleId;
 
     createTaskMutation.mutate({
       title: form.title,

@@ -143,18 +143,21 @@ function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
     };
   }
 
-  const currentEmployee = input.employees.find((employee) => employee.id === userId);
-  if (
-    !input.task.responsibleId &&
-    input.task.target.type === "department" &&
-    input.task.target.id === currentEmployee?.departmentId
-  ) {
+  if (!input.task.responsibleId) {
+    const roleLabel =
+      input.task.target.type === "company"
+        ? "Membro da empresa"
+        : input.task.target.type === "department"
+          ? "Membro do setor"
+          : input.task.target.type === "group"
+            ? "Membro do grupo"
+            : "Destinatário";
     return {
       canEditContent: false,
       canChangeStatus: true,
       canComplete: true,
       canDelete: false,
-      roleLabel: "Membro do setor",
+      roleLabel,
     };
   }
 

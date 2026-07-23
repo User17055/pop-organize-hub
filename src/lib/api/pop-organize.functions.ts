@@ -949,7 +949,7 @@ export const createTask = createServerFn({ method: "POST" })
         db.company.kind === "personal" &&
         (data.target.type !== "user" ||
           data.target.id !== currentUserId ||
-          data.responsibleId !== currentUserId ||
+          (data.responsibleId !== "" && data.responsibleId !== currentUserId) ||
           data.requiresReview ||
           Boolean(data.reviewerId))
       ) {
@@ -964,9 +964,6 @@ export const createTask = createServerFn({ method: "POST" })
         : undefined;
       if (data.responsibleId && !responsible) {
         throw createHttpError("Responsável não encontrado.");
-      }
-      if (!data.responsibleId && data.target.type !== "department") {
-        throw createHttpError("Escolha um responsável para esta tarefa.");
       }
 
       const reviewerId = data.requiresReview ? data.reviewerId : undefined;

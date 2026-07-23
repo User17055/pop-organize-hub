@@ -226,9 +226,7 @@ export function TaskCreateDrawer({
                           onFormChange((current) => ({
                             ...current,
                             targetKey,
-                            responsibleId: targetKey.startsWith("department:")
-                              ? ""
-                              : current.responsibleId || (employees[0]?.id ?? ""),
+                            responsibleId: current.responsibleId,
                           }))
                         }
                       />
@@ -237,9 +235,12 @@ export function TaskCreateDrawer({
                       <GlassSelect
                         value={form.responsibleId}
                         options={[
-                          ...(isDepartmentTarget
-                            ? [{ value: "", label: "Sem responsável — setor inteiro" }]
-                            : []),
+                          {
+                            value: "",
+                            label: isDepartmentTarget
+                              ? "Sem responsável — setor inteiro"
+                              : "Sem responsável",
+                          },
                           ...employees.map((employee) => ({
                             value: employee.id,
                             label: employee.name,

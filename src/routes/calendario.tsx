@@ -1,9 +1,9 @@
-import { createFileRoute, retainSearchParams } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { addMonths, format, subMonths } from "date-fns";
+import { addMonths, endOfMonth, endOfWeek, format, startOfWeek, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Kayak } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
@@ -21,7 +21,7 @@ import {
   recurrenceToForm,
   type TaskEditState,
 } from "@/components/tasks/task-form-types";
-import { ifError } from "assert";
+import { recurringTaskDatesInRange } from "@/lib/recurrence";
 
 export const Route = createFileRoute("/calendario")({
   head: () => ({
@@ -92,13 +92,39 @@ function CalendarPage() {
 
   const tasksByDay = useMemo(() => {
     const map = new Map<string, Task[]>();
+    const actualSeriesDates = new Set<string>();
+    const latestRecurringTask = new Map<string, Task>();
+
     for (const task of filteredTasks) {
       const bucket = map.get(task.dueDate);
       if (bucket) bucket.push(task);
       else map.set(task.dueDate, [task]);
+
+      if (!task.recurrence) continue;
+      const seriesId = task.recurrenceParentId ?? task.id;
+      actualSeriesDates.add(`${seriesId}:${task.dueDate}`);
+      const latest = latestRecurringTask.get(seriesId);
+      if (!latest || task.dueDate > latest.dueDate) latestRecurringTask.set(seriesId, task);
+    }
+
+    const rangeStart = format(startOfWeek(startOfMonth(visibleMonth)), "yyyy-MM-dd");
+    const rangeEnd = format(endOfWeek(endOfMonth(visibleMonth)), "yyyy-MM-dd");
+    for (const [seriesId, task] of latestRecurringTask) {
+      for (const dueDate of recurringTaskDatesInRange(task, rangeStart, rangeEnd)) {
+        if (actualSeriesDates.has(`${seriesId}:${dueDate}`)) continue;
+        const occurrence: Task = {
+          ...task,
+          dueDate,
+          status: "pending",
+          recurrenceOccurrence: (task.recurrenceOccurrence ?? 1) + 1,
+        };
+        const bucket = map.get(dueDate);
+        if (bucket) bucket.push(occurrence);
+        else map.set(dueDate, [occurrence]);
+      }
     }
     return map;
-  }, [filteredTasks]);
+  }, [filteredTasks, visibleMonth]);
 
   if (isLoading) {
     return (
@@ -116,25 +142,33 @@ function CalendarPage() {
     );
   }
 
-  const { currentUser, departments, employees, groups, tasks } = data;
+  const { currentUser, departments, employees, groups, permissionGroups, tasks } = data;
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
   const selectedPermissions = selectedTask
-    ? getTaskPermissions({ task: selectedTask, currentUser, employees, departments, groups })
+    ? getTaskPermissions({
+        task: selectedTask,
+        currentUser,
+        employees,
+        departments,
+        groups,
+        permissionGroups,
+      })
     : null;
   const selectedDayKey = selectedDay ? format(selectedDay, "yyyy-MM-dd") : null;
   const dayTasks = selectedDayKey ? (tasksByDay.get(selectedDayKey) ?? []) : [];
 
   function openTask(task: Task) {
+    const sourceTask = tasks.find((item) => item.id === task.id) ?? task;
     setSelectedDay(null);
-    setSelectedTaskId(task.id);
+    setSelectedTaskId(sourceTask.id);
     setCommentBody("");
     setEditForm({
-      title: task.title,
-      description: task.description,
-      priority: task.priority,
-      dueDate: task.dueDate,
-      tags: task.tags.join(", "),
-      recurrence: recurrenceToForm(task.recurrence, task.dueDate),
+      title: sourceTask.title,
+      description: sourceTask.description,
+      priority: sourceTask.priority,
+      dueDate: sourceTask.dueDate,
+      tags: sourceTask.tags.join(", "),
+      recurrence: recurrenceToForm(sourceTask.recurrence, sourceTask.dueDate),
     });
     updateTaskMutation.reset();
   }

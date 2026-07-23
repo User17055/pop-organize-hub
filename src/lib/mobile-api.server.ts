@@ -724,6 +724,62 @@ function priority(value: string): Task["priority"] {
   }
 }
 
+function mobileResponsibleId(workspace: Database, accountId: string, assignee: string) {
+  const normalized = assignee.trim();
+  if (!normalized || normalized.toLocaleLowerCase("pt-BR") === "sem responsável") return "";
+  if (normalized.toLocaleLowerCase("pt-BR") === "eu") return accountId;
+  return (
+    workspace.employees.find(
+      (employee) =>
+        employee.name.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR") ||
+        employee.email.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR"),
+    )?.id ?? ""
+  );
+}
+
+function mobileTaskRecurrence(item: MobileTask): Task["recurrence"] {
+  if (!item.recurrenceRule || item.recurrenceRule === "Não repetir") return undefined;
+
+  const interval = Math.max(1, item.recurrenceInterval);
+  const endDate =
+    item.recurrenceEndMode === "Em uma data" && /^\d{4}-\d{2}-\d{2}$/.test(item.recurrenceEndValue)
+      ? item.recurrenceEndValue
+      : undefined;
+  const dueDay = Number(item.dueDate.slice(8, 10)) || 1;
+  const dueMonth = Number(item.dueDate.slice(5, 7)) || 1;
+
+  if (item.recurrenceRule === "Diária") {
+    return interval === 1
+      ? { frequency: "daily", endDate }
+      : { frequency: "custom", interval, intervalDays: interval, customUnit: "days", endDate };
+  }
+  if (item.recurrenceRule === "Semanal") {
+    if (interval === 1) return { frequency: "weekly", endDate };
+    if (interval === 2) return { frequency: "biweekly", endDate };
+    return { frequency: "custom", interval, customUnit: "weeks", endDate };
+  }
+  if (item.recurrenceRule === "Mensal") {
+    return {
+      frequency: interval === 1 ? "monthly" : "custom",
+      interval: interval === 1 ? undefined : interval,
+      customUnit: interval === 1 ? undefined : "months",
+      dayOfMonth: Number(item.recurrenceDetail) || dueDay,
+      endDate,
+    };
+  }
+  if (item.recurrenceRule === "Anual") {
+    return {
+      frequency: interval === 1 ? "yearly" : "custom",
+      interval: interval === 1 ? undefined : interval,
+      customUnit: interval === 1 ? undefined : "years",
+      dayOfMonth: dueDay,
+      monthOfYear: dueMonth,
+      endDate,
+    };
+  }
+  return { frequency: "custom", interval, intervalDays: interval, customUnit: "days", endDate };
+}
+
 export async function replaceMobileTasks(
   request: Request,
   tasks: MobileTask[],
@@ -848,6 +904,8 @@ export async function replaceMobileTasks(
           existing.description = item.description || "Tarefa criada no aplicativo";
           existing.priority = priority(item.priority);
           existing.dueDate = item.dueDate;
+          existing.responsibleId = mobileResponsibleId(workspace, account.id, item.assignee);
+          existing.recurrence = mobileTaskRecurrence(item);
           existing.attachments = item.attachmentName ? 1 : 0;
         }
         if (existing.nativeSource === NATIVE_SOURCE && existing.nativeOwnerId === account.id) {
@@ -876,12 +934,13 @@ export async function replaceMobileTasks(
           id: department?.id ?? account.id,
           label: department?.name ?? account.name,
         },
-        responsibleId: account.id,
+        responsibleId: mobileResponsibleId(workspace, account.id, item.assignee),
         assignedById: account.id,
         requiresReview: false,
         tags: ["Aplicativo"],
         comments: 0,
         attachments: item.attachmentName ? 1 : 0,
+        recurrence: mobileTaskRecurrence(item),
         subtasks: [],
         nativeSource: NATIVE_SOURCE,
         nativeOwnerId: account.id,

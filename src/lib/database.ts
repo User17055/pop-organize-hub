@@ -97,7 +97,10 @@ export function sanitizeDatabase(
   currentUserId: string,
   workspaces: PlatformDatabase["workspaces"] = [db],
 ) {
-  const employees = db.employees.map(withoutPassword);
+  const employees =
+    db.company.kind === "personal"
+      ? db.employees.filter((employee) => employee.id === currentUserId).map(withoutPassword)
+      : db.employees.map(withoutPassword);
   const currentEmployee = employees.find((employee) => employee.id === currentUserId);
   if (!currentEmployee) {
     throw Object.assign(new Error("Usuário da sessão não encontrado."), { statusCode: 401 });
@@ -122,13 +125,19 @@ export function sanitizeDatabase(
     groups: db.groups,
     tasks: visibleTasks,
     permissionGroups: db.permissionGroups,
-    invitations: db.invitations.map(({ tokenHash, ...invitation }) => invitation),
+    invitations:
+      db.company.kind === "personal"
+        ? []
+        : db.invitations.map(({ tokenHash, ...invitation }) => invitation),
     workspaces: workspaces
-      .filter((workspace) =>
-        workspace.employees.some(
+      .filter((workspace) => {
+        if (workspace.company.kind === "personal") {
+          return workspace.company.ownerId === currentUserId;
+        }
+        return workspace.employees.some(
           (employee) => employee.id === currentUserId && employee.status === "active",
-        ),
-      )
+        );
+      })
       .map((workspace) => {
         const membership = workspace.employees.find((employee) => employee.id === currentUserId)!;
         return {

@@ -26,6 +26,7 @@ export function TaskCreateDrawer({
   errorMessage,
   employees,
   targetOptions,
+  personalMode = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -36,6 +37,7 @@ export function TaskCreateDrawer({
   errorMessage?: string | null;
   employees: Employee[];
   targetOptions: Array<{ value: string; label: string }>;
+  personalMode?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(0);
@@ -206,76 +208,88 @@ export function TaskCreateDrawer({
                     }
                   />
                 </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <Field label="Destino">
-                    <GlassSelect
-                      value={form.targetKey}
-                      options={targetOptions}
-                      onChange={(targetKey) =>
-                        onFormChange((current) => ({
-                          ...current,
-                          targetKey,
-                          responsibleId: targetKey.startsWith("department:")
-                            ? ""
-                            : current.responsibleId || (employees[0]?.id ?? ""),
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label={isDepartmentTarget ? "Responsável (opcional)" : "Responsável"}>
-                    <GlassSelect
-                      value={form.responsibleId}
-                      options={[
-                        ...(isDepartmentTarget
-                          ? [{ value: "", label: "Sem responsável — setor inteiro" }]
-                          : []),
-                        ...employees.map((employee) => ({
-                          value: employee.id,
-                          label: employee.name,
-                        })),
-                      ]}
-                      onChange={(responsibleId) =>
-                        onFormChange((current) => ({
-                          ...current,
-                          responsibleId,
-                        }))
-                      }
-                    />
-                  </Field>
-                </div>
+                {personalMode ? (
+                  <div className="task-create-card rounded-2xl border p-4">
+                    <div className="text-sm font-bold text-foreground">Tarefa pessoal</div>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Esta tarefa fica somente no seu Meu espaço. Para atribuir tarefas a outras
+                      pessoas, crie ou acesse uma empresa.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <Field label="Destino">
+                      <GlassSelect
+                        value={form.targetKey}
+                        options={targetOptions}
+                        onChange={(targetKey) =>
+                          onFormChange((current) => ({
+                            ...current,
+                            targetKey,
+                            responsibleId: targetKey.startsWith("department:")
+                              ? ""
+                              : current.responsibleId || (employees[0]?.id ?? ""),
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label={isDepartmentTarget ? "Responsável (opcional)" : "Responsável"}>
+                      <GlassSelect
+                        value={form.responsibleId}
+                        options={[
+                          ...(isDepartmentTarget
+                            ? [{ value: "", label: "Sem responsável — setor inteiro" }]
+                            : []),
+                          ...employees.map((employee) => ({
+                            value: employee.id,
+                            label: employee.name,
+                          })),
+                        ]}
+                        onChange={(responsibleId) =>
+                          onFormChange((current) => ({
+                            ...current,
+                            responsibleId,
+                          }))
+                        }
+                      />
+                    </Field>
+                  </div>
+                )}
               </>
             )}
 
             {step === 2 && (
               <>
-                <label className="task-create-review-toggle task-create-card pressable flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3.5 text-sm font-bold text-foreground">
-                  <input
-                    type="checkbox"
-                    checked={form.requiresReview}
-                    onChange={(event) =>
-                      onFormChange((current) => ({
-                        ...current,
-                        requiresReview: event.target.checked,
-                        reviewerId:
-                          event.target.checked && !current.responsibleId && !current.reviewerId
-                            ? (employees[0]?.id ?? "")
-                            : current.reviewerId,
-                      }))
-                    }
-                    className="sr-only"
-                  />
-                  <span
-                    className={cn(
-                      "task-create-checkbox flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition",
-                      form.requiresReview && "task-create-checkbox-checked",
-                    )}
-                    aria-hidden="true"
-                  >
-                    <Check className="task-create-checkbox-icon h-3.5 w-3.5" />
-                  </span>
-                  <span className="min-w-0">Precisa de revisão</span>
-                </label>
-                {form.requiresReview && (
+                {!personalMode && (
+                  <label className="task-create-review-toggle task-create-card pressable flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3.5 text-sm font-bold text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={form.requiresReview}
+                      onChange={(event) =>
+                        onFormChange((current) => ({
+                          ...current,
+                          requiresReview: event.target.checked,
+                          reviewerId:
+                            event.target.checked && !current.responsibleId && !current.reviewerId
+                              ? (employees[0]?.id ?? "")
+                              : current.reviewerId,
+                        }))
+                      }
+                      className="sr-only"
+                    />
+                    <span
+                      className={cn(
+                        "task-create-checkbox flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition",
+                        form.requiresReview && "task-create-checkbox-checked",
+                      )}
+                      aria-hidden="true"
+                    >
+                      <Check className="task-create-checkbox-icon h-3.5 w-3.5" />
+                    </span>
+                    <span className="min-w-0">Precisa de revisão</span>
+                  </label>
+                )}
+                {!personalMode && form.requiresReview && (
                   <Field label="Revisor">
                     <GlassSelect
                       value={form.reviewerId}

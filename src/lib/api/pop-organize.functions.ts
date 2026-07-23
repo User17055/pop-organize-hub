@@ -306,9 +306,8 @@ function getApplicationOrigin() {
 
   const forwardedHost = getRequestHeader("x-forwarded-host")?.split(",")[0]?.trim();
   const requestHost = forwardedHost || getRequestHeader("host")?.trim();
-  const safeHost = requestHost && /^[a-z0-9.-]+(?::\d+)?$/i.test(requestHost)
-    ? requestHost
-    : "localhost:8080";
+  const safeHost =
+    requestHost && /^[a-z0-9.-]+(?::\d+)?$/i.test(requestHost) ? requestHost : "localhost:8080";
   return `${getRequestProtocol()}://${safeHost}`;
 }
 
@@ -321,6 +320,15 @@ type SessionContext = {
   session?: SessionRecord;
   workspace: Database;
 };
+
+function canAccessWorkspace(workspace: Database, accountId: string) {
+  if (workspace.company.kind === "personal") {
+    return workspace.company.ownerId === accountId;
+  }
+  return workspace.employees.some(
+    (employee) => employee.id === accountId && employee.status === "active",
+  );
+}
 
 function resolveSessionContext(
   platform: PlatformDatabase,
@@ -342,11 +350,7 @@ function resolveSessionContext(
   const preferredWorkspaceId = session?.activeCompanyId;
   const workspace =
     platform.workspaces.find(
-      (item) =>
-        item.company.id === preferredWorkspaceId &&
-        item.employees.some(
-          (employee) => employee.id === account.id && employee.status === "active",
-        ),
+      (item) => item.company.id === preferredWorkspaceId && canAccessWorkspace(item, account.id),
     ) ??
     platform.workspaces.find(
       (item) =>
@@ -626,11 +630,7 @@ export const switchWorkspace = createServerFn({ method: "POST" })
         throw createHttpError("Sessão expirada. Faça login novamente.", 401);
       }
       const workspace = platform.workspaces.find(
-        (item) =>
-          item.company.id === data.companyId &&
-          item.employees.some(
-            (employee) => employee.id === session.userId && employee.status === "active",
-          ),
+        (item) => item.company.id === data.companyId && canAccessWorkspace(item, session.userId),
       );
       if (!workspace) throw createHttpError("Você não participa deste espaço.", 403);
       session.activeCompanyId = workspace.company.id;
@@ -740,10 +740,12 @@ export const login = createServerFn({ method: "POST" })
           (workspace) =>
             workspace.company.kind === "personal" && workspace.company.ownerId === account.id,
         ) ??
-        platform.workspaces.find((workspace) =>
-          workspace.employees.some(
-            (employee) => employee.id === account.id && employee.status === "active",
-          ),
+        platform.workspaces.find(
+          (workspace) =>
+            workspace.company.kind === "company" &&
+            workspace.employees.some(
+              (employee) => employee.id === account.id && employee.status === "active",
+            ),
         );
       const employee = activeWorkspace?.employees.find((item) => item.id === account.id);
       if (!activeWorkspace || !employee) throw createHttpError("Conta sem espaço disponível.", 409);
@@ -807,6 +809,7 @@ export const loginWithGoogle = createServerFn({ method: "POST" })
 
       let invitedWorkspace: Database | undefined;
       for (const workspace of platform.workspaces) {
+        if (workspace.company.kind !== "company") continue;
         const invitation = workspace.invitations.find(
           (item) =>
             item.email.toLowerCase() === googleUser.email &&
@@ -941,6 +944,20 @@ export const createTask = createServerFn({ method: "POST" })
         "tasks.create",
         "Seu grupo de permissão não pode criar tarefas.",
       );
+
+      if (
+        db.company.kind === "personal" &&
+        (data.target.type !== "user" ||
+          data.target.id !== currentUserId ||
+          data.responsibleId !== currentUserId ||
+          data.requiresReview ||
+          Boolean(data.reviewerId))
+      ) {
+        throw createHttpError(
+          "O Meu espaço é pessoal. Para atribuir ou compartilhar tarefas, crie uma empresa.",
+          403,
+        );
+      }
 
       const responsible = data.responsibleId
         ? db.employees.find((employee) => employee.id === data.responsibleId)
@@ -1223,6 +1240,12 @@ export const createEmployee = createServerFn({ method: "POST" })
     const { createSessionToken, hashToken } = await dbServer();
     const invitationToken = createSessionToken();
     const result = await mutateCurrentWorkspace((db, currentUserId) => {
+      if (db.company.kind !== "company") {
+        throw createHttpError(
+          "O Meu espaço não pode ser compartilhado. Crie uma empresa para adicionar pessoas.",
+          403,
+        );
+      }
       requireGroupPermission(
         db,
         currentUserId,
@@ -1314,6 +1337,12 @@ export const resendEmployeeInvitation = createServerFn({ method: "POST" })
     const invitationToken = createSessionToken();
     const invitationTokenHash = hashToken(invitationToken);
     const result = await mutateCurrentWorkspace((db, currentUserId) => {
+      if (db.company.kind !== "company") {
+        throw createHttpError(
+          "O Meu espaço não pode ser compartilhado. Convites pertencem apenas a empresas.",
+          403,
+        );
+      }
       requireGroupPermission(
         db,
         currentUserId,
@@ -1329,9 +1358,7 @@ export const resendEmployeeInvitation = createServerFn({ method: "POST" })
       invitation.tokenHash = invitationTokenHash;
       invitation.invitedById = currentUserId;
       invitation.createdAt = new Date().toISOString();
-      invitation.expiresAt = new Date(
-        Date.now() + INVITATION_MAX_AGE_SECONDS * 1000,
-      ).toISOString();
+      invitation.expiresAt = new Date(Date.now() + INVITATION_MAX_AGE_SECONDS * 1000).toISOString();
 
       return {
         invitation: {
@@ -1391,12 +1418,14 @@ export const acceptInvitation = createServerFn({ method: "POST" })
     const passwordHash = await hashPassword(data.password);
 
     const user = await mutateDatabase(async (platform) => {
-      const workspace = platform.workspaces.find((item) =>
-        item.invitations.some(
-          (invitation) =>
-            invitation.tokenHash === invitationTokenHash &&
-            new Date(invitation.expiresAt).getTime() > Date.now(),
-        ),
+      const workspace = platform.workspaces.find(
+        (item) =>
+          item.company.kind === "company" &&
+          item.invitations.some(
+            (invitation) =>
+              invitation.tokenHash === invitationTokenHash &&
+              new Date(invitation.expiresAt).getTime() > Date.now(),
+          ),
       );
       const invitation = workspace?.invitations.find(
         (item) => item.tokenHash === invitationTokenHash,

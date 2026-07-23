@@ -226,6 +226,9 @@ export function AppShell({
   });
   const isAdmin = isAdminUser({ currentUser, employees: data?.employees ?? [] });
   const visibleNav = nav.filter((item) => {
+    if (data?.company.kind === "personal" && !["/", "/tarefas", "/calendario"].includes(item.to)) {
+      return false;
+    }
     if (item.visibility === "all") return true;
     if (item.visibility === "admin") return isAdmin;
     return hasPermission(permissionSet, item.visibility);

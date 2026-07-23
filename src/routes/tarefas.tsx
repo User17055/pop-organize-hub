@@ -192,6 +192,7 @@ function TasksPage() {
       hasPermission(permissionSet, key),
     );
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
+  const isPersonalWorkspace = company.kind === "personal";
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
   const selectedPermissions = selectedTask
     ? getTaskPermissions({
@@ -203,21 +204,23 @@ function TasksPage() {
         permissionGroups: data.permissionGroups,
       })
     : null;
-  const targetOptions = [
-    { value: `company:${company.id}`, label: "Empresa inteira" },
-    ...departments.map((department) => ({
-      value: `department:${department.id}`,
-      label: `Setor: ${department.name}`,
-    })),
-    ...groups.map((group) => ({
-      value: `group:${group.id}`,
-      label: `Grupo: ${group.name}`,
-    })),
-    ...employees.map((employee) => ({
-      value: `user:${employee.id}`,
-      label: `Pessoa: ${employee.name}`,
-    })),
-  ];
+  const targetOptions = isPersonalWorkspace
+    ? [{ value: `user:${currentUser.id}`, label: "Somente eu" }]
+    : [
+        { value: `company:${company.id}`, label: "Empresa inteira" },
+        ...departments.map((department) => ({
+          value: `department:${department.id}`,
+          label: `Setor: ${department.name}`,
+        })),
+        ...groups.map((group) => ({
+          value: `group:${group.id}`,
+          label: `Grupo: ${group.name}`,
+        })),
+        ...employees.map((employee) => ({
+          value: `user:${employee.id}`,
+          label: `Pessoa: ${employee.name}`,
+        })),
+      ];
 
   function openForm() {
     const dueDate = getDefaultDueDate();
@@ -226,8 +229,8 @@ function TasksPage() {
       description: "",
       priority: "medium",
       dueDate,
-      targetKey: `company:${company.id}`,
-      responsibleId: employees[0]?.id ?? "",
+      targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : `company:${company.id}`,
+      responsibleId: isPersonalWorkspace ? currentUser.id : (employees[0]?.id ?? ""),
       reviewerId: "",
       requiresReview: false,
       tags: "",
@@ -253,9 +256,12 @@ function TasksPage() {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    const [type, id] = form.targetKey.split(":") as [TargetType, string];
+    const [selectedType, selectedId] = form.targetKey.split(":") as [TargetType, string];
+    const type = isPersonalWorkspace ? "user" : selectedType;
+    const id = isPersonalWorkspace ? currentUser.id : selectedId;
     const responsibleId =
-      form.responsibleId || (type === "department" ? "" : (employees[0]?.id ?? ""));
+      (isPersonalWorkspace ? currentUser.id : form.responsibleId) ||
+      (type === "department" ? "" : (employees[0]?.id ?? ""));
     if (type !== "department" && !responsibleId) return;
 
     createTaskMutation.mutate({
@@ -265,8 +271,11 @@ function TasksPage() {
       dueDate: form.dueDate,
       target: { type, id },
       responsibleId,
-      reviewerId: form.requiresReview ? form.reviewerId || responsibleId || undefined : undefined,
-      requiresReview: form.requiresReview,
+      reviewerId:
+        !isPersonalWorkspace && form.requiresReview
+          ? form.reviewerId || responsibleId || undefined
+          : undefined,
+      requiresReview: !isPersonalWorkspace && form.requiresReview,
       tags: form.tags
         .split(",")
         .map((tag) => tag.trim())
@@ -596,6 +605,7 @@ function TasksPage() {
         errorMessage={mutationError}
         employees={employees}
         targetOptions={targetOptions}
+        personalMode={isPersonalWorkspace}
       />
     </AppShell>
   );

@@ -78,11 +78,14 @@ function publicUser(account: PlatformDatabase["accounts"][number]) {
 
 function workspaceSummaries(platform: PlatformDatabase, userId: string) {
   return platform.workspaces
-    .filter((workspace) =>
-      workspace.employees.some(
+    .filter((workspace) => {
+      if (workspace.company.kind === "personal") {
+        return workspace.company.ownerId === userId;
+      }
+      return workspace.employees.some(
         (employee) => employee.id === userId && employee.status === "active",
-      ),
-    )
+      );
+    })
     .map((workspace) => {
       const currentUser = workspace.employees.find((employee) => employee.id === userId);
       const permissionSet = resolvePermissionSet({
@@ -90,17 +93,21 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         employees: workspace.employees,
         permissionGroups: workspace.permissionGroups,
       });
+      const isCompany = (workspace.company.kind ?? "company") === "company";
       return {
         id: workspace.company.id,
         name: workspace.company.name,
         description: workspace.company.description ?? "",
         kind: workspace.company.kind ?? "company",
         canCreateTasks: hasPermission(permissionSet, "tasks.create"),
-        canManageEmployees: hasPermission(permissionSet, "manage.employees"),
-        canManageDepartments: hasPermission(permissionSet, "manage.departments"),
-        canManageGroups: hasPermission(permissionSet, "manage.groups"),
+        canManageEmployees: isCompany && hasPermission(permissionSet, "manage.employees"),
+        canManageDepartments: isCompany && hasPermission(permissionSet, "manage.departments"),
+        canManageGroups: isCompany && hasPermission(permissionSet, "manage.groups"),
         employees: [
-          ...workspace.employees.map((employee) => ({
+          ...(isCompany
+            ? workspace.employees
+            : workspace.employees.filter((employee) => employee.id === userId)
+          ).map((employee) => ({
             id: employee.id,
             name: employee.name,
             email: employee.email,
@@ -307,9 +314,11 @@ async function requireMobileWorkspace(request: Request) {
   const workspace = platform.workspaces.find(
     (item) =>
       item.company.id === (requestedWorkspaceId || session.activeCompanyId) &&
-      item.employees.some(
-        (employee) => employee.id === session.userId && employee.status === "active",
-      ),
+      (item.company.kind === "personal"
+        ? item.company.ownerId === session.userId
+        : item.employees.some(
+            (employee) => employee.id === session.userId && employee.status === "active",
+          )),
   );
   const account = platform.accounts.find((item) => item.id === session.userId);
   if (!workspace || !account) {
@@ -511,23 +520,25 @@ export async function readMobileInvitations(request: Request) {
   const { platform, account } = await requireMobileWorkspace(request);
   const now = Date.now();
   return platform.workspaces.flatMap((workspace) =>
-    workspace.invitations
-      .filter(
-        (invitation) =>
-          invitation.email.toLowerCase() === account.email.toLowerCase() &&
-          new Date(invitation.expiresAt).getTime() > now &&
-          !workspace.employees.some((employee) => employee.id === account.id),
-      )
-      .map((invitation) => ({
-        id: invitation.id,
-        companyId: workspace.company.id,
-        companyName: workspace.company.name,
-        role: invitation.role,
-        permissionGroupName:
-          workspace.permissionGroups.find((group) => group.id === invitation.permissionGroupId)
-            ?.name ?? "Padrão",
-        expiresAt: invitation.expiresAt,
-      })),
+    workspace.company.kind !== "company"
+      ? []
+      : workspace.invitations
+          .filter(
+            (invitation) =>
+              invitation.email.toLowerCase() === account.email.toLowerCase() &&
+              new Date(invitation.expiresAt).getTime() > now &&
+              !workspace.employees.some((employee) => employee.id === account.id),
+          )
+          .map((invitation) => ({
+            id: invitation.id,
+            companyId: workspace.company.id,
+            companyName: workspace.company.name,
+            role: invitation.role,
+            permissionGroupName:
+              workspace.permissionGroups.find((group) => group.id === invitation.permissionGroupId)
+                ?.name ?? "Padrão",
+            expiresAt: invitation.expiresAt,
+          })),
   );
 }
 
@@ -547,8 +558,10 @@ export async function respondToMobileInvitation(
     if (!session || !account)
       throw Object.assign(new Error("Sessão expirada."), { statusCode: 401 });
 
-    const workspace = platform.workspaces.find((item) =>
-      item.invitations.some((invitation) => invitation.id === invitationId),
+    const workspace = platform.workspaces.find(
+      (item) =>
+        item.company.kind === "company" &&
+        item.invitations.some((invitation) => invitation.id === invitationId),
     );
     const invitation = workspace?.invitations.find((item) => item.id === invitationId);
     if (!workspace || !invitation || new Date(invitation.expiresAt).getTime() <= Date.now()) {
@@ -728,9 +741,11 @@ export async function replaceMobileTasks(
     const workspace = platform.workspaces.find(
       (item) =>
         item.company.id === (requestedWorkspaceId || session.activeCompanyId) &&
-        item.employees.some(
-          (employee) => employee.id === session.userId && employee.status === "active",
-        ),
+        (item.company.kind === "personal"
+          ? item.company.ownerId === session.userId
+          : item.employees.some(
+              (employee) => employee.id === session.userId && employee.status === "active",
+            )),
     );
     const account = platform.accounts.find((item) => item.id === session.userId);
     if (!workspace || !account) {

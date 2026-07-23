@@ -10,11 +10,30 @@ export const Route = createFileRoute("/api/mobile/workspaces")({
             headers: { "cache-control": "no-store" },
           });
         } catch (error) {
-          const status = typeof error === "object" && error && "statusCode" in error
-            ? Number((error as { statusCode?: number }).statusCode) || 500
-            : 500;
+          const status =
+            typeof error === "object" && error && "statusCode" in error
+              ? Number((error as { statusCode?: number }).statusCode) || 500
+              : 500;
           return Response.json(
             { error: error instanceof Error ? error.message : "Falha ao carregar os espaços." },
+            { status },
+          );
+        }
+      },
+      POST: async ({ request }) => {
+        try {
+          const { mutateMobileWorkspace } = await import("@/lib/mobile-api.server");
+          const body = await request.json().catch(() => ({}));
+          return Response.json(await mutateMobileWorkspace(request, body), {
+            headers: { "cache-control": "no-store" },
+          });
+        } catch (error) {
+          const status =
+            typeof error === "object" && error && "statusCode" in error
+              ? Number((error as { statusCode?: number }).statusCode) || 500
+              : 500;
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Falha ao salvar o cadastro." },
             { status },
           );
         }

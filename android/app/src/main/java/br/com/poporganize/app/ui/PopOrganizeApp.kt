@@ -175,6 +175,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import androidx.credentials.CredentialManager
@@ -257,9 +259,16 @@ private data class GoogleAccount(
     val photoUrl: String,
     val apiToken: String,
 )
-private data class CompanyMember(val name: String, val email: String, val role: String, val sector: String)
-private data class CompanySector(val name: String, val description: String)
-private data class CompanyGroup(val name: String, val description: String)
+private data class CompanyMember(
+    val name: String,
+    val email: String,
+    val role: String,
+    val sector: String,
+    val id: String = "",
+    val pending: Boolean = false,
+)
+private data class CompanySector(val name: String, val description: String, val id: String = "")
+private data class CompanyGroup(val name: String, val description: String, val id: String = "")
 private enum class WorkSpace { Personal, Company }
 
 private const val GUEST_TASKS_STORAGE = "pop_organize_guest_tasks"
@@ -491,6 +500,10 @@ private data class ApiWorkspaceSummary(
     val description: String,
     val kind: String,
     val canCreateTasks: Boolean,
+    val canManageEmployees: Boolean,
+    val canManageDepartments: Boolean,
+    val canManageGroups: Boolean,
+    val employees: List<CompanyMember>,
     val sectors: List<CompanySector>,
     val groups: List<CompanyGroup>,
 )
@@ -521,13 +534,33 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                 val item = items.optJSONObject(index) ?: return@repeat
                 val sectorsJson = item.optJSONArray("sectors") ?: JSONArray()
                 val groupsJson = item.optJSONArray("groups") ?: JSONArray()
+                val employeesJson = item.optJSONArray("employees") ?: JSONArray()
                 val sectors = List(sectorsJson.length()) { sectorIndex ->
                     val sector = sectorsJson.optJSONObject(sectorIndex) ?: JSONObject()
-                    CompanySector(sector.optString("name"), sector.optString("description"))
+                    CompanySector(
+                        sector.optString("name"),
+                        sector.optString("description"),
+                        sector.optString("id"),
+                    )
                 }
                 val groups = List(groupsJson.length()) { groupIndex ->
                     val group = groupsJson.optJSONObject(groupIndex) ?: JSONObject()
-                    CompanyGroup(group.optString("name"), group.optString("description"))
+                    CompanyGroup(
+                        group.optString("name"),
+                        group.optString("description"),
+                        group.optString("id"),
+                    )
+                }
+                val employees = List(employeesJson.length()) { employeeIndex ->
+                    val employee = employeesJson.optJSONObject(employeeIndex) ?: JSONObject()
+                    CompanyMember(
+                        name = employee.optString("name"),
+                        email = employee.optString("email"),
+                        role = employee.optString("role"),
+                        sector = employee.optString("sector"),
+                        id = employee.optString("id"),
+                        pending = employee.optBoolean("pending", false),
+                    )
                 }
                 add(
                     ApiWorkspaceSummary(
@@ -536,6 +569,10 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         description = item.optString("description"),
                         kind = item.optString("kind"),
                         canCreateTasks = item.optBoolean("canCreateTasks", false),
+                        canManageEmployees = item.optBoolean("canManageEmployees", false),
+                        canManageDepartments = item.optBoolean("canManageDepartments", false),
+                        canManageGroups = item.optBoolean("canManageGroups", false),
+                        employees = employees,
                         sectors = sectors,
                         groups = groups,
                     ),
@@ -1007,6 +1044,63 @@ private fun SystemBarAppearance(darkBackground: Boolean) {
             isAppearanceLightStatusBars = !darkBackground
             isAppearanceLightNavigationBars = !darkBackground
         }
+    }
+}
+
+private suspend fun mutateMobileWorkspace(
+    apiToken: String,
+    workspaceId: String,
+    payload: JSONObject,
+) = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/workspaces").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "POST"
+        connectTimeout = 15_000
+        readTimeout = 30_000
+        doOutput = true
+        setRequestProperty("Authorization", "Bearer $apiToken")
+        setRequestProperty("X-Workspace-Id", workspaceId)
+        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+            writer.write(payload.toString())
+        }
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) {
+            throw IllegalStateException(response.optString("error", "Falha ao salvar o cadastro."))
+        }
+    } finally {
+        connection.disconnect()
+    }
+}
+
+@Composable
+private fun KeepModalNavigationBarHidden() {
+    val view = LocalView.current
+
+    fun hideNavigationBar() {
+        val window = (view.parent as? DialogWindowProvider)?.window
+            ?: (view.context as? Activity)?.window
+            ?: return
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.navigationBars())
+        }
+    }
+
+    SideEffect {
+        hideNavigationBar()
+    }
+    LaunchedEffect(view) {
+        delay(80)
+        hideNavigationBar()
+        delay(180)
+        hideNavigationBar()
     }
 }
 
@@ -1847,9 +1941,13 @@ private fun PopMainContent(
     val companyIds = remember { mutableStateListOf<String>() }
     val companyDescriptions = remember { mutableStateListOf<String>() }
     val companyCanCreateTasks = remember { mutableStateListOf<Boolean>() }
+    val companyCanManageEmployees = remember { mutableStateListOf<Boolean>() }
+    val companyCanManageDepartments = remember { mutableStateListOf<Boolean>() }
+    val companyCanManageGroups = remember { mutableStateListOf<Boolean>() }
     val companyMembers = remember { mutableStateListOf<CompanyMember>() }
     val companySectors = remember { mutableStateListOf<CompanySector>() }
     val companyGroups = remember { mutableStateListOf<CompanyGroup>() }
+    val companyMemberLists = remember { mutableStateListOf<List<CompanyMember>>() }
     val companySectorLists = remember { mutableStateListOf<List<CompanySector>>() }
     val companyGroupLists = remember { mutableStateListOf<List<CompanyGroup>>() }
     val pendingInvitations = remember { mutableStateListOf<ApiInvitation>() }
@@ -1919,6 +2017,8 @@ private fun PopMainContent(
         } else {
             selectedCompanyIndex = index
             workSpace = WorkSpace.Company
+            companyMembers.clear()
+            companyMembers.addAll(companyMemberLists.getOrElse(index) { emptyList() })
             companySectors.clear()
             companySectors.addAll(companySectorLists.getOrElse(index) { emptyList() })
             companyGroups.clear()
@@ -1953,6 +2053,14 @@ private fun PopMainContent(
         companyDescriptions.addAll(companies.map { it.description.ifBlank { "Empresa e equipe" } })
         companyCanCreateTasks.clear()
         companyCanCreateTasks.addAll(companies.map { it.canCreateTasks })
+        companyCanManageEmployees.clear()
+        companyCanManageEmployees.addAll(companies.map { it.canManageEmployees })
+        companyCanManageDepartments.clear()
+        companyCanManageDepartments.addAll(companies.map { it.canManageDepartments })
+        companyCanManageGroups.clear()
+        companyCanManageGroups.addAll(companies.map { it.canManageGroups })
+        companyMemberLists.clear()
+        companyMemberLists.addAll(companies.map { it.employees })
         companySectorLists.clear()
         companySectorLists.addAll(companies.map { it.sectors })
         companyGroupLists.clear()
@@ -1960,6 +2068,8 @@ private fun PopMainContent(
         while (companyTaskGroups.size < companies.size) companyTaskGroups.add(mutableStateListOf())
         while (companyTaskGroups.size > companies.size) companyTaskGroups.removeAt(companyTaskGroups.lastIndex)
         if (selectedCompanyIndex !in companyTaskGroups.indices) selectedCompanyIndex = 0
+        companyMembers.clear()
+        companyMembers.addAll(companyMemberLists.getOrElse(selectedCompanyIndex) { emptyList() })
         companySectors.clear()
         companySectors.addAll(companySectorLists.getOrElse(selectedCompanyIndex) { emptyList() })
         companyGroups.clear()
@@ -2150,7 +2260,7 @@ private fun PopMainContent(
             containerColor = PopBackground,
             bottomBar = {
                 PopBottomBar(
-                    selected = if (showMoreSheet) PopDestination.More else destination,
+                    selected = destination,
                     onSelect = { selectedDestination ->
                         if (selectedDestination == PopDestination.More) {
                             showMoreSheet = true
@@ -2243,6 +2353,11 @@ private fun PopMainContent(
                         companyMembers = companyMembers,
                         companySectors = companySectors,
                         companyGroups = companyGroups,
+                        workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
+                        canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
+                        canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
+                        canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
+                        onWorkspacesReloaded = ::applyCompanyWorkspaces,
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
@@ -2264,6 +2379,7 @@ private fun PopMainContent(
             sheetMaxWidth = Dp.Unspecified,
             modifier = Modifier.fillMaxWidth(),
         ) {
+            KeepModalNavigationBarHidden()
             MoreScreen(
                 sessionMode = sessionMode,
                 googleAccount = googleAccount,
@@ -2276,6 +2392,11 @@ private fun PopMainContent(
                 companyMembers = companyMembers,
                 companySectors = companySectors,
                 companyGroups = companyGroups,
+                workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
+                canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
+                canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
+                canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
+                onWorkspacesReloaded = ::applyCompanyWorkspaces,
                 selectedCompanyIndex = selectedCompanyIndex,
                 onCompanySelect = ::selectCompany,
                 onCreateCompany = ::requestCreateCompany,
@@ -5353,6 +5474,11 @@ private fun MoreScreen(
     companyMembers: MutableList<CompanyMember>,
     companySectors: MutableList<CompanySector>,
     companyGroups: MutableList<CompanyGroup>,
+    workspaceId: String,
+    canManageEmployees: Boolean,
+    canManageDepartments: Boolean,
+    canManageGroups: Boolean,
+    onWorkspacesReloaded: (List<ApiWorkspaceSummary>) -> Unit,
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
@@ -5362,6 +5488,7 @@ private fun MoreScreen(
 ) {
     val isGuest = sessionMode == SessionMode.Guest
     val context = LocalContext.current
+    val managementScope = rememberCoroutineScope()
     var showThemeDialog by remember { mutableStateOf(false) }
     var showTeamDialog by remember { mutableStateOf(false) }
     var showSectorsDialog by remember { mutableStateOf(false) }
@@ -5369,7 +5496,46 @@ private fun MoreScreen(
     var memberName by remember { mutableStateOf("") }
     var memberEmail by remember { mutableStateOf("") }
     var memberRole by remember { mutableStateOf("Funcionário") }
-    var memberSector by remember { mutableStateOf("") }
+    var memberSectorId by remember { mutableStateOf("") }
+    var sectorName by remember { mutableStateOf("") }
+    var sectorDescription by remember { mutableStateOf("") }
+    var groupName by remember { mutableStateOf("") }
+    var groupDescription by remember { mutableStateOf("") }
+    var savingManagementAction by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(showTeamDialog, companySectors.toList()) {
+        if (showTeamDialog && companySectors.none { it.id == memberSectorId }) {
+            memberSectorId = companySectors.firstOrNull()?.id.orEmpty()
+        }
+    }
+
+    fun submitManagementAction(
+        action: String,
+        payload: JSONObject,
+        successMessage: String,
+        afterSuccess: () -> Unit,
+    ) {
+        val token = googleAccount?.apiToken.orEmpty()
+        if (token.isBlank() || workspaceId.isBlank() || savingManagementAction != null) return
+        savingManagementAction = action
+        managementScope.launch {
+            runCatching {
+                mutateMobileWorkspace(token, workspaceId, payload)
+                loadMobileWorkspaces(token)
+            }.onSuccess { workspaces ->
+                onWorkspacesReloaded(workspaces)
+                afterSuccess()
+                Toast.makeText(context, successMessage, Toast.LENGTH_LONG).show()
+            }.onFailure { error ->
+                Toast.makeText(
+                    context,
+                    error.message ?: "Não foi possível salvar o cadastro.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            savingManagementAction = null
+        }
+    }
 
     fun openWebPage(path: String) {
         context.startActivity(
@@ -5415,15 +5581,13 @@ private fun MoreScreen(
                         }
                         IconButton(
                             onClick = onDismiss,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .border(1.5.dp, PopBlue.copy(alpha = .65f), CircleShape),
+                            modifier = Modifier.size(32.dp),
                         ) {
                             Icon(
                                 Icons.Rounded.Close,
                                 "Fechar",
-                                tint = PopBlue,
-                                modifier = Modifier.size(20.dp),
+                                tint = PopMuted,
+                                modifier = Modifier.size(19.dp),
                             )
                         }
                     }
@@ -5608,7 +5772,11 @@ private fun MoreScreen(
                                     Column(Modifier.weight(1f)) {
                                         Text(member.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                         Text(
-                                            listOf(member.role, member.sector).filter { it.isNotBlank() }.joinToString(" • "),
+                                            listOf(
+                                                member.role,
+                                                member.sector,
+                                                if (member.pending) "Convite pendente" else "",
+                                            ).filter { it.isNotBlank() }.joinToString(" • "),
                                             color = PopMuted,
                                             fontSize = 10.sp,
                                         )
@@ -5618,30 +5786,68 @@ private fun MoreScreen(
                             }
                         }
                     }
-                    HorizontalDivider(color = PopMuted.copy(alpha = .18f))
-                    Text("Cadastrar pessoa", color = PopBlue, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
-                    ManagementField(memberName, { memberName = it }, "Nome")
-                    ManagementField(memberEmail, { memberEmail = it }, "E-mail")
-                    ManagementField(memberRole, { memberRole = it }, "Cargo")
-                    ManagementField(memberSector, { memberSector = it }, "Setor")
-                    TextButton(
-                        enabled = memberName.trim().length >= 2,
-                        onClick = {
-                            companyMembers.add(
-                                CompanyMember(
-                                    memberName.trim(),
-                                    memberEmail.trim(),
-                                    memberRole.trim().ifBlank { "Funcionário" },
-                                    memberSector.trim(),
-                                ),
+                    if (canManageEmployees) {
+                        HorizontalDivider(color = PopMuted.copy(alpha = .18f))
+                        Text(
+                            "Convidar funcionário",
+                            color = PopBlue,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 12.sp,
+                        )
+                        if (companySectors.isEmpty()) {
+                            Text(
+                                "Cadastre um setor antes de convidar um funcionário.",
+                                color = PopMuted,
+                                fontSize = 11.sp,
                             )
-                            memberName = ""
-                            memberEmail = ""
-                            memberRole = "Funcionário"
-                            memberSector = ""
-                        },
-                        modifier = Modifier.align(Alignment.End),
-                    ) { Text("+ Adicionar", color = PopBlue, fontWeight = FontWeight.Bold) }
+                        } else {
+                            ManagementField(memberName, { memberName = it }, "Nome")
+                            ManagementField(memberEmail, { memberEmail = it }, "E-mail")
+                            ManagementField(memberRole, { memberRole = it }, "Cargo")
+                            ManagementChoiceField(
+                                label = "Setor",
+                                value = companySectors.firstOrNull { it.id == memberSectorId }?.name.orEmpty(),
+                                options = companySectors.map { it.id to it.name },
+                                onSelect = { memberSectorId = it },
+                            )
+                            TextButton(
+                                enabled =
+                                    savingManagementAction == null &&
+                                        memberName.trim().length >= 2 &&
+                                        android.util.Patterns.EMAIL_ADDRESS
+                                            .matcher(memberEmail.trim())
+                                            .matches() &&
+                                        memberRole.trim().length >= 2 &&
+                                        memberSectorId.isNotBlank(),
+                                onClick = {
+                                    submitManagementAction(
+                                        action = "inviteEmployee",
+                                        payload = JSONObject()
+                                            .put("action", "inviteEmployee")
+                                            .put("name", memberName.trim())
+                                            .put("email", memberEmail.trim())
+                                            .put("role", memberRole.trim())
+                                            .put("departmentId", memberSectorId),
+                                        successMessage = "Convite enviado por e-mail.",
+                                    ) {
+                                        memberName = ""
+                                        memberEmail = ""
+                                        memberRole = "Funcionário"
+                                    }
+                                },
+                                modifier = Modifier.align(Alignment.End),
+                            ) {
+                                if (savingManagementAction == "inviteEmployee") {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text("Enviar convite", color = PopBlue, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = { showTeamDialog = false }) { Text("Concluir") } },
@@ -5668,6 +5874,46 @@ private fun MoreScreen(
                                 sector.name,
                                 sector.description,
                             )
+                        }
+                    }
+                    if (canManageDepartments) {
+                        HorizontalDivider(color = PopMuted.copy(alpha = .18f))
+                        Text(
+                            "Cadastrar setor",
+                            color = PopBlue,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 12.sp,
+                        )
+                        ManagementField(sectorName, { sectorName = it }, "Nome")
+                        ManagementField(sectorDescription, { sectorDescription = it }, "Descrição")
+                        TextButton(
+                            enabled =
+                                savingManagementAction == null &&
+                                    sectorName.trim().length >= 2 &&
+                                    sectorDescription.trim().length >= 3,
+                            onClick = {
+                                submitManagementAction(
+                                    action = "createDepartment",
+                                    payload = JSONObject()
+                                        .put("action", "createDepartment")
+                                        .put("name", sectorName.trim())
+                                        .put("description", sectorDescription.trim()),
+                                    successMessage = "Setor cadastrado.",
+                                ) {
+                                    sectorName = ""
+                                    sectorDescription = ""
+                                }
+                            },
+                            modifier = Modifier.align(Alignment.End),
+                        ) {
+                            if (savingManagementAction == "createDepartment") {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text("+ Cadastrar", color = PopBlue, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -5698,6 +5944,46 @@ private fun MoreScreen(
                             )
                         }
                     }
+                    if (canManageGroups) {
+                        HorizontalDivider(color = PopMuted.copy(alpha = .18f))
+                        Text(
+                            "Cadastrar grupo",
+                            color = PopBlue,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 12.sp,
+                        )
+                        ManagementField(groupName, { groupName = it }, "Nome")
+                        ManagementField(groupDescription, { groupDescription = it }, "Descrição")
+                        TextButton(
+                            enabled =
+                                savingManagementAction == null &&
+                                    groupName.trim().length >= 2 &&
+                                    groupDescription.trim().length >= 3,
+                            onClick = {
+                                submitManagementAction(
+                                    action = "createGroup",
+                                    payload = JSONObject()
+                                        .put("action", "createGroup")
+                                        .put("name", groupName.trim())
+                                        .put("description", groupDescription.trim()),
+                                    successMessage = "Grupo cadastrado.",
+                                ) {
+                                    groupName = ""
+                                    groupDescription = ""
+                                }
+                            },
+                            modifier = Modifier.align(Alignment.End),
+                        ) {
+                            if (savingManagementAction == "createGroup") {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text("+ Cadastrar", color = PopBlue, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = { showGroupsDialog = false }) { Text("Fechar") } },
@@ -5723,6 +6009,54 @@ private fun ManagementField(value: String, onValueChange: (String) -> Unit, plac
         ),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+@Composable
+private fun ManagementChoiceField(
+    label: String,
+    value: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        Surface(
+            onClick = { expanded = true },
+            color = PopSurfaceAlt,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(label, color = PopMuted, fontSize = 9.sp)
+                    Text(
+                        value.ifBlank { "Selecionar" },
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Icon(Icons.Rounded.KeyboardArrowDown, null, tint = PopMuted)
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = PopSurface,
+        ) {
+            options.forEach { (id, name) ->
+                DropdownMenuItem(
+                    text = { Text(name) },
+                    onClick = {
+                        onSelect(id)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -5779,8 +6113,7 @@ private fun MoreShortcut(
         color = PopSurfaceAlt,
         shape = shape,
         modifier = modifier
-            .height(72.dp)
-            .border(1.dp, PopBlue.copy(alpha = .20f), shape),
+            .height(72.dp),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 5.dp, vertical = 9.dp),

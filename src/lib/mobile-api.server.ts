@@ -9,7 +9,7 @@ import {
   readDatabase,
   verifyGoogleCredential,
 } from "./database.server";
-import type { Task } from "./domain";
+import { departmentColors, type Task } from "./domain";
 import { hasPermission, resolvePermissionSet } from "./permission-groups";
 import { canViewTask, getTaskPermissions } from "./permissions";
 
@@ -96,6 +96,31 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         description: workspace.company.description ?? "",
         kind: workspace.company.kind ?? "company",
         canCreateTasks: hasPermission(permissionSet, "tasks.create"),
+        canManageEmployees: hasPermission(permissionSet, "manage.employees"),
+        canManageDepartments: hasPermission(permissionSet, "manage.departments"),
+        canManageGroups: hasPermission(permissionSet, "manage.groups"),
+        employees: [
+          ...workspace.employees.map((employee) => ({
+            id: employee.id,
+            name: employee.name,
+            email: employee.email,
+            role: employee.role,
+            sector:
+              workspace.departments.find((department) => department.id === employee.departmentId)
+                ?.name ?? "",
+            pending: false,
+          })),
+          ...workspace.invitations.map((invitation) => ({
+            id: invitation.id,
+            name: invitation.name,
+            email: invitation.email,
+            role: invitation.role,
+            sector:
+              workspace.departments.find((department) => department.id === invitation.departmentId)
+                ?.name ?? "",
+            pending: true,
+          })),
+        ],
         sectors: workspace.departments.map((department) => ({
           id: department.id,
           name: department.name,
@@ -298,6 +323,187 @@ export async function readMobileWorkspaces(request: Request) {
   return {
     activeWorkspaceId: session.activeCompanyId,
     workspaces: workspaceSummaries(platform, account.id),
+  };
+}
+
+const MOBILE_INVITATION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+
+function mobileHttpError(message: string, statusCode = 400) {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+function applicationOrigin(request: Request) {
+  const configuredOrigin = process.env.APP_URL?.trim();
+  if (configuredOrigin) {
+    try {
+      return new URL(configuredOrigin).origin;
+    } catch {
+      throw mobileHttpError("APP_URL possui um endereço inválido.", 500);
+    }
+  }
+  if (process.env.NODE_ENV === "production") return "https://app.poporganize.com.br";
+  return new URL(request.url).origin;
+}
+
+function requiredText(value: unknown, label: string, minimum = 2) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (normalized.length < minimum) {
+    throw mobileHttpError(`${label} deve ter pelo menos ${minimum} caracteres.`);
+  }
+  return normalized;
+}
+
+export async function mutateMobileWorkspace(request: Request, rawInput: unknown) {
+  const { workspace: authorizedWorkspace, account } = await requireMobileWorkspace(request);
+  if ((authorizedWorkspace.company.kind ?? "company") !== "company") {
+    throw mobileHttpError("Os cadastros de equipe estão disponíveis apenas em empresas.", 409);
+  }
+  const input =
+    typeof rawInput === "object" && rawInput !== null ? (rawInput as Record<string, unknown>) : {};
+  const action = input.action;
+  const workspaceId = authorizedWorkspace.company.id;
+
+  if (action === "createDepartment") {
+    const name = requiredText(input.name, "O nome");
+    const description = requiredText(input.description, "A descrição", 3);
+    await mutateDatabase((platform) => {
+      const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+      const currentUser = workspace?.employees.find(
+        (employee) => employee.id === account.id && employee.status === "active",
+      );
+      if (!workspace || !currentUser) throw mobileHttpError("Empresa não encontrada.", 404);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!hasPermission(permissionSet, "manage.departments")) {
+        throw mobileHttpError("Seu grupo de permissão não pode criar setores.", 403);
+      }
+      if (
+        workspace.departments.some(
+          (department) => department.name.toLowerCase() === name.toLowerCase(),
+        )
+      ) {
+        throw mobileHttpError("Já existe um setor com este nome.", 409);
+      }
+      workspace.departments.push({
+        id: nextId("d", workspace.departments),
+        name,
+        description,
+        managerId: currentUser.id,
+        color: departmentColors[workspace.departments.length % departmentColors.length],
+      });
+    });
+  } else if (action === "createGroup") {
+    const name = requiredText(input.name, "O nome");
+    const description = requiredText(input.description, "A descrição", 3);
+    await mutateDatabase((platform) => {
+      const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+      const currentUser = workspace?.employees.find(
+        (employee) => employee.id === account.id && employee.status === "active",
+      );
+      if (!workspace || !currentUser) throw mobileHttpError("Empresa não encontrada.", 404);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!hasPermission(permissionSet, "manage.groups")) {
+        throw mobileHttpError("Seu grupo de permissão não pode criar grupos.", 403);
+      }
+      if (workspace.groups.some((group) => group.name.toLowerCase() === name.toLowerCase())) {
+        throw mobileHttpError("Já existe um grupo com este nome.", 409);
+      }
+      workspace.groups.push({
+        id: nextId("g", workspace.groups),
+        name,
+        description,
+        memberIds: [],
+      });
+    });
+  } else if (action === "inviteEmployee") {
+    const name = requiredText(input.name, "O nome");
+    const email = requiredText(input.email, "O e-mail").toLowerCase();
+    const role = requiredText(input.role, "O cargo");
+    const departmentId = requiredText(input.departmentId, "O setor", 1);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw mobileHttpError("Informe um e-mail válido.");
+    }
+
+    const invitationToken = createSessionToken();
+    const result = await mutateDatabase((platform) => {
+      const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+      const currentUser = workspace?.employees.find(
+        (employee) => employee.id === account.id && employee.status === "active",
+      );
+      if (!workspace || !currentUser) throw mobileHttpError("Empresa não encontrada.", 404);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!hasPermission(permissionSet, "manage.employees")) {
+        throw mobileHttpError("Seu grupo de permissão não pode cadastrar funcionários.", 403);
+      }
+      if (!workspace.departments.some((department) => department.id === departmentId)) {
+        throw mobileHttpError("Selecione um setor válido.");
+      }
+      if (
+        workspace.employees.some((employee) => employee.email.toLowerCase() === email) ||
+        workspace.invitations.some((invitation) => invitation.email.toLowerCase() === email)
+      ) {
+        throw mobileHttpError("Já existe um funcionário ou convite com este e-mail.", 409);
+      }
+      const invitation = {
+        id: nextId("i", workspace.invitations),
+        tokenHash: hashToken(invitationToken),
+        name,
+        email,
+        role,
+        departmentId,
+        status: "active" as const,
+        invitedById: currentUser.id,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + MOBILE_INVITATION_MAX_AGE_SECONDS * 1000).toISOString(),
+      };
+      workspace.invitations.push(invitation);
+      return {
+        invitationId: invitation.id,
+        companyName: workspace.company.name,
+        invitedByName: currentUser.name,
+      };
+    });
+
+    const invitationUrl = `${applicationOrigin(request)}/aceitar-convite?token=${encodeURIComponent(invitationToken)}`;
+    try {
+      const { sendEmployeeInvitation } = await import("./email.server");
+      await sendEmployeeInvitation({
+        email,
+        employeeName: name,
+        companyName: result.companyName,
+        invitedByName: result.invitedByName,
+        role,
+        invitationUrl,
+      });
+    } catch (error) {
+      await mutateDatabase((platform) => {
+        const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+        if (workspace) {
+          workspace.invitations = workspace.invitations.filter(
+            (invitation) => invitation.id !== result.invitationId,
+          );
+        }
+      });
+      throw error;
+    }
+  } else {
+    throw mobileHttpError("Ação de cadastro inválida.");
+  }
+
+  return {
+    ok: true,
+    ...(await readMobileWorkspaces(request)),
   };
 }
 

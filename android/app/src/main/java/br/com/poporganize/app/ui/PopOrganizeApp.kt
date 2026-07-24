@@ -2800,6 +2800,9 @@ private fun WorkSpaceSelector(
                 )
             }
             companyNames.forEachIndexed { index, companyName ->
+                if (selected == WorkSpace.Company && selectedCompanyIndex == index) {
+                    return@forEachIndexed
+                }
                 DropdownMenuItem(
                     text = {
                         Column {
@@ -2814,11 +2817,6 @@ private fun WorkSpaceSelector(
                         }
                     },
                     leadingIcon = { Icon(Icons.Rounded.Business, null, tint = PopBlue) },
-                    trailingIcon = {
-                        if (selected == WorkSpace.Company && selectedCompanyIndex == index) {
-                            Icon(Icons.Rounded.Check, null, tint = PopBlue)
-                        }
-                    },
                     onClick = {
                         expanded = false
                         onCompanySelect(index)
@@ -3255,7 +3253,7 @@ private fun TasksScreen(
     var showTaskTimePicker by remember { mutableStateOf(false) }
     var showTaskYearMenu by remember { mutableStateOf(false) }
     var showCompleted by remember { mutableStateOf(false) }
-    var selectedFilter by remember { mutableStateOf("Todas") }
+    var selectedFilter by remember { mutableStateOf("Hoje") }
     var editingTaskId by remember { mutableStateOf<Int?>(null) }
     var completingTaskId by remember { mutableStateOf<Int?>(null) }
     var deletingTaskId by remember { mutableStateOf<Int?>(null) }
@@ -3584,7 +3582,7 @@ private fun TasksScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                 )
                 Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Todas", "Hoje", "Atrasadas", "Próximas").forEach { filter ->
+                    listOf("Hoje", "Atrasadas", "Próximas", "Todas").forEach { filter ->
                         FilterChip(filter, selectedFilter == filter) { selectedFilter = filter }
                     }
                 }

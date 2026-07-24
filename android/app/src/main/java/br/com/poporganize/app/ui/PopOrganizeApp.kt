@@ -6586,6 +6586,7 @@ private fun EmployeesManagementPage(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         member.name,
+                                        color = PopText,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp,
                                         maxLines = 1,

@@ -738,7 +738,7 @@ function taskToMobileTask(
     priority: mobilePriority(task.priority),
     dueDate: task.dueDate,
     completed: task.status === "completed" || task.status === "waiting_review",
-    description: task.description,
+    description: task.description === "Tarefa criada no aplicativo" ? "" : task.description,
     assignee,
     assignedBy: native?.assignedBy ?? assignedBy,
     createdBy: native?.createdBy ?? createdBy,
@@ -963,7 +963,7 @@ export async function replaceMobileTasks(
         }
         if (permissions.canEditContent || existing.nativeOwnerId === account.id) {
           existing.title = item.title;
-          existing.description = item.description || "Tarefa criada no aplicativo";
+          existing.description = item.description.trim();
           existing.priority = priority(item.priority);
           existing.dueDate = item.dueDate;
           existing.responsibleId = mobileResponsibleId(workspace, account.id, item.assignee);
@@ -986,7 +986,7 @@ export async function replaceMobileTasks(
       const newTask: NativeTask = {
         id: `native-${account.id}-${item.id}`,
         title: item.title,
-        description: item.description || "Tarefa criada no aplicativo",
+        description: item.description.trim(),
         priority: priority(item.priority),
         status: item.completed ? "completed" : "pending",
         dueDate: item.dueDate,

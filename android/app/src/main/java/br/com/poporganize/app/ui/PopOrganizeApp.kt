@@ -2127,7 +2127,7 @@ private fun PopMainContent(
         companyNames.clear()
         companyNames.addAll(companies.map { it.name })
         companyDescriptions.clear()
-        companyDescriptions.addAll(companies.map { it.description.ifBlank { "Empresa e equipe" } })
+        companyDescriptions.addAll(companies.map { it.description.trim() })
         companyCanCreateTasks.clear()
         companyCanCreateTasks.addAll(companies.map { it.canCreateTasks })
         companyCanManageEmployees.clear()
@@ -2807,13 +2807,17 @@ private fun WorkSpaceSelector(
                     text = {
                         Column {
                             Text(companyName, fontWeight = FontWeight.Bold)
-                            Text(
-                                companyDescriptions.getOrElse(index) { "Empresa e equipe" },
-                                color = PopMuted,
-                                fontSize = 11.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            companyDescriptions.getOrNull(index)
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let { description ->
+                                    Text(
+                                        description,
+                                        color = PopMuted,
+                                        fontSize = 11.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                         }
                     },
                     leadingIcon = { Icon(Icons.Rounded.Business, null, tint = PopBlue) },

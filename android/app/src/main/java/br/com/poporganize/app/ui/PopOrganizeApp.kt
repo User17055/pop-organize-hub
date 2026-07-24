@@ -5906,6 +5906,58 @@ private fun MoreScreen(
                 )
             }
         }
+    } else if (activeManagementPage == "sectors") {
+        Dialog(
+            onDismissRequest = { activeManagementPage = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
+                ManagementOverviewPage(
+                    title = "Setores",
+                    subtitle = "${companyNames.getOrElse(selectedCompanyIndex) { "Empresa" }} • ${companySectors.size} cadastrados",
+                    emptyMessage = "Nenhum setor cadastrado nesta empresa.",
+                    items = companySectors.map { sector ->
+                        ManagementOverviewEntry(
+                            id = sector.id,
+                            title = sector.name,
+                            description = sector.description,
+                            detail = "${companyMembers.count { it.sectorId == sector.id || it.sector == sector.name }} pessoas",
+                        )
+                    },
+                    icon = Icons.Rounded.AccountTree,
+                    canAdd = canManageDepartments,
+                    addDescription = "Cadastrar setor",
+                    onAdd = { showSectorsDialog = true },
+                    onBack = { activeManagementPage = null },
+                )
+            }
+        }
+    } else if (activeManagementPage == "groups") {
+        Dialog(
+            onDismissRequest = { activeManagementPage = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
+                ManagementOverviewPage(
+                    title = "Grupos",
+                    subtitle = "${companyNames.getOrElse(selectedCompanyIndex) { "Empresa" }} • ${companyGroups.size} cadastrados",
+                    emptyMessage = "Nenhum grupo cadastrado nesta empresa.",
+                    items = companyGroups.map { group ->
+                        ManagementOverviewEntry(
+                            id = group.id,
+                            title = group.name,
+                            description = group.description,
+                            detail = "${group.memberIds.size} membros",
+                        )
+                    },
+                    icon = Icons.Rounded.Groups,
+                    canAdd = canManageGroups,
+                    addDescription = "Cadastrar grupo",
+                    onAdd = { showGroupsDialog = true },
+                    onBack = { activeManagementPage = null },
+                )
+            }
+        }
     } else {
         LazyColumn(
             modifier = Modifier
@@ -5961,13 +6013,13 @@ private fun MoreScreen(
                             MoreShortcut(
                                 icon = Icons.Rounded.Groups,
                                 title = "Grupos",
-                                onClick = { showGroupsDialog = true },
+                                onClick = { activeManagementPage = "groups" },
                                 modifier = Modifier.weight(1f),
                             )
                             MoreShortcut(
                                 icon = Icons.Rounded.AccountTree,
                                 title = "Setores",
-                                onClick = { showSectorsDialog = true },
+                                onClick = { activeManagementPage = "sectors" },
                                 modifier = Modifier.weight(1f),
                             )
                             MoreShortcut(
@@ -6265,6 +6317,12 @@ private fun MoreScreen(
             },
             confirmButton = {
                 Row {
+                    TextButton(
+                        enabled = savingManagementAction == null,
+                        onClick = { selectedMember = null },
+                    ) {
+                        Text("Fechar", color = PopMuted)
+                    }
                     if (member.pending) {
                         TextButton(
                             enabled = savingManagementAction == null,
@@ -6305,27 +6363,19 @@ private fun MoreScreen(
                 }
             },
             dismissButton = {
-                Row {
-                    if (!member.email.equals(googleAccount?.email, ignoreCase = true)) {
-                        TextButton(
-                            enabled = savingManagementAction == null,
-                            onClick = {
-                                memberPendingRemoval = member
-                                selectedMember = null
-                            },
-                        ) {
-                            Text(
-                                if (member.pending) "Cancelar convite" else "Desvincular",
-                                color = Color(0xFFE5484D),
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
+                if (!member.email.equals(googleAccount?.email, ignoreCase = true)) {
                     TextButton(
                         enabled = savingManagementAction == null,
-                        onClick = { selectedMember = null },
+                        onClick = {
+                            memberPendingRemoval = member
+                            selectedMember = null
+                        },
                     ) {
-                        Text("Fechar", color = PopMuted)
+                        Text(
+                            if (member.pending) "Cancelar convite" else "Desvincular",
+                            color = Color(0xFFE5484D),
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
             },
@@ -6442,66 +6492,54 @@ private fun MoreScreen(
     if (showSectorsDialog && workSpace == WorkSpace.Company) {
         AlertDialog(
             onDismissRequest = { showSectorsDialog = false },
-            title = { Text("Setores", fontWeight = FontWeight.ExtraBold) },
+            title = { Text("Cadastrar setor", fontWeight = FontWeight.ExtraBold) },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    if (companySectors.isEmpty()) {
-                        Text("Nenhum setor cadastrado nesta empresa.", color = PopMuted, fontSize = 12.sp)
-                    } else {
-                        companySectors.forEach { sector ->
-                            ManagementListItem(
-                                "Setor",
-                                sector.name,
-                                sector.description,
-                            )
-                        }
-                    }
-                    if (canManageDepartments) {
-                        HorizontalDivider(color = PopMuted.copy(alpha = .18f))
-                        Text(
-                            "Cadastrar setor",
-                            color = PopBlue,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 12.sp,
-                        )
-                        ManagementField(sectorName, { sectorName = it }, "Nome")
-                        ManagementField(sectorDescription, { sectorDescription = it }, "Descrição")
-                        TextButton(
-                            enabled =
-                                savingManagementAction == null &&
-                                    sectorName.trim().length >= 2 &&
-                                    sectorDescription.trim().length >= 3,
-                            onClick = {
-                                submitManagementAction(
-                                    action = "createDepartment",
-                                    payload = JSONObject()
-                                        .put("action", "createDepartment")
-                                        .put("name", sectorName.trim())
-                                        .put("description", sectorDescription.trim()),
-                                    successMessage = "Setor cadastrado.",
-                                ) {
-                                    sectorName = ""
-                                    sectorDescription = ""
-                                }
-                            },
-                            modifier = Modifier.align(Alignment.End),
-                        ) {
-                            if (savingManagementAction == "createDepartment") {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                                Spacer(Modifier.width(8.dp))
-                            }
-                            Text("+ Cadastrar", color = PopBlue, fontWeight = FontWeight.Bold)
-                        }
-                    }
+                    Text(
+                        "Organize os colaboradores e as tarefas por área da empresa.",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                    )
+                    ManagementField(sectorName, { sectorName = it }, "Nome")
+                    ManagementField(sectorDescription, { sectorDescription = it }, "Descrição")
                 }
             },
-            confirmButton = { TextButton(onClick = { showSectorsDialog = false }) { Text("Fechar") } },
+            confirmButton = {
+                TextButton(
+                    enabled =
+                        savingManagementAction == null &&
+                            sectorName.trim().length >= 2 &&
+                            sectorDescription.trim().length >= 3,
+                    onClick = {
+                        submitManagementAction(
+                            action = "createDepartment",
+                            payload = JSONObject()
+                                .put("action", "createDepartment")
+                                .put("name", sectorName.trim())
+                                .put("description", sectorDescription.trim()),
+                            successMessage = "Setor cadastrado.",
+                        ) {
+                            sectorName = ""
+                            sectorDescription = ""
+                            showSectorsDialog = false
+                        }
+                    },
+                ) {
+                    if (savingManagementAction == "createDepartment") {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text("Cadastrar", color = PopBlue, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSectorsDialog = false }) {
+                    Text("Cancelar", color = PopMuted)
+                }
+            },
             shape = RoundedCornerShape(26.dp),
             containerColor = PopSurface,
         )
@@ -6510,69 +6548,196 @@ private fun MoreScreen(
     if (showGroupsDialog && workSpace == WorkSpace.Company) {
         AlertDialog(
             onDismissRequest = { showGroupsDialog = false },
-            title = { Text("Grupos", fontWeight = FontWeight.ExtraBold) },
+            title = { Text("Cadastrar grupo", fontWeight = FontWeight.ExtraBold) },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    if (companyGroups.isEmpty()) {
-                        Text("Nenhum grupo cadastrado nesta empresa.", color = PopMuted, fontSize = 12.sp)
-                    } else {
-                        companyGroups.forEach { group ->
-                            ManagementListItem(
-                                "Grupo",
-                                group.name,
-                                group.description,
-                            )
-                        }
-                    }
-                    if (canManageGroups) {
-                        HorizontalDivider(color = PopMuted.copy(alpha = .18f))
-                        Text(
-                            "Cadastrar grupo",
-                            color = PopBlue,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 12.sp,
-                        )
-                        ManagementField(groupName, { groupName = it }, "Nome")
-                        ManagementField(groupDescription, { groupDescription = it }, "Descrição")
-                        TextButton(
-                            enabled =
-                                savingManagementAction == null &&
-                                    groupName.trim().length >= 2 &&
-                                    groupDescription.trim().length >= 3,
-                            onClick = {
-                                submitManagementAction(
-                                    action = "createGroup",
-                                    payload = JSONObject()
-                                        .put("action", "createGroup")
-                                        .put("name", groupName.trim())
-                                        .put("description", groupDescription.trim()),
-                                    successMessage = "Grupo cadastrado.",
-                                ) {
-                                    groupName = ""
-                                    groupDescription = ""
-                                }
-                            },
-                            modifier = Modifier.align(Alignment.End),
-                        ) {
-                            if (savingManagementAction == "createGroup") {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                                Spacer(Modifier.width(8.dp))
-                            }
-                            Text("+ Cadastrar", color = PopBlue, fontWeight = FontWeight.Bold)
-                        }
-                    }
+                    Text(
+                        "Crie uma equipe que pode reunir pessoas de diferentes setores.",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                    )
+                    ManagementField(groupName, { groupName = it }, "Nome")
+                    ManagementField(groupDescription, { groupDescription = it }, "Descrição")
                 }
             },
-            confirmButton = { TextButton(onClick = { showGroupsDialog = false }) { Text("Fechar") } },
+            confirmButton = {
+                TextButton(
+                    enabled =
+                        savingManagementAction == null &&
+                            groupName.trim().length >= 2 &&
+                            groupDescription.trim().length >= 3,
+                    onClick = {
+                        submitManagementAction(
+                            action = "createGroup",
+                            payload = JSONObject()
+                                .put("action", "createGroup")
+                                .put("name", groupName.trim())
+                                .put("description", groupDescription.trim()),
+                            successMessage = "Grupo cadastrado.",
+                        ) {
+                            groupName = ""
+                            groupDescription = ""
+                            showGroupsDialog = false
+                        }
+                    },
+                ) {
+                    if (savingManagementAction == "createGroup") {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text("Cadastrar", color = PopBlue, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGroupsDialog = false }) {
+                    Text("Cancelar", color = PopMuted)
+                }
+            },
             shape = RoundedCornerShape(26.dp),
             containerColor = PopSurface,
         )
+    }
+}
+
+private data class ManagementOverviewEntry(
+    val id: String,
+    val title: String,
+    val description: String,
+    val detail: String,
+)
+
+@Composable
+private fun ManagementOverviewPage(
+    title: String,
+    subtitle: String,
+    emptyMessage: String,
+    items: List<ManagementOverviewEntry>,
+    icon: ImageVector,
+    canAdd: Boolean,
+    addDescription: String,
+    onAdd: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 110.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(42.dp)) {
+                        Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText)
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(title, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            subtitle,
+                            color = PopMuted,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            if (items.isEmpty()) {
+                item {
+                    Surface(
+                        color = PopSurfaceAlt,
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            emptyMessage,
+                            color = PopMuted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
+                }
+            } else {
+                items(items, key = { it.id }) { item ->
+                    Surface(
+                        color = PopSurfaceAlt,
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .background(PopBlueSoft, RoundedCornerShape(14.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(icon, null, tint = PopBlue, modifier = Modifier.size(23.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    item.title,
+                                    color = PopText,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                if (item.description.isNotBlank()) {
+                                    Text(
+                                        item.description,
+                                        color = PopMuted,
+                                        fontSize = 10.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            Text(
+                                item.detail,
+                                color = PopMuted,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (!canAdd) {
+                item {
+                    Text(
+                        "Seu grupo de permissão pode visualizar, mas não cadastrar.",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+            }
+        }
+
+        if (canAdd) {
+            FloatingActionButton(
+                onClick = onAdd,
+                containerColor = PopBlue,
+                contentColor = Color.White,
+                shape = CircleShape,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 24.dp, bottom = 28.dp)
+                    .size(66.dp),
+            ) {
+                Icon(Icons.Rounded.Add, addDescription, modifier = Modifier.size(30.dp))
+            }
+        }
     }
 }
 

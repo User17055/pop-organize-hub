@@ -2107,11 +2107,11 @@ private fun PopMainContent(
 
     fun requestCreateCompany() {
         if (sessionMode == SessionMode.Guest || googleAccount?.apiToken.isNullOrBlank()) {
-            Toast.makeText(context, "Entre na sua conta para criar uma empresa.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Entre na sua conta para criar um novo espaço.", Toast.LENGTH_LONG).show()
             return
         }
         if (companyOwnership.count { it } >= 3) {
-            Toast.makeText(context, "Você pode criar no máximo 3 empresas.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Você pode criar no máximo 3 espaços empresariais.", Toast.LENGTH_LONG).show()
             return
         }
         createCompanyError = null
@@ -2587,11 +2587,11 @@ private fun PopMainContent(
             onDismissRequest = {
                 if (!createCompanyPending) showCreateCompany = false
             },
-            title = { Text("Criar empresa", fontWeight = FontWeight.ExtraBold) },
+            title = { Text("Novo espaço", fontWeight = FontWeight.ExtraBold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        "A empresa terá tarefas, funcionários, setores e grupos separados do Meu espaço.",
+                        "Crie um espaço para organizar as tarefas, os funcionários, os setores e os grupos da sua empresa, separado do Meu espaço.",
                         color = PopMuted,
                         lineHeight = 20.sp,
                     )
@@ -2599,7 +2599,7 @@ private fun PopMainContent(
                         value = createCompanyName,
                         onValueChange = { createCompanyName = it.take(80) },
                         enabled = !createCompanyPending,
-                        label = { Text("Nome da empresa") },
+                        label = { Text("Nome do espaço") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -2607,13 +2607,13 @@ private fun PopMainContent(
                         value = createCompanyDescription,
                         onValueChange = { createCompanyDescription = it.take(160) },
                         enabled = !createCompanyPending,
-                        label = { Text("Pequena descrição") },
+                        label = { Text("Descrição do espaço (opcional)") },
                         minLines = 2,
                         maxLines = 4,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Text(
-                        "${companyOwnership.count { it }}/3 empresas criadas",
+                        "${companyOwnership.count { it }}/3 espaços empresariais criados",
                         color = PopMuted,
                         fontSize = 12.sp,
                     )
@@ -2650,9 +2650,9 @@ private fun PopMainContent(
                                 createCompanyName = ""
                                 createCompanyDescription = ""
                                 showCreateCompany = false
-                                Toast.makeText(context, "Empresa criada com sucesso.", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Novo espaço criado com sucesso.", Toast.LENGTH_LONG).show()
                             }.onFailure { error ->
-                                createCompanyError = error.localizedMessage ?: "Não foi possível criar a empresa."
+                                createCompanyError = error.localizedMessage ?: "Não foi possível criar o espaço."
                             }
                             createCompanyPending = false
                         }
@@ -2826,8 +2826,8 @@ private fun WorkSpaceSelector(
             DropdownMenuItem(
                 text = {
                     Column {
-                        Text("Criar empresa", color = PopBlue, fontWeight = FontWeight.ExtraBold)
-                        Text("Máximo de 3 por conta", color = PopMuted, fontSize = 11.sp)
+                        Text("Novo espaço", color = PopBlue, fontWeight = FontWeight.ExtraBold)
+                        Text("Crie até 3 espaços empresariais", color = PopMuted, fontSize = 11.sp)
                     }
                 },
                 leadingIcon = { Icon(Icons.Rounded.AddBusiness, null, tint = PopBlue) },

@@ -295,6 +295,8 @@ private const val ACCOUNT_TASKS_STORAGE_PREFIX = "pop_organize_account_tasks_"
 private const val ACCOUNT_TASKS_DIRTY_PREFIX = "pop_organize_account_tasks_dirty_"
 private const val DELETED_TASKS_STORAGE_PREFIX = "pop_organize_deleted_tasks_"
 private const val ASSIGNED_TASKS_SEEN_PREFIX = "pop_organize_assigned_tasks_seen_"
+private const val LAST_WORKSPACE_STORAGE_PREFIX = "pop_organize_last_workspace_"
+private const val PERSONAL_WORKSPACE_STORAGE_VALUE = "personal"
 private const val MOBILE_API_BASE_URL = "https://app.poporganize.com.br/api/mobile"
 private const val LIGHT_THEME_STORAGE = "pop_organize_light_theme"
 private const val LOCAL_PREFERENCES = "pop_organize_local"
@@ -2013,6 +2015,7 @@ private fun PopMainContent(
     var taskToOpenId by remember { mutableStateOf<Int?>(null) }
     var workSpace by remember { mutableStateOf(WorkSpace.Personal) }
     var selectedCompanyIndex by remember { mutableIntStateOf(0) }
+    var preferredWorkspaceRestored by remember(googleAccount?.id) { mutableStateOf(false) }
     var showCreateCompany by remember { mutableStateOf(false) }
     var createCompanyName by remember { mutableStateOf("") }
     var createCompanyDescription by remember { mutableStateOf("") }
@@ -2054,6 +2057,9 @@ private fun PopMainContent(
     val companyTaskGroups = remember(sessionMode) { mutableStateListOf<MutableList<PopTask>>() }
     val assignmentPreferences = remember {
         context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+    }
+    val lastWorkspaceKey = remember(googleAccount?.id) {
+        "$LAST_WORKSPACE_STORAGE_PREFIX${googleAccount?.id.orEmpty()}"
     }
     val assignmentSeenKey = remember(googleAccount?.id) {
         "$ASSIGNED_TASKS_SEEN_PREFIX${googleAccount?.id.orEmpty()}"
@@ -2160,6 +2166,20 @@ private fun PopMainContent(
         companyGroupLists.addAll(companies.map { it.groups })
         while (companyTaskGroups.size < companies.size) companyTaskGroups.add(mutableStateListOf())
         while (companyTaskGroups.size > companies.size) companyTaskGroups.removeAt(companyTaskGroups.lastIndex)
+        if (!preferredWorkspaceRestored) {
+            val preferredWorkspaceId = assignmentPreferences.getString(
+                lastWorkspaceKey,
+                PERSONAL_WORKSPACE_STORAGE_VALUE,
+            )
+            val preferredCompanyIndex = companies.indexOfFirst { it.id == preferredWorkspaceId }
+            if (preferredCompanyIndex >= 0) {
+                selectedCompanyIndex = preferredCompanyIndex
+                workSpace = WorkSpace.Company
+            } else {
+                workSpace = WorkSpace.Personal
+            }
+            preferredWorkspaceRestored = true
+        }
         if (selectedCompanyIndex !in companyTaskGroups.indices) selectedCompanyIndex = 0
         companyMembers.clear()
         companyMembers.addAll(companyMemberLists.getOrElse(selectedCompanyIndex) { emptyList() })
@@ -2564,6 +2584,26 @@ private fun PopMainContent(
             destination = PopDestination.Tasks
             taskToOpenId = requestedTaskId
             onExternalTaskOpened()
+        }
+    }
+    LaunchedEffect(
+        preferredWorkspaceRestored,
+        workSpace,
+        selectedCompanyIndex,
+        companyIds.toList(),
+        googleAccount?.id,
+    ) {
+        if (!preferredWorkspaceRestored || googleAccount == null) return@LaunchedEffect
+        val workspaceValue =
+            if (workSpace == WorkSpace.Company) {
+                companyIds.getOrNull(selectedCompanyIndex).orEmpty()
+            } else {
+                PERSONAL_WORKSPACE_STORAGE_VALUE
+            }
+        if (workspaceValue.isNotBlank()) {
+            assignmentPreferences.edit()
+                .putString(lastWorkspaceKey, workspaceValue)
+                .apply()
         }
     }
     LaunchedEffect(companyTaskGroups.map { it.toList() }, companyIds.toList(), googleAccount?.apiToken) {
@@ -6911,6 +6951,7 @@ private fun ManagementChoiceField(
                     Text(label, color = PopMuted, fontSize = 9.sp)
                     Text(
                         value.ifBlank { "Selecionar" },
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                     )

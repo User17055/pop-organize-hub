@@ -620,6 +620,47 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
         invitation.groupIds = groupIds;
       }
     });
+  } else if (action === "removeEmployee") {
+    const employeeId = requiredText(input.employeeId, "O funcionario", 1);
+    await mutateDatabase((platform) => {
+      const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+      const currentUser = workspace?.employees.find(
+        (employee) => employee.id === account.id && employee.status === "active",
+      );
+      if (!workspace || !currentUser) throw mobileHttpError("Empresa nao encontrada.", 404);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!hasPermission(permissionSet, "manage.employees")) {
+        throw mobileHttpError("Seu grupo de permissao nao pode desvincular funcionarios.", 403);
+      }
+
+      const employee = workspace.employees.find((item) => item.id === employeeId);
+      const invitation = workspace.invitations.find((item) => item.id === employeeId);
+      if (!employee && !invitation) throw mobileHttpError("Funcionario nao encontrado.", 404);
+      if (employee?.id === workspace.company.ownerId) {
+        throw mobileHttpError("O proprietario da empresa nao pode ser desvinculado.", 403);
+      }
+      if (employee?.id === currentUser.id) {
+        throw mobileHttpError("Voce nao pode desvincular a propria conta.", 403);
+      }
+
+      if (employee) {
+        workspace.employees = workspace.employees.filter((item) => item.id !== employee.id);
+        workspace.groups.forEach((group) => {
+          group.memberIds = group.memberIds.filter((id) => id !== employee.id);
+        });
+        workspace.tasks.forEach((task) => {
+          if (task.responsibleId === employee.id) task.responsibleId = "";
+          if (task.reviewerId === employee.id) task.reviewerId = undefined;
+        });
+      }
+      if (invitation) {
+        workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
+      }
+    });
   } else if (action === "resendInvitation") {
     const invitationId = requiredText(input.invitationId, "O convite", 1);
     const invitationToken = createSessionToken();

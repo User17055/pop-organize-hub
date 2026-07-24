@@ -16,7 +16,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -5815,6 +5814,7 @@ private fun MoreScreen(
     var showGroupsDialog by remember { mutableStateOf(false) }
     var showEmployeeForm by remember { mutableStateOf(false) }
     var selectedMember by remember { mutableStateOf<CompanyMember?>(null) }
+    var memberPendingRemoval by remember { mutableStateOf<CompanyMember?>(null) }
     var editingMemberSectorId by remember { mutableStateOf("") }
     var editingMemberGroupIds by remember { mutableStateOf(setOf<String>()) }
     var editingMemberRole by remember { mutableStateOf("Colaborador") }
@@ -6305,11 +6305,96 @@ private fun MoreScreen(
                 }
             },
             dismissButton = {
+                Row {
+                    if (!member.email.equals(googleAccount?.email, ignoreCase = true)) {
+                        TextButton(
+                            enabled = savingManagementAction == null,
+                            onClick = {
+                                memberPendingRemoval = member
+                                selectedMember = null
+                            },
+                        ) {
+                            Text(
+                                if (member.pending) "Cancelar convite" else "Desvincular",
+                                color = Color(0xFFE5484D),
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                    TextButton(
+                        enabled = savingManagementAction == null,
+                        onClick = { selectedMember = null },
+                    ) {
+                        Text("Fechar", color = PopMuted)
+                    }
+                }
+            },
+            shape = RoundedCornerShape(26.dp),
+            containerColor = PopSurface,
+        )
+    }
+
+    memberPendingRemoval?.let { member ->
+        AlertDialog(
+            onDismissRequest = {
+                if (savingManagementAction == null) memberPendingRemoval = null
+            },
+            title = {
+                Text(
+                    if (member.pending) "Cancelar convite?" else "Desvincular colaborador?",
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            },
+            text = {
+                Text(
+                    if (member.pending) {
+                        "O convite de ${member.name} será cancelado."
+                    } else {
+                        "${member.name} perderá o acesso à empresa. As tarefas existentes serão mantidas."
+                    },
+                    color = PopMuted,
+                )
+            },
+            confirmButton = {
                 TextButton(
                     enabled = savingManagementAction == null,
-                    onClick = { selectedMember = null },
+                    onClick = {
+                        submitManagementAction(
+                            action = "removeEmployee",
+                            payload = JSONObject()
+                                .put("action", "removeEmployee")
+                                .put("employeeId", member.id),
+                            successMessage =
+                                if (member.pending) "Convite cancelado." else "Colaborador desvinculado.",
+                        ) {
+                            memberPendingRemoval = null
+                        }
+                    },
                 ) {
-                    Text("Fechar", color = PopMuted)
+                    if (savingManagementAction == "removeEmployee") {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = Color(0xFFE5484D),
+                        )
+                        Spacer(Modifier.width(7.dp))
+                    }
+                    Text(
+                        if (member.pending) "Cancelar convite" else "Desvincular",
+                        color = Color(0xFFE5484D),
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = savingManagementAction == null,
+                    onClick = {
+                        memberPendingRemoval = null
+                        selectedMember = member
+                    },
+                ) {
+                    Text("Voltar", color = PopMuted)
                 }
             },
             shape = RoundedCornerShape(26.dp),
@@ -6936,14 +7021,7 @@ private fun ManagementChoiceField(
     )
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = .92f,
-                    stiffness = 260f,
-                ),
-            ),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Surface(
@@ -6982,10 +7060,10 @@ private fun ManagementChoiceField(
                     expandFrom = Alignment.Top,
                     animationSpec = tween(280, easing = FastOutSlowInEasing),
                 ),
-            exit = fadeOut(tween(160, easing = FastOutSlowInEasing)) +
+            exit = fadeOut(tween(80, easing = FastOutSlowInEasing)) +
                 shrinkVertically(
                     shrinkTowards = Alignment.Top,
-                    animationSpec = tween(240, easing = FastOutSlowInEasing),
+                    animationSpec = tween(130, easing = FastOutSlowInEasing),
                 ),
         ) {
             Surface(

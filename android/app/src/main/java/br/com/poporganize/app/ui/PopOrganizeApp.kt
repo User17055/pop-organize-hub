@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -5145,7 +5146,7 @@ private fun PriorityChoicePill(label: String, selected: Boolean, onClick: () -> 
 @Composable
 private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val textColor by animateColorAsState(
-        targetValue = if (selected) PopBlue else PopMuted,
+        targetValue = if (selected) PopBlue else PopText,
         animationSpec = tween(200),
         label = "taskFilterColor",
     )
@@ -6925,17 +6926,24 @@ private fun ManagementChoiceField(
     var expanded by remember { mutableStateOf(false) }
     val arrowRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
         label = "management-choice-arrow",
     )
     val fieldColor by animateColorAsState(
         targetValue = if (expanded) PopBlueSoft else PopSurfaceAlt,
-        animationSpec = tween(durationMillis = 160),
+        animationSpec = tween(durationMillis = 200),
         label = "management-choice-color",
     )
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = .92f,
+                    stiffness = 260f,
+                ),
+            ),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Surface(
@@ -6969,15 +6977,15 @@ private fun ManagementChoiceField(
 
         AnimatedVisibility(
             visible = expanded,
-            enter = fadeIn(tween(120)) +
+            enter = fadeIn(tween(190, easing = FastOutSlowInEasing)) +
                 expandVertically(
                     expandFrom = Alignment.Top,
-                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                    animationSpec = tween(280, easing = FastOutSlowInEasing),
                 ),
-            exit = fadeOut(tween(90)) +
+            exit = fadeOut(tween(160, easing = FastOutSlowInEasing)) +
                 shrinkVertically(
                     shrinkTowards = Alignment.Top,
-                    animationSpec = tween(150, easing = FastOutSlowInEasing),
+                    animationSpec = tween(240, easing = FastOutSlowInEasing),
                 ),
         ) {
             Surface(
@@ -6988,42 +6996,33 @@ private fun ManagementChoiceField(
                 Column(Modifier.padding(6.dp)) {
                     options.forEach { (id, name) ->
                         val selected = value == name || value == id
-                        AnimatedVisibility(
-                            visible = expanded,
-                            enter = fadeIn(tween(110)) +
-                                expandVertically(
-                                    expandFrom = Alignment.Top,
-                                    animationSpec = tween(150),
-                                ),
+                        Surface(
+                            onClick = {
+                                onSelect(id)
+                                expanded = false
+                            },
+                            color = if (selected) PopBlueSoft else Color.Transparent,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Surface(
-                                onClick = {
-                                    onSelect(id)
-                                    expanded = false
-                                },
-                                color = if (selected) PopBlueSoft else Color.Transparent,
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.fillMaxWidth(),
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        name,
-                                        color = if (selected) PopBlue else MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 13.sp,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                        modifier = Modifier.weight(1f),
+                                Text(
+                                    name,
+                                    color = if (selected) PopBlue else MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (selected) {
+                                    Icon(
+                                        Icons.Rounded.Check,
+                                        "Selecionado",
+                                        tint = PopBlue,
+                                        modifier = Modifier.size(18.dp),
                                     )
-                                    if (selected) {
-                                        Icon(
-                                            Icons.Rounded.Check,
-                                            "Selecionado",
-                                            tint = PopBlue,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
                                 }
                             }
                         }

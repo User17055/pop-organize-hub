@@ -34,6 +34,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -268,9 +269,17 @@ private data class CompanyMember(
     val sector: String,
     val id: String = "",
     val pending: Boolean = false,
+    val photoUrl: String = "",
+    val sectorId: String = "",
+    val groupIds: List<String> = emptyList(),
 )
 private data class CompanySector(val name: String, val description: String, val id: String = "")
-private data class CompanyGroup(val name: String, val description: String, val id: String = "")
+private data class CompanyGroup(
+    val name: String,
+    val description: String,
+    val id: String = "",
+    val memberIds: List<String> = emptyList(),
+)
 private enum class WorkSpace { Personal, Company }
 
 private const val GUEST_TASKS_STORAGE = "pop_organize_guest_tasks"
@@ -594,14 +603,17 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                 }
                 val groups = List(groupsJson.length()) { groupIndex ->
                     val group = groupsJson.optJSONObject(groupIndex) ?: JSONObject()
+                    val memberIdsJson = group.optJSONArray("memberIds") ?: JSONArray()
                     CompanyGroup(
                         group.optString("name"),
                         group.optString("description"),
                         group.optString("id"),
+                        List(memberIdsJson.length()) { memberIndex -> memberIdsJson.optString(memberIndex) },
                     )
                 }
                 val employees = List(employeesJson.length()) { employeeIndex ->
                     val employee = employeesJson.optJSONObject(employeeIndex) ?: JSONObject()
+                    val groupIdsJson = employee.optJSONArray("groupIds") ?: JSONArray()
                     CompanyMember(
                         name = employee.optString("name"),
                         email = employee.optString("email"),
@@ -609,6 +621,9 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         sector = employee.optString("sector"),
                         id = employee.optString("id"),
                         pending = employee.optBoolean("pending", false),
+                        photoUrl = employee.optString("photoUrl"),
+                        sectorId = employee.optString("sectorId"),
+                        groupIds = List(groupIdsJson.length()) { groupIndex -> groupIdsJson.optString(groupIndex) },
                     )
                 }
                 add(
@@ -5756,10 +5771,16 @@ private fun MoreScreen(
     var activeManagementPage by remember { mutableStateOf<String?>(null) }
     var showSectorsDialog by remember { mutableStateOf(false) }
     var showGroupsDialog by remember { mutableStateOf(false) }
+    var showEmployeeForm by remember { mutableStateOf(false) }
+    var selectedMember by remember { mutableStateOf<CompanyMember?>(null) }
+    var editingMemberSectorId by remember { mutableStateOf("") }
+    var editingMemberGroupIds by remember { mutableStateOf(setOf<String>()) }
+    var editingMemberRole by remember { mutableStateOf("Colaborador") }
     var memberName by remember { mutableStateOf("") }
     var memberEmail by remember { mutableStateOf("") }
-    var memberRole by remember { mutableStateOf("Funcionário") }
+    var memberRole by remember { mutableStateOf("Colaborador") }
     var memberSectorId by remember { mutableStateOf("") }
+    var memberGroupIds by remember { mutableStateOf(setOf<String>()) }
     var sectorName by remember { mutableStateOf("") }
     var sectorDescription by remember { mutableStateOf("") }
     var groupName by remember { mutableStateOf("") }
@@ -5810,39 +5831,39 @@ private fun MoreScreen(
     }
 
     if (activeManagementPage == "employees") {
-        EmployeesManagementPage(
-            companyName = companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
-            companyMembers = companyMembers,
-            companySectors = companySectors,
-            canManageEmployees = canManageEmployees,
-            memberName = memberName,
-            onMemberNameChange = { memberName = it },
-            memberEmail = memberEmail,
-            onMemberEmailChange = { memberEmail = it },
-            memberRole = memberRole,
-            onMemberRoleChange = { memberRole = it },
-            memberSectorId = memberSectorId,
-            onMemberSectorChange = { memberSectorId = it },
-            saving = savingManagementAction == "inviteEmployee",
-            onInvite = {
-                submitManagementAction(
-                    action = "inviteEmployee",
-                    payload = JSONObject()
-                        .put("action", "inviteEmployee")
-                        .put("name", memberName.trim())
-                        .put("email", memberEmail.trim())
-                        .put("role", memberRole.trim())
-                        .put("departmentId", memberSectorId),
-                    successMessage = "Convite enviado por e-mail.",
-                ) {
-                    memberName = ""
-                    memberEmail = ""
-                    memberRole = "Funcionário"
-                }
-            },
-            onBack = { activeManagementPage = null },
-            onDismiss = onDismiss,
-        )
+        Dialog(
+            onDismissRequest = { activeManagementPage = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(
+                color = PopBackground,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                EmployeesManagementPage(
+                    companyName = companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
+                    companyMembers = companyMembers,
+                    companySectors = companySectors,
+                    companyGroups = companyGroups,
+                    currentUserEmail = googleAccount?.email.orEmpty(),
+                    currentUserPhotoUrl = googleAccount?.photoUrl.orEmpty(),
+                    canManageEmployees = canManageEmployees,
+                    onAdd = {
+                        memberSectorId = companySectors.firstOrNull()?.id.orEmpty()
+                        memberGroupIds = emptySet()
+                        showEmployeeForm = true
+                    },
+                    onMemberClick = { member ->
+                        editingMemberSectorId = member.sectorId.ifBlank {
+                            companySectors.firstOrNull { it.name == member.sector }?.id.orEmpty()
+                        }
+                        editingMemberGroupIds = member.groupIds.toSet()
+                        editingMemberRole = member.role
+                        selectedMember = member
+                    },
+                    onBack = { activeManagementPage = null },
+                )
+            }
+        }
     } else {
         LazyColumn(
             modifier = Modifier
@@ -6010,6 +6031,248 @@ private fun MoreScreen(
                 }
             }
         }
+    }
+
+    if (showEmployeeForm) {
+        val validInvite =
+            memberName.trim().length >= 2 &&
+                android.util.Patterns.EMAIL_ADDRESS.matcher(memberEmail.trim()).matches() &&
+                memberRole.trim().length >= 2 &&
+                memberSectorId.isNotBlank()
+        AlertDialog(
+            onDismissRequest = {
+                if (savingManagementAction == null) showEmployeeForm = false
+            },
+            title = { Text("Cadastrar funcionário", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 560.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        "A pessoa receberá um convite por e-mail para entrar na empresa.",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                    )
+                    ManagementField(memberName, { memberName = it }, "Nome")
+                    ManagementField(memberEmail, { memberEmail = it }, "E-mail")
+                    ManagementChoiceField(
+                        label = "Função",
+                        value = memberRole,
+                        options = listOf(
+                            "Colaborador" to "Colaborador",
+                            "Funcionário" to "Funcionário",
+                            "Gestor" to "Gestor",
+                        ),
+                        onSelect = { memberRole = it },
+                    )
+                    ManagementChoiceField(
+                        label = "Setor",
+                        value = companySectors.firstOrNull { it.id == memberSectorId }?.name.orEmpty(),
+                        options = companySectors.map { it.id to it.name },
+                        onSelect = { memberSectorId = it },
+                    )
+                    if (companyGroups.isNotEmpty()) {
+                        Text("Grupos", color = PopMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                            items(companyGroups, key = { it.id }) { group ->
+                                ChoicePill(group.name, group.id in memberGroupIds) {
+                                    memberGroupIds =
+                                        if (group.id in memberGroupIds) {
+                                            memberGroupIds - group.id
+                                        } else {
+                                            memberGroupIds + group.id
+                                        }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = validInvite && savingManagementAction == null,
+                    onClick = {
+                        submitManagementAction(
+                            action = "inviteEmployee",
+                            payload = JSONObject()
+                                .put("action", "inviteEmployee")
+                                .put("name", memberName.trim())
+                                .put("email", memberEmail.trim())
+                                .put("role", memberRole.trim())
+                                .put("departmentId", memberSectorId)
+                                .put("groupIds", JSONArray(memberGroupIds.toList())),
+                            successMessage = "Convite enviado por e-mail.",
+                        ) {
+                            memberName = ""
+                            memberEmail = ""
+                            memberRole = "Colaborador"
+                            memberGroupIds = emptySet()
+                            showEmployeeForm = false
+                        }
+                    },
+                ) {
+                    if (savingManagementAction == "inviteEmployee") {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(7.dp))
+                    }
+                    Text("Enviar convite", color = PopBlue, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = savingManagementAction == null,
+                    onClick = { showEmployeeForm = false },
+                ) {
+                    Text("Cancelar", color = PopMuted)
+                }
+            },
+            shape = RoundedCornerShape(26.dp),
+            containerColor = PopSurface,
+        )
+    }
+
+    selectedMember?.let { member ->
+        AlertDialog(
+            onDismissRequest = {
+                if (savingManagementAction == null) selectedMember = null
+            },
+            title = {
+                Column {
+                    Text(member.name, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        if (member.pending) "Convite pendente" else member.email,
+                        color = if (member.pending) Color(0xFFE27B00) else PopMuted,
+                        fontSize = 11.sp,
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 520.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    GoogleProfileAvatar(
+                        photoUrl = member.photoUrl.ifBlank {
+                            googleAccount?.photoUrl
+                                ?.takeIf { member.email.equals(googleAccount.email, ignoreCase = true) }
+                                .orEmpty()
+                        },
+                        modifier = Modifier.size(64.dp).align(Alignment.CenterHorizontally),
+                        fallbackIcon = Icons.Rounded.PersonOutline,
+                    )
+                    ManagementChoiceField(
+                        label = "Função",
+                        value = editingMemberRole,
+                        options = listOf(
+                            "Colaborador" to "Colaborador",
+                            "Funcionário" to "Funcionário",
+                            "Gestor" to "Gestor",
+                        ).let { options ->
+                            if (options.any { it.first == editingMemberRole }) {
+                                options
+                            } else {
+                                listOf(editingMemberRole to editingMemberRole) + options
+                            }
+                        },
+                        onSelect = { editingMemberRole = it },
+                    )
+                    ManagementChoiceField(
+                        label = "Setor",
+                        value = companySectors
+                            .firstOrNull { it.id == editingMemberSectorId }
+                            ?.name
+                            .orEmpty(),
+                        options = companySectors.map { it.id to it.name },
+                        onSelect = { editingMemberSectorId = it },
+                    )
+                    if (companyGroups.isNotEmpty()) {
+                        Text("Grupos", color = PopMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        companyGroups.forEach { group ->
+                            ChoicePill(group.name, group.id in editingMemberGroupIds) {
+                                editingMemberGroupIds =
+                                    if (group.id in editingMemberGroupIds) {
+                                        editingMemberGroupIds - group.id
+                                    } else {
+                                        editingMemberGroupIds + group.id
+                                    }
+                            }
+                        }
+                    }
+                    if (member.pending) {
+                        Surface(
+                            color = Color(0xFFFFA726).copy(alpha = .14f),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "Esta pessoa ainda não aceitou o convite.",
+                                color = Color(0xFFE27B00),
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Row {
+                    if (member.pending) {
+                        TextButton(
+                            enabled = savingManagementAction == null,
+                            onClick = {
+                                submitManagementAction(
+                                    action = "resendInvitation",
+                                    payload = JSONObject()
+                                        .put("action", "resendInvitation")
+                                        .put("invitationId", member.id),
+                                    successMessage = "Convite reenviado por e-mail.",
+                                ) {
+                                    selectedMember = null
+                                }
+                            },
+                        ) {
+                            Text("Reenviar", color = Color(0xFFE27B00), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    TextButton(
+                        enabled = editingMemberSectorId.isNotBlank() && savingManagementAction == null,
+                        onClick = {
+                            submitManagementAction(
+                                action = "updateEmployee",
+                                payload = JSONObject()
+                                    .put("action", "updateEmployee")
+                                    .put("employeeId", member.id)
+                                    .put("departmentId", editingMemberSectorId)
+                                    .put("role", editingMemberRole)
+                                    .put("groupIds", JSONArray(editingMemberGroupIds.toList())),
+                                successMessage = "Funcionário atualizado.",
+                            ) {
+                                selectedMember = null
+                            }
+                        },
+                    ) {
+                        Text("Salvar", color = PopBlue, fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = savingManagementAction == null,
+                    onClick = { selectedMember = null },
+                ) {
+                    Text("Fechar", color = PopMuted)
+                }
+            },
+            shape = RoundedCornerShape(26.dp),
+            containerColor = PopSurface,
+        )
     }
 
     if (showThemeDialog) {
@@ -6191,6 +6454,183 @@ private fun EmployeesManagementPage(
     companyName: String,
     companyMembers: List<CompanyMember>,
     companySectors: List<CompanySector>,
+    companyGroups: List<CompanyGroup>,
+    currentUserEmail: String,
+    currentUserPhotoUrl: String,
+    canManageEmployees: Boolean,
+    onAdd: () -> Unit,
+    onMemberClick: (CompanyMember) -> Unit,
+    onBack: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 110.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(42.dp)) {
+                        Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText)
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Funcionários", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            "$companyName • ${companyMembers.size} cadastrados",
+                            color = PopMuted,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            if (companyMembers.isEmpty()) {
+                item {
+                    Surface(
+                        color = PopSurfaceAlt,
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            "Nenhum funcionário cadastrado nesta empresa.",
+                            color = PopMuted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
+                }
+            } else {
+                items(companyMembers, key = { "${it.id}:${it.email}" }) { member ->
+                    val memberGroups = companyGroups
+                        .filter { it.id in member.groupIds }
+                        .joinToString(", ") { it.name }
+                    val pendingColor = Color(0xFFFFA726)
+                    Surface(
+                        onClick = { onMemberClick(member) },
+                        enabled = canManageEmployees,
+                        color = if (member.pending) {
+                            pendingColor.copy(alpha = .16f)
+                        } else {
+                            PopSurfaceAlt
+                        },
+                        shape = RoundedCornerShape(18.dp),
+                        border = if (member.pending) {
+                            BorderStroke(1.dp, pendingColor.copy(alpha = .48f))
+                        } else {
+                            null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            Modifier.padding(13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            GoogleProfileAvatar(
+                                photoUrl = member.photoUrl.ifBlank {
+                                    currentUserPhotoUrl.takeIf {
+                                        member.email.equals(currentUserEmail, ignoreCase = true)
+                                    }.orEmpty()
+                                },
+                                modifier = Modifier.size(46.dp),
+                                fallbackIcon = Icons.Rounded.PersonOutline,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        member.name,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (member.pending) {
+                                        Text(
+                                            "Pendente",
+                                            color = Color(0xFFE27B00),
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier
+                                                .background(
+                                                    pendingColor.copy(alpha = .2f),
+                                                    RoundedCornerShape(8.dp),
+                                                )
+                                                .padding(horizontal = 7.dp, vertical = 3.dp),
+                                        )
+                                    }
+                                }
+                                Text(
+                                    listOf(member.role, member.sector)
+                                        .filter(String::isNotBlank)
+                                        .joinToString(" • "),
+                                    color = PopMuted,
+                                    fontSize = 10.sp,
+                                )
+                                if (memberGroups.isNotBlank()) {
+                                    Text(
+                                        "Grupos: $memberGroups",
+                                        color = PopMuted,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                if (member.email.isNotBlank()) {
+                                    Text(
+                                        member.email,
+                                        color = PopMuted,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!canManageEmployees) {
+                item {
+                    Text(
+                        "Seu grupo de permissão pode visualizar a equipe, mas não alterá-la.",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+            }
+        }
+
+        if (canManageEmployees) {
+            FloatingActionButton(
+                onClick = onAdd,
+                containerColor = PopBlue,
+                contentColor = Color.White,
+                shape = CircleShape,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 24.dp, bottom = 28.dp)
+                    .size(66.dp),
+            ) {
+                Icon(Icons.Rounded.Add, "Cadastrar funcionário", modifier = Modifier.size(30.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmployeesManagementPageLegacy(
+    companyName: String,
+    companyMembers: List<CompanyMember>,
+    companySectors: List<CompanySector>,
     canManageEmployees: Boolean,
     memberName: String,
     onMemberNameChange: (String) -> Unit,
@@ -6213,8 +6653,7 @@ private fun EmployeesManagementPage(
 
     LazyColumn(
         modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 650.dp),
+            .fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {

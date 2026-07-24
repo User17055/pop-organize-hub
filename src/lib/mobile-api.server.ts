@@ -115,20 +115,28 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             id: employee.id,
             name: employee.name,
             email: employee.email,
+            photoUrl: employee.avatar ?? "",
             role: employee.role,
+            sectorId: employee.departmentId,
             sector:
               workspace.departments.find((department) => department.id === employee.departmentId)
                 ?.name ?? "",
+            groupIds: workspace.groups
+              .filter((group) => group.memberIds.includes(employee.id))
+              .map((group) => group.id),
             pending: false,
           })),
           ...workspace.invitations.map((invitation) => ({
             id: invitation.id,
             name: invitation.name,
             email: invitation.email,
+            photoUrl: "",
             role: invitation.role,
+            sectorId: invitation.departmentId,
             sector:
               workspace.departments.find((department) => department.id === invitation.departmentId)
                 ?.name ?? "",
+            groupIds: invitation.groupIds ?? [],
             pending: true,
           })),
         ],
@@ -141,6 +149,7 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
           id: group.id,
           name: group.name,
           description: group.description ?? "",
+          memberIds: group.memberIds,
         })),
       };
     });
@@ -484,6 +493,9 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
     const email = requiredText(input.email, "O e-mail").toLowerCase();
     const role = requiredText(input.role, "O cargo");
     const departmentId = requiredText(input.departmentId, "O setor", 1);
+    const groupIds = Array.isArray(input.groupIds)
+      ? input.groupIds.filter((value): value is string => typeof value === "string")
+      : [];
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw mobileHttpError("Informe um e-mail válido.");
     }
@@ -519,6 +531,9 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
         email,
         role,
         departmentId,
+        groupIds: groupIds.filter((groupId) =>
+          workspace.groups.some((group) => group.id === groupId),
+        ),
         status: "active" as const,
         invitedById: currentUser.id,
         createdAt: new Date().toISOString(),
@@ -550,6 +565,122 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
           workspace.invitations = workspace.invitations.filter(
             (invitation) => invitation.id !== result.invitationId,
           );
+        }
+      });
+      throw error;
+    }
+  } else if (action === "updateEmployee") {
+    const employeeId = requiredText(input.employeeId, "O funcionario", 1);
+    const departmentId = requiredText(input.departmentId, "O setor", 1);
+    const role = requiredText(input.role, "A funcao");
+    const groupIds = Array.isArray(input.groupIds)
+      ? input.groupIds.filter((value): value is string => typeof value === "string")
+      : [];
+    await mutateDatabase((platform) => {
+      const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+      const currentUser = workspace?.employees.find(
+        (employee) => employee.id === account.id && employee.status === "active",
+      );
+      if (!workspace || !currentUser) throw mobileHttpError("Empresa nao encontrada.", 404);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!hasPermission(permissionSet, "manage.employees")) {
+        throw mobileHttpError("Seu grupo de permissao nao pode editar funcionarios.", 403);
+      }
+      if (!workspace.departments.some((department) => department.id === departmentId)) {
+        throw mobileHttpError("Selecione um setor valido.");
+      }
+      if (groupIds.some((groupId) => !workspace.groups.some((group) => group.id === groupId))) {
+        throw mobileHttpError("Selecione grupos validos.");
+      }
+
+      const employee = workspace.employees.find((item) => item.id === employeeId);
+      const invitation = workspace.invitations.find((item) => item.id === employeeId);
+      if (!employee && !invitation) throw mobileHttpError("Funcionario nao encontrado.", 404);
+      const grantsAdmin = role.toLowerCase().includes("admin");
+      const alreadyAdmin = employee?.role.toLowerCase().includes("admin") ?? false;
+      if (grantsAdmin && !alreadyAdmin && workspace.company.ownerId !== currentUser.id) {
+        throw mobileHttpError("Apenas o proprietario pode definir outro administrador.", 403);
+      }
+      if (employee) {
+        employee.departmentId = departmentId;
+        employee.role = role;
+        workspace.groups.forEach((group) => {
+          group.memberIds = groupIds.includes(group.id)
+            ? Array.from(new Set([...group.memberIds, employee.id]))
+            : group.memberIds.filter((id) => id !== employee.id);
+        });
+      }
+      if (invitation) {
+        invitation.departmentId = departmentId;
+        invitation.role = role;
+        invitation.groupIds = groupIds;
+      }
+    });
+  } else if (action === "resendInvitation") {
+    const invitationId = requiredText(input.invitationId, "O convite", 1);
+    const invitationToken = createSessionToken();
+    const invitationTokenHash = hashToken(invitationToken);
+    const result = await mutateDatabase((platform) => {
+      const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+      const currentUser = workspace?.employees.find(
+        (employee) => employee.id === account.id && employee.status === "active",
+      );
+      const invitation = workspace?.invitations.find((item) => item.id === invitationId);
+      if (!workspace || !currentUser || !invitation) {
+        throw mobileHttpError("Convite nao encontrado.", 404);
+      }
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!hasPermission(permissionSet, "manage.employees")) {
+        throw mobileHttpError("Seu grupo de permissao nao pode reenviar convites.", 403);
+      }
+      const previous = {
+        tokenHash: invitation.tokenHash,
+        createdAt: invitation.createdAt,
+        expiresAt: invitation.expiresAt,
+      };
+      invitation.tokenHash = invitationTokenHash;
+      invitation.invitedById = currentUser.id;
+      invitation.createdAt = new Date().toISOString();
+      invitation.expiresAt = new Date(
+        Date.now() + MOBILE_INVITATION_MAX_AGE_SECONDS * 1000,
+      ).toISOString();
+      return {
+        email: invitation.email,
+        employeeName: invitation.name,
+        role: invitation.role,
+        companyName: workspace.company.name,
+        invitedByName: currentUser.name,
+        previous,
+      };
+    });
+    const invitationUrl = `${applicationOrigin(request)}/aceitar-convite?token=${encodeURIComponent(invitationToken)}`;
+    try {
+      const { sendEmployeeInvitation } = await import("./email.server");
+      await sendEmployeeInvitation({
+        email: result.email,
+        employeeName: result.employeeName,
+        companyName: result.companyName,
+        invitedByName: result.invitedByName,
+        role: result.role,
+        invitationUrl,
+      });
+    } catch (error) {
+      await mutateDatabase((platform) => {
+        const invitation = platform.workspaces
+          .find((item) => item.company.id === workspaceId)
+          ?.invitations.find((item) => item.id === invitationId);
+        if (invitation?.tokenHash === invitationTokenHash) {
+          invitation.tokenHash = result.previous.tokenHash;
+          invitation.createdAt = result.previous.createdAt;
+          invitation.expiresAt = result.previous.expiresAt;
         }
       });
       throw error;
@@ -636,6 +767,11 @@ export async function respondToMobileInvitation(
         permissionGroupId: invitation.permissionGroupId,
         passwordHash: account.passwordHash,
         googleSubject: account.googleSubject,
+      });
+      workspace.groups.forEach((group) => {
+        if (invitation.groupIds?.includes(group.id)) {
+          group.memberIds = Array.from(new Set([...group.memberIds, account.id]));
+        }
       });
     }
     workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);

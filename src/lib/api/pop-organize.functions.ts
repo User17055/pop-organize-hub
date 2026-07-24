@@ -838,6 +838,11 @@ export const loginWithGoogle = createServerFn({ method: "POST" })
             passwordHash: account.passwordHash,
             googleSubject: account.googleSubject,
           });
+          workspace.groups.forEach((group) => {
+            if (invitation.groupIds?.includes(group.id)) {
+              group.memberIds = Array.from(new Set([...group.memberIds, account!.id]));
+            }
+          });
         }
         workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
         invitedWorkspace ??= workspace;
@@ -1483,6 +1488,11 @@ export const acceptInvitation = createServerFn({ method: "POST" })
         googleSubject: account.googleSubject,
       };
       workspace.employees.push(employee);
+      workspace.groups.forEach((group) => {
+        if (invitation.groupIds?.includes(group.id)) {
+          group.memberIds = Array.from(new Set([...group.memberIds, employee.id]));
+        }
+      });
       workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
       platform.sessions.push({
         id: nextId("s", platform.sessions),

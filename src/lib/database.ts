@@ -53,6 +53,7 @@ export type InvitationRecord = {
   departmentId: string;
   status: "active" | "inactive";
   permissionGroupId?: string;
+  groupIds?: string[];
   invitedById: string;
   createdAt: string;
   expiresAt: string;

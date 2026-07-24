@@ -145,6 +145,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -6881,10 +6882,24 @@ private fun ManagementChoiceField(
     onSelect: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxWidth()) {
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        label = "management-choice-arrow",
+    )
+    val fieldColor by animateColorAsState(
+        targetValue = if (expanded) PopBlueSoft else PopSurfaceAlt,
+        animationSpec = tween(durationMillis = 160),
+        label = "management-choice-color",
+    )
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         Surface(
-            onClick = { expanded = true },
-            color = PopSurfaceAlt,
+            onClick = { expanded = !expanded },
+            color = fieldColor,
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -6900,22 +6915,78 @@ private fun ManagementChoiceField(
                         fontWeight = FontWeight.Bold,
                     )
                 }
-                Icon(Icons.Rounded.KeyboardArrowDown, null, tint = PopMuted)
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    if (expanded) "Fechar lista" else "Abrir lista",
+                    tint = if (expanded) PopBlue else PopMuted,
+                    modifier = Modifier.rotate(arrowRotation),
+                )
             }
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            containerColor = PopSurface,
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(tween(120)) +
+                expandVertically(
+                    expandFrom = Alignment.Top,
+                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                ),
+            exit = fadeOut(tween(90)) +
+                shrinkVertically(
+                    shrinkTowards = Alignment.Top,
+                    animationSpec = tween(150, easing = FastOutSlowInEasing),
+                ),
         ) {
-            options.forEach { (id, name) ->
-                DropdownMenuItem(
-                    text = { Text(name) },
-                    onClick = {
-                        onSelect(id)
-                        expanded = false
-                    },
-                )
+            Surface(
+                color = PopSurfaceAlt,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(6.dp)) {
+                    options.forEach { (id, name) ->
+                        val selected = value == name || value == id
+                        AnimatedVisibility(
+                            visible = expanded,
+                            enter = fadeIn(tween(110)) +
+                                expandVertically(
+                                    expandFrom = Alignment.Top,
+                                    animationSpec = tween(150),
+                                ),
+                        ) {
+                            Surface(
+                                onClick = {
+                                    onSelect(id)
+                                    expanded = false
+                                },
+                                color = if (selected) PopBlueSoft else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        name,
+                                        color = if (selected) PopBlue else MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (selected) {
+                                        Icon(
+                                            Icons.Rounded.Check,
+                                            "Selecionado",
+                                            tint = PopBlue,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -6643,6 +6643,9 @@ private fun MobileReportsPage(
 ) {
     val today = LocalDate.now()
     val reportTasks = tasks.filterNot { isFutureRecurrence(it, today) }
+    var taskListOpen by remember { mutableStateOf(false) }
+    var selectedTaskFilter by remember { mutableStateOf("Todas") }
+    var selectedReportMember by remember { mutableStateOf<CompanyMember?>(null) }
     val completed = reportTasks.count { it.completed }
     val pending = reportTasks.count { !it.completed }
     val overdue = reportTasks.count { task ->
@@ -6675,6 +6678,24 @@ private fun MobileReportsPage(
             )
         }
         .sortedWith(compareByDescending<UserReportStats> { it.total }.thenBy { it.member.name })
+
+    fun openTaskList(filter: String, member: CompanyMember? = null) {
+        selectedTaskFilter = filter
+        selectedReportMember = member
+        taskListOpen = true
+    }
+
+    if (taskListOpen) {
+        ReportTasksPage(
+            companyName = companyName,
+            tasks = reportTasks,
+            member = selectedReportMember,
+            selectedFilter = selectedTaskFilter,
+            onFilterChange = { selectedTaskFilter = it },
+            onBack = { taskListOpen = false },
+        )
+        return
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -6726,7 +6747,7 @@ private fun MobileReportsPage(
                     total = reportTasks.size,
                     tint = PopBlue,
                     showProgress = false,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).clickable { openTaskList("Todas") },
                 )
                 MetricCard(
                     label = "Concluídas",
@@ -6734,7 +6755,7 @@ private fun MobileReportsPage(
                     total = reportTasks.size,
                     tint = Color(0xFF2EAF6D),
                     showProgress = true,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).clickable { openTaskList("Concluídas") },
                 )
             }
         }
@@ -6750,7 +6771,7 @@ private fun MobileReportsPage(
                     total = reportTasks.size,
                     tint = Color(0xFFE49A28),
                     showProgress = true,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).clickable { openTaskList("Pendentes") },
                 )
                 MetricCard(
                     label = "Atrasadas",
@@ -6758,7 +6779,7 @@ private fun MobileReportsPage(
                     total = reportTasks.size,
                     tint = Color(0xFFE5484D),
                     showProgress = true,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).clickable { openTaskList("Atrasadas") },
                 )
             }
         }
@@ -6767,7 +6788,7 @@ private fun MobileReportsPage(
             Surface(
                 color = PopSurface,
                 shape = RoundedCornerShape(20.dp),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().clickable { openTaskList("Hoje") },
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
@@ -6843,6 +6864,7 @@ private fun MobileReportsPage(
                     stats = stats,
                     currentUserEmail = currentUserEmail,
                     currentUserPhotoUrl = currentUserPhotoUrl,
+                    onClick = { openTaskList("Todas", stats.member) },
                 )
             }
         }
@@ -6854,13 +6876,14 @@ private fun UserReportCard(
     stats: UserReportStats,
     currentUserEmail: String,
     currentUserPhotoUrl: String,
+    onClick: () -> Unit,
 ) {
     val rate = if (stats.total == 0) 0f else stats.completed.toFloat() / stats.total
     Surface(
         color = PopSurface,
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, PopBorder.copy(alpha = .7f)),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     ) {
         Column(Modifier.padding(15.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -6928,6 +6951,272 @@ private fun UserReportValue(label: String, value: Int, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value.toString(), color = color, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
         Text(label, color = PopMuted, fontSize = 9.sp)
+    }
+}
+
+private fun reportTaskMatchesFilter(task: PopTask, filter: String, today: LocalDate): Boolean {
+    val dueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
+    return when (filter) {
+        "Concluídas" -> task.completed
+        "Pendentes" -> !task.completed
+        "Atrasadas" -> !task.completed && dueDate?.isBefore(today) == true
+        "Hoje" -> !task.completed && dueDate == today
+        else -> true
+    }
+}
+
+@Composable
+private fun ReportTasksPage(
+    companyName: String,
+    tasks: List<PopTask>,
+    member: CompanyMember?,
+    selectedFilter: String,
+    onFilterChange: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val today = LocalDate.now()
+    val scopedTasks = if (member == null) {
+        tasks
+    } else {
+        tasks.filter { it.assignee.equals(member.name, ignoreCase = true) }
+    }
+    val filters = listOf("Todas", "Concluídas", "Pendentes", "Atrasadas", "Hoje")
+    val filteredTasks = scopedTasks
+        .filter { reportTaskMatchesFilter(it, selectedFilter, today) }
+        .sortedWith(
+            compareBy<PopTask> { it.completed }
+                .thenBy { runCatching { LocalDate.parse(it.dueDate) }.getOrNull() },
+        )
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 20.dp, top = 12.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(42.dp)) {
+                    Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText)
+                }
+                Spacer(Modifier.width(6.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        member?.name ?: "Todas as tarefas",
+                        color = PopText,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (member == null) companyName else "$companyName • ${member.role}",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(PopBlueSoft, RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (member == null) Icons.Rounded.TaskAlt else Icons.Rounded.PersonOutline,
+                        null,
+                        tint = PopBlue,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+        }
+
+        item {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(filters) { filter ->
+                    val count = scopedTasks.count { reportTaskMatchesFilter(it, filter, today) }
+                    ReportFilterChip(
+                        label = filter,
+                        count = count,
+                        selected = selectedFilter == filter,
+                        onClick = { onFilterChange(filter) },
+                    )
+                }
+            }
+        }
+
+        item {
+            Text(
+                "${filteredTasks.size} ${if (filteredTasks.size == 1) "tarefa" else "tarefas"}",
+                color = PopMuted,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+        }
+
+        if (filteredTasks.isEmpty()) {
+            item {
+                Surface(
+                    color = PopSurfaceAlt,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(22.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            Icons.Rounded.TaskAlt,
+                            null,
+                            tint = PopMuted,
+                            modifier = Modifier.size(30.dp),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Nenhuma tarefa neste filtro.",
+                            color = PopMuted,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+        } else {
+            items(
+                items = filteredTasks,
+                key = { "${it.serverId}:${it.id}" },
+            ) { task ->
+                ReportTaskCard(
+                    task = task,
+                    showAssignee = member == null,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportFilterChip(
+    label: String,
+    count: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        color = if (selected) PopBlue else PopSurfaceAlt,
+        contentColor = if (selected) Color.White else PopText,
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Text(
+            "$label  $count",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
+        )
+    }
+}
+
+@Composable
+private fun ReportTaskCard(
+    task: PopTask,
+    showAssignee: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val today = LocalDate.now()
+    val dueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
+    val isOverdue = !task.completed && dueDate?.isBefore(today) == true
+    val isToday = !task.completed && dueDate == today
+    val statusLabel = when {
+        task.completed -> "Concluída"
+        isOverdue -> "Atrasada"
+        isToday -> "Hoje"
+        else -> "Pendente"
+    }
+    val statusColor = when {
+        task.completed -> Color(0xFF2EAF6D)
+        isOverdue -> Color(0xFFE5484D)
+        isToday -> PopBlue
+        else -> Color(0xFFE49A28)
+    }
+
+    Surface(
+        color = PopSurface,
+        shape = RoundedCornerShape(19.dp),
+        border = BorderStroke(1.dp, PopBorder.copy(alpha = .65f)),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(statusColor.copy(alpha = .14f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (task.completed) Icons.Rounded.CheckCircle else Icons.Rounded.PendingActions,
+                        null,
+                        tint = statusColor,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        task.title,
+                        color = PopText,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (showAssignee) {
+                        Text(
+                            task.assignee.ifBlank { "Sem responsável" },
+                            color = PopMuted,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Surface(
+                    color = statusColor.copy(alpha = .14f),
+                    shape = RoundedCornerShape(9.dp),
+                ) {
+                    Text(
+                        statusLabel,
+                        color = statusColor,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(11.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Rounded.CalendarMonth,
+                    null,
+                    tint = PopMuted,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(displayDueLabel(task), color = PopMuted, fontSize = 10.sp)
+                Spacer(Modifier.weight(1f))
+                PriorityPill(task.priority)
+            }
+        }
     }
 }
 

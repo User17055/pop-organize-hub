@@ -218,6 +218,10 @@ export function AppShell({
   const { data, error } = useWorkspaceData();
   const currentUser = data?.currentUser;
   const currentEmployee = data?.employees.find((employee) => employee.id === currentUser?.id);
+  const currentUserRole =
+    data?.company.kind === "company" && data.company.ownerId === currentUser?.id
+      ? "Proprietário"
+      : (currentEmployee?.role ?? currentUser?.role ?? "");
   const currentDepartment = data?.departments.find(
     (department) => department.id === currentEmployee?.departmentId,
   );
@@ -673,7 +677,7 @@ export function AppShell({
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold">{currentUser.name}</div>
                   <div className="truncate text-[11px] text-sidebar-foreground/55">
-                    {currentUser.role}
+                    {currentUserRole}
                   </div>
                 </div>
                 <Settings className="h-4 w-4 shrink-0 text-sidebar-foreground/40" />
@@ -714,7 +718,7 @@ export function AppShell({
                   <div className="text-sm font-semibold">Perfil</div>
                   <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                     <BriefcaseBusiness className="h-3.5 w-3.5" />
-                    <span className="truncate">{currentEmployee?.role ?? currentUser.role}</span>
+                    <span className="truncate">{currentUserRole}</span>
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     Setor: {currentDepartment?.name ?? "Sem setor"}
@@ -1087,7 +1091,7 @@ export function AppShell({
         moreItems={moreMobileNav}
         pathname={pathname}
         userName={currentUser.name}
-        userRole={currentUser.role}
+        userRole={currentUserRole}
         onOpenProfile={openProfile}
         onLogout={() => logoutMutation.mutate()}
         showLogout={data.accessMode === "team"}

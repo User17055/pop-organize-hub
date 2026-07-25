@@ -270,6 +270,7 @@ private data class CompanyMember(
     val sector: String,
     val id: String = "",
     val pending: Boolean = false,
+    val isOwner: Boolean = false,
     val photoUrl: String = "",
     val sectorId: String = "",
     val groupIds: List<String> = emptyList(),
@@ -624,6 +625,7 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         sector = employee.optString("sector"),
                         id = employee.optString("id"),
                         pending = employee.optBoolean("pending", false),
+                        isOwner = employee.optBoolean("isOwner", false),
                         photoUrl = employee.optString("photoUrl"),
                         sectorId = employee.optString("sectorId"),
                         groupIds = List(groupIdsJson.length()) { groupIndex -> groupIdsJson.optString(groupIndex) },
@@ -6805,7 +6807,9 @@ private fun EmployeesManagementPage(
                     val pendingColor = Color(0xFFFFA726)
                     Surface(
                         onClick = { onMemberClick(member) },
-                        enabled = canManageEmployees,
+                        enabled = canManageEmployees &&
+                            !member.isOwner &&
+                            !member.email.equals(currentUserEmail, ignoreCase = true),
                         color = if (member.pending) {
                             pendingColor.copy(alpha = .16f)
                         } else {
@@ -6855,6 +6859,16 @@ private fun EmployeesManagementPage(
                                                     pendingColor.copy(alpha = .2f),
                                                     RoundedCornerShape(8.dp),
                                                 )
+                                                .padding(horizontal = 7.dp, vertical = 3.dp),
+                                        )
+                                    } else if (member.isOwner) {
+                                        Text(
+                                            "Proprietário",
+                                            color = PopBlue,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier
+                                                .background(PopBlueSoft, RoundedCornerShape(8.dp))
                                                 .padding(horizontal = 7.dp, vertical = 3.dp),
                                         )
                                     }

@@ -116,7 +116,11 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             name: employee.name,
             email: employee.email,
             photoUrl: employee.avatar ?? "",
-            role: employee.role,
+            role:
+              isCompany && employee.id === workspace.company.ownerId
+                ? "Proprietário"
+                : employee.role,
+            isOwner: isCompany && employee.id === workspace.company.ownerId,
             sectorId: employee.departmentId,
             sector:
               workspace.departments.find((department) => department.id === employee.departmentId)
@@ -132,6 +136,7 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             email: invitation.email,
             photoUrl: "",
             role: invitation.role,
+            isOwner: false,
             sectorId: invitation.departmentId,
             sector:
               workspace.departments.find((department) => department.id === invitation.departmentId)
@@ -600,6 +605,12 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       const employee = workspace.employees.find((item) => item.id === employeeId);
       const invitation = workspace.invitations.find((item) => item.id === employeeId);
       if (!employee && !invitation) throw mobileHttpError("Funcionario nao encontrado.", 404);
+      if (employee?.id === workspace.company.ownerId) {
+        throw mobileHttpError("O perfil do proprietario da empresa nao pode ser alterado.", 403);
+      }
+      if (employee?.id === currentUser.id) {
+        throw mobileHttpError("Voce nao pode alterar o proprio perfil na empresa.", 403);
+      }
       const grantsAdmin = role.toLowerCase().includes("admin");
       const alreadyAdmin = employee?.role.toLowerCase().includes("admin") ?? false;
       if (grantsAdmin && !alreadyAdmin && workspace.company.ownerId !== currentUser.id) {

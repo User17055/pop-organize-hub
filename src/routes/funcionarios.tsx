@@ -208,6 +208,7 @@ function FuncionariosPage() {
         {employees.map((employee) => {
           const department = getDepartment(employee.departmentId);
           const taskCount = tasks.filter((task) => task.responsibleId === employee.id).length;
+          const isOwner = employee.id === data.company.ownerId;
           return (
             <article
               key={employee.id}
@@ -228,7 +229,7 @@ function FuncionariosPage() {
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium">
-                      {employee.role}
+                      {isOwner ? "Proprietário" : employee.role}
                     </span>
                     <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary">
                       {getPermissionGroup(employee.permissionGroupId)?.name ?? "Padrão"}
@@ -274,6 +275,7 @@ function FuncionariosPage() {
             {employees.map((e) => {
               const dept = getDepartment(e.departmentId);
               const count = tasks.filter((t) => t.responsibleId === e.id).length;
+              const isOwner = e.id === data.company.ownerId;
               return (
                 <TableRow key={e.id}>
                   <TableCell>
@@ -293,7 +295,9 @@ function FuncionariosPage() {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm">{e.role}</TableCell>
+                  <TableCell className="text-sm">
+                    {isOwner ? "Proprietário" : e.role}
+                  </TableCell>
                   <TableCell>
                     <span className="inline-flex items-center gap-1.5">
                       <span

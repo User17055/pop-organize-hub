@@ -5175,7 +5175,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
     val urgentBackground = if (isLightTheme) Color(0xFFD63843) else Color(0xFFB52D3A)
     val cardColor by animateColorAsState(
         targetValue = when {
-            completedVisual -> Color(0xFF141717)
+            completedVisual -> if (isLightTheme) PopSurfaceAlt else Color(0xFF141717)
             isUrgent -> urgentBackground
             else -> PopSurface
         },
@@ -5207,7 +5207,7 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor = cardColor,
-            contentColor = if (isUrgent || completedVisual) Color.White else PopText,
+            contentColor = if (isUrgent || (completedVisual && !isLightTheme)) Color.White else PopText,
         ),
         modifier = Modifier
             .fillMaxWidth()

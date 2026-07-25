@@ -2509,6 +2509,7 @@ private fun PopMainContent(
                         companyMembers = companyMembers,
                         companySectors = companySectors,
                         companyGroups = companyGroups,
+                        tasks = tasks,
                         workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
                         canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                         canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
@@ -2548,6 +2549,7 @@ private fun PopMainContent(
                 companyMembers = companyMembers,
                 companySectors = companySectors,
                 companyGroups = companyGroups,
+                tasks = tasks,
                 workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
                 canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                 canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
@@ -5795,6 +5797,7 @@ private fun MoreScreen(
     companyMembers: MutableList<CompanyMember>,
     companySectors: MutableList<CompanySector>,
     companyGroups: MutableList<CompanyGroup>,
+    tasks: List<PopTask>,
     workspaceId: String,
     canManageEmployees: Boolean,
     canManageDepartments: Boolean,
@@ -5874,7 +5877,23 @@ private fun MoreScreen(
         )
     }
 
-    if (activeManagementPage == "employees") {
+    if (activeManagementPage == "reports") {
+        Dialog(
+            onDismissRequest = { activeManagementPage = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
+                MobileReportsPage(
+                    companyName = companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
+                    tasks = tasks,
+                    companyMembers = companyMembers,
+                    currentUserEmail = googleAccount?.email.orEmpty(),
+                    currentUserPhotoUrl = googleAccount?.photoUrl.orEmpty(),
+                    onBack = { activeManagementPage = null },
+                )
+            }
+        }
+    } else if (activeManagementPage == "employees") {
         Dialog(
             onDismissRequest = { activeManagementPage = null },
             properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -6027,7 +6046,7 @@ private fun MoreScreen(
                             MoreShortcut(
                                 icon = Icons.Rounded.BarChart,
                                 title = "Relatórios",
-                                onClick = { openWebPage("/relatorios") },
+                                onClick = { activeManagementPage = "reports" },
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -6601,6 +6620,314 @@ private fun MoreScreen(
             shape = RoundedCornerShape(26.dp),
             containerColor = PopSurface,
         )
+    }
+}
+
+private data class UserReportStats(
+    val member: CompanyMember,
+    val total: Int,
+    val completed: Int,
+    val pending: Int,
+    val overdue: Int,
+    val dueToday: Int,
+)
+
+@Composable
+private fun MobileReportsPage(
+    companyName: String,
+    tasks: List<PopTask>,
+    companyMembers: List<CompanyMember>,
+    currentUserEmail: String,
+    currentUserPhotoUrl: String,
+    onBack: () -> Unit,
+) {
+    val today = LocalDate.now()
+    val reportTasks = tasks.filterNot { isFutureRecurrence(it, today) }
+    val completed = reportTasks.count { it.completed }
+    val pending = reportTasks.count { !it.completed }
+    val overdue = reportTasks.count { task ->
+        !task.completed && runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isBefore(today) == true
+    }
+    val dueToday = reportTasks.count { task ->
+        !task.completed && runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == today
+    }
+    val userStats = companyMembers
+        .filterNot { it.pending }
+        .map { member ->
+            val memberTasks = reportTasks.filter {
+                it.assignee.equals(member.name, ignoreCase = true)
+            }
+            UserReportStats(
+                member = member,
+                total = memberTasks.size,
+                completed = memberTasks.count { it.completed },
+                pending = memberTasks.count { !it.completed },
+                overdue = memberTasks.count { task ->
+                    !task.completed &&
+                        runCatching { LocalDate.parse(task.dueDate) }
+                            .getOrNull()
+                            ?.isBefore(today) == true
+                },
+                dueToday = memberTasks.count { task ->
+                    !task.completed &&
+                        runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == today
+                },
+            )
+        }
+        .sortedWith(compareByDescending<UserReportStats> { it.total }.thenBy { it.member.name })
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(42.dp)) {
+                    Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText)
+                }
+                Spacer(Modifier.width(6.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Relatórios", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        "$companyName • visão da equipe",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(PopBlueSoft, RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.BarChart, null, tint = PopBlue, modifier = Modifier.size(22.dp))
+                }
+            }
+        }
+
+        item {
+            Text("Geral", color = PopText, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(126.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                MetricCard(
+                    label = "Total",
+                    value = reportTasks.size,
+                    total = reportTasks.size,
+                    tint = PopBlue,
+                    showProgress = false,
+                    modifier = Modifier.weight(1f),
+                )
+                MetricCard(
+                    label = "Concluídas",
+                    value = completed,
+                    total = reportTasks.size,
+                    tint = Color(0xFF2EAF6D),
+                    showProgress = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(126.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                MetricCard(
+                    label = "Pendentes",
+                    value = pending,
+                    total = reportTasks.size,
+                    tint = Color(0xFFE49A28),
+                    showProgress = true,
+                    modifier = Modifier.weight(1f),
+                )
+                MetricCard(
+                    label = "Atrasadas",
+                    value = overdue,
+                    total = reportTasks.size,
+                    tint = Color(0xFFE5484D),
+                    showProgress = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        item {
+            Surface(
+                color = PopSurface,
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .background(PopBlueSoft, RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.AccessTime, null, tint = PopBlue)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Para hoje", color = PopMuted, fontSize = 11.sp)
+                        Text(
+                            "$dueToday ${if (dueToday == 1) "tarefa" else "tarefas"}",
+                            color = PopText,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                    }
+                    val completionRate =
+                        if (reportTasks.isEmpty()) 0 else completed * 100 / reportTasks.size
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("Conclusão", color = PopMuted, fontSize = 10.sp)
+                        Text(
+                            "$completionRate%",
+                            color = Color(0xFF2EAF6D),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Column(Modifier.padding(top = 10.dp, bottom = 2.dp)) {
+                Text(
+                    "Por usuário",
+                    color = PopText,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Text(
+                    "Totais e situação das tarefas de cada pessoa",
+                    color = PopMuted,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+
+        if (userStats.isEmpty()) {
+            item {
+                Surface(
+                    color = PopSurfaceAlt,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "Nenhum usuário ativo nesta empresa.",
+                        color = PopMuted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+            }
+        } else {
+            items(userStats, key = { it.member.id }) { stats ->
+                UserReportCard(
+                    stats = stats,
+                    currentUserEmail = currentUserEmail,
+                    currentUserPhotoUrl = currentUserPhotoUrl,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserReportCard(
+    stats: UserReportStats,
+    currentUserEmail: String,
+    currentUserPhotoUrl: String,
+) {
+    val rate = if (stats.total == 0) 0f else stats.completed.toFloat() / stats.total
+    Surface(
+        color = PopSurface,
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, PopBorder.copy(alpha = .7f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(15.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GoogleProfileAvatar(
+                    photoUrl = stats.member.photoUrl.ifBlank {
+                        currentUserPhotoUrl.takeIf {
+                            stats.member.email.equals(currentUserEmail, ignoreCase = true)
+                        }.orEmpty()
+                    },
+                    modifier = Modifier.size(44.dp),
+                    fallbackIcon = Icons.Rounded.PersonOutline,
+                )
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stats.member.name,
+                        color = PopText,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        listOf(stats.member.role, stats.member.sector)
+                            .filter(String::isNotBlank)
+                            .joinToString(" • "),
+                        color = PopMuted,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    "${stats.total} total",
+                    color = PopBlue,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
+            LinearProgressIndicator(
+                progress = { rate },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                color = Color(0xFF2EAF6D),
+                trackColor = PopBorder.copy(alpha = .45f),
+                drawStopIndicator = {},
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                UserReportValue("Concluídas", stats.completed, Color(0xFF2EAF6D))
+                UserReportValue("Pendentes", stats.pending, Color(0xFFE49A28))
+                UserReportValue("Atrasadas", stats.overdue, Color(0xFFE5484D))
+                UserReportValue("Hoje", stats.dueToday, PopBlue)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserReportValue(label: String, value: Int, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value.toString(), color = color, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+        Text(label, color = PopMuted, fontSize = 9.sp)
     }
 }
 

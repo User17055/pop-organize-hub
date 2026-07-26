@@ -2518,6 +2518,10 @@ private fun PopMainContent(
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
+                        onOpenTask = { task ->
+                            taskToOpenId = task.id
+                            destination = PopDestination.Tasks
+                        },
                         onRequireLogin = onRequireLogin,
                         onSignOut = onSignOut,
                         onDismiss = { destination = PopDestination.Dashboard },
@@ -2558,6 +2562,11 @@ private fun PopMainContent(
                 selectedCompanyIndex = selectedCompanyIndex,
                 onCompanySelect = ::selectCompany,
                 onCreateCompany = ::requestCreateCompany,
+                onOpenTask = { task ->
+                    showMoreSheet = false
+                    taskToOpenId = task.id
+                    destination = PopDestination.Tasks
+                },
                 onRequireLogin = onRequireLogin,
                 onSignOut = onSignOut,
                 onDismiss = { showMoreSheet = false },
@@ -5806,6 +5815,7 @@ private fun MoreScreen(
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
+    onOpenTask: (PopTask) -> Unit,
     onRequireLogin: () -> Unit,
     onSignOut: () -> Unit,
     onDismiss: () -> Unit,
@@ -5890,6 +5900,10 @@ private fun MoreScreen(
                     currentUserEmail = googleAccount?.email.orEmpty(),
                     currentUserPhotoUrl = googleAccount?.photoUrl.orEmpty(),
                     onBack = { activeManagementPage = null },
+                    onOpenTask = { task ->
+                        activeManagementPage = null
+                        onOpenTask(task)
+                    },
                 )
             }
         }
@@ -6640,6 +6654,7 @@ private fun MobileReportsPage(
     currentUserEmail: String,
     currentUserPhotoUrl: String,
     onBack: () -> Unit,
+    onOpenTask: (PopTask) -> Unit,
 ) {
     val today = LocalDate.now()
     val reportTasks = tasks.filterNot { isFutureRecurrence(it, today) }
@@ -6693,6 +6708,7 @@ private fun MobileReportsPage(
             selectedFilter = selectedTaskFilter,
             onFilterChange = { selectedTaskFilter = it },
             onBack = { taskListOpen = false },
+            onOpenTask = onOpenTask,
         )
         return
     }
@@ -6720,14 +6736,6 @@ private fun MobileReportsPage(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                }
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(PopBlueSoft, RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Rounded.BarChart, null, tint = PopBlue, modifier = Modifier.size(22.dp))
                 }
             }
         }
@@ -6973,6 +6981,7 @@ private fun ReportTasksPage(
     selectedFilter: String,
     onFilterChange: (String) -> Unit,
     onBack: () -> Unit,
+    onOpenTask: (PopTask) -> Unit,
 ) {
     val today = LocalDate.now()
     val scopedTasks = if (member == null) {
@@ -7019,19 +7028,6 @@ private fun ReportTasksPage(
                         fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(PopBlueSoft, RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (member == null) Icons.Rounded.TaskAlt else Icons.Rounded.PersonOutline,
-                        null,
-                        tint = PopBlue,
-                        modifier = Modifier.size(22.dp),
                     )
                 }
             }
@@ -7097,6 +7093,7 @@ private fun ReportTasksPage(
                 ReportTaskCard(
                     task = task,
                     showAssignee = member == null,
+                    onClick = { onOpenTask(task) },
                     modifier = Modifier.padding(horizontal = 20.dp),
                 )
             }
@@ -7130,6 +7127,7 @@ private fun ReportFilterChip(
 private fun ReportTaskCard(
     task: PopTask,
     showAssignee: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val today = LocalDate.now()
@@ -7150,6 +7148,7 @@ private fun ReportTaskCard(
     }
 
     Surface(
+        onClick = onClick,
         color = PopSurface,
         shape = RoundedCornerShape(19.dp),
         border = BorderStroke(1.dp, PopBorder.copy(alpha = .65f)),
@@ -7180,9 +7179,16 @@ private fun ReportTaskCard(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    Text(
+                        task.department.ifBlank { "Sem setor" },
+                        color = PopMuted,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     if (showAssignee) {
                         Text(
-                            task.assignee.ifBlank { "Sem responsável" },
+                            "Responsável: ${task.assignee.ifBlank { "Sem responsável" }}",
                             color = PopMuted,
                             fontSize = 10.sp,
                             maxLines = 1,
@@ -7203,6 +7209,16 @@ private fun ReportTaskCard(
                     )
                 }
             }
+            if (task.description.isNotBlank()) {
+                Spacer(Modifier.height(9.dp))
+                Text(
+                    task.description,
+                    color = PopMuted,
+                    fontSize = 10.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(Modifier.height(11.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -7215,6 +7231,28 @@ private fun ReportTaskCard(
                 Text(displayDueLabel(task), color = PopMuted, fontSize = 10.sp)
                 Spacer(Modifier.weight(1f))
                 PriorityPill(task.priority)
+            }
+            HorizontalDivider(
+                color = PopBorder.copy(alpha = .55f),
+                modifier = Modifier.padding(top = 12.dp, bottom = 9.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Ver detalhes e ações",
+                    color = PopBlue,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    Icons.Rounded.ArrowForward,
+                    null,
+                    tint = PopBlue,
+                    modifier = Modifier.size(16.dp),
+                )
             }
         }
     }

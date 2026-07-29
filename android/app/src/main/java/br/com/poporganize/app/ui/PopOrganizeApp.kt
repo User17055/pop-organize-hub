@@ -3726,31 +3726,31 @@ private fun TasksScreen(
         }
         .filter { task ->
             val dueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
-            when (selectedFilter) {
-                "Hoje" -> {
-                    val isCurrentUserTask =
-                        workSpace == WorkSpace.Personal ||
+            val isCurrentUserTask =
+                workSpace == WorkSpace.Personal ||
+                    (
+                        task.assignmentType == "user" &&
                             (
-                                task.assignmentType == "user" &&
-                                    (
-                                        task.assignmentTargetId == currentUserId ||
-                                            task.assignmentTargetLabel.equals(
-                                                currentUserName,
-                                                ignoreCase = true,
-                                            ) ||
-                                            task.assignees.any {
-                                                it.equals(currentUserName, ignoreCase = true)
-                                            } ||
-                                            task.assignee.equals("Eu", ignoreCase = true)
-                                        )
+                                task.assignmentTargetId == currentUserId ||
+                                    task.assignmentTargetLabel.equals(
+                                        currentUserName,
+                                        ignoreCase = true,
+                                    ) ||
+                                    task.assignees.any {
+                                        it.equals(currentUserName, ignoreCase = true)
+                                    } ||
+                                    task.assignee.equals("Eu", ignoreCase = true)
                                 )
-                    dueDate == today && isCurrentUserTask
-                }
+                        )
+            when (selectedFilter) {
+                "Hoje" -> dueDate == today && isCurrentUserTask
+                "Atrasadas" ->
+                    isCurrentUserTask && !task.completed && dueDate != null && dueDate < today
+                "Próximas" ->
+                    isCurrentUserTask && !task.completed && dueDate != null && dueDate > today
                 "Grupo" -> task.assignmentType == "group"
                 "Setor" -> task.assignmentType == "department"
                 "Empresa" -> task.assignmentType == "company"
-                "Atrasadas" -> !task.completed && dueDate != null && dueDate < today
-                "Próximas" -> !task.completed && dueDate != null && dueDate > today
                 else -> true
             }
         }
@@ -4047,11 +4047,11 @@ private fun TasksScreen(
                     items(
                         listOf(
                             "Hoje",
+                            "Atrasadas",
+                            "Próximas",
                             "Grupo",
                             "Setor",
                             "Empresa",
-                            "Atrasadas",
-                            "Próximas",
                             "Todas",
                         ),
                         key = { it },

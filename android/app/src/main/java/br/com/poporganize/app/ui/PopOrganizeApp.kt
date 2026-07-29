@@ -297,6 +297,7 @@ private const val GOOGLE_ACCOUNT_EMAIL_STORAGE = "pop_organize_google_account_em
 private const val GOOGLE_ACCOUNT_PHOTO_STORAGE = "pop_organize_google_account_photo"
 private const val API_SESSION_TOKEN_STORAGE = "pop_organize_api_session_token"
 private const val ACCOUNT_TASKS_STORAGE_PREFIX = "pop_organize_account_tasks_"
+private const val COMPANY_TASKS_STORAGE_PREFIX = "pop_organize_company_tasks_"
 private const val ACCOUNT_TASKS_DIRTY_PREFIX = "pop_organize_account_tasks_dirty_"
 private const val DELETED_TASKS_STORAGE_PREFIX = "pop_organize_deleted_tasks_"
 private const val ASSIGNED_TASKS_SEEN_PREFIX = "pop_organize_assigned_tasks_seen_"
@@ -449,6 +450,8 @@ private fun loadGuestTasks(context: Context): List<PopTask> = decodeTasks(
 )
 
 private fun accountTasksKey(accountId: String) = "$ACCOUNT_TASKS_STORAGE_PREFIX$accountId"
+private fun companyTasksKey(accountId: String, workspaceId: String) =
+    "$COMPANY_TASKS_STORAGE_PREFIX${accountId}_$workspaceId"
 private fun accountTasksDirtyKey(accountId: String) = "$ACCOUNT_TASKS_DIRTY_PREFIX$accountId"
 private fun deletedTasksKey(accountId: String, workspaceId: String) =
     "$DELETED_TASKS_STORAGE_PREFIX${accountId}_${workspaceId.ifBlank { "personal" }}"
@@ -502,6 +505,53 @@ private fun loadAccountTasks(context: Context, accountId: String): List<PopTask>
     emptyList(),
 )
 
+private fun loadCompanyTasks(
+    context: Context,
+    accountId: String,
+    workspaceId: String,
+): List<PopTask> = decodeTasks(
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .getString(companyTasksKey(accountId, workspaceId), null),
+    emptyList(),
+)
+
+private fun mergeRemoteTaskRouting(
+    remoteTasks: List<PopTask>,
+    localTasks: List<PopTask>,
+): List<PopTask> {
+    val localByServerId = localTasks
+        .filter { it.serverId.isNotBlank() }
+        .associateBy(PopTask::serverId)
+    val localById = localTasks.associateBy(PopTask::id)
+    return remoteTasks.map { remote ->
+        val local = localByServerId[remote.serverId] ?: localById[remote.id]
+        val remoteRoutingMissing =
+            remote.assignmentTargetId.isBlank() &&
+                remote.assignmentTargetLabel.isBlank() &&
+                remote.assignees.isEmpty()
+        val localHasRouting =
+            local != null &&
+                (
+                    local.assignmentType != "user" ||
+                        local.assignmentTargetId.isNotBlank() ||
+                        local.assignmentTargetLabel.isNotBlank() ||
+                        local.assignees.isNotEmpty()
+                    )
+        if (remoteRoutingMissing && localHasRouting) {
+            remote.copy(
+                department = local.department,
+                assignee = local.assignee,
+                assignmentType = local.assignmentType,
+                assignmentTargetId = local.assignmentTargetId,
+                assignmentTargetLabel = local.assignmentTargetLabel,
+                assignees = local.assignees,
+            )
+        } else {
+            remote
+        }
+    }
+}
+
 private fun tasksToJson(tasks: List<PopTask>): JSONArray {
     val items = JSONArray()
     tasks.forEach { task ->
@@ -549,6 +599,13 @@ private fun saveTasks(context: Context, storageKey: String, tasks: List<PopTask>
 
 private fun saveGuestTasks(context: Context, tasks: List<PopTask>) =
     saveTasks(context, GUEST_TASKS_STORAGE, tasks)
+
+private fun saveCompanyTasks(
+    context: Context,
+    accountId: String,
+    workspaceId: String,
+    tasks: List<PopTask>,
+) = saveTasks(context, companyTasksKey(accountId, workspaceId), tasks)
 
 private fun saveAccountTasks(context: Context, accountId: String, tasks: List<PopTask>) =
     saveTasks(context, accountTasksKey(accountId), tasks)
@@ -2134,10 +2191,12 @@ private fun PopMainContent(
             if (token.isNotBlank() && workspaceId.isNotBlank()) {
                 navigationScope.launch {
                     runCatching { loadRemoteTasks(token, workspaceId) }.onSuccess { remoteTasks ->
-                        lastSyncedCompanyTasks[workspaceId] = tasksToJson(remoteTasks).toString()
                         companyTaskGroups.getOrNull(index)?.let { group ->
+                            val mergedTasks = mergeRemoteTaskRouting(remoteTasks, group)
+                            lastSyncedCompanyTasks[workspaceId] =
+                                tasksToJson(mergedTasks).toString()
                             group.clear()
-                            group.addAll(remoteTasks)
+                            group.addAll(mergedTasks)
                         }
                     }
                 }
@@ -2198,7 +2257,15 @@ private fun PopMainContent(
         companySectorLists.addAll(companies.map { it.sectors })
         companyGroupLists.clear()
         companyGroupLists.addAll(companies.map { it.groups })
-        while (companyTaskGroups.size < companies.size) companyTaskGroups.add(mutableStateListOf())
+        while (companyTaskGroups.size < companies.size) {
+            val companyIndex = companyTaskGroups.size
+            val cachedTasks = googleAccount?.id?.let { accountId ->
+                loadCompanyTasks(context, accountId, companies[companyIndex].id)
+            }.orEmpty()
+            companyTaskGroups.add(
+                mutableStateListOf<PopTask>().apply { addAll(cachedTasks) },
+            )
+        }
         while (companyTaskGroups.size > companies.size) companyTaskGroups.removeAt(companyTaskGroups.lastIndex)
         if (!preferredWorkspaceRestored) {
             val preferredWorkspaceId = assignmentPreferences.getString(
@@ -2293,10 +2360,12 @@ private fun PopMainContent(
                 val workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty()
                 if (workspaceId.isNotBlank()) {
                     runCatching { loadRemoteTasks(account.apiToken, workspaceId) }.onSuccess { companyTasks ->
-                        lastSyncedCompanyTasks[workspaceId] = tasksToJson(companyTasks).toString()
                         companyTaskGroups.getOrNull(selectedCompanyIndex)?.let { group ->
+                            val mergedTasks = mergeRemoteTaskRouting(companyTasks, group)
+                            lastSyncedCompanyTasks[workspaceId] =
+                                tasksToJson(mergedTasks).toString()
                             group.clear()
-                            group.addAll(companyTasks)
+                            group.addAll(mergedTasks)
                         }
                     }
                 }
@@ -2338,8 +2407,11 @@ private fun PopMainContent(
                                 .onSuccess { lastSyncedCompanyTasks[workspaceId] = localJson }
                         }
                         runCatching { loadRemoteTasks(token, workspaceId) }.onSuccess { remoteTasks ->
-                            rememberAssignedTasks(remoteTasks, assignmentAlertsReady)
-                            val remoteJson = tasksToJson(remoteTasks).toString()
+                            val currentGroup = companyTaskGroups.getOrNull(index)
+                            val mergedTasks =
+                                mergeRemoteTaskRouting(remoteTasks, currentGroup.orEmpty())
+                            rememberAssignedTasks(mergedTasks, assignmentAlertsReady)
+                            val remoteJson = tasksToJson(mergedTasks).toString()
                             val currentLocalJson = companyTaskGroups
                                 .getOrNull(index)
                                 ?.let(::tasksToJson)
@@ -2351,7 +2423,7 @@ private fun PopMainContent(
                                 lastSyncedCompanyTasks[workspaceId] = remoteJson
                                 companyTaskGroups.getOrNull(index)?.let { group ->
                                     group.clear()
-                                    group.addAll(remoteTasks)
+                                    group.addAll(mergedTasks)
                                 }
                             }
                         }
@@ -2660,6 +2732,14 @@ private fun PopMainContent(
                 val workspaceId = companyIds.getOrNull(index).orEmpty()
                 val localJson = tasksToJson(group).toString()
                 val account = googleAccount
+                if (account != null && workspaceId.isNotBlank()) {
+                    saveCompanyTasks(
+                        context = context,
+                        accountId = account.id,
+                        workspaceId = workspaceId,
+                        tasks = group,
+                    )
+                }
                 val hasPendingDeletions =
                     account != null &&
                         loadPendingTaskDeletions(context, account.id, workspaceId).isNotEmpty()
@@ -3728,20 +3808,25 @@ private fun TasksScreen(
             val dueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
             val isCurrentUserTask =
                 workSpace == WorkSpace.Personal ||
+                    task.assignmentTargetId == currentUserId ||
                     (
                         task.assignmentType == "user" &&
-                            (
-                                task.assignmentTargetId == currentUserId ||
-                                    task.assignmentTargetLabel.equals(
-                                        currentUserName,
-                                        ignoreCase = true,
-                                    ) ||
-                                    task.assignees.any {
-                                        it.equals(currentUserName, ignoreCase = true)
-                                    } ||
-                                    task.assignee.equals("Eu", ignoreCase = true)
-                                )
-                        )
+                            task.assignmentTargetLabel.equals(
+                                currentUserName,
+                                ignoreCase = true,
+                            )
+                        ) ||
+                    task.assignees.any {
+                        it.equals(currentUserName, ignoreCase = true) ||
+                            it.equals("Eu", ignoreCase = true)
+                    } ||
+                    task.assignee
+                        .split(",")
+                        .map(String::trim)
+                        .any {
+                            it.equals(currentUserName, ignoreCase = true) ||
+                                it.equals("Eu", ignoreCase = true)
+                        }
             when (selectedFilter) {
                 "Hoje" -> dueDate == today && isCurrentUserTask
                 "Atrasadas" ->
@@ -4040,6 +4125,7 @@ private fun TasksScreen(
                     ),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                 )
+                Spacer(Modifier.height(10.dp))
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

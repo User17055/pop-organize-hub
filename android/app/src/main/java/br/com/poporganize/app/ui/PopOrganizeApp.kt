@@ -3294,6 +3294,13 @@ private fun AssignmentSelector(
     }
 
     if (expanded) {
+        var contentEntered by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { contentEntered = true }
+        val entranceProgress by animateFloatAsState(
+            targetValue = if (contentEntered) 1f else 0f,
+            animationSpec = tween(260, easing = FastOutSlowInEasing),
+            label = "assignmentSheetEntrance",
+        )
         ModalBottomSheet(
             onDismissRequest = {
                 expanded = false
@@ -3309,7 +3316,13 @@ private fun AssignmentSelector(
                     .heightIn(max = 650.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp)
-                    .padding(bottom = 28.dp),
+                    .padding(bottom = 28.dp)
+                    .graphicsLayer {
+                        alpha = entranceProgress
+                        translationY = (1f - entranceProgress) * 18.dp.toPx()
+                        scaleX = .985f + (.015f * entranceProgress)
+                        scaleY = .985f + (.015f * entranceProgress)
+                    },
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("Escolher destino", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
@@ -3364,14 +3377,13 @@ private fun AssignmentSelector(
                     }
                 }
 
+                val activeMembers = members.filterNot { it.pending }
                 val targets: List<Triple<String, String, String>> = when (assignmentType) {
                     "department" -> sectors.map { Triple(it.id, it.name, it.description) }
                     "group" -> groups.map {
                         Triple(it.id, it.name, "${it.memberIds.size} membros")
                     }
-                    "user" -> members
-                        .filterNot { it.pending }
-                        .map { Triple(it.id, it.name, it.email) }
+                    "user" -> emptyList()
                     else -> listOf(Triple("", companyName, "Toda a empresa"))
                 }
                 Text(
@@ -3384,35 +3396,108 @@ private fun AssignmentSelector(
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                 )
-                targets.forEach { (id, name, detail) ->
-                    Surface(
-                        onClick = {
-                            val individualResponsibles =
-                                if (assignmentType == "user") setOf(name) else emptySet()
-                            onChange(assignmentType, id, name, individualResponsibles)
-                        },
-                        color = if (targetId == id && targetLabel == name) PopBlueSoft else PopSurfaceAlt,
-                        shape = RoundedCornerShape(15.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(13.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                if (assignmentType == "user") {
+                    activeMembers.forEach { member ->
+                        Surface(
+                            onClick = {
+                                onChange(
+                                    assignmentType,
+                                    member.id,
+                                    member.name,
+                                    setOf(member.name),
+                                )
+                            },
+                            color =
+                                if (targetId == member.id && targetLabel == member.name) {
+                                    PopBlueSoft
+                                } else {
+                                    PopSurfaceAlt
+                                },
+                            shape = RoundedCornerShape(15.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(name, color = PopText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                if (detail.isNotBlank()) {
-                                    Text(detail, color = PopMuted, fontSize = 9.sp)
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                GoogleProfileAvatar(
+                                    photoUrl = member.photoUrl,
+                                    modifier = Modifier.size(40.dp),
+                                    fallbackIcon = Icons.Rounded.PersonOutline,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        member.name,
+                                        color = PopText,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                    )
+                                    Text(member.email, color = PopMuted, fontSize = 9.sp)
+                                }
+                                if (targetId == member.id && targetLabel == member.name) {
+                                    Icon(Icons.Rounded.Check, "Selecionado", tint = PopBlue)
                                 }
                             }
-                            if (targetId == id && targetLabel == name) {
-                                Icon(Icons.Rounded.Check, "Selecionado", tint = PopBlue)
+                        }
+                    }
+                } else {
+                    targets.forEach { (id, name, detail) ->
+                        Surface(
+                            onClick = {
+                                onChange(assignmentType, id, name, emptySet())
+                            },
+                            color =
+                                if (targetId == id && targetLabel == name) {
+                                    PopBlueSoft
+                                } else {
+                                    PopSurfaceAlt
+                                },
+                            shape = RoundedCornerShape(15.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(13.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        name,
+                                        color = PopText,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                    )
+                                    if (detail.isNotBlank()) {
+                                        Text(detail, color = PopMuted, fontSize = 9.sp)
+                                    }
+                                }
+                                if (targetId == id && targetLabel == name) {
+                                    Icon(Icons.Rounded.Check, "Selecionado", tint = PopBlue)
+                                }
                             }
                         }
                     }
                 }
 
                 if (assignmentType != "user" && targetLabel.isNotBlank()) {
+                    val eligibleMembers = when (assignmentType) {
+                        "department" -> activeMembers.filter { member ->
+                            member.sectorId == targetId || member.sector == targetLabel
+                        }
+                        "group" -> {
+                            val selectedGroup = groups.firstOrNull {
+                                it.id == targetId || it.name == targetLabel
+                            }
+                            activeMembers.filter { member ->
+                                selectedGroup != null &&
+                                    (
+                                        member.id in selectedGroup.memberIds ||
+                                            selectedGroup.id in member.groupIds
+                                        )
+                            }
+                        }
+                        else -> activeMembers
+                    }
                     HorizontalDivider(color = PopBorder.copy(alpha = .7f))
                     Text("Responsáveis (opcional)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Text(
@@ -3420,7 +3505,18 @@ private fun AssignmentSelector(
                         color = PopMuted,
                         fontSize = 10.sp,
                     )
-                    members.filterNot { it.pending }.forEach { member ->
+                    if (eligibleMembers.isEmpty()) {
+                        Text(
+                            "Nenhum membro disponível neste destino.",
+                            color = PopMuted,
+                            fontSize = 10.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(PopSurfaceAlt, RoundedCornerShape(14.dp))
+                                .padding(13.dp),
+                        )
+                    }
+                    eligibleMembers.forEach { member ->
                         val selected = member.name in responsibleNames
                         Surface(
                             onClick = {

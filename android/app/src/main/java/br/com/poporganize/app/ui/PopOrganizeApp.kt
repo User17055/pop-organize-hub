@@ -4157,7 +4157,15 @@ private fun TasksScreen(
                     label = "taskSlotHeight",
                 )
                 Box(Modifier.fillMaxWidth().height(taskSlotHeight).clipToBounds().padding(horizontal = 26.dp, vertical = 6.dp)) {
-                    TaskCard(task, isCompleting = isCompleting, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
+                    TaskCard(
+                        task = task,
+                        members = companyMembers,
+                        showAssigneeAvatars =
+                            selectedFilter in setOf("Grupo", "Setor", "Empresa"),
+                        isCompleting = isCompleting,
+                        onComplete = { toggleTask(task) },
+                        onOpen = { openTask(task) },
+                    )
                 }
             }
             if (completedTasks.isNotEmpty()) {
@@ -4195,7 +4203,15 @@ private fun TasksScreen(
                             Column {
                                 completedTasks.forEach { task ->
                                     Box(Modifier.padding(horizontal = 26.dp, vertical = 6.dp)) {
-                                        TaskCard(task, isCompleting = false, onComplete = { toggleTask(task) }, onOpen = { openTask(task) })
+                                        TaskCard(
+                                            task = task,
+                                            members = companyMembers,
+                                            showAssigneeAvatars =
+                                                selectedFilter in setOf("Grupo", "Setor", "Empresa"),
+                                            isCompleting = false,
+                                            onComplete = { toggleTask(task) },
+                                            onOpen = { openTask(task) },
+                                        )
                                     }
                                 }
                             }
@@ -5691,10 +5707,67 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Unit, onOpen: () -> Unit) {
+private fun TaskAssigneeAvatarStack(
+    task: PopTask,
+    members: List<CompanyMember>,
+) {
+    if (task.assignmentType !in setOf("department", "group", "company")) return
+    val responsibleNames = (
+        task.assignees.ifEmpty {
+            task.assignee.split(",").map(String::trim)
+        }
+        )
+        .filter {
+            it.isNotBlank() &&
+                !it.equals("Sem responsável", ignoreCase = true)
+        }
+        .distinctBy { it.lowercase(Locale("pt", "BR")) }
+        .take(3)
+    if (responsibleNames.isEmpty()) return
+
+    val avatarSize = 27.dp
+    val visibleStep = 17.dp
+    Box(
+        modifier = Modifier
+            .width(avatarSize + visibleStep * (responsibleNames.size - 1))
+            .height(avatarSize),
+    ) {
+        responsibleNames.forEachIndexed { index, responsibleName ->
+            val member = members.firstOrNull {
+                it.name.equals(responsibleName, ignoreCase = true)
+            }
+            GoogleProfileAvatar(
+                photoUrl = member?.photoUrl,
+                modifier = Modifier
+                    .offset(x = visibleStep * index)
+                    .size(avatarSize),
+                fallbackIcon = Icons.Rounded.PersonOutline,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TaskCard(
+    task: PopTask,
+    members: List<CompanyMember>,
+    showAssigneeAvatars: Boolean,
+    isCompleting: Boolean,
+    onComplete: () -> Unit,
+    onOpen: () -> Unit,
+) {
     val completedVisual = task.completed || isCompleting
     val isOverdue = isTaskOverdue(task) && !isCompleting
     val isUrgent = task.priority == "Urgente" && !completedVisual
+    val hasVisibleAssignees =
+        task.assignmentType in setOf("department", "group", "company") &&
+            (
+                task.assignees.isNotEmpty() ||
+                    (
+                        task.assignee.isNotBlank() &&
+                            !task.assignee.equals("Sem responsável", ignoreCase = true)
+                        )
+                )
     val isLightTheme = MaterialTheme.colorScheme.background.luminance() > .5f
     val urgentBackground = if (isLightTheme) Color(0xFFD63843) else Color(0xFFB52D3A)
     val cardColor by animateColorAsState(
@@ -5847,6 +5920,10 @@ private fun TaskCard(task: PopTask, isCompleting: Boolean, onComplete: () -> Uni
                         modifier = Modifier.weight(1f),
                     )
                 }
+            }
+            if (showAssigneeAvatars && hasVisibleAssignees) {
+                TaskAssigneeAvatarStack(task = task, members = members)
+                Spacer(Modifier.width(8.dp))
             }
             PriorityPill(task.priority, if (isUrgent) Color.White else null)
         }

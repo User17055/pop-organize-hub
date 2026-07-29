@@ -115,25 +115,32 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
           ...(isCompany
             ? workspace.employees
             : workspace.employees.filter((employee) => employee.id === userId)
-          ).map((employee) => ({
-            id: employee.id,
-            name: employee.name,
-            email: employee.email,
-            photoUrl: employee.avatar ?? "",
-            role:
-              isCompany && employee.id === workspace.company.ownerId
-                ? "Proprietário"
-                : employee.role,
-            isOwner: isCompany && employee.id === workspace.company.ownerId,
-            sectorId: employee.departmentId,
-            sector:
-              workspace.departments.find((department) => department.id === employee.departmentId)
-                ?.name ?? "",
-            groupIds: workspace.groups
-              .filter((group) => group.memberIds.includes(employee.id))
-              .map((group) => group.id),
-            pending: false,
-          })),
+          ).map((employee) => {
+            const linkedAccount = platform.accounts.find(
+              (account) =>
+                account.id === employee.id ||
+                normalizeEmail(account.email) === normalizeEmail(employee.email),
+            );
+            return {
+              id: employee.id,
+              name: employee.name,
+              email: employee.email,
+              photoUrl: employee.avatar || linkedAccount?.avatar || "",
+              role:
+                isCompany && employee.id === workspace.company.ownerId
+                  ? "Proprietário"
+                  : employee.role,
+              isOwner: isCompany && employee.id === workspace.company.ownerId,
+              sectorId: employee.departmentId,
+              sector:
+                workspace.departments.find((department) => department.id === employee.departmentId)
+                  ?.name ?? "",
+              groupIds: workspace.groups
+                .filter((group) => group.memberIds.includes(employee.id))
+                .map((group) => group.id),
+              pending: false,
+            };
+          }),
           ...workspace.invitations.map((invitation) => ({
             id: invitation.id,
             name: invitation.name,

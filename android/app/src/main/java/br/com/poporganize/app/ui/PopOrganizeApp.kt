@@ -2176,8 +2176,24 @@ private fun PopMainContent(
         companyCanManageDepartments.addAll(companies.map { it.canManageDepartments })
         companyCanManageGroups.clear()
         companyCanManageGroups.addAll(companies.map { it.canManageGroups })
+        val currentAccountEmail = googleAccount?.email.orEmpty()
+        val currentAccountPhoto = googleAccount?.photoUrl.orEmpty()
         companyMemberLists.clear()
-        companyMemberLists.addAll(companies.map { it.employees })
+        companyMemberLists.addAll(
+            companies.map { company ->
+                company.employees.map { member ->
+                    if (
+                        member.photoUrl.isBlank() &&
+                        currentAccountPhoto.isNotBlank() &&
+                        member.email.equals(currentAccountEmail, ignoreCase = true)
+                    ) {
+                        member.copy(photoUrl = currentAccountPhoto)
+                    } else {
+                        member
+                    }
+                }
+            },
+        )
         companySectorLists.clear()
         companySectorLists.addAll(companies.map { it.sectors })
         companyGroupLists.clear()
@@ -2465,6 +2481,8 @@ private fun PopMainContent(
                     PopDestination.Tasks -> TasksScreen(
                         tasks = tasks,
                         canCreateTask = canCreateTask,
+                        currentUserId = googleAccount?.id.orEmpty(),
+                        currentUserName = googleAccount?.name.orEmpty(),
                         workSpace = workSpace,
                         onWorkSpaceChange = ::selectWorkSpace,
                         companyNames = companyNames,
@@ -3585,6 +3603,8 @@ private fun AssignmentSelector(
 private fun TasksScreen(
     tasks: MutableList<PopTask>,
     canCreateTask: Boolean,
+    currentUserId: String,
+    currentUserName: String,
     workSpace: WorkSpace,
     onWorkSpaceChange: (WorkSpace) -> Unit,
     companyNames: List<String>,
@@ -3707,7 +3727,28 @@ private fun TasksScreen(
         .filter { task ->
             val dueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
             when (selectedFilter) {
-                "Hoje" -> dueDate == today
+                "Hoje" -> {
+                    val isCurrentUserTask =
+                        workSpace == WorkSpace.Personal ||
+                            (
+                                task.assignmentType == "user" &&
+                                    (
+                                        task.assignmentTargetId == currentUserId ||
+                                            task.assignmentTargetLabel.equals(
+                                                currentUserName,
+                                                ignoreCase = true,
+                                            ) ||
+                                            task.assignees.any {
+                                                it.equals(currentUserName, ignoreCase = true)
+                                            } ||
+                                            task.assignee.equals("Eu", ignoreCase = true)
+                                        )
+                                )
+                    dueDate == today && isCurrentUserTask
+                }
+                "Grupo" -> task.assignmentType == "group"
+                "Setor" -> task.assignmentType == "department"
+                "Empresa" -> task.assignmentType == "company"
                 "Atrasadas" -> !task.completed && dueDate != null && dueDate < today
                 "Próximas" -> !task.completed && dueDate != null && dueDate > today
                 else -> true
@@ -3999,9 +4040,25 @@ private fun TasksScreen(
                     ),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                 )
-                Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Hoje", "Atrasadas", "Próximas", "Todas").forEach { filter ->
-                        FilterChip(filter, selectedFilter == filter) { selectedFilter = filter }
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(
+                        listOf(
+                            "Hoje",
+                            "Grupo",
+                            "Setor",
+                            "Empresa",
+                            "Atrasadas",
+                            "Próximas",
+                            "Todas",
+                        ),
+                        key = { it },
+                    ) { filter ->
+                        FilterChip(filter, selectedFilter == filter) {
+                            selectedFilter = filter
+                        }
                     }
                 }
                 Text("${pendingTasks.size} atividades pendentes", color = PopMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))

@@ -183,6 +183,7 @@ export interface Task {
   createdAt: string;
   target: { type: TargetType; id: string; label: string };
   responsibleId: string;
+  responsibleIds?: string[];
   assignedById?: string;
   assignedAt?: string;
   reviewerId?: string;

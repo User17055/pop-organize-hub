@@ -49,6 +49,10 @@ export type MobileTask = {
   canEdit?: boolean;
   canComplete?: boolean;
   canDelete?: boolean;
+  assignmentType?: string;
+  assignmentTargetId?: string;
+  assignmentTargetLabel?: string;
+  assignees?: string[];
 };
 
 type NativeTask = Task & {
@@ -665,6 +669,10 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
         });
         workspace.tasks.forEach((task) => {
           if (task.responsibleId === employee.id) task.responsibleId = "";
+          task.responsibleIds = (task.responsibleIds ?? []).filter((id) => id !== employee.id);
+          if (!task.responsibleId && task.responsibleIds.length > 0) {
+            task.responsibleId = task.responsibleIds[0];
+          }
           if (task.reviewerId === employee.id) task.reviewerId = undefined;
         });
       }
@@ -906,9 +914,13 @@ function taskToMobileTask(
   });
   const native = task.nativeData;
   const recurrence = mobileRecurrence(task);
-  const assignee =
-    workspace.employees.find((employee) => employee.id === task.responsibleId)?.name ??
-    "Sem responsável";
+  const responsibleIds = Array.from(
+    new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean)),
+  ).slice(0, 3);
+  const assignees = responsibleIds
+    .map((id) => workspace.employees.find((employee) => employee.id === id)?.name)
+    .filter((name): name is string => Boolean(name));
+  const assignee = assignees.join(", ") || "Sem responsável";
   const assignedBy =
     task.assignedById && task.assignedById !== currentUser.id
       ? (workspace.employees.find((employee) => employee.id === task.assignedById)?.name ?? "")
@@ -944,6 +956,10 @@ function taskToMobileTask(
     canEdit: permissions.canEditContent,
     canComplete: permissions.canComplete || permissions.canReopen,
     canDelete: permissions.canDelete,
+    assignmentType: native?.assignmentType ?? task.target.type,
+    assignmentTargetId: native?.assignmentTargetId ?? task.target.id,
+    assignmentTargetLabel: native?.assignmentTargetLabel ?? task.target.label,
+    assignees: native?.assignees?.slice(0, 3) ?? assignees,
   };
 }
 
@@ -971,6 +987,50 @@ function mobileResponsibleId(workspace: Database, accountId: string, assignee: s
         employee.email.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR"),
     )?.id ?? ""
   );
+}
+
+function mobileResponsibleIds(workspace: Database, accountId: string, item: MobileTask) {
+  const names = Array.isArray(item.assignees) ? item.assignees.slice(0, 3) : [item.assignee];
+  return Array.from(
+    new Set(names.map((name) => mobileResponsibleId(workspace, accountId, name)).filter(Boolean)),
+  ).slice(0, 3);
+}
+
+function mobileTaskTarget(
+  workspace: Database,
+  accountId: string,
+  item: MobileTask,
+): Task["target"] {
+  const type = item.assignmentType;
+  const id = item.assignmentTargetId?.trim() ?? "";
+  const label = item.assignmentTargetLabel?.trim() ?? "";
+  if (type === "company") {
+    return { type: "company", id: workspace.company.id, label: label || workspace.company.name };
+  }
+  if (type === "department") {
+    const department = workspace.departments.find(
+      (candidate) => candidate.id === id || candidate.name === label,
+    );
+    if (department) return { type: "department", id: department.id, label: department.name };
+  }
+  if (type === "group") {
+    const group = workspace.groups.find(
+      (candidate) => candidate.id === id || candidate.name === label,
+    );
+    if (group) return { type: "group", id: group.id, label: group.name };
+  }
+  if (type === "user") {
+    const employee = workspace.employees.find(
+      (candidate) =>
+        candidate.id === id ||
+        candidate.name.toLocaleLowerCase("pt-BR") === label.toLocaleLowerCase("pt-BR"),
+    );
+    if (employee) return { type: "user", id: employee.id, label: employee.name };
+  }
+  const department = workspace.departments[0];
+  return department
+    ? { type: "department", id: department.id, label: department.name }
+    : { type: "user", id: accountId, label: workspace.company.name };
 }
 
 function mobileTaskRecurrence(item: MobileTask): Task["recurrence"] {
@@ -1053,7 +1113,6 @@ export async function replaceMobileTasks(
       permissionGroups: workspace.permissionGroups,
     });
     const canCreateTasks = hasPermission(permissionSet, "tasks.create");
-    const department = workspace.departments[0];
     const today = new Intl.DateTimeFormat("sv-SE", {
       timeZone: "America/Sao_Paulo",
     }).format(new Date());
@@ -1154,7 +1213,10 @@ export async function replaceMobileTasks(
           existing.description = item.description.trim();
           existing.priority = priority(item.priority);
           existing.dueDate = item.dueDate;
-          existing.responsibleId = mobileResponsibleId(workspace, account.id, item.assignee);
+          const responsibleIds = mobileResponsibleIds(workspace, account.id, item);
+          existing.responsibleId = responsibleIds[0] ?? "";
+          existing.responsibleIds = responsibleIds;
+          existing.target = mobileTaskTarget(workspace, account.id, item);
           existing.recurrence = mobileTaskRecurrence(item);
           existing.attachments = item.attachmentName ? 1 : 0;
         }
@@ -1179,12 +1241,9 @@ export async function replaceMobileTasks(
         status: item.completed ? "completed" : "pending",
         dueDate: item.dueDate,
         createdAt: new Date().toISOString().slice(0, 10),
-        target: {
-          type: department ? "department" : "user",
-          id: department?.id ?? account.id,
-          label: department?.name ?? account.name,
-        },
-        responsibleId: mobileResponsibleId(workspace, account.id, item.assignee),
+        target: mobileTaskTarget(workspace, account.id, item),
+        responsibleId: mobileResponsibleIds(workspace, account.id, item)[0] ?? "",
+        responsibleIds: mobileResponsibleIds(workspace, account.id, item),
         assignedById: account.id,
         requiresReview: false,
         tags: ["Aplicativo"],

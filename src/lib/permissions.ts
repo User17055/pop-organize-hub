@@ -39,6 +39,10 @@ export function canViewTask(input: PermissionInput) {
   const currentEmployee = input.employees.find((item) => item.id === userId);
   if (isAdmin(currentEmployee?.role)) return true;
 
+  if (input.task.responsibleId === userId || (input.task.responsibleIds ?? []).includes(userId)) {
+    return true;
+  }
+
   if (input.task.target.type === "company") return true;
   if (input.task.target.type === "user") return input.task.target.id === userId;
   if (input.task.target.type === "department") {
@@ -133,7 +137,11 @@ function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
     };
   }
 
-  if (input.task.responsibleId === userId) {
+  const responsibleIds = new Set(
+    [input.task.responsibleId, ...(input.task.responsibleIds ?? [])].filter(Boolean),
+  );
+
+  if (responsibleIds.has(userId)) {
     return {
       canEditContent: false,
       canChangeStatus: true,
@@ -143,7 +151,7 @@ function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
     };
   }
 
-  if (!input.task.responsibleId) {
+  if (responsibleIds.size === 0) {
     const roleLabel =
       input.task.target.type === "company"
         ? "Membro da empresa"

@@ -253,6 +253,10 @@ private data class PopTask(
     val canComplete: Boolean = true,
     val canDelete: Boolean = true,
     val serverId: String = "",
+    val assignmentType: String = "user",
+    val assignmentTargetId: String = "",
+    val assignmentTargetLabel: String = "",
+    val assignees: List<String> = emptyList(),
 )
 
 private enum class SessionMode { Guest, Email, Google }
@@ -425,6 +429,14 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 canEdit = item.optBoolean("canEdit", true),
                 canComplete = item.optBoolean("canComplete", true),
                 canDelete = item.optBoolean("canDelete", true),
+                assignmentType = item.optString("assignmentType", "user"),
+                assignmentTargetId = item.optString("assignmentTargetId"),
+                assignmentTargetLabel = item.optString("assignmentTargetLabel"),
+                assignees = item.optJSONArray("assignees")?.let { values ->
+                    List(values.length()) { assigneeIndex -> values.optString(assigneeIndex) }
+                        .filter(String::isNotBlank)
+                        .take(3)
+                }.orEmpty(),
             )
         }
     }.getOrElse { fallback }
@@ -520,7 +532,11 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("recurrenceOccurrence", task.recurrenceOccurrence)
                 .put("canEdit", task.canEdit)
                 .put("canComplete", task.canComplete)
-                .put("canDelete", task.canDelete),
+                .put("canDelete", task.canDelete)
+                .put("assignmentType", task.assignmentType)
+                .put("assignmentTargetId", task.assignmentTargetId)
+                .put("assignmentTargetLabel", task.assignmentTargetLabel)
+                .put("assignees", JSONArray(task.assignees)),
         )
     }
     return items
@@ -3227,53 +3243,242 @@ private fun SectionTitle(title: String, action: String? = null, onAction: (() ->
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AssignmentSelector(
-    value: String,
+    companyName: String,
+    assignmentType: String,
+    targetId: String,
+    targetLabel: String,
+    responsibleNames: Set<String>,
     members: List<CompanyMember>,
     sectors: List<CompanySector>,
     groups: List<CompanyGroup>,
-    onSelect: (String) -> Unit,
+    onChange: (type: String, targetId: String, targetLabel: String, responsibles: Set<String>) -> Unit,
+    forceOpen: Boolean = false,
+    onSheetClosed: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val options = buildList {
-        add("Sem responsável")
-        members.forEach { add("Pessoa • ${it.name}") }
-        sectors.forEach { add("Setor • ${it.name}") }
-        groups.forEach { add("Grupo • ${it.name}") }
-    }.distinct()
-    Box(Modifier.fillMaxWidth()) {
-        Surface(
-            onClick = { expanded = true },
-            color = PopSurface,
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.PersonOutline, null, tint = PopBlue, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Atribuir para", color = PopMuted, fontSize = 10.sp)
-                    Text(value.ifBlank { "Sem responsável" }, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
-                Icon(Icons.Rounded.KeyboardArrowDown, null, tint = PopMuted)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    LaunchedEffect(forceOpen) {
+        if (forceOpen) expanded = true
+    }
+    val typeLabel = when (assignmentType) {
+        "department" -> "Setor"
+        "group" -> "Grupo"
+        "company" -> "Empresa"
+        else -> "Pessoa individual"
+    }
+    val summary = when {
+        targetLabel.isBlank() -> "Escolher destino"
+        assignmentType == "user" -> "$typeLabel • $targetLabel"
+        responsibleNames.isEmpty() -> "$typeLabel • $targetLabel"
+        else -> "$typeLabel • $targetLabel • ${responsibleNames.size} responsáveis"
+    }
+
+    Surface(
+        onClick = { expanded = true },
+        color = PopSurface,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.PersonOutline, null, tint = PopBlue, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Destino da tarefa", color = PopMuted, fontSize = 10.sp)
+                Text(summary, color = PopText, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
+            Icon(Icons.Rounded.KeyboardArrowDown, null, tint = PopMuted)
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
+    }
+
+    if (expanded) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                expanded = false
+                onSheetClosed()
+            },
+            sheetState = sheetState,
             containerColor = PopSurface,
-            modifier = Modifier.fillMaxWidth(.9f),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         ) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option, fontWeight = if (value == option) FontWeight.Bold else FontWeight.Normal) },
-                    trailingIcon = { if (value == option) Icon(Icons.Rounded.Check, null, tint = PopBlue) },
-                    onClick = {
-                        onSelect(option)
-                        expanded = false
-                    },
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 650.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Escolher destino", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    "Primeiro escolha para quem a tarefa será exibida.",
+                    color = PopMuted,
+                    fontSize = 11.sp,
                 )
+                listOf(
+                    Triple("user", "Pessoa individual", Icons.Rounded.PersonOutline),
+                    Triple("department", "Setor", Icons.Rounded.AccountTree),
+                    Triple("group", "Grupo", Icons.Rounded.Groups),
+                    Triple("company", "Empresa", Icons.Rounded.Business),
+                ).chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        rowItems.forEach { (type, label, icon) ->
+                            Surface(
+                                onClick = {
+                                    if (type == "company") {
+                                        onChange(type, "", companyName, emptySet())
+                                    } else {
+                                        onChange(type, "", "", emptySet())
+                                    }
+                                },
+                                color = if (assignmentType == type) PopBlueSoft else PopSurfaceAlt,
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(13.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        icon,
+                                        null,
+                                        tint = if (assignmentType == type) PopBlue else PopMuted,
+                                        modifier = Modifier.size(19.dp),
+                                    )
+                                    Spacer(Modifier.width(7.dp))
+                                    Text(
+                                        label,
+                                        color = if (assignmentType == type) PopBlue else PopText,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val targets: List<Triple<String, String, String>> = when (assignmentType) {
+                    "department" -> sectors.map { Triple(it.id, it.name, it.description) }
+                    "group" -> groups.map {
+                        Triple(it.id, it.name, "${it.memberIds.size} membros")
+                    }
+                    "user" -> members
+                        .filterNot { it.pending }
+                        .map { Triple(it.id, it.name, it.email) }
+                    else -> listOf(Triple("", companyName, "Toda a empresa"))
+                }
+                Text(
+                    when (assignmentType) {
+                        "department" -> "Escolha o setor"
+                        "group" -> "Escolha o grupo"
+                        "company" -> "Empresa selecionada"
+                        else -> "Escolha a pessoa"
+                    },
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                )
+                targets.forEach { (id, name, detail) ->
+                    Surface(
+                        onClick = {
+                            val individualResponsibles =
+                                if (assignmentType == "user") setOf(name) else emptySet()
+                            onChange(assignmentType, id, name, individualResponsibles)
+                        },
+                        color = if (targetId == id && targetLabel == name) PopBlueSoft else PopSurfaceAlt,
+                        shape = RoundedCornerShape(15.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(name, color = PopText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                if (detail.isNotBlank()) {
+                                    Text(detail, color = PopMuted, fontSize = 9.sp)
+                                }
+                            }
+                            if (targetId == id && targetLabel == name) {
+                                Icon(Icons.Rounded.Check, "Selecionado", tint = PopBlue)
+                            }
+                        }
+                    }
+                }
+
+                if (assignmentType != "user" && targetLabel.isNotBlank()) {
+                    HorizontalDivider(color = PopBorder.copy(alpha = .7f))
+                    Text("Responsáveis (opcional)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(
+                        "Escolha até 3 pessoas. Sem responsável, qualquer membro do destino poderá atuar.",
+                        color = PopMuted,
+                        fontSize = 10.sp,
+                    )
+                    members.filterNot { it.pending }.forEach { member ->
+                        val selected = member.name in responsibleNames
+                        Surface(
+                            onClick = {
+                                val next = when {
+                                    selected -> responsibleNames - member.name
+                                    responsibleNames.size < 3 -> responsibleNames + member.name
+                                    else -> responsibleNames
+                                }
+                                onChange(assignmentType, targetId, targetLabel, next)
+                            },
+                            color = if (selected) PopBlueSoft else PopSurfaceAlt,
+                            shape = RoundedCornerShape(15.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                GoogleProfileAvatar(
+                                    photoUrl = member.photoUrl,
+                                    modifier = Modifier.size(36.dp),
+                                    fallbackIcon = Icons.Rounded.PersonOutline,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(member.name, color = PopText, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Text(member.email, color = PopMuted, fontSize = 9.sp)
+                                }
+                                if (selected) Icon(Icons.Rounded.Check, "Responsável", tint = PopBlue)
+                            }
+                        }
+                    }
+                    Text(
+                        "${responsibleNames.size}/3 selecionados",
+                        color = if (responsibleNames.size == 3) PopBlue else PopMuted,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.align(Alignment.End),
+                    )
+                }
+
+                Surface(
+                    onClick = {
+                        expanded = false
+                        onSheetClosed()
+                    },
+                    color = PopBlue,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "Concluir",
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(13.dp),
+                    )
+                }
             }
         }
     }
@@ -3305,6 +3510,10 @@ private fun TasksScreen(
     var newTaskTitle by remember { mutableStateOf("") }
     var newTaskDescription by remember { mutableStateOf("") }
     var newTaskAssignee by remember { mutableStateOf("") }
+    var newTaskAssignmentType by remember { mutableStateOf("company") }
+    var newTaskAssignmentTargetId by remember { mutableStateOf("") }
+    var newTaskAssignmentTargetLabel by remember { mutableStateOf("") }
+    var newTaskResponsibleNames by remember { mutableStateOf(setOf<String>()) }
     var newTaskPriority by remember { mutableStateOf("Média") }
     var newTaskDateOffset by remember { mutableIntStateOf(0) }
     var newTaskRecurrence by remember { mutableStateOf("Não repetir") }
@@ -3318,6 +3527,7 @@ private fun TasksScreen(
     var newTaskRecurrenceCount by remember { mutableIntStateOf(10) }
     var newTaskRecurrenceEndDate by remember { mutableStateOf(LocalDate.now().plusMonths(1).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
     var showAdvancedOptions by remember { mutableStateOf(false) }
+    var showAssignmentSheet by remember { mutableStateOf(false) }
     var showTaskDateSheet by remember { mutableStateOf(false) }
     var showPriorityMenu by remember { mutableStateOf(false) }
     var taskDateDraft by remember { mutableStateOf(LocalDate.now()) }
@@ -3509,6 +3719,16 @@ private fun TasksScreen(
                 }
             }.joinToString(" • ")
         }
+        val editedAssignees = if (workSpace == WorkSpace.Personal) {
+            listOf("Eu")
+        } else {
+            editAssignee
+                .split(",")
+                .map(String::trim)
+                .filter { it.isNotBlank() && it != "Sem responsável" }
+                .distinct()
+                .take(3)
+        }
         tasks[index] = original.copy(
             title = editTitle.trim(),
             description = editDescription.trim(),
@@ -3523,7 +3743,14 @@ private fun TasksScreen(
             recurrenceInterval = editRecurrenceInterval.coerceAtLeast(1),
             recurrenceEndMode = editRecurrenceEnd,
             recurrenceEndValue = storedEndValue,
-            assignee = if (workSpace == WorkSpace.Personal) "Eu" else editAssignee.trim().ifBlank { "Sem responsável" },
+            assignee = editedAssignees.joinToString(", ").ifBlank { "Sem responsável" },
+            assignees = editedAssignees,
+            assignmentTargetLabel =
+                if (original.assignmentType == "user") {
+                    editedAssignees.firstOrNull() ?: original.assignmentTargetLabel
+                } else {
+                    original.assignmentTargetLabel
+                },
             attachmentName = editAttachment,
         )
         editingTaskId = null
@@ -3567,7 +3794,13 @@ private fun TasksScreen(
             PopTask(
                 id = (tasks.filter { it.id > 0 }.maxOfOrNull { it.id } ?: 0) + 1,
                 title = newTaskTitle.trim(),
-                department = if (workSpace == WorkSpace.Personal) "Pessoal" else "Empresa",
+                department = if (workSpace == WorkSpace.Personal) {
+                    "Pessoal"
+                } else {
+                    newTaskAssignmentTargetLabel.ifBlank {
+                        companyNames.getOrElse(selectedCompanyIndex) { "Empresa" }
+                    }
+                },
                 dueLabel = when (newTaskDateOffset) {
                     0 -> "Hoje"
                     1 -> "Amanhã"
@@ -3579,8 +3812,20 @@ private fun TasksScreen(
                 assignee = if (workSpace == WorkSpace.Personal) {
                     "Eu"
                 } else {
-                    newTaskAssignee.trim().ifBlank { "Sem responsável" }
+                    newTaskResponsibleNames.joinToString(", ").ifBlank { "Sem responsável" }
                 },
+                assignmentType = if (workSpace == WorkSpace.Personal) "user" else newTaskAssignmentType,
+                assignmentTargetId = if (workSpace == WorkSpace.Personal) "" else newTaskAssignmentTargetId,
+                assignmentTargetLabel =
+                    if (workSpace == WorkSpace.Personal) {
+                        "Eu"
+                    } else {
+                        newTaskAssignmentTargetLabel.ifBlank {
+                            companyNames.getOrElse(selectedCompanyIndex) { "Empresa" }
+                        }
+                    },
+                assignees =
+                    if (workSpace == WorkSpace.Personal) listOf("Eu") else newTaskResponsibleNames.take(3),
                 recurrence = if (newTaskRecurrence == "Não repetir") {
                     newTaskRecurrence
                 } else {
@@ -3608,6 +3853,10 @@ private fun TasksScreen(
         newTaskTitle = ""
         newTaskDescription = ""
         newTaskAssignee = ""
+        newTaskAssignmentType = "company"
+        newTaskAssignmentTargetId = ""
+        newTaskAssignmentTargetLabel = ""
+        newTaskResponsibleNames = emptySet()
         newTaskPriority = "Média"
         newTaskDateOffset = 0
         newTaskRecurrence = "Não repetir"
@@ -3844,7 +4093,10 @@ private fun TasksScreen(
                         }
                     }
                     if (workSpace == WorkSpace.Company) {
-                        TaskComposerIcon(Icons.Rounded.PersonOutline, "Atribuir pessoa", PopBlue) { showAdvancedOptions = true }
+                        TaskComposerIcon(Icons.Rounded.PersonOutline, "Escolher destino", PopBlue) {
+                            keyboardController?.hide()
+                            showAssignmentSheet = true
+                        }
                     }
                     TaskComposerIcon(Icons.Rounded.AttachFile, "Adicionar anexo", if (newTaskAttachment.isBlank()) PopMuted else PopBlue) {
                         attachmentPicker.launch(arrayOf("*/*"))
@@ -3853,18 +4105,30 @@ private fun TasksScreen(
                         showAdvancedOptions = !showAdvancedOptions
                     }
                 }
-                AnimatedVisibility(visible = showAdvancedOptions) {
+                AnimatedVisibility(visible = showAdvancedOptions || showAssignmentSheet) {
                     Column(
                         modifier = Modifier.fillMaxWidth().background(PopSurfaceAlt, RoundedCornerShape(18.dp)).padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         if (workSpace == WorkSpace.Company) {
                             AssignmentSelector(
-                                value = newTaskAssignee,
+                                companyName = companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
+                                assignmentType = newTaskAssignmentType,
+                                targetId = newTaskAssignmentTargetId,
+                                targetLabel = newTaskAssignmentTargetLabel,
+                                responsibleNames = newTaskResponsibleNames,
                                 members = companyMembers,
                                 sectors = companySectors,
                                 groups = companyGroups,
-                                onSelect = { newTaskAssignee = it },
+                                onChange = { type, id, label, responsibles ->
+                                    newTaskAssignmentType = type
+                                    newTaskAssignmentTargetId = id
+                                    newTaskAssignmentTargetLabel = label
+                                    newTaskResponsibleNames = responsibles.take(3).toSet()
+                                    newTaskAssignee = newTaskResponsibleNames.joinToString(", ")
+                                },
+                                forceOpen = showAssignmentSheet,
+                                onSheetClosed = { showAssignmentSheet = false },
                             )
                         }
                         if (newTaskAttachment.isNotBlank()) {
@@ -4627,11 +4891,21 @@ private fun TasksScreen(
                     if (workSpace == WorkSpace.Company) {
                         Text("Atribuir para", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         AssignmentSelector(
-                            value = newTaskAssignee,
+                            companyName = companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
+                            assignmentType = newTaskAssignmentType,
+                            targetId = newTaskAssignmentTargetId,
+                            targetLabel = newTaskAssignmentTargetLabel,
+                            responsibleNames = newTaskResponsibleNames,
                             members = companyMembers,
                             sectors = companySectors,
                             groups = companyGroups,
-                            onSelect = { newTaskAssignee = it },
+                            onChange = { type, id, label, responsibles ->
+                                newTaskAssignmentType = type
+                                newTaskAssignmentTargetId = id
+                                newTaskAssignmentTargetLabel = label
+                                newTaskResponsibleNames = responsibles.take(3).toSet()
+                                newTaskAssignee = newTaskResponsibleNames.joinToString(", ")
+                            },
                         )
                     }
                     Text("Prioridade", fontWeight = FontWeight.Bold, fontSize = 13.sp)

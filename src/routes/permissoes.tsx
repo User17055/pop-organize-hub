@@ -22,7 +22,7 @@ import {
 } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import { permissionCatalog, type PermissionGroup, type PermissionKey } from "@/lib/domain";
-import { isAdminUser } from "@/lib/permission-groups";
+import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/permissoes")({
@@ -105,11 +105,12 @@ function PermissoesPage() {
   }
 
   const { permissionGroups, employees, currentUser } = data;
+  const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
 
-  if (!isAdminUser({ currentUser, employees })) {
+  if (!hasPermission(permissionSet, "manage.permissions")) {
     return (
       <AppShell title="Permissões" subtitle="Grupos de permissão da empresa">
-        <AccessRestricted requiredLabel="administradores da empresa" />
+        <AccessRestricted requiredLabel="quem pode gerenciar permissões" />
       </AppShell>
     );
   }

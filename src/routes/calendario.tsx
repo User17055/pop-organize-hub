@@ -6,6 +6,7 @@ import { ptBR } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
+import { AccessRestricted } from "@/components/access-restricted";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
 import { getTaskPermissions } from "@/lib/permissions";
 import type { TargetType, Task } from "@/lib/domain";
@@ -23,6 +24,7 @@ import {
   type TaskEditState,
 } from "@/components/tasks/task-form-types";
 import { recurringTaskDatesInRange } from "@/lib/recurrence";
+import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 
 export const Route = createFileRoute("/calendario")({
   head: () => ({
@@ -158,6 +160,14 @@ function CalendarPage() {
   }
 
   const { currentUser, departments, employees, groups, permissionGroups, tasks } = data;
+  const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
+  if (!hasPermission(permissionSet, "pages.calendar")) {
+    return (
+      <AppShell title="Calendário" subtitle="Visualize tarefas por data de vencimento">
+        <AccessRestricted requiredLabel="quem pode visualizar o calendário" />
+      </AppShell>
+    );
+  }
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
   const selectedPermissions = selectedTask
     ? getTaskPermissions({

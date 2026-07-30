@@ -87,6 +87,7 @@ function TasksPage() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showLayoutSettings, setShowLayoutSettings] = useState(false);
+  const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
   const [layoutPreferences, setLayoutPreferences] =
     useState<TaskLayoutPreferences>(defaultLayoutPreferences);
   const [collapsedDepartments, setCollapsedDepartments] = useState<Set<string>>(() => new Set());
@@ -385,17 +386,23 @@ function TasksPage() {
   }
 
   function handleMoveTask(task: Task, target: { type: "department" | "group"; id: string }) {
-    updateTaskMutation.mutate({
-      id: task.id,
-      title: task.title,
-      description: task.description,
-      priority: task.priority,
-      dueDate: task.dueDate,
-      target,
-      responsibleId: task.responsibleId,
-      tags: task.tags,
-      recurrence: recurrenceFromForm(recurrenceToForm(task.recurrence, task.dueDate)),
-    });
+    setMovingTaskId(task.id);
+    window.setTimeout(() => {
+      updateTaskMutation.mutate(
+        {
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          priority: task.priority,
+          dueDate: task.dueDate,
+          target,
+          responsibleId: task.responsibleId,
+          tags: task.tags,
+          recurrence: recurrenceFromForm(recurrenceToForm(task.recurrence, task.dueDate)),
+        },
+        { onSettled: () => setMovingTaskId(null) },
+      );
+    }, 240);
   }
 
   function handleDeleteSelectedTask() {
@@ -475,8 +482,10 @@ function TasksPage() {
                     status: selectedTask.status === "completed" ? "in_progress" : "completed",
                   })
                 }
+                onMove={(target) => handleMoveTask(selectedTask, target)}
                 onDelete={handleDeleteSelectedTask}
                 isSaving={updateTaskMutation.isPending}
+                isMoving={movingTaskId === selectedTask.id}
                 isDeleting={deleteTaskMutation.isPending}
                 isStatusPending={statusMutation.isPending}
                 commentBody={commentBody}
@@ -520,9 +529,9 @@ function TasksPage() {
         canCreateTask ? (
           <button
             onClick={openForm}
-            className="hidden h-11 items-center gap-2 rounded-full bg-foreground px-5 text-sm font-bold text-background transition hover:-translate-y-0.5 hover:bg-foreground/90 lg:inline-flex"
+            className="hidden h-11 items-center gap-2 rounded-full bg-primary px-5 text-sm font-bold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:bg-primary/90 lg:inline-flex"
           >
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/16">
               <Plus className="h-4 w-4" />
             </span>
             Nova tarefa
@@ -543,7 +552,7 @@ function TasksPage() {
         {canCreateTask && (
           <button
             onClick={openForm}
-            className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full bg-foreground px-3.5 text-sm font-bold text-background transition hover:bg-foreground/90 sm:px-4 lg:hidden"
+            className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full bg-primary px-3.5 text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 sm:px-4 lg:hidden"
           >
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
               <Plus className="h-4 w-4" />
@@ -718,6 +727,7 @@ function TasksPage() {
                   onOpen={openTask}
                   onComplete={(task) => statusMutation.mutate({ id: task.id, status: "completed" })}
                   onMove={handleMoveTask}
+                  movingTaskId={movingTaskId}
                   isCompleting={statusMutation.isPending}
                   preferences={layoutPreferences}
                   onTitleWidthChange={(titleWidth) =>

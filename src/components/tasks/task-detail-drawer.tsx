@@ -7,6 +7,7 @@ import {
   FileText,
   Flag,
   MessageSquare,
+  MoreVertical,
   Paperclip,
   Pencil,
   Repeat,
@@ -17,6 +18,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { StatusBadge, PriorityBadge } from "@/components/app-shell";
 import type {
@@ -34,6 +36,14 @@ import { EmployeeAvatar } from "./employee-avatar";
 import { GlassDatePicker } from "./glass-date-picker";
 import { GlassSelect, RecurrenceFields } from "./recurrence-fields";
 import { TaskSubtaskChecklist } from "./task-subtask-checklist";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   isOverdue,
   recurrenceLabel,
@@ -55,8 +65,10 @@ export function TaskDetailDrawer({
   onSubmit,
   onClose,
   onToggleComplete,
+  onMove,
   onDelete,
   isSaving,
+  isMoving = false,
   isDeleting,
   isStatusPending,
   commentBody,
@@ -83,8 +95,10 @@ export function TaskDetailDrawer({
   onSubmit: (event: FormEvent) => void;
   onClose: () => void;
   onToggleComplete: () => void;
+  onMove?: (target: { type: "department" | "group"; id: string }) => void;
   onDelete: () => void;
   isSaving: boolean;
+  isMoving?: boolean;
   isDeleting: boolean;
   isStatusPending: boolean;
   commentBody: string;
@@ -145,11 +159,92 @@ export function TaskDetailDrawer({
   return (
     <form
       onSubmit={onSubmit}
-      className="task-detail-readable flex h-full flex-col overflow-hidden rounded-lg"
+      className="task-detail-readable relative flex h-full flex-col overflow-hidden rounded-lg"
     >
+      <AnimatePresence>
+        {isMoving && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[85] flex items-center justify-center bg-background/76 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, x: -18 }}
+              animate={{ scale: 1, x: [0, 18, 0] }}
+              transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+              className="flex flex-col items-center gap-3 text-primary"
+            >
+              <span className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-primary/10">
+                <Building2 className="h-7 w-7" />
+              </span>
+              <span className="text-sm font-bold">Movendo atividade...</span>
+            </motion.div>
+          </motion.div>
+        )}
+        {isDeleting && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[90] flex items-center justify-center bg-background/82 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.82, y: 14 }}
+              animate={{ scale: [0.82, 1.05, 1], y: 0 }}
+              transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+              className="flex flex-col items-center gap-3 text-destructive"
+            >
+              <motion.span
+                animate={{ rotate: [0, -10, 10, -6, 0], y: [0, -4, 0] }}
+                transition={{ duration: 0.65, repeat: Infinity, repeatDelay: 0.15 }}
+                className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-destructive/10"
+              >
+                <Trash2 className="h-7 w-7" />
+              </motion.span>
+              <span className="text-sm font-bold">Excluindo atividade...</span>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* Sticky header */}
       <header className="glass-header sticky top-0 z-[60] border-b border-white/70 px-5 pb-4 pt-5">
         <div className="mb-3 flex items-center justify-end gap-3">
+          {permissions.canMove && onMove && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="glass-icon-button flex h-8 w-8 items-center justify-center rounded-md text-foreground"
+                  aria-label="Mais opções da atividade"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-60">
+                <DropdownMenuLabel>Mover atividade</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {groups.map((group) => (
+                  <DropdownMenuItem
+                    key={group.id}
+                    onSelect={() => onMove?.({ type: "group", id: group.id })}
+                  >
+                    <Users className="mr-2 h-4 w-4 text-primary" />
+                    Grupo: {group.name}
+                  </DropdownMenuItem>
+                ))}
+                {departments.map((department) => (
+                  <DropdownMenuItem
+                    key={department.id}
+                    onSelect={() => onMove?.({ type: "department", id: department.id })}
+                  >
+                    <Building2 className="mr-2 h-4 w-4 text-primary" />
+                    Setor: {department.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <button
             type="button"
             onClick={onClose}

@@ -1,4 +1,5 @@
 import { Repeat, Trash2, X } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import type { Task } from "@/lib/domain";
 
 export function RecurringDeleteDialog({
@@ -22,15 +23,32 @@ export function RecurringDeleteDialog({
 
   return (
     <div className="fixed inset-0 z-[260] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
-      <section
+      <motion.section
+        initial={{ opacity: 0, scale: 0.94, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="delete-task-title"
         className="w-full max-w-md rounded-[24px] border border-white/70 bg-background p-5 shadow-2xl"
       >
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-destructive/10 text-destructive">
-            {isRecurring ? <Repeat className="h-5 w-5" /> : <Trash2 className="h-5 w-5" />}
+          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-destructive/10 text-destructive">
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={pending ? "deleting" : "idle"}
+                initial={{ opacity: 0, scale: 0.7 }}
+                animate={
+                  pending
+                    ? { opacity: 1, scale: 1, rotate: [0, -10, 10, -5, 0] }
+                    : { opacity: 1, scale: 1, rotate: 0 }
+                }
+                exit={{ opacity: 0, scale: 0.7 }}
+                transition={{ duration: pending ? 0.55 : 0.2, repeat: pending ? Infinity : 0 }}
+              >
+                {isRecurring ? <Repeat className="h-5 w-5" /> : <Trash2 className="h-5 w-5" />}
+              </motion.span>
+            </AnimatePresence>
           </div>
           <div className="min-w-0 flex-1">
             <h2 id="delete-task-title" className="font-display text-lg font-bold">
@@ -94,7 +112,7 @@ export function RecurringDeleteDialog({
             Cancelar
           </button>
         </div>
-      </section>
+      </motion.section>
     </div>
   );
 }

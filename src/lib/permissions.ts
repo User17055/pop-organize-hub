@@ -14,6 +14,9 @@ export type TaskPermissions = {
   canComment: boolean;
   canAttach: boolean;
   canManageChecklist: boolean;
+  canMove: boolean;
+  canAssign: boolean;
+  canManageRecurrence: boolean;
   roleLabel: string;
 };
 
@@ -38,6 +41,14 @@ export function canViewTask(input: PermissionInput) {
 
   const currentEmployee = input.employees.find((item) => item.id === userId);
   if (isAdmin(currentEmployee?.role)) return true;
+  if (input.permissionGroups) {
+    const set = resolvePermissionSet({
+      currentUser: input.currentUser,
+      employees: input.employees,
+      permissionGroups: input.permissionGroups,
+    });
+    if (hasPermission(set, "tasks.viewAll")) return true;
+  }
 
   if (input.task.responsibleId === userId || (input.task.responsibleIds ?? []).includes(userId)) {
     return true;
@@ -204,6 +215,9 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
     canComment: base.canChangeStatus && allowed("tasks.comment"),
     canAttach: base.canChangeStatus && allowed("tasks.attach"),
     canManageChecklist: (base.canChangeStatus || base.canEditContent) && allowed("tasks.checklist"),
+    canMove: base.canEditContent && allowed("tasks.move"),
+    canAssign: base.canEditContent && allowed("tasks.assign"),
+    canManageRecurrence: base.canEditContent && allowed("tasks.recurrence"),
     roleLabel: base.roleLabel,
   };
 }

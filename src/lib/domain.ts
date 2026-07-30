@@ -78,6 +78,12 @@ export type PermissionKey =
   | "tasks.comment"
   | "tasks.attach"
   | "tasks.checklist"
+  | "tasks.move"
+  | "tasks.assign"
+  | "tasks.recurrence"
+  | "tasks.viewAll"
+  | "pages.calendar"
+  | "pages.groups"
   | "pages.departments"
   | "pages.reports"
   | "pages.employees"
@@ -85,7 +91,9 @@ export type PermissionKey =
   | "manage.departments"
   | "manage.groups"
   | "manage.employees"
-  | "manage.company";
+  | "manage.company"
+  | "manage.permissions"
+  | "manage.invitations";
 
 export interface PermissionGroup {
   id: string;
@@ -119,11 +127,33 @@ export const permissionCatalog: Array<{
         label: "Gerenciar checklist",
         hint: "Adicionar e marcar itens do checklist",
       },
+      {
+        key: "tasks.move",
+        label: "Mover tarefas",
+        hint: "Mover atividades entre grupos e setores",
+      },
+      {
+        key: "tasks.assign",
+        label: "Alterar destino e responsável",
+        hint: "Trocar quem visualiza ou executa uma atividade",
+      },
+      {
+        key: "tasks.recurrence",
+        label: "Gerenciar recorrência",
+        hint: "Criar e alterar repetições das atividades",
+      },
+      {
+        key: "tasks.viewAll",
+        label: "Ver todas as tarefas",
+        hint: "Visualizar atividades de toda a empresa",
+      },
     ],
   },
   {
     category: "Visualização de páginas",
     items: [
+      { key: "pages.calendar", label: "Ver Calendário", hint: "Acessa o calendário de atividades" },
+      { key: "pages.groups", label: "Ver Grupos", hint: "Acessa os grupos de trabalho" },
       { key: "pages.departments", label: "Ver Setores", hint: "Acessa a página de setores" },
       { key: "pages.reports", label: "Ver Relatórios", hint: "Acessa indicadores e relatórios" },
       {
@@ -149,6 +179,16 @@ export const permissionCatalog: Array<{
         hint: "Adiciona novos colaboradores",
       },
       { key: "manage.company", label: "Editar empresa", hint: "Altera dados da empresa" },
+      {
+        key: "manage.permissions",
+        label: "Gerenciar permissões",
+        hint: "Cria grupos e define acessos dos colaboradores",
+      },
+      {
+        key: "manage.invitations",
+        label: "Gerenciar convites",
+        hint: "Convida, reenvia e organiza acessos de funcionários",
+      },
     ],
   },
 ];

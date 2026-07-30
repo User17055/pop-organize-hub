@@ -74,13 +74,18 @@ type NavVisibility = "all" | "admin" | PermissionKey;
 const nav: Array<NavItem & { visibility: NavVisibility }> = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true, visibility: "all" },
   { to: "/tarefas", label: "Tarefas", icon: CheckSquare, visibility: "all" },
-  { to: "/calendario", label: "Calendário", icon: CalendarDays, visibility: "all" },
-  { to: "/grupos", label: "Grupos", icon: FolderKanban, visibility: "all" },
+  { to: "/calendario", label: "Calendário", icon: CalendarDays, visibility: "pages.calendar" },
+  { to: "/grupos", label: "Grupos", icon: FolderKanban, visibility: "pages.groups" },
   { to: "/setores", label: "Setores", icon: Layers, visibility: "pages.departments" },
   { to: "/relatorios", label: "Relatórios", icon: BarChart3, visibility: "pages.reports" },
   { to: "/funcionarios", label: "Funcionários", icon: Users, visibility: "pages.employees" },
   { to: "/empresas", label: "Empresas", icon: Building2, visibility: "pages.company" },
-  { to: "/permissoes", label: "Permissões", icon: ShieldCheck, visibility: "admin" },
+  {
+    to: "/permissoes",
+    label: "Permissões",
+    icon: ShieldCheck,
+    visibility: "manage.permissions",
+  },
 ];
 
 const SIDEBAR_COLLAPSED_KEY = "pop-organize:sidebar-collapsed";

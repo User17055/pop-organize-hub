@@ -1,5 +1,5 @@
 import { Calendar, Check, ListChecks, MessageSquare, Paperclip } from "lucide-react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { cn } from "@/lib/utils";
 import { PriorityBadge, StatusBadge } from "@/components/app-shell";
@@ -45,6 +45,7 @@ export function TaskList({
   onOpen,
   onComplete,
   onMove,
+  movingTaskId,
   isCompleting,
   preferences,
   onTitleWidthChange,
@@ -60,6 +61,7 @@ export function TaskList({
   onOpen: (task: Task) => void;
   onComplete: (task: Task) => void;
   onMove?: (task: Task, target: { type: "department" | "group"; id: string }) => void;
+  movingTaskId?: string | null;
   isCompleting: boolean;
   preferences?: {
     titleWidth: number;
@@ -172,6 +174,7 @@ export function TaskList({
                       onClick={() => onOpen(task)}
                       className={cn(
                         "task-glass-row group cursor-pointer border-0 transition-all duration-300 hover:text-foreground",
+                        movingTaskId === task.id && "translate-x-3 scale-[0.985] opacity-35",
                         tablePreferences.density === "compact" && "[&_td]:!py-2.5",
                         overdue && "bg-destructive/[0.05] hover:bg-destructive/[0.08]",
                         selectedTaskId === task.id && "task-row-selected",
@@ -292,7 +295,7 @@ export function TaskList({
                   </ContextMenuTrigger>
                   <ContextMenuContent className="min-w-56">
                     <ContextMenuItem onSelect={() => onOpen(task)}>Abrir atividade</ContextMenuItem>
-                    {onMove && permissions.canEditContent && (
+                    {onMove && permissions.canMove && (
                       <>
                         <ContextMenuSeparator />
                         <ContextMenuLabel>Mover atividade</ContextMenuLabel>
@@ -336,135 +339,141 @@ export function TaskList({
 
       {/* Mobile cards */}
       <div className="flex flex-col gap-3 lg:hidden">
-        {tasks.map((task, index) => {
-          const emp = getEmployee(task.responsibleId);
-          const overdue = isOverdue(task);
-          const permissions = getTaskPermissions({
-            task,
-            currentUser,
-            employees,
-            departments,
-            groups,
-            permissionGroups,
-          });
-          const progress = subtaskProgress(task);
-          return (
-            <motion.div
-              key={task.id}
-              layout
-              initial={{ opacity: 0, y: 12, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.98 }}
-              whileTap={{ scale: 0.992 }}
-              transition={{
-                duration: 0.34,
-                delay: Math.min(index * 0.018, 0.09),
-                ease: [0.22, 1, 0.36, 1],
-                layout: { type: "spring", stiffness: 280, damping: 32, mass: 0.9 },
-              }}
-              role="button"
-              tabIndex={0}
-              aria-label={`Abrir atividade ${task.title}`}
-              onClick={() => onOpen(task)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onOpen(task);
+        <AnimatePresence initial={false}>
+          {tasks.map((task, index) => {
+            const emp = getEmployee(task.responsibleId);
+            const overdue = isOverdue(task);
+            const permissions = getTaskPermissions({
+              task,
+              currentUser,
+              employees,
+              departments,
+              groups,
+              permissionGroups,
+            });
+            const progress = subtaskProgress(task);
+            return (
+              <motion.div
+                key={task.id}
+                layout
+                initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                animate={
+                  movingTaskId === task.id
+                    ? { opacity: 0.28, x: 34, scale: 0.97 }
+                    : { opacity: 1, x: 0, y: 0, scale: 1 }
                 }
-              }}
-              className={cn(
-                "pressable group flex cursor-pointer items-start gap-3 rounded-[20px] border border-border/60 bg-card/65 p-4 shadow-none outline-none backdrop-blur-xl transition-colors focus-visible:ring-2 focus-visible:ring-primary/20",
-                overdue && "border-destructive/20 bg-destructive/[0.055]",
-                selectedTaskId === task.id && "border-primary/25 bg-primary/[0.075]",
-              )}
-            >
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (!permissions.canChangeStatus || isCompleting || celebratingTaskId !== null)
-                    return;
-                  completeFromMobile(task);
+                exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                whileTap={{ scale: 0.992 }}
+                transition={{
+                  duration: 0.34,
+                  delay: Math.min(index * 0.018, 0.09),
+                  ease: [0.22, 1, 0.36, 1],
+                  layout: { type: "spring", stiffness: 280, damping: 32, mass: 0.9 },
                 }}
-                disabled={
-                  !permissions.canChangeStatus || isCompleting || celebratingTaskId !== null
-                }
-                className={cn(
-                  "task-mobile-complete relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-visible rounded-full transition-all disabled:opacity-50",
-                  celebratingTaskId === task.id
-                    ? "task-mobile-complete-active bg-success text-white"
-                    : overdue
-                      ? "bg-destructive text-destructive-foreground shadow-sm"
-                      : "bg-primary/10 text-primary",
-                )}
-                aria-label="Concluir tarefa"
-              >
-                {celebratingTaskId === task.id && (
-                  <span className="task-complete-burst" aria-hidden="true">
-                    {Array.from({ length: 6 }, (_, particleIndex) => (
-                      <span key={particleIndex} />
-                    ))}
-                  </span>
-                )}
-                <Check
-                  className={cn(
-                    "h-4 w-4 opacity-65 transition",
-                    celebratingTaskId === task.id && "task-complete-check opacity-100",
-                  )}
-                />
-              </button>
-
-              <div className="min-w-0 flex-1">
-                <h3 className="line-clamp-2 font-display text-[15px] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
-                  {task.title}
-                </h3>
-                <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1.5 font-medium">
-                    <Calendar className="h-3.5 w-3.5" />
-                    {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
-                  </span>
-                  <PriorityBadge priority={task.priority} />
-                  {overdue && (
-                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-destructive">
-                      <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
-                      Atrasada
-                    </span>
-                  )}
-                  {progress && (
-                    <span className="inline-flex items-center gap-1 font-semibold text-primary">
-                      <ListChecks className="h-3.5 w-3.5" />
-                      {progress.done}/{progress.total}
-                    </span>
-                  )}
-                  {task.comments > 0 && (
-                    <span className="inline-flex items-center gap-1">
-                      <MessageSquare className="h-3.5 w-3.5" />
-                      {task.comments}
-                    </span>
-                  )}
-                  {task.attachments > 0 && (
-                    <span className="inline-flex items-center gap-1">
-                      <Paperclip className="h-3.5 w-3.5" />
-                      {task.attachments}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {showResponsible && task.target.type !== "user" && (
-                <div
-                  className="shrink-0"
-                  title={
-                    emp?.name ??
-                    (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")
+                role="button"
+                tabIndex={0}
+                aria-label={`Abrir atividade ${task.title}`}
+                onClick={() => onOpen(task)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onOpen(task);
                   }
+                }}
+                className={cn(
+                  "pressable group flex cursor-pointer items-start gap-3 rounded-[20px] border border-border/60 bg-card/65 p-4 shadow-none outline-none backdrop-blur-xl transition-colors focus-visible:ring-2 focus-visible:ring-primary/20",
+                  overdue && "border-destructive/20 bg-destructive/[0.055]",
+                  selectedTaskId === task.id && "border-primary/25 bg-primary/[0.075]",
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (!permissions.canChangeStatus || isCompleting || celebratingTaskId !== null)
+                      return;
+                    completeFromMobile(task);
+                  }}
+                  disabled={
+                    !permissions.canChangeStatus || isCompleting || celebratingTaskId !== null
+                  }
+                  className={cn(
+                    "task-mobile-complete relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-visible rounded-full transition-all disabled:opacity-50",
+                    celebratingTaskId === task.id
+                      ? "task-mobile-complete-active bg-success text-white"
+                      : overdue
+                        ? "bg-destructive text-destructive-foreground shadow-sm"
+                        : "bg-primary/10 text-primary",
+                  )}
+                  aria-label="Concluir tarefa"
                 >
-                  <EmployeeAvatar employee={emp} departments={departments} />
+                  {celebratingTaskId === task.id && (
+                    <span className="task-complete-burst" aria-hidden="true">
+                      {Array.from({ length: 6 }, (_, particleIndex) => (
+                        <span key={particleIndex} />
+                      ))}
+                    </span>
+                  )}
+                  <Check
+                    className={cn(
+                      "h-4 w-4 opacity-65 transition",
+                      celebratingTaskId === task.id && "task-complete-check opacity-100",
+                    )}
+                  />
+                </button>
+
+                <div className="min-w-0 flex-1">
+                  <h3 className="line-clamp-2 font-display text-[15px] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
+                    {task.title}
+                  </h3>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5 font-medium">
+                      <Calendar className="h-3.5 w-3.5" />
+                      {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
+                    </span>
+                    <PriorityBadge priority={task.priority} />
+                    {overdue && (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-destructive">
+                        <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+                        Atrasada
+                      </span>
+                    )}
+                    {progress && (
+                      <span className="inline-flex items-center gap-1 font-semibold text-primary">
+                        <ListChecks className="h-3.5 w-3.5" />
+                        {progress.done}/{progress.total}
+                      </span>
+                    )}
+                    {task.comments > 0 && (
+                      <span className="inline-flex items-center gap-1">
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        {task.comments}
+                      </span>
+                    )}
+                    {task.attachments > 0 && (
+                      <span className="inline-flex items-center gap-1">
+                        <Paperclip className="h-3.5 w-3.5" />
+                        {task.attachments}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              )}
-            </motion.div>
-          );
-        })}
+
+                {showResponsible && task.target.type !== "user" && (
+                  <div
+                    className="shrink-0"
+                    title={
+                      emp?.name ??
+                      (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")
+                    }
+                  >
+                    <EmployeeAvatar employee={emp} departments={departments} />
+                  </div>
+                )}
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
       </div>
     </>
   );

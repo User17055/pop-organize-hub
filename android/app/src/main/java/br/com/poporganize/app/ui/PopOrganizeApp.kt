@@ -33,6 +33,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -176,7 +177,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.painterResource
@@ -3986,6 +3989,7 @@ private fun TasksScreen(
     var selectedFilter by remember { mutableStateOf("Hoje") }
     var editingTaskId by remember { mutableStateOf<Int?>(null) }
     var completingTaskId by remember { mutableStateOf<Int?>(null) }
+    var movingTaskId by remember { mutableStateOf<Int?>(null) }
     var deletingTaskId by remember { mutableStateOf<Int?>(null) }
     var showDeleteTaskConfirmation by remember { mutableStateOf(false) }
     var expandedDetailSection by remember { mutableStateOf<String?>(null) }
@@ -4188,6 +4192,30 @@ private fun TasksScreen(
         } else {
             val index = tasks.indexOfFirst { it.id == task.id }
             if (index >= 0) tasks[index] = task.copy(completed = false)
+        }
+    }
+
+    fun moveTask(task: PopTask, type: String, id: String, label: String) {
+        if (movingTaskId != null) return
+        movingTaskId = task.id
+        taskActionScope.launch {
+            delay(280)
+            val taskIndex = tasks.indexOfFirst { it.id == task.id }
+            if (taskIndex >= 0) {
+                tasks[taskIndex] = tasks[taskIndex].copy(
+                    assignmentType = type,
+                    assignmentTargetId = id,
+                    assignmentTargetLabel = label,
+                    department = label,
+                )
+            }
+            if (editingTaskId == task.id) {
+                editAssignmentType = type
+                editAssignmentTargetId = id
+                editAssignmentTargetLabel = label
+            }
+            delay(90)
+            movingTaskId = null
         }
     }
 
@@ -4507,19 +4535,10 @@ private fun TasksScreen(
                             showAssigneeAvatars =
                                 selectedFilter in setOf("Grupo", "Setor", "Empresa"),
                             isCompleting = isCompleting,
+                            isMoving = movingTaskId == task.id,
                             onComplete = { toggleTask(task) },
                             onOpen = { openTask(task) },
-                            onMove = { type, id, label ->
-                                val taskIndex = tasks.indexOfFirst { it.id == task.id }
-                                if (taskIndex >= 0) {
-                                    tasks[taskIndex] = task.copy(
-                                        assignmentType = type,
-                                        assignmentTargetId = id,
-                                        assignmentTargetLabel = label,
-                                        department = label,
-                                    )
-                                }
-                            },
+                            onMove = { type, id, label -> moveTask(task, type, id, label) },
                         )
                     }
                 }
@@ -4567,19 +4586,10 @@ private fun TasksScreen(
                                             showAssigneeAvatars =
                                                 selectedFilter in setOf("Grupo", "Setor", "Empresa"),
                                             isCompleting = false,
+                                            isMoving = movingTaskId == task.id,
                                             onComplete = { toggleTask(task) },
                                             onOpen = { openTask(task) },
-                                            onMove = { type, id, label ->
-                                                val taskIndex = tasks.indexOfFirst { it.id == task.id }
-                                                if (taskIndex >= 0) {
-                                                    tasks[taskIndex] = task.copy(
-                                                        assignmentType = type,
-                                                        assignmentTargetId = id,
-                                                        assignmentTargetLabel = label,
-                                                        department = label,
-                                                    )
-                                                }
-                                            },
+                                            onMove = { type, id, label -> moveTask(task, type, id, label) },
                                         )
                                     }
                                 }
@@ -4826,8 +4836,16 @@ private fun TasksScreen(
             var detailVisible by remember(editingTaskId) { mutableStateOf(false) }
             LaunchedEffect(editingTaskId) { detailVisible = true }
             val detailAlpha by animateFloatAsState(
-                targetValue = if (detailVisible && deletingTaskId != editingTaskId) 1f else 0f,
-                animationSpec = tween(if (deletingTaskId == editingTaskId) 300 else 380, easing = FastOutSlowInEasing),
+                targetValue =
+                    if (
+                        detailVisible &&
+                        deletingTaskId != editingTaskId &&
+                        movingTaskId != editingTaskId
+                    ) 1f else 0f,
+                animationSpec = tween(
+                    if (deletingTaskId == editingTaskId || movingTaskId == editingTaskId) 300 else 380,
+                    easing = FastOutSlowInEasing,
+                ),
                 label = "taskDetailEntrance",
             )
             Surface(
@@ -4862,6 +4880,42 @@ private fun TasksScreen(
                         fontSize = 14.sp,
                         modifier = Modifier.weight(1f),
                     )
+                    if (detailCanEdit && openedTask != null) {
+                        var detailMoveMenu by remember(openedTask.id) { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { detailMoveMenu = true }) {
+                                Icon(
+                                    Icons.Rounded.MoreVert,
+                                    "Mais opções da atividade",
+                                    tint = PopText,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = detailMoveMenu,
+                                onDismissRequest = { detailMoveMenu = false },
+                            ) {
+                                companyGroups.forEach { group ->
+                                    DropdownMenuItem(
+                                        text = { Text("Grupo: ${group.name}") },
+                                        onClick = {
+                                            moveTask(openedTask, "group", group.id, group.name)
+                                            detailMoveMenu = false
+                                        },
+                                    )
+                                }
+                                companySectors.forEach { sector ->
+                                    DropdownMenuItem(
+                                        text = { Text("Setor: ${sector.name}") },
+                                        onClick = {
+                                            moveTask(openedTask, "department", sector.id, sector.name)
+                                            detailMoveMenu = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                     if (detailCanEdit) {
                         TextButton(onClick = ::saveEditedTask, enabled = editTitle.trim().length >= 3) {
                             Text("Salvar", color = PopBlue, fontWeight = FontWeight.ExtraBold)
@@ -6364,11 +6418,13 @@ private fun TaskCard(
     sectors: List<CompanySector>,
     showAssigneeAvatars: Boolean,
     isCompleting: Boolean,
+    isMoving: Boolean,
     onComplete: () -> Unit,
     onOpen: () -> Unit,
     onMove: (String, String, String) -> Unit,
 ) {
     var showMoveMenu by remember(task.id) { mutableStateOf(false) }
+    val hapticFeedback = LocalHapticFeedback.current
     val completedVisual = task.completed || isCompleting
     val isOverdue = isTaskOverdue(task) && !isCompleting
     val isUrgent = task.priority == "Urgente" && !completedVisual
@@ -6402,6 +6458,11 @@ private fun TaskCard(
         animationSpec = tween(560, easing = FastOutSlowInEasing),
         label = "taskCompletionProgress",
     )
+    val moveProgress by animateFloatAsState(
+        targetValue = if (isMoving) 1f else 0f,
+        animationSpec = tween(280, easing = FastOutSlowInEasing),
+        label = "taskMoveProgress",
+    )
     val checkScale by animateFloatAsState(
         targetValue = if (completedVisual) 1f else .55f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
@@ -6413,7 +6474,6 @@ private fun TaskCard(
         label = "taskCheckColor",
     )
     Card(
-        onClick = onOpen,
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor = cardColor,
@@ -6422,11 +6482,18 @@ private fun TaskCard(
         modifier = Modifier
             .fillMaxWidth()
             .height(82.dp)
+            .combinedClickable(
+                onClick = onOpen,
+                onLongClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    showMoveMenu = true
+                },
+            )
             .graphicsLayer {
-                scaleX = cardScale
-                scaleY = cardScale
-                translationX = -34f * completionProgress
-                alpha = 1f - completionProgress
+                scaleX = cardScale - (.025f * moveProgress)
+                scaleY = cardScale - (.025f * moveProgress)
+                translationX = (-34f * completionProgress) + (34f * moveProgress)
+                alpha = (1f - completionProgress) * (1f - (.68f * moveProgress))
             },
     ) {
         Box(Modifier.fillMaxSize()) {
@@ -6541,16 +6608,8 @@ private fun TaskCard(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 3.dp, end = 4.dp),
+                    .size(1.dp),
             ) {
-                IconButton(onClick = { showMoveMenu = true }) {
-                    Icon(
-                        Icons.Rounded.MoreVert,
-                        "Mover atividade",
-                        tint = if (isUrgent) Color.White else PopMuted,
-                        modifier = Modifier.size(21.dp),
-                    )
-                }
                 DropdownMenu(
                     expanded = showMoveMenu,
                     onDismissRequest = { showMoveMenu = false },

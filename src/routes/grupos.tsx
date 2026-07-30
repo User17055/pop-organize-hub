@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
+import { AccessRestricted } from "@/components/access-restricted";
 import { Field } from "@/components/form-field";
 import {
   Dialog,
@@ -65,6 +66,13 @@ function GruposPage() {
 
   const { groups, employees, tasks, currentUser, permissionGroups } = data;
   const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
+  if (!hasPermission(permissionSet, "pages.groups")) {
+    return (
+      <AppShell title="Grupos" subtitle="Equipes flexíveis para projetos e campanhas">
+        <AccessRestricted requiredLabel="quem pode visualizar grupos" />
+      </AppShell>
+    );
+  }
   const canManageGroups =
     isAdminUser({ currentUser, employees }) ||
     (["manage.groups", "pages.employees", "pages.reports"] as PermissionKey[]).some((key) =>

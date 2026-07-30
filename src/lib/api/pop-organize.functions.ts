@@ -575,10 +575,12 @@ function requireGroupPermission(
 }
 
 function requireAdmin(db: Database, currentUserId: string) {
-  const currentUser = db.employees.find((employee) => employee.id === currentUserId);
-  if (!isAdminUser({ currentUser, employees: db.employees })) {
-    throw createHttpError("Apenas administradores podem gerenciar grupos de permissão.", 403);
-  }
+  requireGroupPermission(
+    db,
+    currentUserId,
+    "manage.permissions",
+    "Você não tem permissão para gerenciar grupos de permissão.",
+  );
 }
 
 export const getWorkspaceData = createServerFn({ method: "GET" }).handler(async () => {
@@ -1092,6 +1094,21 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       if (!permissions.canEditContent) {
         throw createHttpError("Você não tem permissão para editar o texto desta tarefa.", 403);
       }
+      const targetChanged =
+        task.target.type !== data.target.type || task.target.id !== data.target.id;
+      if (targetChanged && !permissions.canMove && !permissions.canAssign) {
+        throw createHttpError("Você não tem permissão para mover ou alterar o destino.", 403);
+      }
+      if (task.responsibleId !== data.responsibleId && !permissions.canAssign) {
+        throw createHttpError("Você não tem permissão para alterar o responsável.", 403);
+      }
+      const nextRecurrence = normalizeRecurrence(data.recurrence);
+      if (
+        JSON.stringify(task.recurrence ?? null) !== JSON.stringify(nextRecurrence ?? null) &&
+        !permissions.canManageRecurrence
+      ) {
+        throw createHttpError("Você não tem permissão para alterar a recorrência.", 403);
+      }
       const targetLabel = resolveTargetLabel(data.target.type, data.target.id, db);
       if (!targetLabel) throw createHttpError("Destino da tarefa não encontrado.");
       if (
@@ -1119,7 +1136,7 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       task.target = { ...data.target, label: targetLabel };
       task.responsibleId = data.responsibleId;
       task.tags = data.tags;
-      task.recurrence = normalizeRecurrence(data.recurrence);
+      task.recurrence = nextRecurrence;
       return task;
     });
   });

@@ -1115,6 +1115,12 @@ function mobileTaskRecurrence(item: MobileTask): Task["recurrence"] {
   return { frequency: "custom", interval, intervalDays: interval, customUnit: "days", endDate };
 }
 
+function normalizeMobileTaskTitle(value: string) {
+  const trimmed = value.trim();
+  const withoutPopPrefix = trimmed.replace(/^POP\s*[-–—]\s*/i, "").trim();
+  return withoutPopPrefix || trimmed;
+}
+
 export async function replaceMobileTasks(
   request: Request,
   tasks: MobileTask[],
@@ -1249,7 +1255,7 @@ export async function replaceMobileTasks(
           if (!item.completed && permissions.canReopen) existing.status = "reopened";
         }
         if (permissions.canEditContent || existing.nativeOwnerId === account.id) {
-          existing.title = item.title;
+          existing.title = normalizeMobileTaskTitle(item.title);
           existing.description = item.description.trim();
           existing.priority = priority(item.priority);
           existing.dueDate = item.dueDate;
@@ -1270,7 +1276,11 @@ export async function replaceMobileTasks(
           }));
         }
         if (existing.nativeSource === NATIVE_SOURCE && existing.nativeOwnerId === account.id) {
-          existing.nativeData = { ...item, serverId: existing.id };
+          existing.nativeData = {
+            ...item,
+            title: normalizeMobileTaskTitle(item.title),
+            serverId: existing.id,
+          };
         }
         requestedTaskOrder.push(existing.id);
         updated += 1;
@@ -1285,7 +1295,7 @@ export async function replaceMobileTasks(
 
       const newTask: NativeTask = {
         id: `native-${account.id}-${item.id}`,
-        title: item.title,
+        title: normalizeMobileTaskTitle(item.title),
         description: item.description.trim(),
         priority: priority(item.priority),
         status: item.completed ? "completed" : "pending",
@@ -1311,7 +1321,10 @@ export async function replaceMobileTasks(
           : [],
         nativeSource: NATIVE_SOURCE,
         nativeOwnerId: account.id,
-        nativeData: item,
+        nativeData: {
+          ...item,
+          title: normalizeMobileTaskTitle(item.title),
+        },
       };
       workspace.tasks.unshift(newTask as Task);
       requestedTaskOrder.push(newTask.id);

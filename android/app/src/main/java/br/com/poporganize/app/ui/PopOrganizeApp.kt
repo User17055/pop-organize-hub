@@ -33,12 +33,12 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -154,6 +154,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -206,6 +207,7 @@ import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -3990,6 +3992,7 @@ private fun TasksScreen(
     var editingTaskId by remember { mutableStateOf<Int?>(null) }
     var completingTaskId by remember { mutableStateOf<Int?>(null) }
     var movingTaskId by remember { mutableStateOf<Int?>(null) }
+    var reorderTaskId by remember { mutableStateOf<Int?>(null) }
     var deletingTaskId by remember { mutableStateOf<Int?>(null) }
     var showDeleteTaskConfirmation by remember { mutableStateOf(false) }
     var expandedDetailSection by remember { mutableStateOf<String?>(null) }
@@ -4051,18 +4054,6 @@ private fun TasksScreen(
                     ) &&
                     (it.isOwner || it.role.contains("admin", ignoreCase = true))
             }
-    val currentCompanyMember = companyMembers.firstOrNull {
-        it.id.equals(currentUserId, ignoreCase = true) ||
-            it.name.equals(currentUserName, ignoreCase = true)
-    }
-    val currentMemberGroupIds =
-        (
-            currentCompanyMember?.groupIds.orEmpty() +
-                companyGroups
-                    .filter { currentUserId in it.memberIds }
-                    .map { it.id }
-            ).toSet()
-
     fun canCompleteTask(task: PopTask): Boolean = task.canComplete
     fun canEditTask(task: PopTask): Boolean = task.canEdit
 
@@ -4077,16 +4068,11 @@ private fun TasksScreen(
         if (!canCreateTask) showCreate = false
     }
 
-    val taskFilters = when {
-        workSpace == WorkSpace.Personal -> listOf("Hoje", "Atrasadas", "Próximas", "Todas")
-        isTaskAdmin ->
-            listOf("Hoje", "Atrasadas", "Próximas", "Grupo", "Setor", "Empresa", "Todas")
-        else -> listOf("Minhas", "Grupo", "Setor")
-    }
+    val taskFilters = listOf("Hoje", "Atrasadas", "Próximas")
 
     LaunchedEffect(workSpace, isTaskAdmin) {
         if (selectedFilter !in taskFilters) {
-            selectedFilter = if (workSpace == WorkSpace.Company && !isTaskAdmin) "Minhas" else "Hoje"
+            selectedFilter = "Hoje"
         }
     }
 
@@ -4099,64 +4085,22 @@ private fun TasksScreen(
         }
         .filter { task ->
             val dueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
-            val isCurrentUserTask =
-                workSpace == WorkSpace.Personal ||
-                    task.assignmentTargetId == currentUserId ||
-                    (
-                        task.assignmentType == "user" &&
-                            task.assignmentTargetLabel.equals(
-                                currentUserName,
-                                ignoreCase = true,
-                            )
-                        ) ||
-                    task.assignees.any {
-                        it.equals(currentUserName, ignoreCase = true) ||
-                            it.equals("Eu", ignoreCase = true)
-                    } ||
-                    task.assignee
-                        .split(",")
-                        .map(String::trim)
-                        .any {
-                            it.equals(currentUserName, ignoreCase = true) ||
-                                it.equals("Eu", ignoreCase = true)
-                        }
             when (selectedFilter) {
-                "Hoje" -> dueDate == today && (isTaskAdmin || isCurrentUserTask)
+                "Hoje" -> dueDate == today
                 "Atrasadas" ->
-                    (isTaskAdmin || isCurrentUserTask) &&
-                        !task.completed &&
+                    !task.completed &&
                         dueDate != null &&
                         dueDate < today
                 "Próximas" ->
-                    (isTaskAdmin || isCurrentUserTask) &&
-                        !task.completed &&
+                    !task.completed &&
                         dueDate != null &&
                         dueDate > today
-                "Minhas" -> isCurrentUserTask
-                "Grupo" ->
-                    task.assignmentType == "group" &&
-                        (
-                            isTaskAdmin ||
-                                task.assignmentTargetId in currentMemberGroupIds
-                            )
-                "Setor" ->
-                    task.assignmentType == "department" &&
-                        (
-                            isTaskAdmin ||
-                                task.assignmentTargetId == currentCompanyMember?.sectorId ||
-                                task.assignmentTargetLabel.equals(
-                                    currentCompanyMember?.sector,
-                                    ignoreCase = true,
-                                )
-                            )
-                "Empresa" -> isTaskAdmin && task.assignmentType == "company"
                 else -> true
             }
         }
     val pendingTasks = filtered.filterNot { it.completed }
     val completedTasks = filtered.filter { it.completed }
-    val displayedPendingTasks =
-        if (selectedFilter == "Setor") pendingTasks.sortedBy { it.department } else pendingTasks
+    val displayedPendingTasks = pendingTasks
 
     fun toggleTask(task: PopTask) {
         if (!canCompleteTask(task)) {
@@ -4195,25 +4139,25 @@ private fun TasksScreen(
         }
     }
 
-    fun moveTask(task: PopTask, type: String, id: String, label: String) {
+    fun reorderTask(task: PopTask, targetTask: PopTask?, placeAfter: Boolean) {
         if (movingTaskId != null) return
         movingTaskId = task.id
         taskActionScope.launch {
             delay(280)
-            val taskIndex = tasks.indexOfFirst { it.id == task.id }
-            if (taskIndex >= 0) {
-                tasks[taskIndex] = tasks[taskIndex].copy(
-                    assignmentType = type,
-                    assignmentTargetId = id,
-                    assignmentTargetLabel = label,
-                    department = label,
-                )
+            val sourceIndex = tasks.indexOfFirst { it.id == task.id }
+            if (sourceIndex >= 0) {
+                val source = tasks.removeAt(sourceIndex)
+                val targetIndex = targetTask?.let { target ->
+                    tasks.indexOfFirst { it.id == target.id }.takeIf { it >= 0 }
+                }
+                val insertionIndex = when {
+                    targetIndex == null -> tasks.size
+                    placeAfter -> (targetIndex + 1).coerceAtMost(tasks.size)
+                    else -> targetIndex
+                }
+                tasks.add(insertionIndex, source)
             }
-            if (editingTaskId == task.id) {
-                editAssignmentType = type
-                editAssignmentTargetId = id
-                editAssignmentTargetLabel = label
-            }
+            reorderTaskId = null
             delay(90)
             movingTaskId = null
         }
@@ -4506,6 +4450,33 @@ private fun TasksScreen(
                 }
                 Text("${pendingTasks.size} atividades pendentes", color = PopMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
             }
+            if (reorderTaskId != null) {
+                item {
+                    Surface(
+                        color = PopBlueSoft,
+                        contentColor = PopBlue,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Rounded.TaskAlt, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Agora toque na tarefa abaixo da qual deseja posicionar.",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { reorderTaskId = null }) {
+                                Text("Cancelar", color = PopBlue, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
             itemsIndexed(displayedPendingTasks, key = { _, task -> task.id }) { index, task ->
                 val isCompleting = completingTaskId == task.id
                 val taskSlotHeight by animateDpAsState(
@@ -4530,15 +4501,22 @@ private fun TasksScreen(
                         TaskCard(
                             task = task,
                             members = companyMembers,
-                            groups = companyGroups,
-                            sectors = companySectors,
-                            showAssigneeAvatars =
-                                selectedFilter in setOf("Grupo", "Setor", "Empresa"),
+                            showAssigneeAvatars = false,
                             isCompleting = isCompleting,
                             isMoving = movingTaskId == task.id,
+                            isReorderSelected = reorderTaskId == task.id,
                             onComplete = { toggleTask(task) },
-                            onOpen = { openTask(task) },
-                            onMove = { type, id, label -> moveTask(task, type, id, label) },
+                            onOpen = {
+                                val source = tasks.firstOrNull { it.id == reorderTaskId }
+                                if (source != null && source.id != task.id) {
+                                    reorderTask(source, task, placeAfter = true)
+                                } else if (source?.id == task.id) {
+                                    reorderTaskId = null
+                                } else {
+                                    openTask(task)
+                                }
+                            },
+                            onReorderStart = { reorderTaskId = task.id },
                         )
                     }
                 }
@@ -4581,15 +4559,22 @@ private fun TasksScreen(
                                         TaskCard(
                                             task = task,
                                             members = companyMembers,
-                                            groups = companyGroups,
-                                            sectors = companySectors,
-                                            showAssigneeAvatars =
-                                                selectedFilter in setOf("Grupo", "Setor", "Empresa"),
+                                            showAssigneeAvatars = false,
                                             isCompleting = false,
                                             isMoving = movingTaskId == task.id,
+                                            isReorderSelected = reorderTaskId == task.id,
                                             onComplete = { toggleTask(task) },
-                                            onOpen = { openTask(task) },
-                                            onMove = { type, id, label -> moveTask(task, type, id, label) },
+                                            onOpen = {
+                                                val source = tasks.firstOrNull { it.id == reorderTaskId }
+                                                if (source != null && source.id != task.id) {
+                                                    reorderTask(source, task, placeAfter = true)
+                                                } else if (source?.id == task.id) {
+                                                    reorderTaskId = null
+                                                } else {
+                                                    openTask(task)
+                                                }
+                                            },
+                                            onReorderStart = { reorderTaskId = task.id },
                                         )
                                     }
                                 }
@@ -4895,24 +4880,21 @@ private fun TasksScreen(
                                 expanded = detailMoveMenu,
                                 onDismissRequest = { detailMoveMenu = false },
                             ) {
-                                companyGroups.forEach { group ->
-                                    DropdownMenuItem(
-                                        text = { Text("Grupo: ${group.name}") },
-                                        onClick = {
-                                            moveTask(openedTask, "group", group.id, group.name)
-                                            detailMoveMenu = false
-                                        },
-                                    )
-                                }
-                                companySectors.forEach { sector ->
-                                    DropdownMenuItem(
-                                        text = { Text("Setor: ${sector.name}") },
-                                        onClick = {
-                                            moveTask(openedTask, "department", sector.id, sector.name)
-                                            detailMoveMenu = false
-                                        },
-                                    )
-                                }
+                                DropdownMenuItem(
+                                    text = { Text("Mover para o início") },
+                                    onClick = {
+                                        val first = tasks.firstOrNull { it.id != openedTask.id }
+                                        reorderTask(openedTask, first, placeAfter = false)
+                                        detailMoveMenu = false
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Mover para o final") },
+                                    onClick = {
+                                        reorderTask(openedTask, null, placeAfter = true)
+                                        detailMoveMenu = false
+                                    },
+                                )
                             }
                         }
                     }
@@ -6414,17 +6396,16 @@ private fun TaskAssigneeAvatarStack(
 private fun TaskCard(
     task: PopTask,
     members: List<CompanyMember>,
-    groups: List<CompanyGroup>,
-    sectors: List<CompanySector>,
     showAssigneeAvatars: Boolean,
     isCompleting: Boolean,
     isMoving: Boolean,
+    isReorderSelected: Boolean,
     onComplete: () -> Unit,
     onOpen: () -> Unit,
-    onMove: (String, String, String) -> Unit,
+    onReorderStart: () -> Unit,
 ) {
-    var showMoveMenu by remember(task.id) { mutableStateOf(false) }
     val hapticFeedback = LocalHapticFeedback.current
+    var suppressTap by remember(task.id) { mutableStateOf(false) }
     val completedVisual = task.completed || isCompleting
     val isOverdue = isTaskOverdue(task) && !isCompleting
     val isUrgent = task.priority == "Urgente" && !completedVisual
@@ -6482,18 +6463,34 @@ private fun TaskCard(
         modifier = Modifier
             .fillMaxWidth()
             .height(82.dp)
-            .combinedClickable(
-                onClick = onOpen,
-                onLongClick = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    showMoveMenu = true
-                },
-            )
+            .pointerInput(task.id) {
+                detectTapGestures(
+                    onPress = {
+                        suppressTap = false
+                        coroutineScope {
+                            val activation = launch {
+                                delay(2_000)
+                                suppressTap = true
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onReorderStart()
+                            }
+                            tryAwaitRelease()
+                            activation.cancel()
+                        }
+                    },
+                    onTap = {
+                        if (!suppressTap) onOpen()
+                    },
+                )
+            }
             .graphicsLayer {
-                scaleX = cardScale - (.025f * moveProgress)
-                scaleY = cardScale - (.025f * moveProgress)
+                scaleX = cardScale - (.025f * moveProgress) - if (isReorderSelected) .02f else 0f
+                scaleY = cardScale - (.025f * moveProgress) - if (isReorderSelected) .02f else 0f
                 translationX = (-34f * completionProgress) + (34f * moveProgress)
-                alpha = (1f - completionProgress) * (1f - (.68f * moveProgress))
+                alpha =
+                    (1f - completionProgress) *
+                        (1f - (.68f * moveProgress)) *
+                        if (isReorderSelected) .78f else 1f
             },
     ) {
         Box(Modifier.fillMaxSize()) {
@@ -6605,35 +6602,6 @@ private fun TaskCard(
                 TaskAssigneeAvatarStack(task = task, members = members)
             }
         }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .size(1.dp),
-            ) {
-                DropdownMenu(
-                    expanded = showMoveMenu,
-                    onDismissRequest = { showMoveMenu = false },
-                ) {
-                    groups.forEach { group ->
-                        DropdownMenuItem(
-                            text = { Text("Grupo: ${group.name}") },
-                            onClick = {
-                                onMove("group", group.id, group.name)
-                                showMoveMenu = false
-                            },
-                        )
-                    }
-                    sectors.forEach { sector ->
-                        DropdownMenuItem(
-                            text = { Text("Setor: ${sector.name}") },
-                            onClick = {
-                                onMove("department", sector.id, sector.name)
-                                showMoveMenu = false
-                            },
-                        )
-                    }
-                }
-            }
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)

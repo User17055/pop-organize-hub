@@ -13,11 +13,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { createGroup } from "@/lib/api/pop-organize.functions";
+import { createGroup, deleteGroup, updateGroup } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import type { PermissionKey } from "@/lib/domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
-import { Plus, Crown } from "lucide-react";
+import { Plus, Crown, Pencil, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/grupos")({
   head: () => ({ meta: [{ title: "Grupos - Pop Organize" }] }),
@@ -28,6 +28,7 @@ function GruposPage() {
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useWorkspaceData();
   const [showForm, setShowForm] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState("");
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -46,6 +47,18 @@ function GruposPage() {
       setShowForm(false);
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
+  });
+  const updateMutation = useMutation({
+    mutationFn: (payload: typeof form & { id: string }) => updateGroup({ data: payload }),
+    onSuccess: () => {
+      setShowForm(false);
+      setEditingGroupId("");
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteGroup({ data: { id } }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: workspaceQueryKey }),
   });
 
   if (isLoading) {
@@ -78,13 +91,23 @@ function GruposPage() {
     (["manage.groups", "pages.employees", "pages.reports"] as PermissionKey[]).some((key) =>
       hasPermission(permissionSet, key),
     );
+  const canCreateGroups = hasPermission(permissionSet, "manage.groups");
+  const canEditGroups = hasPermission(permissionSet, "manage.groups.edit");
+  const canDeleteGroups = hasPermission(permissionSet, "manage.groups.delete");
   const visibleGroups = canManageGroups
     ? groups
     : groups.filter(
         (group) => group.leaderId === currentUser.id || group.memberIds.includes(currentUser.id),
       );
   const getEmployee = (id?: string) => employees.find((employee) => employee.id === id);
-  const mutationError = createMutation.error instanceof Error ? createMutation.error.message : null;
+  const mutationError =
+    createMutation.error instanceof Error
+      ? createMutation.error.message
+      : updateMutation.error instanceof Error
+        ? updateMutation.error.message
+        : deleteMutation.error instanceof Error
+          ? deleteMutation.error.message
+          : null;
 
   function openForm() {
     setForm({
@@ -93,6 +116,7 @@ function GruposPage() {
       leaderId: "",
       memberIds: [],
     });
+    setEditingGroupId("");
     createMutation.reset();
     setShowForm(true);
   }
@@ -108,7 +132,23 @@ function GruposPage() {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    createMutation.mutate(form);
+    if (editingGroupId) updateMutation.mutate({ ...form, id: editingGroupId });
+    else createMutation.mutate(form);
+  }
+
+  function openEdit(group: (typeof groups)[number]) {
+    setEditingGroupId(group.id);
+    setForm({
+      name: group.name,
+      description: group.description,
+      leaderId: group.leaderId ?? "",
+      memberIds: [...group.memberIds],
+    });
+    setShowForm(true);
+  }
+
+  function removeGroup(group: (typeof groups)[number]) {
+    if (window.confirm(`Excluir o grupo ${group.name}?`)) deleteMutation.mutate(group.id);
   }
 
   return (
@@ -116,7 +156,7 @@ function GruposPage() {
       title="Grupos"
       subtitle="Equipes flexíveis para projetos e campanhas"
       actions={
-        canManageGroups ? (
+        canCreateGroups ? (
           <button
             onClick={openForm}
             style={{ background: "var(--gradient-primary)" }}
@@ -127,7 +167,7 @@ function GruposPage() {
         ) : null
       }
     >
-      {canManageGroups && (
+      {canCreateGroups && (
         <button
           type="button"
           onClick={openForm}
@@ -154,9 +194,31 @@ function GruposPage() {
                     {g.description}
                   </p>
                 </div>
-                <span className="text-xs font-medium px-2 py-1 rounded-md bg-primary/10 text-primary whitespace-nowrap">
-                  {gTasks.length} {gTasks.length === 1 ? "tarefa" : "tarefas"}
-                </span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <span className="text-xs font-medium px-2 py-1 rounded-md bg-primary/10 text-primary whitespace-nowrap">
+                    {gTasks.length} {gTasks.length === 1 ? "tarefa" : "tarefas"}
+                  </span>
+                  {canEditGroups && (
+                    <button
+                      type="button"
+                      onClick={() => openEdit(g)}
+                      className="glass-icon-button inline-flex h-8 w-8 items-center justify-center rounded-lg"
+                      aria-label={`Editar ${g.name}`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {canDeleteGroups && (
+                    <button
+                      type="button"
+                      onClick={() => removeGroup(g)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-destructive hover:bg-destructive/10"
+                      aria-label={`Excluir ${g.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {canManageGroups ? (
@@ -206,7 +268,7 @@ function GruposPage() {
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <form onSubmit={handleSubmit}>
             <DialogHeader>
-              <DialogTitle>Novo grupo</DialogTitle>
+              <DialogTitle>{editingGroupId ? "Editar grupo" : "Novo grupo"}</DialogTitle>
               <DialogDescription>
                 Monte uma equipe flexível para campanhas, projetos ou plantões.
               </DialogDescription>
@@ -287,11 +349,17 @@ function GruposPage() {
               </button>
               <button
                 type="submit"
-                disabled={createMutation.isPending}
+                disabled={createMutation.isPending || updateMutation.isPending}
                 style={{ background: "var(--gradient-primary)" }}
                 className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
               >
-                {createMutation.isPending ? "Criando..." : "Criar grupo"}
+                {updateMutation.isPending
+                  ? "Salvando..."
+                  : editingGroupId
+                    ? "Salvar alterações"
+                    : createMutation.isPending
+                      ? "Criando..."
+                      : "Criar grupo"}
               </button>
             </DialogFooter>
           </form>

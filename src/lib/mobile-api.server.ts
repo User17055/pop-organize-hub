@@ -1158,6 +1158,7 @@ export async function replaceMobileTasks(
     let created = 0;
     let updated = 0;
     let deleted = 0;
+    const requestedTaskOrder: string[] = [];
 
     for (const taskId of new Set(deletedServerIds)) {
       const taskIndex = workspace.tasks.findIndex((task) => task.id === taskId);
@@ -1271,6 +1272,7 @@ export async function replaceMobileTasks(
         if (existing.nativeSource === NATIVE_SOURCE && existing.nativeOwnerId === account.id) {
           existing.nativeData = { ...item, serverId: existing.id };
         }
+        requestedTaskOrder.push(existing.id);
         updated += 1;
         continue;
       }
@@ -1312,7 +1314,20 @@ export async function replaceMobileTasks(
         nativeData: item,
       };
       workspace.tasks.unshift(newTask as Task);
+      requestedTaskOrder.push(newTask.id);
       created += 1;
+    }
+
+    if (requestedTaskOrder.length > 1) {
+      const orderedIds = new Set(requestedTaskOrder);
+      const tasksById = new Map(workspace.tasks.map((task) => [task.id, task]));
+      let orderedIndex = 0;
+      workspace.tasks = workspace.tasks.map((task) => {
+        if (!orderedIds.has(task.id)) return task;
+        const orderedTask = tasksById.get(requestedTaskOrder[orderedIndex]);
+        orderedIndex += 1;
+        return orderedTask ?? task;
+      });
     }
     return { ok: true, count: created + updated + deleted, created, updated, deleted };
   });

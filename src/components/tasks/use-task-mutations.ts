@@ -6,6 +6,7 @@ import {
   createTask,
   deleteTask,
   deleteTaskSubtask,
+  reorderTask,
   toggleTaskSubtask,
   updateTaskDetails,
   updateTaskStatus,
@@ -110,6 +111,33 @@ export function useTaskMutations(options?: {
     },
   });
 
+  const reorderTaskMutation = useMutation({
+    mutationFn: (payload: { taskId: string; beforeTaskId: string | null }) =>
+      reorderTask({ data: payload }),
+    onMutate: async ({ taskId, beforeTaskId }) => {
+      await queryClient.cancelQueries({ queryKey: workspaceQueryKey });
+      queryClient.setQueryData<WorkspaceResult>(workspaceQueryKey, (current) => {
+        if (!current) return current;
+        const nextTasks = [...current.tasks];
+        const sourceIndex = nextTasks.findIndex((task) => task.id === taskId);
+        if (sourceIndex < 0) return current;
+        const [source] = nextTasks.splice(sourceIndex, 1);
+        const targetIndex =
+          beforeTaskId === null
+            ? nextTasks.length
+            : nextTasks.findIndex((task) => task.id === beforeTaskId);
+        nextTasks.splice(targetIndex < 0 ? nextTasks.length : targetIndex, 0, source);
+        return { ...current, tasks: nextTasks };
+      });
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+
   const commentMutation = useMutation({
     mutationFn: (payload: { taskId: string; body: string }) => addTaskComment({ data: payload }),
     onSuccess: (updatedTask) => {
@@ -159,6 +187,7 @@ export function useTaskMutations(options?: {
     statusMutation,
     updateTaskMutation,
     deleteTaskMutation,
+    reorderTaskMutation,
     commentMutation,
     attachmentMutation,
     addSubtaskMutation,

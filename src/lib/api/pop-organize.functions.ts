@@ -113,6 +113,14 @@ const createEmployeeSchema = z.object({
     .transform((value) => value || undefined),
 });
 
+const updateEmployeeSchema = createEmployeeSchema.omit({ email: true }).extend({
+  id: z.string().min(1),
+});
+
+const deleteEmployeeSchema = z.object({
+  id: z.string().min(1),
+});
+
 const resendEmployeeInvitationSchema = z.object({
   id: z.string().min(1, "Convite inválido."),
 });
@@ -149,6 +157,14 @@ const createGroupSchema = z.object({
   memberIds: z.array(z.string().min(1)).default([]),
 });
 
+const updateGroupSchema = createGroupSchema.extend({
+  id: z.string().min(1),
+});
+
+const deleteGroupSchema = z.object({
+  id: z.string().min(1),
+});
+
 const updateCompanySchema = z.object({
   name: z.string().trim().min(2),
   document: z.string().trim().min(8),
@@ -176,6 +192,11 @@ const deleteTaskSchema = z.object({
   id: z.string().min(1),
   scope: z.enum(["occurrence", "series"]).optional(),
   occurrenceDate: z.string().min(10).optional(),
+});
+
+const reorderTaskSchema = z.object({
+  taskId: z.string().min(1),
+  beforeTaskId: z.string().min(1).nullable(),
 });
 
 const addTaskCommentSchema = z.object({
@@ -1141,6 +1162,36 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
     });
   });
 
+export const reorderTask = createServerFn({ method: "POST" })
+  .validator((data) => reorderTaskSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const sourceIndex = db.tasks.findIndex((task) => task.id === data.taskId);
+      if (sourceIndex < 0) throw createHttpError("Tarefa não encontrada.", 404);
+      const sourceTask = db.tasks[sourceIndex];
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const permissions = getTaskPermissions({
+        task: sourceTask,
+        currentUser,
+        employees: db.employees,
+        departments: db.departments,
+        groups: db.groups,
+        permissionGroups: db.permissionGroups,
+      });
+      if (!permissions.canMove) {
+        throw createHttpError("Você não tem permissão para reorganizar tarefas.", 403);
+      }
+
+      db.tasks.splice(sourceIndex, 1);
+      const targetIndex =
+        data.beforeTaskId === null
+          ? db.tasks.length
+          : db.tasks.findIndex((task) => task.id === data.beforeTaskId);
+      db.tasks.splice(targetIndex < 0 ? db.tasks.length : targetIndex, 0, sourceTask);
+      return { taskId: sourceTask.id, beforeTaskId: data.beforeTaskId };
+    });
+  });
+
 export const addTaskComment = createServerFn({ method: "POST" })
   .validator((data) => addTaskCommentSchema.parse(data))
   .handler(async ({ data }) => {
@@ -1444,6 +1495,71 @@ export const createEmployee = createServerFn({ method: "POST" })
     }
   });
 
+export const updateEmployee = createServerFn({ method: "POST" })
+  .validator((data) => updateEmployeeSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.employees.edit",
+        "Seu grupo de permissão não pode editar funcionários.",
+      );
+      const employee = db.employees.find((item) => item.id === data.id);
+      if (!employee) throw createHttpError("Funcionário não encontrado.", 404);
+      if (!db.departments.some((department) => department.id === data.departmentId)) {
+        throw createHttpError("Setor não encontrado.");
+      }
+      if (
+        data.permissionGroupId &&
+        !db.permissionGroups.some((group) => group.id === data.permissionGroupId)
+      ) {
+        throw createHttpError("Grupo de permissão não encontrado.");
+      }
+      employee.name = data.name;
+      employee.role = data.role;
+      employee.departmentId = data.departmentId;
+      employee.status = data.status;
+      employee.permissionGroupId = data.permissionGroupId;
+      return employee;
+    });
+  });
+
+export const deleteEmployee = createServerFn({ method: "POST" })
+  .validator((data) => deleteEmployeeSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.employees.delete",
+        "Seu grupo de permissão não pode excluir funcionários.",
+      );
+      if (data.id === currentUserId || data.id === db.company.ownerId) {
+        throw createHttpError("O proprietário ou usuário atual não pode ser removido.", 403);
+      }
+      const employeeIndex = db.employees.findIndex((employee) => employee.id === data.id);
+      if (employeeIndex < 0) throw createHttpError("Funcionário não encontrado.", 404);
+      db.employees.splice(employeeIndex, 1);
+      db.groups.forEach((group) => {
+        group.memberIds = group.memberIds.filter((memberId) => memberId !== data.id);
+        if (group.leaderId === data.id) group.leaderId = undefined;
+      });
+      db.departments.forEach((department) => {
+        if (department.managerId === data.id) department.managerId = "";
+      });
+      db.tasks.forEach((task) => {
+        if (task.responsibleId === data.id) task.responsibleId = "";
+        task.responsibleIds = task.responsibleIds?.filter((id) => id !== data.id);
+        if (task.reviewerId === data.id) task.reviewerId = undefined;
+        if (task.target.type === "user" && task.target.id === data.id) {
+          task.target = { type: "company", id: db.company.id, label: db.company.name };
+        }
+      });
+      return { ok: true, id: data.id };
+    });
+  });
+
 export const resendEmployeeInvitation = createServerFn({ method: "POST" })
   .validator((data) => resendEmployeeInvitationSchema.parse(data))
   .handler(async ({ data }) => {
@@ -1644,6 +1760,54 @@ export const createGroup = createServerFn({ method: "POST" })
 
       db.groups.push(group);
       return group;
+    });
+  });
+
+export const updateGroup = createServerFn({ method: "POST" })
+  .validator((data) => updateGroupSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.groups.edit",
+        "Seu grupo de permissão não pode editar grupos.",
+      );
+      const group = db.groups.find((item) => item.id === data.id);
+      if (!group) throw createHttpError("Grupo não encontrado.", 404);
+      const memberIds = Array.from(
+        new Set([...(data.leaderId ? [data.leaderId] : []), ...data.memberIds]),
+      );
+      if (memberIds.some((id) => !db.employees.some((employee) => employee.id === id))) {
+        throw createHttpError("Um dos membros não foi encontrado.");
+      }
+      group.name = data.name;
+      group.description = data.description;
+      group.leaderId = data.leaderId;
+      group.memberIds = memberIds;
+      return group;
+    });
+  });
+
+export const deleteGroup = createServerFn({ method: "POST" })
+  .validator((data) => deleteGroupSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.groups.delete",
+        "Seu grupo de permissão não pode excluir grupos.",
+      );
+      const groupIndex = db.groups.findIndex((group) => group.id === data.id);
+      if (groupIndex < 0) throw createHttpError("Grupo não encontrado.", 404);
+      db.groups.splice(groupIndex, 1);
+      db.tasks.forEach((task) => {
+        if (task.target.type === "group" && task.target.id === data.id) {
+          task.target = { type: "company", id: db.company.id, label: db.company.name };
+        }
+      });
+      return { ok: true, id: data.id };
     });
   });
 

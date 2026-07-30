@@ -22,9 +22,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createEmployee, resendEmployeeInvitation } from "@/lib/api/pop-organize.functions";
+import {
+  createEmployee,
+  deleteEmployee,
+  resendEmployeeInvitation,
+  updateEmployee,
+} from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
-import { Check, Copy, Link2, Mail, Plus } from "lucide-react";
+import { Check, Copy, Link2, Mail, Pencil, Plus, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/funcionarios")({
   head: () => ({ meta: [{ title: "Funcionários - Pop Organize" }] }),
@@ -39,6 +44,7 @@ function FuncionariosPage() {
   const [inviteEmailSent, setInviteEmailSent] = useState(false);
   const [copied, setCopied] = useState(false);
   const [resentInvitationId, setResentInvitationId] = useState("");
+  const [editingEmployeeId, setEditingEmployeeId] = useState("");
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -70,6 +76,25 @@ function FuncionariosPage() {
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
+  const updateMutation = useMutation({
+    mutationFn: (payload: {
+      id: string;
+      name: string;
+      role: string;
+      departmentId: string;
+      status: "active" | "inactive";
+      permissionGroupId?: string;
+    }) => updateEmployee({ data: payload }),
+    onSuccess: () => {
+      setShowForm(false);
+      setEditingEmployeeId("");
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteEmployee({ data: { id } }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: workspaceQueryKey }),
+  });
 
   if (isLoading) {
     return (
@@ -97,6 +122,8 @@ function FuncionariosPage() {
     );
   }
   const canManage = hasPermission(permissionSet, "manage.employees");
+  const canEdit = hasPermission(permissionSet, "manage.employees.edit");
+  const canDelete = hasPermission(permissionSet, "manage.employees.delete");
 
   const getDepartment = (id: string) => departments.find((department) => department.id === id);
   const getPermissionGroup = (id?: string) => permissionGroups.find((group) => group.id === id);
@@ -115,13 +142,45 @@ function FuncionariosPage() {
     setInviteLink("");
     setInviteEmailSent(false);
     setCopied(false);
+    setEditingEmployeeId("");
     createMutation.reset();
     setShowForm(true);
   }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    createMutation.mutate(form);
+    if (editingEmployeeId) {
+      updateMutation.mutate({
+        id: editingEmployeeId,
+        name: form.name,
+        role: form.role,
+        departmentId: form.departmentId,
+        status: form.status,
+        permissionGroupId: form.permissionGroupId || undefined,
+      });
+    } else {
+      createMutation.mutate(form);
+    }
+  }
+
+  function openEdit(employee: (typeof employees)[number]) {
+    setEditingEmployeeId(employee.id);
+    setInviteLink("");
+    setForm({
+      name: employee.name,
+      email: employee.email,
+      role: employee.role,
+      departmentId: employee.departmentId,
+      status: employee.status,
+      permissionGroupId: employee.permissionGroupId ?? "",
+    });
+    setShowForm(true);
+  }
+
+  function removeEmployee(employee: (typeof employees)[number]) {
+    if (window.confirm(`Excluir ${employee.name} da empresa?`)) {
+      deleteMutation.mutate(employee.id);
+    }
   }
 
   async function copyInviteLink() {
@@ -254,6 +313,28 @@ function FuncionariosPage() {
                   {taskCount} {taskCount === 1 ? "tarefa" : "tarefas"}
                 </span>
               </div>
+              {!isOwner && (canEdit || canDelete) && (
+                <div className="mt-3 flex justify-end gap-2">
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => openEdit(employee)}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 font-semibold"
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Editar
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button
+                      type="button"
+                      onClick={() => removeEmployee(employee)}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-destructive/25 px-3 font-semibold text-destructive"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Excluir
+                    </button>
+                  )}
+                </div>
+              )}
             </article>
           );
         })}
@@ -269,6 +350,7 @@ function FuncionariosPage() {
               <TableHead>Permissões</TableHead>
               <TableHead className="text-right">Tarefas</TableHead>
               <TableHead>Status</TableHead>
+              {(canEdit || canDelete) && <TableHead className="text-right">Ações</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -295,9 +377,7 @@ function FuncionariosPage() {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm">
-                    {isOwner ? "Proprietário" : e.role}
-                  </TableCell>
+                  <TableCell className="text-sm">{isOwner ? "Proprietário" : e.role}</TableCell>
                   <TableCell>
                     <span className="inline-flex items-center gap-1.5">
                       <span
@@ -325,6 +405,34 @@ function FuncionariosPage() {
                       {e.status === "active" ? "Ativo" : "Inativo"}
                     </span>
                   </TableCell>
+                  {(canEdit || canDelete) && (
+                    <TableCell className="text-right">
+                      {!isOwner && (
+                        <div className="inline-flex gap-1">
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => openEdit(e)}
+                              className="glass-icon-button inline-flex h-8 w-8 items-center justify-center rounded-lg"
+                              aria-label={`Editar ${e.name}`}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => removeEmployee(e)}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-destructive hover:bg-destructive/10"
+                              aria-label={`Excluir ${e.name}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}
@@ -341,14 +449,18 @@ function FuncionariosPage() {
                   ? inviteEmailSent
                     ? "Convite enviado"
                     : "Convite pronto"
-                  : "Convidar funcionário"}
+                  : editingEmployeeId
+                    ? "Editar funcionário"
+                    : "Convidar funcionário"}
               </DialogTitle>
               <DialogDescription>
                 {inviteLink
                   ? inviteEmailSent
                     ? `Enviamos o convite para ${form.email}. O link abaixo fica disponível como alternativa.`
                     : "Copie o link abaixo e envie ao funcionário. Ele definirá a própria senha ao aceitar."
-                  : "Informe os dados do colaborador. A senha será criada por ele no aceite."}
+                  : editingEmployeeId
+                    ? "Atualize os dados e as permissões do colaborador."
+                    : "Informe os dados do colaborador. A senha será criada por ele no aceite."}
               </DialogDescription>
             </DialogHeader>
             {inviteLink ? (
@@ -387,6 +499,7 @@ function FuncionariosPage() {
                     onChange={(e) => setForm((current) => ({ ...current, email: e.target.value }))}
                     className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
                     required
+                    disabled={Boolean(editingEmployeeId)}
                   />
                 </Field>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -461,11 +574,17 @@ function FuncionariosPage() {
               {!inviteLink && (
                 <button
                   type="submit"
-                  disabled={createMutation.isPending}
+                  disabled={createMutation.isPending || updateMutation.isPending}
                   style={{ background: "var(--gradient-primary)" }}
                   className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
                 >
-                  {createMutation.isPending ? "Enviando convite..." : "Criar e enviar convite"}
+                  {updateMutation.isPending
+                    ? "Salvando..."
+                    : editingEmployeeId
+                      ? "Salvar alterações"
+                      : createMutation.isPending
+                        ? "Enviando convite..."
+                        : "Criar e enviar convite"}
                 </button>
               )}
             </DialogFooter>

@@ -1,4 +1,4 @@
-import { Calendar, Check, ListChecks, MessageSquare, Paperclip } from "lucide-react";
+import { Calendar, Check, GripVertical, ListChecks, MessageSquare, Paperclip } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { cn } from "@/lib/utils";
@@ -15,11 +15,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuLabel,
   ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import type { CurrentUser, Department, Employee, Group, PermissionGroup, Task } from "@/lib/domain";
@@ -44,7 +40,7 @@ export function TaskList({
   selectedTaskId,
   onOpen,
   onComplete,
-  onMove,
+  onReorder,
   movingTaskId,
   isCompleting,
   preferences,
@@ -60,7 +56,7 @@ export function TaskList({
   selectedTaskId: string | null;
   onOpen: (task: Task) => void;
   onComplete: (task: Task) => void;
-  onMove?: (task: Task, target: { type: "department" | "group"; id: string }) => void;
+  onReorder?: (task: Task, beforeTaskId: string | null) => void;
   movingTaskId?: string | null;
   isCompleting: boolean;
   preferences?: {
@@ -72,6 +68,7 @@ export function TaskList({
 }) {
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
   const [celebratingTaskId, setCelebratingTaskId] = useState<string | null>(null);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tablePreferences = preferences ?? {
     titleWidth: 340,
@@ -171,33 +168,56 @@ export function TaskList({
                 <ContextMenu key={task.id}>
                   <ContextMenuTrigger asChild>
                     <TableRow
+                      draggable={Boolean(onReorder && permissions.canMove)}
+                      onDragStart={(event) => {
+                        setDraggedTaskId(task.id);
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", task.id);
+                      }}
+                      onDragOver={(event) => {
+                        if (draggedTaskId && draggedTaskId !== task.id) event.preventDefault();
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const sourceId = event.dataTransfer.getData("text/plain") || draggedTaskId;
+                        const source = tasks.find((item) => item.id === sourceId);
+                        if (source && source.id !== task.id) onReorder?.(source, task.id);
+                        setDraggedTaskId(null);
+                      }}
+                      onDragEnd={() => setDraggedTaskId(null)}
                       onClick={() => onOpen(task)}
                       className={cn(
                         "task-glass-row group cursor-pointer border-0 transition-all duration-300 hover:text-foreground",
                         movingTaskId === task.id && "translate-x-3 scale-[0.985] opacity-35",
+                        draggedTaskId === task.id && "scale-[0.985] opacity-45",
                         tablePreferences.density === "compact" && "[&_td]:!py-2.5",
                         overdue && "bg-destructive/[0.05] hover:bg-destructive/[0.08]",
                         selectedTaskId === task.id && "task-row-selected",
                       )}
                     >
                       <TableCell className="px-4 py-4" onClick={(event) => event.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!permissions.canChangeStatus || isCompleting) return;
-                            onComplete(task);
-                          }}
-                          disabled={!permissions.canChangeStatus || isCompleting}
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-[9px] border-2 bg-white/72 transition-all duration-300 disabled:opacity-40",
-                            overdue
-                              ? "border-destructive/50 text-destructive hover:border-destructive hover:bg-destructive/15"
-                              : "border-primary/30 text-primary hover:border-primary hover:bg-primary/15",
+                        <div className="flex items-center gap-1">
+                          {onReorder && permissions.canMove && (
+                            <GripVertical className="h-4 w-4 cursor-grab text-primary/55 active:cursor-grabbing" />
                           )}
-                          aria-label="Concluir tarefa"
-                        >
-                          <Check className="h-3.5 w-3.5 opacity-0 transition group-hover:opacity-100" />
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!permissions.canChangeStatus || isCompleting) return;
+                              onComplete(task);
+                            }}
+                            disabled={!permissions.canChangeStatus || isCompleting}
+                            className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded-[9px] border-2 bg-white/72 transition-all duration-300 disabled:opacity-40",
+                              overdue
+                                ? "border-destructive/50 text-destructive hover:border-destructive hover:bg-destructive/15"
+                                : "border-primary/30 text-primary hover:border-primary hover:bg-primary/15",
+                            )}
+                            aria-label="Concluir tarefa"
+                          >
+                            <Check className="h-3.5 w-3.5 opacity-0 transition group-hover:opacity-100" />
+                          </button>
+                        </div>
                       </TableCell>
                       <TableCell className="px-4 py-4">
                         <div
@@ -295,38 +315,20 @@ export function TaskList({
                   </ContextMenuTrigger>
                   <ContextMenuContent className="min-w-56">
                     <ContextMenuItem onSelect={() => onOpen(task)}>Abrir atividade</ContextMenuItem>
-                    {onMove && permissions.canMove && (
+                    {onReorder && permissions.canMove && (
                       <>
                         <ContextMenuSeparator />
-                        <ContextMenuLabel>Mover atividade</ContextMenuLabel>
-                        <ContextMenuSub>
-                          <ContextMenuSubTrigger>Para um grupo</ContextMenuSubTrigger>
-                          <ContextMenuSubContent className="min-w-52">
-                            {groups.map((group) => (
-                              <ContextMenuItem
-                                key={group.id}
-                                onSelect={() => onMove(task, { type: "group", id: group.id })}
-                              >
-                                {group.name}
-                              </ContextMenuItem>
-                            ))}
-                          </ContextMenuSubContent>
-                        </ContextMenuSub>
-                        <ContextMenuSub>
-                          <ContextMenuSubTrigger>Para um setor</ContextMenuSubTrigger>
-                          <ContextMenuSubContent className="min-w-52">
-                            {departments.map((department) => (
-                              <ContextMenuItem
-                                key={department.id}
-                                onSelect={() =>
-                                  onMove(task, { type: "department", id: department.id })
-                                }
-                              >
-                                {department.name}
-                              </ContextMenuItem>
-                            ))}
-                          </ContextMenuSubContent>
-                        </ContextMenuSub>
+                        <ContextMenuItem
+                          onSelect={() => {
+                            const first = tasks.find((item) => item.id !== task.id);
+                            onReorder(task, first?.id ?? null);
+                          }}
+                        >
+                          Mover para o início
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={() => onReorder(task, null)}>
+                          Mover para o final
+                        </ContextMenuItem>
                       </>
                     )}
                   </ContextMenuContent>
@@ -371,6 +373,22 @@ export function TaskList({
                   layout: { type: "spring", stiffness: 280, damping: 32, mass: 0.9 },
                 }}
                 role="button"
+                draggable={Boolean(onReorder && permissions.canMove)}
+                onDragStartCapture={(event) => {
+                  setDraggedTaskId(task.id);
+                  event.dataTransfer.setData("text/plain", task.id);
+                }}
+                onDragOver={(event) => {
+                  if (draggedTaskId && draggedTaskId !== task.id) event.preventDefault();
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const sourceId = event.dataTransfer.getData("text/plain") || draggedTaskId;
+                  const source = tasks.find((item) => item.id === sourceId);
+                  if (source && source.id !== task.id) onReorder?.(source, task.id);
+                  setDraggedTaskId(null);
+                }}
+                onDragEnd={() => setDraggedTaskId(null)}
                 tabIndex={0}
                 aria-label={`Abrir atividade ${task.title}`}
                 onClick={() => onOpen(task)}

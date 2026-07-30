@@ -65,7 +65,7 @@ export function TaskDetailDrawer({
   onSubmit,
   onClose,
   onToggleComplete,
-  onMove,
+  onReorder,
   onDelete,
   isSaving,
   isMoving = false,
@@ -95,7 +95,7 @@ export function TaskDetailDrawer({
   onSubmit: (event: FormEvent) => void;
   onClose: () => void;
   onToggleComplete: () => void;
-  onMove?: (target: { type: "department" | "group"; id: string }) => void;
+  onReorder?: (position: "start" | "end") => void;
   onDelete: () => void;
   isSaving: boolean;
   isMoving?: boolean;
@@ -178,7 +178,7 @@ export function TaskDetailDrawer({
               <span className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-primary/10">
                 <Building2 className="h-7 w-7" />
               </span>
-              <span className="text-sm font-bold">Movendo atividade...</span>
+              <span className="text-sm font-bold">Reorganizando atividade...</span>
             </motion.div>
           </motion.div>
         )}
@@ -210,7 +210,7 @@ export function TaskDetailDrawer({
       {/* Sticky header */}
       <header className="glass-header sticky top-0 z-[60] border-b border-white/70 px-5 pb-4 pt-5">
         <div className="mb-3 flex items-center justify-end gap-3">
-          {permissions.canMove && onMove && (
+          {permissions.canMove && onReorder && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -222,26 +222,14 @@ export function TaskDetailDrawer({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-60">
-                <DropdownMenuLabel>Mover atividade</DropdownMenuLabel>
+                <DropdownMenuLabel>Organizar atividade</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {groups.map((group) => (
-                  <DropdownMenuItem
-                    key={group.id}
-                    onSelect={() => onMove?.({ type: "group", id: group.id })}
-                  >
-                    <Users className="mr-2 h-4 w-4 text-primary" />
-                    Grupo: {group.name}
-                  </DropdownMenuItem>
-                ))}
-                {departments.map((department) => (
-                  <DropdownMenuItem
-                    key={department.id}
-                    onSelect={() => onMove?.({ type: "department", id: department.id })}
-                  >
-                    <Building2 className="mr-2 h-4 w-4 text-primary" />
-                    Setor: {department.name}
-                  </DropdownMenuItem>
-                ))}
+                <DropdownMenuItem onSelect={() => onReorder?.("start")}>
+                  Mover para o início
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onReorder?.("end")}>
+                  Mover para o final
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}

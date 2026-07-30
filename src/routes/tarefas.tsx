@@ -19,6 +19,8 @@ import {
   Archive,
   ChevronDown,
   Columns3,
+  Eye,
+  EyeOff,
   Layers3,
   Plus,
   Repeat,
@@ -132,6 +134,7 @@ function TasksPage() {
     addSubtaskMutation,
     toggleSubtaskMutation,
     deleteSubtaskMutation,
+    reorderTaskMutation,
   } = useTaskMutations({
     onCompleted: () => setSelectedTaskId(null),
     onCreated: () => setShowForm(false),
@@ -385,24 +388,14 @@ function TasksPage() {
     });
   }
 
-  function handleMoveTask(task: Task, target: { type: "department" | "group"; id: string }) {
+  function handleReorderTask(task: Task, beforeTaskId: string | null) {
     setMovingTaskId(task.id);
     window.setTimeout(() => {
-      updateTaskMutation.mutate(
-        {
-          id: task.id,
-          title: task.title,
-          description: task.description,
-          priority: task.priority,
-          dueDate: task.dueDate,
-          target,
-          responsibleId: task.responsibleId,
-          tags: task.tags,
-          recurrence: recurrenceFromForm(recurrenceToForm(task.recurrence, task.dueDate)),
-        },
+      reorderTaskMutation.mutate(
+        { taskId: task.id, beforeTaskId },
         { onSettled: () => setMovingTaskId(null) },
       );
-    }, 240);
+    }, 180);
   }
 
   function handleDeleteSelectedTask() {
@@ -482,7 +475,13 @@ function TasksPage() {
                     status: selectedTask.status === "completed" ? "in_progress" : "completed",
                   })
                 }
-                onMove={(target) => handleMoveTask(selectedTask, target)}
+                onReorder={(position) => {
+                  const first = activeTaskRows.find((task) => task.id !== selectedTask.id);
+                  handleReorderTask(
+                    selectedTask,
+                    position === "start" ? (first?.id ?? null) : null,
+                  );
+                }}
                 onDelete={handleDeleteSelectedTask}
                 isSaving={updateTaskMutation.isPending}
                 isMoving={movingTaskId === selectedTask.id}
@@ -623,6 +622,28 @@ function TasksPage() {
             <Settings2 className="h-4 w-4" />
             Personalizar layout
           </button>
+          {layoutPreferences.layoutMode === "department" && (
+            <button
+              type="button"
+              onClick={() => {
+                const sectionIds = taskSections.map((section) => section.id);
+                const allCollapsed =
+                  sectionIds.length > 0 &&
+                  sectionIds.every((sectionId) => collapsedDepartments.has(sectionId));
+                setCollapsedDepartments(allCollapsed ? new Set() : new Set(sectionIds));
+              }}
+              className="task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition hover:border-primary/25 hover:text-primary"
+            >
+              {taskSections.every((section) => collapsedDepartments.has(section.id)) ? (
+                <Eye className="h-4 w-4" />
+              ) : (
+                <EyeOff className="h-4 w-4" />
+              )}
+              {taskSections.every((section) => collapsedDepartments.has(section.id))
+                ? "Mostrar todos os setores"
+                : "Ocultar todos os setores"}
+            </button>
+          )}
         </div>
         <span className="hidden text-xs text-muted-foreground lg:inline">
           Arraste a barra azul ao lado de “Atividade” para aumentar ou diminuir.
@@ -726,7 +747,7 @@ function TasksPage() {
                   selectedTaskId={selectedTaskId}
                   onOpen={openTask}
                   onComplete={(task) => statusMutation.mutate({ id: task.id, status: "completed" })}
-                  onMove={handleMoveTask}
+                  onReorder={handleReorderTask}
                   movingTaskId={movingTaskId}
                   isCompleting={statusMutation.isPending}
                   preferences={layoutPreferences}

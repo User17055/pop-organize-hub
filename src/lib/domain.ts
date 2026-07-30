@@ -90,7 +90,11 @@ export type PermissionKey =
   | "pages.company"
   | "manage.departments"
   | "manage.groups"
+  | "manage.groups.edit"
+  | "manage.groups.delete"
   | "manage.employees"
+  | "manage.employees.edit"
+  | "manage.employees.delete"
   | "manage.company"
   | "manage.permissions"
   | "manage.invitations";
@@ -129,8 +133,8 @@ export const permissionCatalog: Array<{
       },
       {
         key: "tasks.move",
-        label: "Mover tarefas",
-        hint: "Mover atividades entre grupos e setores",
+        label: "Reorganizar tarefas",
+        hint: "Alterar a ordem das atividades na lista",
       },
       {
         key: "tasks.assign",
@@ -172,11 +176,31 @@ export const permissionCatalog: Array<{
         label: "Criar/editar setores",
         hint: "Gerencia setores da empresa",
       },
-      { key: "manage.groups", label: "Criar/editar grupos", hint: "Gerencia grupos de trabalho" },
+      { key: "manage.groups", label: "Criar grupos", hint: "Cadastra novos grupos de trabalho" },
+      {
+        key: "manage.groups.edit",
+        label: "Editar grupos",
+        hint: "Altera nome, líder e membros dos grupos",
+      },
+      {
+        key: "manage.groups.delete",
+        label: "Excluir grupos",
+        hint: "Remove grupos de trabalho",
+      },
       {
         key: "manage.employees",
         label: "Cadastrar funcionários",
         hint: "Adiciona novos colaboradores",
+      },
+      {
+        key: "manage.employees.edit",
+        label: "Editar funcionários",
+        hint: "Altera cargo, setor, status e permissões",
+      },
+      {
+        key: "manage.employees.delete",
+        label: "Excluir funcionários",
+        hint: "Remove colaboradores da empresa",
       },
       { key: "manage.company", label: "Editar empresa", hint: "Altera dados da empresa" },
       {

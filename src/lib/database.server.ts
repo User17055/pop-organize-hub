@@ -194,6 +194,8 @@ function initialPermissionGroups(): PermissionGroup[] {
         "pages.reports",
         "manage.departments",
         "manage.groups",
+        "manage.groups.edit",
+        "manage.groups.delete",
         "manage.invitations",
       ],
     },

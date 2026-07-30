@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
@@ -278,6 +279,7 @@ private fun postNotification(
     )
     val notification = NotificationCompat.Builder(context, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_pop_notification)
+        .setLargeIcon(BitmapFactory.decodeResource(context.resources, R.mipmap.ic_pop_checklist))
         .setColor(ContextCompat.getColor(context, R.color.pop_blue))
         .setContentTitle(title)
         .setContentText(body)

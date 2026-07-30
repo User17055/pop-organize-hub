@@ -3797,6 +3797,16 @@ private fun TasksScreen(
         if (!canCreateTask) showCreate = false
     }
 
+    val taskFilters = if (workSpace == WorkSpace.Personal) {
+        listOf("Hoje", "Atrasadas", "Próximas", "Todas")
+    } else {
+        listOf("Hoje", "Atrasadas", "Próximas", "Grupo", "Setor", "Empresa", "Todas")
+    }
+
+    LaunchedEffect(workSpace) {
+        if (selectedFilter !in taskFilters) selectedFilter = "Hoje"
+    }
+
     val filtered = tasks
         .filterNot { isFutureRecurrence(it, today) }
         .filter {
@@ -4131,15 +4141,7 @@ private fun TasksScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(
-                        listOf(
-                            "Hoje",
-                            "Atrasadas",
-                            "Próximas",
-                            "Grupo",
-                            "Setor",
-                            "Empresa",
-                            "Todas",
-                        ),
+                        taskFilters,
                         key = { it },
                     ) { filter ->
                         FilterChip(filter, selectedFilter == filter) {

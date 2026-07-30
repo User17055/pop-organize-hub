@@ -4075,7 +4075,8 @@ private fun TasksScreen(
 
     val taskFilters = when {
         workSpace == WorkSpace.Personal -> listOf("Hoje", "Atrasadas", "Próximas", "Todas")
-        isTaskAdmin -> listOf("Hoje", "Atrasadas", "Próximas", "Grupo", "Setor", "Empresa")
+        isTaskAdmin ->
+            listOf("Hoje", "Atrasadas", "Próximas", "Grupo", "Setor", "Empresa", "Todas")
         else -> listOf("Minhas", "Grupo", "Setor")
     }
 

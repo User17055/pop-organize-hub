@@ -856,19 +856,41 @@ export async function readMobileTasks(request: Request) {
   const { workspace, account } = await requireMobileWorkspace(request);
   const currentUser = workspace.employees.find((employee) => employee.id === account.id);
   if (!currentUser) return [];
+  const isAdministrator =
+    workspace.company.ownerId === currentUser.id ||
+    currentUser.role.toLocaleLowerCase("pt-BR").includes("admin");
+  const currentGroupIds = new Set(
+    workspace.groups
+      .filter(
+        (group) => group.leaderId === currentUser.id || group.memberIds.includes(currentUser.id),
+      )
+      .map((group) => group.id),
+  );
 
   return workspace.tasks
     .map((task) => task as NativeTask)
-    .filter((task) =>
-      canViewTask({
+    .filter((task) => {
+      const canView = canViewTask({
         task,
         currentUser,
         employees: workspace.employees,
         departments: workspace.departments,
         groups: workspace.groups,
         permissionGroups: workspace.permissionGroups,
-      }),
-    )
+      });
+      if (!canView) return false;
+      if (workspace.company.kind === "personal" || isAdministrator) return true;
+
+      const isDirectTask =
+        (task.target.type === "user" && task.target.id === currentUser.id) ||
+        task.responsibleId === currentUser.id ||
+        (task.responsibleIds ?? []).includes(currentUser.id);
+      const isDepartmentTask =
+        task.target.type === "department" && task.target.id === currentUser.departmentId;
+      const isGroupTask = task.target.type === "group" && currentGroupIds.has(task.target.id);
+
+      return isDirectTask || isDepartmentTask || isGroupTask;
+    })
     .map((task) => taskToMobileTask(task, workspace, currentUser));
 }
 

@@ -131,14 +131,17 @@ export function TaskList({
             <TableRow className="border-0 hover:bg-transparent">
               <TableHead className="w-14"></TableHead>
               <TableHead className="relative">
-                Título
+                Atividade
                 {onTitleWidthChange && (
                   <button
                     type="button"
                     onPointerDown={startTitleResize}
-                    className="absolute inset-y-0 right-0 w-2 cursor-col-resize touch-none rounded-full transition hover:bg-primary/25"
+                    className="group/resize absolute -right-2 inset-y-0 z-10 flex w-5 cursor-col-resize touch-none items-center justify-center"
                     aria-label="Ajustar largura da coluna de atividade"
-                  />
+                    title="Arraste para aumentar ou diminuir a atividade"
+                  >
+                    <span className="h-6 w-1 rounded-full bg-primary/35 shadow-[0_0_0_1px_hsl(var(--background))] transition group-hover/resize:h-8 group-hover/resize:bg-primary" />
+                  </button>
                 )}
               </TableHead>
               {showResponsible && <TableHead>Responsável</TableHead>}

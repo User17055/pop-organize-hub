@@ -3429,7 +3429,7 @@ private fun AssignmentSelector(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.Rounded.PersonOutline,
+                Icons.Rounded.AccountTree,
                 null,
                 tint = if (plain) PopMuted else PopBlue,
                 modifier = Modifier.size(if (plain) 23.dp else 20.dp),
@@ -4047,6 +4047,17 @@ private fun TasksScreen(
                     ) &&
                     (it.isOwner || it.role.contains("admin", ignoreCase = true))
             }
+    val currentCompanyMember = companyMembers.firstOrNull {
+        it.id.equals(currentUserId, ignoreCase = true) ||
+            it.name.equals(currentUserName, ignoreCase = true)
+    }
+    val currentMemberGroupIds =
+        (
+            currentCompanyMember?.groupIds.orEmpty() +
+                companyGroups
+                    .filter { currentUserId in it.memberIds }
+                    .map { it.id }
+            ).toSet()
 
     fun canCompleteTask(task: PopTask): Boolean = task.canComplete
     fun canEditTask(task: PopTask): Boolean = task.canEdit
@@ -4062,14 +4073,16 @@ private fun TasksScreen(
         if (!canCreateTask) showCreate = false
     }
 
-    val taskFilters = if (workSpace == WorkSpace.Personal) {
-        listOf("Hoje", "Atrasadas", "Próximas", "Todas")
-    } else {
-        listOf("Hoje", "Atrasadas", "Próximas", "Grupo", "Setor", "Empresa", "Todas")
+    val taskFilters = when {
+        workSpace == WorkSpace.Personal -> listOf("Hoje", "Atrasadas", "Próximas", "Todas")
+        isTaskAdmin -> listOf("Hoje", "Atrasadas", "Próximas", "Grupo", "Setor", "Empresa")
+        else -> listOf("Minhas", "Grupo", "Setor")
     }
 
-    LaunchedEffect(workSpace) {
-        if (selectedFilter !in taskFilters) selectedFilter = "Hoje"
+    LaunchedEffect(workSpace, isTaskAdmin) {
+        if (selectedFilter !in taskFilters) {
+            selectedFilter = if (workSpace == WorkSpace.Company && !isTaskAdmin) "Minhas" else "Hoje"
+        }
     }
 
     val filtered = tasks
@@ -4103,14 +4116,35 @@ private fun TasksScreen(
                                 it.equals("Eu", ignoreCase = true)
                         }
             when (selectedFilter) {
-                "Hoje" -> dueDate == today && isCurrentUserTask
+                "Hoje" -> dueDate == today && (isTaskAdmin || isCurrentUserTask)
                 "Atrasadas" ->
-                    isCurrentUserTask && !task.completed && dueDate != null && dueDate < today
+                    (isTaskAdmin || isCurrentUserTask) &&
+                        !task.completed &&
+                        dueDate != null &&
+                        dueDate < today
                 "Próximas" ->
-                    isCurrentUserTask && !task.completed && dueDate != null && dueDate > today
-                "Grupo" -> task.assignmentType == "group"
-                "Setor" -> task.assignmentType == "department"
-                "Empresa" -> task.assignmentType == "company"
+                    (isTaskAdmin || isCurrentUserTask) &&
+                        !task.completed &&
+                        dueDate != null &&
+                        dueDate > today
+                "Minhas" -> isCurrentUserTask
+                "Grupo" ->
+                    task.assignmentType == "group" &&
+                        (
+                            isTaskAdmin ||
+                                task.assignmentTargetId in currentMemberGroupIds
+                            )
+                "Setor" ->
+                    task.assignmentType == "department" &&
+                        (
+                            isTaskAdmin ||
+                                task.assignmentTargetId == currentCompanyMember?.sectorId ||
+                                task.assignmentTargetLabel.equals(
+                                    currentCompanyMember?.sector,
+                                    ignoreCase = true,
+                                )
+                            )
+                "Empresa" -> isTaskAdmin && task.assignmentType == "company"
                 else -> true
             }
         }
@@ -5319,47 +5353,50 @@ private fun TasksScreen(
                             }
                         }
                     }
-                    if (!openedTask?.createdBy.isNullOrBlank()) {
+                    if (!openedTask?.createdBy.isNullOrBlank() || openedTask?.canDelete == true) {
                         item {
-                            Column(
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(start = 15.dp, top = 18.dp, bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(
-                                    "Criada por",
-                                    color = PopMuted,
-                                    fontSize = 10.sp,
-                                )
-                                Text(
-                                    openedTask?.createdBy.orEmpty(),
-                                    color = PopText.copy(alpha = .82f),
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 12.sp,
-                                )
-                            }
-                        }
-                    }
-                    if (openedTask?.canDelete == true) item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
-                            horizontalArrangement = Arrangement.End,
-                        ) {
-                            Surface(
-                                onClick = {
-                                    val currentTask = tasks.firstOrNull { it.id == editingTaskId }
-                                    if (currentTask?.canDelete == true) {
-                                        showDeleteTaskConfirmation = true
-                                    } else {
-                                        Toast.makeText(context, "Você não tem permissão para excluir esta tarefa", Toast.LENGTH_SHORT).show()
+                                Column(modifier = Modifier.weight(1f)) {
+                                    if (!openedTask?.createdBy.isNullOrBlank()) {
+                                        Text(
+                                            "Criada por",
+                                            color = PopMuted,
+                                            fontSize = 10.sp,
+                                        )
+                                        Text(
+                                            openedTask?.createdBy.orEmpty(),
+                                            color = PopText.copy(alpha = .82f),
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 12.sp,
+                                        )
                                     }
-                                },
-                                color = Color.Transparent,
-                                contentColor = Color(0xFFD87373),
-                                shape = RoundedCornerShape(14.dp),
-                            ) {
-                                Row(Modifier.padding(horizontal = 13.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Excluir tarefa", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                                if (openedTask?.canDelete == true) {
+                                    Surface(
+                                        onClick = {
+                                            val currentTask = tasks.firstOrNull { it.id == editingTaskId }
+                                            if (currentTask?.canDelete == true) {
+                                                showDeleteTaskConfirmation = true
+                                            } else {
+                                                Toast.makeText(context, "Você não tem permissão para excluir esta tarefa", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        color = Color.Transparent,
+                                        contentColor = Color(0xFFD87373),
+                                        shape = RoundedCornerShape(14.dp),
+                                    ) {
+                                        Row(
+                                            Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text("Excluir tarefa", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
                                 }
                             }
                         }

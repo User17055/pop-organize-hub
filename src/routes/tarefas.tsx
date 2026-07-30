@@ -616,16 +616,19 @@ function TasksPage() {
           </button>
         </div>
         <span className="hidden text-xs text-muted-foreground lg:inline">
-          Arraste a borda da coluna Atividade para ajustar a largura.
+          Arraste a barra azul ao lado de “Atividade” para aumentar ou diminuir.
         </span>
       </div>
 
       {showLayoutSettings && (
         <section className="task-glass-panel mb-4 grid gap-4 rounded-[20px] p-4 sm:grid-cols-3">
           <label className="space-y-2 text-xs font-semibold">
-            <span className="flex items-center gap-2 text-foreground">
-              <Columns3 className="h-4 w-4 text-primary" />
-              Largura da atividade
+            <span className="flex items-center justify-between gap-2 text-foreground">
+              <span className="flex items-center gap-2">
+                <Columns3 className="h-4 w-4 text-primary" />
+                Largura da atividade
+              </span>
+              <span className="text-[10px] text-primary">{layoutPreferences.titleWidth}px</span>
             </span>
             <input
               type="range"

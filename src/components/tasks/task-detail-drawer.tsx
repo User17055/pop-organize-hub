@@ -366,39 +366,41 @@ export function TaskDetailDrawer({
               )}
             </button>
 
-            {/* Responsible */}
-            <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
-              <EmployeeAvatar
-                employee={getEmployee(task.responsibleId)}
-                departments={departments}
-              />
-              <div className="flex-1 min-w-0">
-                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                  Responsável
-                </div>
-                {permissions.canEditContent ? (
-                  <GlassSelect
-                    value={editForm.responsibleId}
-                    options={[
-                      { value: "", label: "Sem responsável" },
-                      ...employees.map((employee) => ({
-                        value: employee.id,
-                        label: employee.name,
-                      })),
-                    ]}
-                    onChange={(responsibleId) =>
-                      onEditFormChange((current) => ({ ...current, responsibleId }))
-                    }
-                    compact
-                  />
-                ) : (
-                  <div className="mt-0.5 truncate text-xs font-semibold text-foreground">
-                    {getEmployee(task.responsibleId)?.name ??
-                      (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
+            {/* A pessoa escolhida como destino já é a destinatária da atividade. */}
+            {selectedTargetType !== "user" && (
+              <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
+                <EmployeeAvatar
+                  employee={getEmployee(task.responsibleId)}
+                  departments={departments}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                    Responsável
                   </div>
-                )}
+                  {permissions.canEditContent ? (
+                    <GlassSelect
+                      value={editForm.responsibleId}
+                      options={[
+                        { value: "", label: "Sem responsável" },
+                        ...employees.map((employee) => ({
+                          value: employee.id,
+                          label: employee.name,
+                        })),
+                      ]}
+                      onChange={(responsibleId) =>
+                        onEditFormChange((current) => ({ ...current, responsibleId }))
+                      }
+                      compact
+                    />
+                  ) : (
+                    <div className="mt-0.5 truncate text-xs font-semibold text-foreground">
+                      {getEmployee(task.responsibleId)?.name ??
+                        (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Reviewer */}
             {task.reviewerId && (
@@ -443,6 +445,7 @@ export function TaskDetailDrawer({
                       onEditFormChange((current) => ({
                         ...current,
                         targetKey: `${type}:${firstId}`,
+                        responsibleId: type === "user" ? "" : current.responsibleId,
                       }));
                     }}
                     className={cn(

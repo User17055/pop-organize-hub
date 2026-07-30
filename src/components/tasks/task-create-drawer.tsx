@@ -47,6 +47,7 @@ export function TaskCreateDrawer({
   const steps = personalMode ? personalSteps : companySteps;
   const isLastStep = step === steps.length - 1;
   const isDepartmentTarget = form.targetKey.startsWith("department:");
+  const isUserTarget = form.targetKey.startsWith("user:");
   const canContinue =
     step !== 0 || Boolean(form.title.trim() && form.description.trim() && form.dueDate);
 
@@ -230,34 +231,38 @@ export function TaskCreateDrawer({
                           onFormChange((current) => ({
                             ...current,
                             targetKey,
-                            responsibleId: current.responsibleId,
+                            responsibleId: targetKey.startsWith("user:")
+                              ? ""
+                              : current.responsibleId,
                           }))
                         }
                       />
                     </Field>
-                    <Field label={isDepartmentTarget ? "Responsável (opcional)" : "Responsável"}>
-                      <GlassSelect
-                        value={form.responsibleId}
-                        options={[
-                          {
-                            value: "",
-                            label: isDepartmentTarget
-                              ? "Sem responsável — setor inteiro"
-                              : "Sem responsável",
-                          },
-                          ...employees.map((employee) => ({
-                            value: employee.id,
-                            label: employee.name,
-                          })),
-                        ]}
-                        onChange={(responsibleId) =>
-                          onFormChange((current) => ({
-                            ...current,
-                            responsibleId,
-                          }))
-                        }
-                      />
-                    </Field>
+                    {!isUserTarget && (
+                      <Field label={isDepartmentTarget ? "Responsável (opcional)" : "Responsável"}>
+                        <GlassSelect
+                          value={form.responsibleId}
+                          options={[
+                            {
+                              value: "",
+                              label: isDepartmentTarget
+                                ? "Sem responsável — setor inteiro"
+                                : "Sem responsável",
+                            },
+                            ...employees.map((employee) => ({
+                              value: employee.id,
+                              label: employee.name,
+                            })),
+                          ]}
+                          onChange={(responsibleId) =>
+                            onFormChange((current) => ({
+                              ...current,
+                              responsibleId,
+                            }))
+                          }
+                        />
+                      </Field>
+                    )}
                   </div>
                 )}
               </>

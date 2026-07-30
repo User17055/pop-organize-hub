@@ -83,7 +83,7 @@ export function TaskSubtaskChecklist({
               <button
                 type="button"
                 onClick={() => onDelete(item.id)}
-                className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
                 aria-label={`Remover item ${item.title}`}
               >
                 <Trash2 className="h-3.5 w-3.5" />

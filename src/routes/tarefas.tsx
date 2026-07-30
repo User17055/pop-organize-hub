@@ -337,7 +337,7 @@ function TasksPage() {
     const [selectedType, selectedId] = form.targetKey.split(":") as [TargetType, string];
     const type = isPersonalWorkspace ? "user" : selectedType;
     const id = isPersonalWorkspace ? currentUser.id : selectedId;
-    const responsibleId = form.responsibleId;
+    const responsibleId = type === "user" ? "" : form.responsibleId;
 
     createTaskMutation.mutate({
       title: form.title,
@@ -375,12 +375,26 @@ function TasksPage() {
       priority: editForm.priority,
       dueDate: editForm.dueDate,
       target: { type: selectedType, id: selectedId },
-      responsibleId: editForm.responsibleId,
+      responsibleId: selectedType === "user" ? "" : editForm.responsibleId,
       tags: editForm.tags
         .split(",")
         .map((tag) => tag.trim())
         .filter(Boolean),
       recurrence: recurrenceFromForm(editForm.recurrence),
+    });
+  }
+
+  function handleMoveTask(task: Task, target: { type: "department" | "group"; id: string }) {
+    updateTaskMutation.mutate({
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      priority: task.priority,
+      dueDate: task.dueDate,
+      target,
+      responsibleId: task.responsibleId,
+      tags: task.tags,
+      recurrence: recurrenceFromForm(recurrenceToForm(task.recurrence, task.dueDate)),
     });
   }
 
@@ -700,6 +714,7 @@ function TasksPage() {
                   selectedTaskId={selectedTaskId}
                   onOpen={openTask}
                   onComplete={(task) => statusMutation.mutate({ id: task.id, status: "completed" })}
+                  onMove={handleMoveTask}
                   isCompleting={statusMutation.isPending}
                   preferences={layoutPreferences}
                   onTitleWidthChange={(titleWidth) =>

@@ -11,6 +11,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import type { CurrentUser, Department, Employee, Group, PermissionGroup, Task } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import { EmployeeAvatar } from "./employee-avatar";
@@ -33,6 +44,7 @@ export function TaskList({
   selectedTaskId,
   onOpen,
   onComplete,
+  onMove,
   isCompleting,
   preferences,
   onTitleWidthChange,
@@ -47,6 +59,7 @@ export function TaskList({
   selectedTaskId: string | null;
   onOpen: (task: Task) => void;
   onComplete: (task: Task) => void;
+  onMove?: (task: Task, target: { type: "department" | "group"; id: string }) => void;
   isCompleting: boolean;
   preferences?: {
     titleWidth: number;
@@ -150,122 +163,168 @@ export function TaskList({
               });
               const progress = subtaskProgress(task);
               return (
-                <TableRow
-                  key={task.id}
-                  onClick={() => onOpen(task)}
-                  className={cn(
-                    "task-glass-row group cursor-pointer border-0 transition-all duration-300 hover:text-foreground",
-                    tablePreferences.density === "compact" && "[&_td]:!py-2.5",
-                    overdue && "bg-destructive/[0.05] hover:bg-destructive/[0.08]",
-                    selectedTaskId === task.id && "task-row-selected",
-                  )}
-                >
-                  <TableCell className="px-4 py-4" onClick={(event) => event.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!permissions.canChangeStatus || isCompleting) return;
-                        onComplete(task);
-                      }}
-                      disabled={!permissions.canChangeStatus || isCompleting}
+                <ContextMenu key={task.id}>
+                  <ContextMenuTrigger asChild>
+                    <TableRow
+                      onClick={() => onOpen(task)}
                       className={cn(
-                        "flex h-6 w-6 items-center justify-center rounded-[9px] border-2 bg-white/72 transition-all duration-300 disabled:opacity-40",
-                        overdue
-                          ? "border-destructive/50 text-destructive hover:border-destructive hover:bg-destructive/15"
-                          : "border-primary/30 text-primary hover:border-primary hover:bg-primary/15",
+                        "task-glass-row group cursor-pointer border-0 transition-all duration-300 hover:text-foreground",
+                        tablePreferences.density === "compact" && "[&_td]:!py-2.5",
+                        overdue && "bg-destructive/[0.05] hover:bg-destructive/[0.08]",
+                        selectedTaskId === task.id && "task-row-selected",
                       )}
-                      aria-label="Concluir tarefa"
                     >
-                      <Check className="h-3.5 w-3.5 opacity-0 transition group-hover:opacity-100" />
-                    </button>
-                  </TableCell>
-                  <TableCell className="px-4 py-4">
-                    <div
-                      className="truncate font-display text-[15px] font-semibold leading-tight text-foreground"
-                      title={task.title}
-                    >
-                      {task.title}
-                    </div>
-                    {tablePreferences.showDescription && task.description && (
-                      <div
-                        className={cn(
-                          "mt-1.5 text-xs leading-relaxed text-muted-foreground",
-                          tablePreferences.density === "compact" ? "line-clamp-1" : "line-clamp-3",
+                      <TableCell className="px-4 py-4" onClick={(event) => event.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!permissions.canChangeStatus || isCompleting) return;
+                            onComplete(task);
+                          }}
+                          disabled={!permissions.canChangeStatus || isCompleting}
+                          className={cn(
+                            "flex h-6 w-6 items-center justify-center rounded-[9px] border-2 bg-white/72 transition-all duration-300 disabled:opacity-40",
+                            overdue
+                              ? "border-destructive/50 text-destructive hover:border-destructive hover:bg-destructive/15"
+                              : "border-primary/30 text-primary hover:border-primary hover:bg-primary/15",
+                          )}
+                          aria-label="Concluir tarefa"
+                        >
+                          <Check className="h-3.5 w-3.5 opacity-0 transition group-hover:opacity-100" />
+                        </button>
+                      </TableCell>
+                      <TableCell className="px-4 py-4">
+                        <div
+                          className="truncate font-display text-[15px] font-semibold leading-tight text-foreground"
+                          title={task.title}
+                        >
+                          {task.title}
+                        </div>
+                        {tablePreferences.showDescription && task.description && (
+                          <div
+                            className={cn(
+                              "mt-1.5 text-xs leading-relaxed text-muted-foreground",
+                              tablePreferences.density === "compact"
+                                ? "line-clamp-1"
+                                : "line-clamp-3",
+                            )}
+                          >
+                            {task.description}
+                          </div>
                         )}
-                      >
-                        {task.description}
-                      </div>
-                    )}
-                    <div className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                      {task.comments > 0 && (
-                        <span className="task-chip inline-flex items-center gap-1 rounded-full px-2 py-0.5">
-                          <MessageSquare className="h-3 w-3" /> {task.comments}
-                        </span>
+                        <div className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                          {task.comments > 0 && (
+                            <span className="task-chip inline-flex items-center gap-1 rounded-full px-2 py-0.5">
+                              <MessageSquare className="h-3 w-3" /> {task.comments}
+                            </span>
+                          )}
+                          {task.attachments > 0 && (
+                            <span className="task-chip inline-flex items-center gap-1 rounded-full px-2 py-0.5">
+                              <Paperclip className="h-3 w-3" /> {task.attachments}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      {showResponsible && (
+                        <TableCell className="px-4 py-4">
+                          {task.target.type !== "user" ? (
+                            <div className="flex items-center gap-2">
+                              <EmployeeAvatar employee={emp} departments={departments} size="sm" />
+                              <span className="truncate text-sm font-medium text-foreground/75">
+                                {emp?.name ??
+                                  (task.target.type === "department"
+                                    ? "Setor inteiro"
+                                    : "Sem responsável")}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground/45">—</span>
+                          )}
+                        </TableCell>
                       )}
-                      {task.attachments > 0 && (
-                        <span className="task-chip inline-flex items-center gap-1 rounded-full px-2 py-0.5">
-                          <Paperclip className="h-3 w-3" /> {task.attachments}
+                      <TableCell className="px-4 py-4">
+                        <span
+                          className="task-chip inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-xs font-semibold text-foreground/62"
+                          title={taskTargetLabel(task.target)}
+                        >
+                          <span className="truncate">{taskTargetLabel(task.target)}</span>
                         </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  {showResponsible && (
-                    <TableCell className="px-4 py-4">
-                      <div className="flex items-center gap-2">
-                        <EmployeeAvatar employee={emp} departments={departments} size="sm" />
-                        <span className="truncate text-sm font-medium text-foreground/75">
-                          {emp?.name ??
-                            (task.target.type === "department"
-                              ? "Setor inteiro"
-                              : "Sem responsável")}
-                        </span>
-                      </div>
-                    </TableCell>
-                  )}
-                  <TableCell className="px-4 py-4">
-                    <span
-                      className="task-chip inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-xs font-semibold text-foreground/62"
-                      title={taskTargetLabel(task.target)}
-                    >
-                      <span className="truncate">{taskTargetLabel(task.target)}</span>
-                    </span>
-                  </TableCell>
-                  <TableCell className="px-4 py-4">
-                    <div className="flex items-center gap-1.5 text-sm">
-                      <Calendar
-                        className={cn(
-                          "h-4 w-4",
-                          overdue ? "text-destructive" : "text-muted-foreground",
+                      </TableCell>
+                      <TableCell className="px-4 py-4">
+                        <div className="flex items-center gap-1.5 text-sm">
+                          <Calendar
+                            className={cn(
+                              "h-4 w-4",
+                              overdue ? "text-destructive" : "text-muted-foreground",
+                            )}
+                          />
+                          <span
+                            className={
+                              overdue
+                                ? "font-semibold text-destructive"
+                                : "font-medium text-foreground/75"
+                            }
+                          >
+                            {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-4">
+                        <PriorityBadge priority={task.priority} />
+                      </TableCell>
+                      <TableCell className="px-4 py-4">
+                        <StatusBadge status={task.status} />
+                      </TableCell>
+                      <TableCell className="px-4 py-4">
+                        {progress ? (
+                          <span className="task-vivid-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold">
+                            <ListChecks className="h-3.5 w-3.5" />
+                            {progress.done}/{progress.total}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/50">—</span>
                         )}
-                      />
-                      <span
-                        className={
-                          overdue
-                            ? "font-semibold text-destructive"
-                            : "font-medium text-foreground/75"
-                        }
-                      >
-                        {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="px-4 py-4">
-                    <PriorityBadge priority={task.priority} />
-                  </TableCell>
-                  <TableCell className="px-4 py-4">
-                    <StatusBadge status={task.status} />
-                  </TableCell>
-                  <TableCell className="px-4 py-4">
-                    {progress ? (
-                      <span className="task-vivid-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold">
-                        <ListChecks className="h-3.5 w-3.5" />
-                        {progress.done}/{progress.total}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground/50">—</span>
+                      </TableCell>
+                    </TableRow>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="min-w-56">
+                    <ContextMenuItem onSelect={() => onOpen(task)}>Abrir atividade</ContextMenuItem>
+                    {onMove && permissions.canEditContent && (
+                      <>
+                        <ContextMenuSeparator />
+                        <ContextMenuLabel>Mover atividade</ContextMenuLabel>
+                        <ContextMenuSub>
+                          <ContextMenuSubTrigger>Para um grupo</ContextMenuSubTrigger>
+                          <ContextMenuSubContent className="min-w-52">
+                            {groups.map((group) => (
+                              <ContextMenuItem
+                                key={group.id}
+                                onSelect={() => onMove(task, { type: "group", id: group.id })}
+                              >
+                                {group.name}
+                              </ContextMenuItem>
+                            ))}
+                          </ContextMenuSubContent>
+                        </ContextMenuSub>
+                        <ContextMenuSub>
+                          <ContextMenuSubTrigger>Para um setor</ContextMenuSubTrigger>
+                          <ContextMenuSubContent className="min-w-52">
+                            {departments.map((department) => (
+                              <ContextMenuItem
+                                key={department.id}
+                                onSelect={() =>
+                                  onMove(task, { type: "department", id: department.id })
+                                }
+                              >
+                                {department.name}
+                              </ContextMenuItem>
+                            ))}
+                          </ContextMenuSubContent>
+                        </ContextMenuSub>
+                      </>
                     )}
-                  </TableCell>
-                </TableRow>
+                  </ContextMenuContent>
+                </ContextMenu>
               );
             })}
           </TableBody>
@@ -389,7 +448,7 @@ export function TaskList({
                 </div>
               </div>
 
-              {showResponsible && (
+              {showResponsible && task.target.type !== "user" && (
                 <div
                   className="shrink-0"
                   title={

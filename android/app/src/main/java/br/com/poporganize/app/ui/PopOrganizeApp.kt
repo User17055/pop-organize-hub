@@ -100,6 +100,7 @@ import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Logout
@@ -3393,6 +3394,7 @@ private fun AssignmentSelector(
     groups: List<CompanyGroup>,
     onChange: (type: String, targetId: String, targetLabel: String, responsibles: Set<String>) -> Unit,
     forceOpen: Boolean = false,
+    plain: Boolean = false,
     onSheetClosed: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -3415,16 +3417,39 @@ private fun AssignmentSelector(
 
     Surface(
         onClick = { expanded = true },
-        color = PopSurface,
-        shape = RoundedCornerShape(14.dp),
+        color = if (plain) Color.Transparent else PopSurface,
+        shape = if (plain) RoundedCornerShape(0.dp) else RoundedCornerShape(14.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.PersonOutline, null, tint = PopBlue, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(10.dp))
+        Row(
+            Modifier.padding(
+                horizontal = if (plain) 15.dp else 14.dp,
+                vertical = if (plain) 14.dp else 14.dp,
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Rounded.PersonOutline,
+                null,
+                tint = if (plain) PopMuted else PopBlue,
+                modifier = Modifier.size(if (plain) 23.dp else 20.dp),
+            )
+            Spacer(Modifier.width(if (plain) 18.dp else 10.dp))
             Column(Modifier.weight(1f)) {
-                Text("Destino da tarefa", color = PopMuted, fontSize = 10.sp)
-                Text(summary, color = PopText, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(
+                    "Destino da tarefa",
+                    color = if (plain) PopText.copy(alpha = .82f) else PopMuted,
+                    fontSize = if (plain) 14.sp else 10.sp,
+                    fontWeight = if (plain) FontWeight.SemiBold else FontWeight.Normal,
+                )
+                Text(
+                    summary,
+                    color = PopMuted,
+                    fontWeight = if (plain) FontWeight.Normal else FontWeight.Bold,
+                    fontSize = if (plain) 11.sp else 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Icon(Icons.Rounded.KeyboardArrowDown, null, tint = PopMuted)
         }
@@ -3541,7 +3566,7 @@ private fun AssignmentSelector(
                                     assignmentType,
                                     member.id,
                                     member.name,
-                                    setOf(member.name),
+                                    emptySet(),
                                 )
                             },
                             color =
@@ -3724,6 +3749,7 @@ private fun ResponsibleSelector(
     members: List<CompanyMember>,
     enabled: Boolean,
     maxSelections: Int,
+    plain: Boolean = false,
     onChange: (Set<String>) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -3734,25 +3760,38 @@ private fun ResponsibleSelector(
     val summary = normalizedSelection.joinToString(", ").ifBlank { "Sem responsável" }
 
     Surface(
-        color = PopSurface,
-        shape = RoundedCornerShape(16.dp),
+        color = if (plain) Color.Transparent else PopSurface,
+        shape = if (plain) RoundedCornerShape(0.dp) else RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled) { expanded = true },
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier.padding(
+                horizontal = if (plain) 15.dp else 14.dp,
+                vertical = if (plain) 14.dp else 12.dp,
+            ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Rounded.PersonOutline, null, tint = PopMuted)
-            Spacer(Modifier.width(12.dp))
+            Icon(
+                Icons.Rounded.PersonOutline,
+                null,
+                tint = PopMuted,
+                modifier = Modifier.size(if (plain) 23.dp else 24.dp),
+            )
+            Spacer(Modifier.width(if (plain) 18.dp else 12.dp))
             Column(Modifier.weight(1f)) {
-                Text("Responsável", color = PopMuted, fontSize = 11.sp)
+                Text(
+                    "Responsável",
+                    color = if (plain) PopText.copy(alpha = .82f) else PopMuted,
+                    fontSize = if (plain) 14.sp else 11.sp,
+                    fontWeight = if (plain) FontWeight.SemiBold else FontWeight.Normal,
+                )
                 Text(
                     summary,
-                    color = PopText,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
+                    color = PopMuted,
+                    fontWeight = if (plain) FontWeight.Normal else FontWeight.Bold,
+                    fontSize = if (plain) 11.sp else 13.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -4136,11 +4175,12 @@ private fun TasksScreen(
                 .getOrNull()?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: task.recurrenceEndValue
             else -> task.recurrenceEndValue
         }
-        editAssignee = task.assignee
+        editAssignee = if (task.assignmentType == "user") "" else task.assignee
         editAssignmentType = task.assignmentType
         editAssignmentTargetId = task.assignmentTargetId
         editAssignmentTargetLabel = task.assignmentTargetLabel
-        editResponsibleNames = task.assignees.toSet()
+        editResponsibleNames =
+            if (task.assignmentType == "user") emptySet() else task.assignees.toSet()
         editChecklist = task.checklist
         editAttachment = task.attachmentName
     }
@@ -4214,7 +4254,7 @@ private fun TasksScreen(
             assignmentTargetId = editAssignmentTargetId,
             assignmentTargetLabel =
                 if (editAssignmentType == "user") {
-                    editedAssignees.firstOrNull() ?: original.assignmentTargetLabel
+                    editAssignmentTargetLabel.ifBlank { original.assignmentTargetLabel }
                 } else {
                     editAssignmentTargetLabel
                 },
@@ -5102,15 +5142,6 @@ private fun TasksScreen(
                         }
                     }
                     }
-                    if (!openedTask?.createdBy.isNullOrBlank()) {
-                        item {
-                            CalendarTaskInfoRow(
-                                Icons.Rounded.PersonOutline,
-                                "Criada por",
-                                openedTask?.createdBy.orEmpty(),
-                            )
-                        }
-                    }
                     if (workSpace == WorkSpace.Company) {
                         item {
                             AssignmentSelector(
@@ -5127,13 +5158,19 @@ private fun TasksScreen(
                                     editAssignmentTargetId = id
                                     editAssignmentTargetLabel = label
                                     editResponsibleNames = responsibles.take(3).toSet()
-                                    editAssignee = editResponsibleNames.joinToString(", ")
+                                    editAssignee =
+                                        if (type == "user") {
+                                            ""
+                                        } else {
+                                            editResponsibleNames.joinToString(", ")
+                                        }
                                 },
                                 forceOpen = false,
+                                plain = true,
                                 onSheetClosed = {},
                             )
                         }
-                        item {
+                        if (editAssignmentType != "user") item {
                             ResponsibleSelector(
                                 selectedNames = editAssignee
                                     .split(",")
@@ -5143,7 +5180,8 @@ private fun TasksScreen(
                                 members = eligibleResponsibleMembers,
                                 enabled = detailCanEdit,
                                 maxSelections =
-                                    if (openedTask?.assignmentType == "user") 1 else 3,
+                                    3,
+                                plain = true,
                                 onChange = { selected ->
                                     editAssignee = selected.joinToString(", ")
                                 },
@@ -5152,26 +5190,37 @@ private fun TasksScreen(
                     }
                     if (openedTask != null && (openedTask.checklist.isNotEmpty() || isTaskAdmin)) {
                         item {
-                            Surface(
-                                color = PopSurface,
-                                shape = RoundedCornerShape(18.dp),
-                                modifier = Modifier.fillMaxWidth(),
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 15.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Column(
-                                    Modifier.padding(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Text(
-                                        "Checklist",
-                                        color = PopMuted,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                    )
-                                    editChecklist.forEach { checklistItem ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable(enabled = isTaskAdmin) {
+                                Text(
+                                    "Checklist",
+                                    color = PopText.copy(alpha = .82f),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                )
+                                editChecklist.forEach { checklistItem ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(enabled = isTaskAdmin) {
+                                                editChecklist = editChecklist.map {
+                                                    if (it.id == checklistItem.id) {
+                                                        it.copy(done = !it.done)
+                                                    } else {
+                                                        it
+                                                    }
+                                                }
+                                            },
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Checkbox(
+                                            checked = checklistItem.done,
+                                            onCheckedChange = if (isTaskAdmin) {
+                                                {
                                                     editChecklist = editChecklist.map {
                                                         if (it.id == checklistItem.id) {
                                                             it.copy(done = !it.done)
@@ -5179,56 +5228,57 @@ private fun TasksScreen(
                                                             it
                                                         }
                                                     }
-                                                },
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            Checkbox(
-                                                checked = checklistItem.done,
-                                                onCheckedChange = if (isTaskAdmin) {
-                                                    {
-                                                        editChecklist = editChecklist.map {
-                                                            if (it.id == checklistItem.id) {
-                                                                it.copy(done = !it.done)
-                                                            } else {
-                                                                it
-                                                            }
-                                                        }
-                                                    }
-                                                } else {
-                                                    null
-                                                },
-                                            )
-                                            Text(checklistItem.title, modifier = Modifier.weight(1f))
-                                        }
-                                    }
-                                    if (isTaskAdmin) {
-                                        var newChecklistItem by remember(editingTaskId) {
-                                            mutableStateOf("")
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            TextField(
-                                                value = newChecklistItem,
-                                                onValueChange = { newChecklistItem = it },
-                                                placeholder = { Text("Novo item") },
-                                                singleLine = true,
-                                                shape = RoundedCornerShape(12.dp),
-                                                colors = taskEditorFieldColors(PopSurfaceAlt),
-                                                modifier = Modifier.weight(1f),
-                                            )
+                                                }
+                                            } else {
+                                                null
+                                            },
+                                        )
+                                        Text(checklistItem.title, modifier = Modifier.weight(1f))
+                                        if (isTaskAdmin) {
                                             IconButton(
                                                 onClick = {
-                                                    val title = newChecklistItem.trim()
-                                                    if (title.isNotBlank()) {
-                                                        editChecklist = editChecklist + TaskChecklistItem(
-                                                            id = "check-${System.currentTimeMillis()}",
-                                                            title = title,
-                                                        )
-                                                        newChecklistItem = ""
+                                                    editChecklist = editChecklist.filterNot {
+                                                        it.id == checklistItem.id
                                                     }
                                                 },
                                             ) {
-                                                Icon(Icons.Rounded.Add, "Adicionar item", tint = PopBlue)
+                                                Icon(
+                                                    Icons.Rounded.Delete,
+                                                    "Excluir item do checklist",
+                                                    tint = Color(0xFFD87373),
+                                                    modifier = Modifier.size(19.dp),
+                                                )
                                             }
+                                        }
+                                    }
+                                }
+                                if (isTaskAdmin) {
+                                    var newChecklistItem by remember(editingTaskId) {
+                                        mutableStateOf("")
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        TextField(
+                                            value = newChecklistItem,
+                                            onValueChange = { newChecklistItem = it },
+                                            placeholder = { Text("Novo item") },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = taskEditorFieldColors(PopSurfaceAlt),
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                val title = newChecklistItem.trim()
+                                                if (title.isNotBlank()) {
+                                                    editChecklist = editChecklist + TaskChecklistItem(
+                                                        id = "check-${System.currentTimeMillis()}",
+                                                        title = title,
+                                                    )
+                                                    newChecklistItem = ""
+                                                }
+                                            },
+                                        ) {
+                                            Icon(Icons.Rounded.Add, "Adicionar item", tint = PopBlue)
                                         }
                                     }
                                 }
@@ -5266,6 +5316,27 @@ private fun TasksScreen(
                                 Icon(Icons.Rounded.AttachFile, null, modifier = Modifier.size(19.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(editAttachment.ifBlank { "Adicionar anexo" }, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    if (!openedTask?.createdBy.isNullOrBlank()) {
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 15.dp, top = 18.dp, bottom = 4.dp),
+                            ) {
+                                Text(
+                                    "Criada por",
+                                    color = PopMuted,
+                                    fontSize = 10.sp,
+                                )
+                                Text(
+                                    openedTask?.createdBy.orEmpty(),
+                                    color = PopText.copy(alpha = .82f),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp,
+                                )
                             }
                         }
                     }
@@ -6322,7 +6393,7 @@ private fun TaskCard(
     ) {
         Box(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxSize().padding(start = 14.dp, end = 18.dp),
+            Modifier.fillMaxSize().padding(start = 14.dp, end = 76.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -6427,14 +6498,19 @@ private fun TaskCard(
             }
             if (showAssigneeAvatars && hasVisibleAssignees) {
                 TaskAssigneeAvatarStack(task = task, members = members)
-                Spacer(Modifier.width(8.dp))
             }
-            Box {
+        }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 3.dp, end = 4.dp),
+            ) {
                 IconButton(onClick = { showMoveMenu = true }) {
                     Icon(
                         Icons.Rounded.MoreVert,
                         "Mover atividade",
                         tint = if (isUrgent) Color.White else PopMuted,
+                        modifier = Modifier.size(21.dp),
                     )
                 }
                 DropdownMenu(
@@ -6461,8 +6537,13 @@ private fun TaskCard(
                     }
                 }
             }
-            PriorityPill(task.priority, if (isUrgent) Color.White else null)
-        }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 13.dp, bottom = 7.dp),
+            ) {
+                PriorityPill(task.priority, if (isUrgent) Color.White else null)
+            }
         }
     }
 }

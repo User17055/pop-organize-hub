@@ -3680,6 +3680,178 @@ private fun AssignmentSelector(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun ResponsibleSelector(
+    selectedNames: Set<String>,
+    members: List<CompanyMember>,
+    enabled: Boolean,
+    maxSelections: Int,
+    onChange: (Set<String>) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val normalizedSelection = selectedNames
+        .filterNot { it.equals("Sem responsável", ignoreCase = true) }
+        .toSet()
+    val summary = normalizedSelection.joinToString(", ").ifBlank { "Sem responsável" }
+
+    Surface(
+        color = PopSurface,
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { expanded = true },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.PersonOutline, null, tint = PopMuted)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Responsável", color = PopMuted, fontSize = 11.sp)
+                Text(
+                    summary,
+                    color = PopText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (enabled) {
+                Icon(Icons.Rounded.KeyboardArrowDown, "Escolher responsável", tint = PopMuted)
+            }
+        }
+    }
+
+    if (expanded) {
+        ModalBottomSheet(
+            onDismissRequest = { expanded = false },
+            sheetState = sheetState,
+            containerColor = PopSurface,
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 650.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("Escolher responsável", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    if (maxSelections == 1) {
+                        "Selecione uma pessoa da lista."
+                    } else {
+                        "Selecione até $maxSelections pessoas da lista."
+                    },
+                    color = PopMuted,
+                    fontSize = 11.sp,
+                )
+
+                Surface(
+                    onClick = { onChange(emptySet()) },
+                    color = if (normalizedSelection.isEmpty()) PopBlueSoft else PopSurfaceAlt,
+                    shape = RoundedCornerShape(15.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Rounded.PersonOutline, null, tint = PopMuted)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "Sem responsável",
+                            color = PopText,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (normalizedSelection.isEmpty()) {
+                            Icon(Icons.Rounded.Check, "Selecionado", tint = PopBlue)
+                        }
+                    }
+                }
+
+                if (members.isEmpty()) {
+                    Text(
+                        "Nenhum membro disponível neste destino.",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(PopSurfaceAlt, RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                    )
+                }
+
+                members.forEach { member ->
+                    val selected = member.name in normalizedSelection
+                    Surface(
+                        onClick = {
+                            val next = when {
+                                selected -> normalizedSelection - member.name
+                                maxSelections == 1 -> setOf(member.name)
+                                normalizedSelection.size < maxSelections ->
+                                    normalizedSelection + member.name
+                                else -> normalizedSelection
+                            }
+                            onChange(next)
+                        },
+                        color = if (selected) PopBlueSoft else PopSurfaceAlt,
+                        shape = RoundedCornerShape(15.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            GoogleProfileAvatar(
+                                photoUrl = member.photoUrl,
+                                modifier = Modifier.size(40.dp),
+                                fallbackIcon = Icons.Rounded.PersonOutline,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    member.name,
+                                    color = PopText,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                )
+                                Text(member.email, color = PopMuted, fontSize = 9.sp)
+                            }
+                            if (selected) {
+                                Icon(Icons.Rounded.Check, "Responsável", tint = PopBlue)
+                            }
+                        }
+                    }
+                }
+
+                Surface(
+                    onClick = { expanded = false },
+                    color = PopBlue,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "Concluir",
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(13.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun TasksScreen(
     tasks: MutableList<PopTask>,
     canCreateTask: Boolean,
@@ -4410,6 +4582,31 @@ private fun TasksScreen(
             val openedTask = tasks.firstOrNull { it.id == editingTaskId }
             val detailCanEdit = openedTask?.canEdit == true
             val detailIsOverdue = openedTask?.let(::isTaskOverdue) == true
+            val activeCompanyMembers = companyMembers.filterNot { it.pending }
+            val eligibleResponsibleMembers = when (openedTask?.assignmentType) {
+                "department" -> activeCompanyMembers.filter { member ->
+                    member.sectorId == openedTask.assignmentTargetId ||
+                        member.sector == openedTask.assignmentTargetLabel
+                }
+                "group" -> {
+                    val selectedGroup = companyGroups.firstOrNull { group ->
+                        group.id == openedTask.assignmentTargetId ||
+                            group.name == openedTask.assignmentTargetLabel
+                    }
+                    activeCompanyMembers.filter { member ->
+                        selectedGroup != null &&
+                            (
+                                member.id in selectedGroup.memberIds ||
+                                    selectedGroup.id in member.groupIds
+                                )
+                    }
+                }
+                "user" -> activeCompanyMembers.filter { member ->
+                    member.id == openedTask.assignmentTargetId ||
+                        member.name == openedTask.assignmentTargetLabel
+                }
+                else -> activeCompanyMembers
+            }
             val detailIsLightTheme = MaterialTheme.colorScheme.background.luminance() > .5f
             val detailOverdueBackground =
                 if (detailIsLightTheme) Color(0xFFD63843) else Color(0xFFB52D3A)
@@ -4781,16 +4978,19 @@ private fun TasksScreen(
                     }
                     if (workSpace == WorkSpace.Company) {
                         item {
-                            TextField(
-                                value = editAssignee,
-                                onValueChange = { editAssignee = it },
-                                readOnly = !detailCanEdit,
-                                label = { Text("Responsável") },
-                                leadingIcon = { Icon(Icons.Rounded.PersonOutline, null, tint = PopMuted) },
-                                singleLine = true,
-                                shape = RoundedCornerShape(16.dp),
-                                colors = taskEditorFieldColors(),
-                                modifier = Modifier.fillMaxWidth(),
+                            ResponsibleSelector(
+                                selectedNames = editAssignee
+                                    .split(",")
+                                    .map(String::trim)
+                                    .filter(String::isNotBlank)
+                                    .toSet(),
+                                members = eligibleResponsibleMembers,
+                                enabled = detailCanEdit,
+                                maxSelections =
+                                    if (openedTask?.assignmentType == "user") 1 else 3,
+                                onChange = { selected ->
+                                    editAssignee = selected.joinToString(", ")
+                                },
                             )
                         }
                     }

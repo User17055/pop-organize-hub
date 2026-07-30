@@ -122,6 +122,16 @@ export function isOverdue(task: Task) {
   return due < today;
 }
 
+export function taskTargetLabel(target: Task["target"]) {
+  if (target.type === "company") return target.label;
+  const prefix = {
+    department: "Setor",
+    group: "Grupo",
+    user: "Pessoa",
+  }[target.type];
+  return `${prefix}: ${target.label}`;
+}
+
 export function getDefaultRecurrence(dueDate?: string): RecurrenceFormState {
   const anchor = getDueDateAnchor(dueDate);
   return {

@@ -14,7 +14,7 @@ import {
 import type { CurrentUser, Department, Employee, Group, PermissionGroup, Task } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import { EmployeeAvatar } from "./employee-avatar";
-import { isOverdue } from "./task-form-types";
+import { isOverdue, taskTargetLabel } from "./task-form-types";
 
 function subtaskProgress(task: Task) {
   const subtasks = task.subtasks ?? [];
@@ -77,7 +77,7 @@ export function TaskList({
               <TableHead className="w-14"></TableHead>
               <TableHead>Título</TableHead>
               {showResponsible && <TableHead>Responsável</TableHead>}
-              <TableHead>Destino</TableHead>
+              <TableHead>Visível para</TableHead>
               <TableHead>Prazo</TableHead>
               <TableHead>Prioridade</TableHead>
               <TableHead>Status</TableHead>
@@ -162,9 +162,9 @@ export function TaskList({
                   <TableCell className="px-4 py-4">
                     <span
                       className="task-chip inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-xs font-semibold text-foreground/62"
-                      title={task.target.label}
+                      title={taskTargetLabel(task.target)}
                     >
-                      <span className="truncate">{task.target.label}</span>
+                      <span className="truncate">{taskTargetLabel(task.target)}</span>
                     </span>
                   </TableCell>
                   <TableCell className="px-4 py-4">

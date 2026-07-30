@@ -14,7 +14,8 @@ const inputClass =
 const textareaClass =
   "task-create-input min-h-[96px] w-full resize-none rounded-md border px-3 py-2.5 text-sm leading-relaxed outline-none transition";
 
-const steps = ["Dados", "Destino", "Finalizar"] as const;
+const companySteps = ["Dados", "Acesso", "Finalizar"] as const;
+const personalSteps = ["Dados", "Recorrência", "Finalizar"] as const;
 
 export function TaskCreateDrawer({
   open,
@@ -41,6 +42,7 @@ export function TaskCreateDrawer({
 }) {
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(0);
+  const steps = personalMode ? personalSteps : companySteps;
   const isLastStep = step === steps.length - 1;
   const isDepartmentTarget = form.targetKey.startsWith("department:");
   const canContinue =
@@ -218,7 +220,7 @@ export function TaskCreateDrawer({
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <Field label="Destino">
+                    <Field label="Visível para">
                       <GlassSelect
                         value={form.targetKey}
                         options={targetOptions}

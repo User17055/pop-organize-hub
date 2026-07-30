@@ -210,7 +210,7 @@ export function TaskFilterBar({
         </span>
         {targetTypeOptions.length > 1 && (
           <FacetPopover
-            label="Destino"
+            label="Visibilidade"
             options={targetTypeOptions}
             selected={filters.targetTypes}
             onChange={(values) => onChange({ ...filters, targetTypes: values as TargetType[] })}

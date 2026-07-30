@@ -27,6 +27,7 @@ import {
   isOverdue,
   recurrenceLabel,
   recurrenceOptions,
+  taskTargetLabel,
   type RecurrenceFormState,
   type TaskEditState,
 } from "./task-form-types";
@@ -306,10 +307,10 @@ export function TaskDetailDrawer({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                  Destino
+                  Visível para
                 </div>
                 <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
-                  {task.target.label}
+                  {taskTargetLabel(task.target)}
                 </div>
               </div>
             </div>

@@ -28,6 +28,10 @@ const mobileTaskSchema = z.object({
   canEdit: z.boolean().optional(),
   canComplete: z.boolean().optional(),
   canDelete: z.boolean().optional(),
+  assignmentType: z.enum(["company", "department", "group", "user"]).optional(),
+  assignmentTargetId: z.string().max(300).optional(),
+  assignmentTargetLabel: z.string().max(300).optional(),
+  assignees: z.array(z.string().min(1).max(200)).max(3).optional(),
 });
 
 const mobileTasksPayloadSchema = z.object({

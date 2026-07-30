@@ -1034,10 +1034,14 @@ function mobileTaskTarget(
     );
     if (employee) return { type: "user", id: employee.id, label: employee.name };
   }
-  const department = workspace.departments[0];
-  return department
-    ? { type: "department", id: department.id, label: department.name }
-    : { type: "user", id: accountId, label: workspace.company.name };
+  if (workspace.company.kind === "company") {
+    return {
+      type: "company",
+      id: workspace.company.id,
+      label: workspace.company.name,
+    };
+  }
+  return { type: "user", id: accountId, label: workspace.company.name };
 }
 
 function mobileTaskRecurrence(item: MobileTask): Task["recurrence"] {

@@ -15,11 +15,21 @@ import { useWorkspaceData } from "@/lib/api/use-workspace";
 import type { PermissionKey, TargetType, Task, TaskStatus } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
-import { Plus, Search, ChevronDown, Archive, Repeat } from "lucide-react";
+import {
+  Archive,
+  ChevronDown,
+  Columns3,
+  Layers3,
+  Plus,
+  Repeat,
+  Search,
+  Settings2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskCreateDrawer } from "@/components/tasks/task-create-drawer";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { TaskList } from "@/components/tasks/task-list";
+import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialog";
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
 import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import { PriorityBadge } from "@/components/app-shell";
@@ -52,6 +62,20 @@ const statusFilters: Array<{ key: TaskStatus | "all"; label: string }> = [
   { key: "reopened", label: "Reabertas" },
 ];
 
+type TaskLayoutPreferences = {
+  layoutMode: "list" | "department";
+  titleWidth: number;
+  density: "compact" | "comfortable";
+  showDescription: boolean;
+};
+
+const defaultLayoutPreferences: TaskLayoutPreferences = {
+  layoutMode: "list",
+  titleWidth: 340,
+  density: "comfortable",
+  showDescription: true,
+};
+
 function TasksPage() {
   const { data, isLoading, error } = useWorkspaceData();
   const [active, setActive] = useState<TaskStatus | "all">("all");
@@ -61,6 +85,11 @@ function TasksPage() {
   const [showForm, setShowForm] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showLayoutSettings, setShowLayoutSettings] = useState(false);
+  const [layoutPreferences, setLayoutPreferences] =
+    useState<TaskLayoutPreferences>(defaultLayoutPreferences);
+  const [collapsedDepartments, setCollapsedDepartments] = useState<Set<string>>(() => new Set());
   const [commentBody, setCommentBody] = useState("");
   const [form, setForm] = useState<TaskFormState>(() => {
     const dueDate = getDefaultDueDate();
@@ -74,6 +103,7 @@ function TasksPage() {
       reviewerId: "",
       requiresReview: false,
       tags: "",
+      checklist: "",
       recurrence: getDefaultRecurrence(dueDate),
     };
   });
@@ -85,6 +115,8 @@ function TasksPage() {
       priority: "medium",
       dueDate,
       tags: "",
+      targetKey: "",
+      responsibleId: "",
       recurrence: getDefaultRecurrence(dueDate),
     };
   });
@@ -102,13 +134,35 @@ function TasksPage() {
   } = useTaskMutations({
     onCompleted: () => setSelectedTaskId(null),
     onCreated: () => setShowForm(false),
-    onDeleted: () => setSelectedTaskId(null),
+    onDeleted: () => {
+      setSelectedTaskId(null);
+      setShowDeleteDialog(false);
+    },
     onCommented: () => setCommentBody(""),
   });
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!isMounted) return;
+    const stored = window.localStorage.getItem("pop-organize:task-layout");
+    if (!stored) return;
+    try {
+      setLayoutPreferences({
+        ...defaultLayoutPreferences,
+        ...(JSON.parse(stored) as Partial<TaskLayoutPreferences>),
+      });
+    } catch {
+      window.localStorage.removeItem("pop-organize:task-layout");
+    }
+  }, [isMounted]);
+
+  useEffect(() => {
+    if (!isMounted) return;
+    window.localStorage.setItem("pop-organize:task-layout", JSON.stringify(layoutPreferences));
+  }, [isMounted, layoutPreferences]);
 
   useEffect(() => {
     if (!data) return;
@@ -125,6 +179,8 @@ function TasksPage() {
       priority: task.priority,
       dueDate: task.dueDate,
       tags: task.tags.join(", "),
+      targetKey: `${task.target.type}:${task.target.id}`,
+      responsibleId: task.responsibleId,
       recurrence: recurrenceToForm(task.recurrence, task.dueDate),
     });
     updateTaskMutation.reset();
@@ -221,6 +277,25 @@ function TasksPage() {
           label: `Pessoa: ${employee.name}`,
         })),
       ];
+  const taskSections =
+    layoutPreferences.layoutMode === "department"
+      ? [
+          ...departments
+            .map((department) => ({
+              id: department.id,
+              label: department.name,
+              tasks: list.filter(
+                (task) => task.target.type === "department" && task.target.id === department.id,
+              ),
+            }))
+            .filter((section) => section.tasks.length > 0),
+          {
+            id: "other",
+            label: "Outras atividades",
+            tasks: list.filter((task) => task.target.type !== "department"),
+          },
+        ].filter((section) => section.tasks.length > 0)
+      : [{ id: "all", label: "Todas as atividades", tasks: list }];
 
   function openForm() {
     const dueDate = getDefaultDueDate();
@@ -234,6 +309,7 @@ function TasksPage() {
       reviewerId: "",
       requiresReview: false,
       tags: "",
+      checklist: "",
       recurrence: getDefaultRecurrence(dueDate),
     });
     createTaskMutation.reset();
@@ -249,6 +325,8 @@ function TasksPage() {
       priority: task.priority,
       dueDate: task.dueDate,
       tags: task.tags.join(", "),
+      targetKey: `${task.target.type}:${task.target.id}`,
+      responsibleId: task.responsibleId,
       recurrence: recurrenceToForm(task.recurrence, task.dueDate),
     });
     updateTaskMutation.reset();
@@ -277,6 +355,10 @@ function TasksPage() {
         .split(",")
         .map((tag) => tag.trim())
         .filter(Boolean),
+      checklist: form.checklist
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter(Boolean),
       recurrence: recurrenceFromForm(form.recurrence),
     });
   }
@@ -284,6 +366,7 @@ function TasksPage() {
   function handleEditSubmit(event: FormEvent) {
     event.preventDefault();
     if (!selectedTask) return;
+    const [selectedType, selectedId] = editForm.targetKey.split(":") as [TargetType, string];
 
     updateTaskMutation.mutate({
       id: selectedTask.id,
@@ -291,6 +374,8 @@ function TasksPage() {
       description: editForm.description,
       priority: editForm.priority,
       dueDate: editForm.dueDate,
+      target: { type: selectedType, id: selectedId },
+      responsibleId: editForm.responsibleId,
       tags: editForm.tags
         .split(",")
         .map((tag) => tag.trim())
@@ -301,11 +386,7 @@ function TasksPage() {
 
   function handleDeleteSelectedTask() {
     if (!selectedTask) return;
-    const confirmed = window.confirm(
-      `Excluir a tarefa "${selectedTask.title}"? Esta ação não pode ser desfeita.`,
-    );
-    if (!confirmed) return;
-    deleteTaskMutation.mutate({ id: selectedTask.id });
+    setShowDeleteDialog(true);
   }
 
   function handleCommentSubmit() {
@@ -368,6 +449,8 @@ function TasksPage() {
                 permissions={selectedPermissions}
                 employees={employees}
                 departments={departments}
+                groups={groups}
+                company={company}
                 editForm={editForm}
                 onEditFormChange={setEditForm}
                 onSubmit={handleEditSubmit}
@@ -488,19 +571,146 @@ function TasksPage() {
         })}
       </div>
 
-      <TaskList
-        tasks={list}
-        employees={employees}
-        departments={departments}
-        groups={groups}
-        permissionGroups={data.permissionGroups}
-        currentUser={currentUser}
-        showResponsible={canSeePeopleContext}
-        selectedTaskId={selectedTaskId}
-        onOpen={openTask}
-        onComplete={(task) => statusMutation.mutate({ id: task.id, status: "completed" })}
-        isCompleting={statusMutation.isPending}
-      />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              setLayoutPreferences((current) => ({
+                ...current,
+                layoutMode: current.layoutMode === "department" ? "list" : "department",
+              }))
+            }
+            className={cn(
+              "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
+              layoutPreferences.layoutMode === "department" && "border-primary/25 text-primary",
+            )}
+          >
+            <Layers3 className="h-4 w-4" />
+            {layoutPreferences.layoutMode === "department" ? "Por setor" : "Abrir por setor"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowLayoutSettings((current) => !current)}
+            className={cn(
+              "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
+              showLayoutSettings && "border-primary/25 text-primary",
+            )}
+          >
+            <Settings2 className="h-4 w-4" />
+            Personalizar layout
+          </button>
+        </div>
+        <span className="hidden text-xs text-muted-foreground lg:inline">
+          Arraste a borda da coluna Atividade para ajustar a largura.
+        </span>
+      </div>
+
+      {showLayoutSettings && (
+        <section className="task-glass-panel mb-4 grid gap-4 rounded-[20px] p-4 sm:grid-cols-3">
+          <label className="space-y-2 text-xs font-semibold">
+            <span className="flex items-center gap-2 text-foreground">
+              <Columns3 className="h-4 w-4 text-primary" />
+              Largura da atividade
+            </span>
+            <input
+              type="range"
+              min={240}
+              max={680}
+              step={20}
+              value={layoutPreferences.titleWidth}
+              onChange={(event) =>
+                setLayoutPreferences((current) => ({
+                  ...current,
+                  titleWidth: Number(event.target.value),
+                }))
+              }
+              className="w-full accent-primary"
+            />
+          </label>
+          <label className="space-y-2 text-xs font-semibold">
+            <span className="text-foreground">Espaçamento das linhas</span>
+            <select
+              value={layoutPreferences.density}
+              onChange={(event) =>
+                setLayoutPreferences((current) => ({
+                  ...current,
+                  density: event.target.value as TaskLayoutPreferences["density"],
+                }))
+              }
+              className="h-10 w-full rounded-xl border border-border/70 bg-background/70 px-3 outline-none"
+            >
+              <option value="comfortable">Confortável</option>
+              <option value="compact">Compacto</option>
+            </select>
+          </label>
+          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-[14px] border border-border/60 bg-background/55 px-3 text-xs font-semibold">
+            Mostrar notas na tabela
+            <input
+              type="checkbox"
+              checked={layoutPreferences.showDescription}
+              onChange={(event) =>
+                setLayoutPreferences((current) => ({
+                  ...current,
+                  showDescription: event.target.checked,
+                }))
+              }
+              className="h-4 w-4 accent-primary"
+            />
+          </label>
+        </section>
+      )}
+
+      <div className="space-y-4">
+        {taskSections.map((section) => {
+          const collapsed = collapsedDepartments.has(section.id);
+          return (
+            <section key={section.id}>
+              {layoutPreferences.layoutMode === "department" && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCollapsedDepartments((current) => {
+                      const next = new Set(current);
+                      if (next.has(section.id)) next.delete(section.id);
+                      else next.add(section.id);
+                      return next;
+                    })
+                  }
+                  className="mb-2 flex w-full items-center justify-between rounded-[16px] border border-border/60 bg-card/55 px-4 py-3 text-left transition hover:border-primary/25"
+                >
+                  <span className="font-display text-sm font-bold">{section.label}</span>
+                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {section.tasks.length} atividades
+                    <ChevronDown
+                      className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")}
+                    />
+                  </span>
+                </button>
+              )}
+              {!collapsed && (
+                <TaskList
+                  tasks={section.tasks}
+                  employees={employees}
+                  departments={departments}
+                  groups={groups}
+                  permissionGroups={data.permissionGroups}
+                  currentUser={currentUser}
+                  showResponsible={canSeePeopleContext}
+                  selectedTaskId={selectedTaskId}
+                  onOpen={openTask}
+                  onComplete={(task) => statusMutation.mutate({ id: task.id, status: "completed" })}
+                  isCompleting={statusMutation.isPending}
+                  preferences={layoutPreferences}
+                  onTitleWidthChange={(titleWidth) =>
+                    setLayoutPreferences((current) => ({ ...current, titleWidth }))
+                  }
+                />
+              )}
+            </section>
+          );
+        })}
+      </div>
 
       {list.length === 0 && (
         <div className="py-16 text-center text-muted-foreground">
@@ -592,6 +802,21 @@ function TasksPage() {
 
       {taskDetailLayer}
 
+      <RecurringDeleteDialog
+        task={selectedTask ?? null}
+        open={showDeleteDialog}
+        pending={deleteTaskMutation.isPending}
+        onClose={() => setShowDeleteDialog(false)}
+        onConfirm={(scope) => {
+          if (!selectedTask) return;
+          deleteTaskMutation.mutate({
+            id: selectedTask.id,
+            scope,
+            occurrenceDate: selectedTask.dueDate,
+          });
+        }}
+      />
+
       <TaskCreateDrawer
         open={showForm}
         onOpenChange={setShowForm}
@@ -603,6 +828,7 @@ function TasksPage() {
         employees={employees}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}
+        canCreateChecklist={isAdminUser({ currentUser, employees })}
       />
     </AppShell>
   );

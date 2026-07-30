@@ -66,7 +66,9 @@ export function recurringTaskDatesInRange(task: Task, rangeStart: string, rangeE
 
   while (occurrence <= rangeEnd && iterations < 10_000) {
     if (!task.recurrence.endDate || occurrence <= task.recurrence.endDate) {
-      dates.push(occurrence);
+      if (!(task.recurrenceExcludedDates ?? []).includes(occurrence)) {
+        dates.push(occurrence);
+      }
     } else {
       break;
     }

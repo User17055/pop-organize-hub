@@ -45,16 +45,22 @@ import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.ListAlt
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.TaskAlt
+import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -458,7 +464,30 @@ private fun TasksScreen(store: PopStore) {
     val tasks = store.visibleTasks
     var removingId by remember { mutableStateOf<String?>(null) }
     var selectedTask by remember { mutableStateOf<PopTask?>(null) }
+    var pendingDeleteTask by remember { mutableStateOf<PopTask?>(null) }
+    var collapsedSectors by remember { mutableStateOf(emptySet<String>()) }
     val scope = rememberCoroutineScope()
+    val moveTargets = buildList {
+        store.selectedCompany?.sectors.orEmpty().forEach {
+            add(AssignmentTarget(AssignmentKind.Sector, it.id, it.name))
+        }
+        store.selectedCompany?.groups.orEmpty().forEach {
+            add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
+        }
+    }
+    val groupedTasks = tasks.groupBy {
+        if (it.assignment.kind == AssignmentKind.Sector) it.assignment.label else "Sem setor"
+    }.toSortedMap()
+
+    fun deleteWithAnimation(task: PopTask, action: () -> Unit) {
+        pendingDeleteTask = null
+        removingId = task.id
+        scope.launch {
+            delay(230)
+            action()
+            removingId = null
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -472,25 +501,50 @@ private fun TasksScreen(store: PopStore) {
         if (tasks.isEmpty()) {
             item { EmptyState("Seu espaço está livre", "Toque em + para criar a primeira tarefa.") }
         }
-        items(tasks, key = { it.id }) { task ->
-            AnimatedVisibility(
-                visible = removingId != task.id,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut(tween(220)) + shrinkVertically(tween(220)),
-            ) {
-                TaskRow(
-                    task = task,
-                    onOpen = { selectedTask = task },
-                    onToggle = { store.toggleTask(task.id) },
-                    onDelete = {
-                        removingId = task.id
-                        scope.launch {
-                            delay(230)
-                            store.deleteTask(task.id)
-                            removingId = null
+        groupedTasks.forEach { (sector, sectorTasks) ->
+            item(key = "sector-$sector") {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        collapsedSectors = if (sector in collapsedSectors) {
+                            collapsedSectors - sector
+                        } else {
+                            collapsedSectors + sector
                         }
                     },
-                )
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(sector, fontWeight = FontWeight.Bold)
+                        Text(
+                            "${sectorTasks.size} atividades",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+            if (sector !in collapsedSectors) {
+                items(sectorTasks, key = { it.id }) { task ->
+                    AnimatedVisibility(
+                        visible = removingId != task.id,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut(tween(220)) + shrinkVertically(tween(220)),
+                    ) {
+                        TaskRow(
+                            task = task,
+                            moveTargets = moveTargets,
+                            onOpen = { selectedTask = task },
+                            onToggle = { store.toggleTask(task.id) },
+                            onMove = { store.moveTask(task.id, it) },
+                            onDelete = { pendingDeleteTask = task },
+                        )
+                    }
+                }
             }
         }
     }
@@ -515,10 +569,105 @@ private fun TasksScreen(store: PopStore) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (task.recurrence != RecurrenceKind.None) {
+                        Text(
+                            "Recorrência: ${task.recurrence.label}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (task.checklist.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Checklist", fontWeight = FontWeight.Bold)
+                        task.checklist.forEach { item ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable(
+                                    enabled = store.isCurrentUserAdmin,
+                                ) {
+                                    store.toggleChecklistItem(task.id, item.id)
+                                    selectedTask = store.state.tasks.firstOrNull { it.id == task.id }
+                                },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = item.done,
+                                    onCheckedChange = if (store.isCurrentUserAdmin) {
+                                        {
+                                            store.toggleChecklistItem(task.id, item.id)
+                                            selectedTask = store.state.tasks.firstOrNull { it.id == task.id }
+                                        }
+                                    } else {
+                                        null
+                                    },
+                                )
+                                Text(item.title, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { selectedTask = null }) { Text("Fechar") }
+            },
+        )
+    }
+
+    pendingDeleteTask?.let { task ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteTask = null },
+            title = {
+                Text(
+                    if (task.recurrence == RecurrenceKind.None) {
+                        "Excluir atividade"
+                    } else {
+                        "Excluir atividade recorrente"
+                    },
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            },
+            text = {
+                Text(
+                    if (task.recurrence == RecurrenceKind.None) {
+                        "Confirma a exclusão de “${task.title}”?"
+                    } else {
+                        "Deseja excluir somente esta data ou toda a recorrência?"
+                    },
+                )
+            },
+            confirmButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    if (task.recurrence != RecurrenceKind.None) {
+                        TextButton(
+                            onClick = {
+                                deleteWithAnimation(task) {
+                                    store.deleteRecurringOccurrence(task.id)
+                                }
+                            },
+                        ) { Text("Somente esta data") }
+                    }
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        onClick = {
+                            deleteWithAnimation(task) {
+                                if (task.recurrence == RecurrenceKind.None) {
+                                    store.deleteTask(task.id)
+                                } else {
+                                    store.deleteTaskSeries(task.id)
+                                }
+                            }
+                        },
+                    ) {
+                        Text(
+                            if (task.recurrence == RecurrenceKind.None) {
+                                "Excluir"
+                            } else {
+                                "Toda a recorrência"
+                            },
+                        )
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteTask = null }) { Text("Cancelar") }
             },
         )
     }
@@ -527,10 +676,13 @@ private fun TasksScreen(store: PopStore) {
 @Composable
 private fun TaskRow(
     task: PopTask,
+    moveTargets: List<AssignmentTarget>,
     onOpen: () -> Unit,
     onToggle: () -> Unit,
+    onMove: (AssignmentTarget) -> Unit,
     onDelete: () -> Unit,
 ) {
+    var showMenu by remember { mutableStateOf(false) }
     val isUrgent = task.priority == Priority.Urgent && !task.completed
     val isOverdue = !task.completed && task.dueDate < todayIso()
     PopCard(
@@ -586,8 +738,43 @@ private fun TaskRow(
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Rounded.DeleteOutline, "Remover", tint = if (isUrgent) Color.White else MaterialTheme.colorScheme.error)
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(
+                        Icons.Rounded.MoreVert,
+                        "Mais opções",
+                        tint = if (isUrgent) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    moveTargets.forEach { target ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "${if (target.kind == AssignmentKind.Group) "Grupo" else "Setor"}: ${target.label}",
+                                )
+                            },
+                            onClick = {
+                                onMove(target)
+                                showMenu = false
+                            },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Excluir atividade", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Rounded.DeleteOutline,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            onDelete()
+                        },
+                    )
+                }
             }
         }
     }
@@ -808,6 +995,8 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     var priority by remember { mutableStateOf(Priority.Medium) }
     var assignmentKind by remember { mutableStateOf(AssignmentKind.None) }
     var assignment by remember { mutableStateOf(AssignmentTarget()) }
+    var checklistText by remember { mutableStateOf("") }
+    var recurrence by remember { mutableStateOf(RecurrenceKind.None) }
     val company = store.selectedCompany
     val assignmentOptions = when (assignmentKind) {
         AssignmentKind.None -> emptyList()
@@ -835,6 +1024,30 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                         Priority.entries.forEach {
                             FilterChip(selected = priority == it, onClick = { priority = it }, label = { Text(it.label, fontSize = 11.sp) })
                         }
+                    }
+                }
+                item {
+                    Text("Recorrência", fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        RecurrenceKind.entries.forEach {
+                            FilterChip(
+                                selected = recurrence == it,
+                                onClick = { recurrence = it },
+                                label = { Text(it.label, fontSize = 10.sp) },
+                            )
+                        }
+                    }
+                }
+                if (store.isCurrentUserAdmin) {
+                    item {
+                        OutlinedTextField(
+                            value = checklistText,
+                            onValueChange = { checklistText = it },
+                            label = { Text("Checklist (um item por linha)") },
+                            leadingIcon = { Icon(Icons.Rounded.ListAlt, null) },
+                            minLines = 4,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
                 if (company != null) {
@@ -866,7 +1079,16 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
             Button(
                 enabled = title.isNotBlank(),
                 onClick = {
-                    store.addTask(title, description, dueDate, dueTime, priority, assignment)
+                    store.addTask(
+                        title = title,
+                        description = description,
+                        dueDate = dueDate,
+                        dueTime = dueTime,
+                        priority = priority,
+                        assignment = assignment,
+                        checklistTitles = checklistText.lines(),
+                        recurrence = recurrence,
+                    )
                     onDismiss()
                 },
             ) { Text("Criar tarefa") }

@@ -32,6 +32,16 @@ const mobileTaskSchema = z.object({
   assignmentTargetId: z.string().max(300).optional(),
   assignmentTargetLabel: z.string().max(300).optional(),
   assignees: z.array(z.string().min(1).max(200)).max(3).optional(),
+  checklist: z
+    .array(
+      z.object({
+        id: z.string().max(300),
+        title: z.string().trim().min(1).max(200),
+        done: z.boolean(),
+      }),
+    )
+    .max(100)
+    .optional(),
 });
 
 const mobileTasksPayloadSchema = z.object({

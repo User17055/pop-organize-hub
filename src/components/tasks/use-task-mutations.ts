@@ -46,6 +46,7 @@ export function useTaskMutations(options?: {
       reviewerId?: string;
       requiresReview: boolean;
       tags: string[];
+      checklist: string[];
       recurrence?: RecurrenceInput;
     }) => createTask({ data: payload }),
     onSuccess: () => {
@@ -73,6 +74,8 @@ export function useTaskMutations(options?: {
       description: string;
       priority: Priority;
       dueDate: string;
+      target: { type: TargetType; id: string };
+      responsibleId: string;
       tags: string[];
       recurrence?: RecurrenceInput;
     }) => updateTaskDetails({ data: payload }),
@@ -82,14 +85,24 @@ export function useTaskMutations(options?: {
   });
 
   const deleteTaskMutation = useMutation({
-    mutationFn: (payload: { id: string }) => deleteTask({ data: payload }),
-    onSuccess: (_result, variables) => {
+    mutationFn: (payload: {
+      id: string;
+      scope?: "occurrence" | "series";
+      occurrenceDate?: string;
+    }) => deleteTask({ data: payload }),
+    onSuccess: (result, variables) => {
       options?.onDeleted?.();
+      const removedIds: string[] = "removedIds" in result ? result.removedIds : [variables.id];
+      const updatedTask = "updatedTask" in result ? result.updatedTask : undefined;
       queryClient.setQueryData<WorkspaceResult>(workspaceQueryKey, (current) =>
         current
           ? {
               ...current,
-              tasks: current.tasks.filter((task) => task.id !== variables.id),
+              tasks: current.tasks
+                .filter((task) => !removedIds.includes(task.id))
+                .map((task) =>
+                  updatedTask && task.id === updatedTask.id ? { ...task, ...updatedTask } : task,
+                ),
             }
           : current,
       );

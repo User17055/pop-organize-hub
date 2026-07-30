@@ -53,6 +53,7 @@ export type MobileTask = {
   assignmentTargetId?: string;
   assignmentTargetLabel?: string;
   assignees?: string[];
+  checklist?: Array<{ id: string; title: string; done: boolean }>;
 };
 
 type NativeTask = Task & {
@@ -967,6 +968,11 @@ function taskToMobileTask(
     assignmentTargetId: native?.assignmentTargetId ?? task.target.id,
     assignmentTargetLabel: native?.assignmentTargetLabel ?? task.target.label,
     assignees: native?.assignees?.slice(0, 3) ?? assignees,
+    checklist: task.subtasks?.map((item) => ({
+      id: item.id,
+      title: item.title,
+      done: item.done,
+    })),
   };
 }
 
@@ -1231,6 +1237,15 @@ export async function replaceMobileTasks(
           existing.recurrence = mobileTaskRecurrence(item);
           existing.attachments = item.attachmentName ? 1 : 0;
         }
+        if (currentUser.role.toLocaleLowerCase("pt-BR").includes("admin")) {
+          existing.subtasks = (item.checklist ?? []).map((checklistItem, index) => ({
+            id: checklistItem.id || `ts${index + 1}`,
+            title: checklistItem.title,
+            done: checklistItem.done,
+            createdAt: new Date().toISOString(),
+            completedAt: checklistItem.done ? new Date().toISOString() : undefined,
+          }));
+        }
         if (existing.nativeSource === NATIVE_SOURCE && existing.nativeOwnerId === account.id) {
           existing.nativeData = { ...item, serverId: existing.id };
         }
@@ -1261,7 +1276,15 @@ export async function replaceMobileTasks(
         comments: 0,
         attachments: item.attachmentName ? 1 : 0,
         recurrence: mobileTaskRecurrence(item),
-        subtasks: [],
+        subtasks: currentUser.role.toLocaleLowerCase("pt-BR").includes("admin")
+          ? (item.checklist ?? []).map((checklistItem, index) => ({
+              id: checklistItem.id || `ts${index + 1}`,
+              title: checklistItem.title,
+              done: checklistItem.done,
+              createdAt: new Date().toISOString(),
+              completedAt: checklistItem.done ? new Date().toISOString() : undefined,
+            }))
+          : [],
         nativeSource: NATIVE_SOURCE,
         nativeOwnerId: account.id,
         nativeData: item,

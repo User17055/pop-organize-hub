@@ -90,6 +90,7 @@ const createTaskSchema = z.object({
   reviewerId: z.string().optional(),
   requiresReview: z.boolean().default(false),
   tags: z.array(z.string().trim().min(1)).default([]),
+  checklist: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
   recurrence: recurrenceSchema,
 });
 
@@ -165,12 +166,16 @@ const updateTaskDetailsSchema = z.object({
   description: z.string().trim().min(3, "Informe uma descrição"),
   priority: prioritySchema,
   dueDate: z.string().min(10),
+  target: targetSchema,
+  responsibleId: z.string().default(""),
   tags: z.array(z.string().trim().min(1)).default([]),
   recurrence: recurrenceSchema,
 });
 
 const deleteTaskSchema = z.object({
   id: z.string().min(1),
+  scope: z.enum(["occurrence", "series"]).optional(),
+  occurrenceDate: z.string().min(10).optional(),
 });
 
 const addTaskCommentSchema = z.object({
@@ -527,7 +532,13 @@ function createNextRecurringTask(db: Database, task: Task) {
     recurrence: task.recurrence,
     recurrenceParentId: task.recurrenceParentId ?? task.id,
     recurrenceOccurrence: (task.recurrenceOccurrence ?? 1) + 1,
-    subtasks: [],
+    recurrenceExcludedDates: task.recurrenceExcludedDates,
+    subtasks: (task.subtasks ?? []).map((subtask, index) => ({
+      id: `ts${index + 1}`,
+      title: subtask.title,
+      done: false,
+      createdAt: new Date().toISOString(),
+    })),
   });
 }
 
@@ -987,6 +998,15 @@ export const createTask = createServerFn({ method: "POST" })
 
       const targetLabel = resolveTargetLabel(data.target.type, data.target.id, db);
       if (!targetLabel) throw createHttpError("Destino da tarefa não encontrado.");
+      if (
+        data.checklist.length > 0 &&
+        !isAdminUser({
+          currentUser: db.employees.find((employee) => employee.id === currentUserId),
+          employees: db.employees,
+        })
+      ) {
+        throw createHttpError("Somente administradores podem criar o checklist da tarefa.", 403);
+      }
 
       const task = {
         id: nextId("t", db.tasks),
@@ -1006,7 +1026,12 @@ export const createTask = createServerFn({ method: "POST" })
         comments: 0,
         attachments: 0,
         recurrence: normalizeRecurrence(data.recurrence),
-        subtasks: [],
+        subtasks: data.checklist.map((title, index) => ({
+          id: `ts${index + 1}`,
+          title,
+          done: false,
+          createdAt: new Date().toISOString(),
+        })),
       };
 
       db.tasks.unshift(task);
@@ -1067,11 +1092,32 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       if (!permissions.canEditContent) {
         throw createHttpError("Você não tem permissão para editar o texto desta tarefa.", 403);
       }
+      const targetLabel = resolveTargetLabel(data.target.type, data.target.id, db);
+      if (!targetLabel) throw createHttpError("Destino da tarefa não encontrado.");
+      if (
+        data.responsibleId &&
+        !db.employees.some((employee) => employee.id === data.responsibleId)
+      ) {
+        throw createHttpError("Responsável não encontrado.");
+      }
+      if (
+        db.company.kind === "personal" &&
+        (data.target.type !== "user" ||
+          data.target.id !== currentUserId ||
+          (data.responsibleId !== "" && data.responsibleId !== currentUserId))
+      ) {
+        throw createHttpError(
+          "O Meu espaço é pessoal. Para atribuir ou compartilhar tarefas, crie uma empresa.",
+          403,
+        );
+      }
 
       task.title = data.title;
       task.description = data.description;
       task.priority = data.priority;
       task.dueDate = data.dueDate;
+      task.target = { ...data.target, label: targetLabel };
+      task.responsibleId = data.responsibleId;
       task.tags = data.tags;
       task.recurrence = normalizeRecurrence(data.recurrence);
       return task;
@@ -1213,8 +1259,48 @@ export const deleteTask = createServerFn({ method: "POST" })
         throw createHttpError("Seu grupo de permissão não pode excluir tarefas.", 403);
       }
 
-      db.tasks.splice(taskIndex, 1);
-      return { ok: true, id: data.id };
+      if (!task.recurrence || !data.scope) {
+        db.tasks.splice(taskIndex, 1);
+        return { ok: true, id: data.id, removedIds: [data.id] };
+      }
+
+      const seriesId = task.recurrenceParentId ?? task.id;
+      const belongsToSeries = (item: Task) => (item.recurrenceParentId ?? item.id) === seriesId;
+
+      if (data.scope === "series") {
+        const removedIds = db.tasks.filter(belongsToSeries).map((item) => item.id);
+        db.tasks = db.tasks.filter((item) => !belongsToSeries(item));
+        return { ok: true, id: data.id, removedIds };
+      }
+
+      const occurrenceDate = data.occurrenceDate ?? task.dueDate;
+      const seriesTasks = db.tasks.filter(belongsToSeries);
+      const matchingTasks = seriesTasks.filter((item) => item.dueDate === occurrenceDate);
+      const remainingSeries = seriesTasks.filter((item) => item.dueDate !== occurrenceDate);
+
+      if (matchingTasks.length > 0 && remainingSeries.length === 0) {
+        const nextDueDate = advanceRecurringDueDate(occurrenceDate, task.recurrence);
+        if (task.recurrence.endDate && nextDueDate > task.recurrence.endDate) {
+          db.tasks = db.tasks.filter((item) => !belongsToSeries(item));
+          return { ok: true, id: data.id, removedIds: matchingTasks.map((item) => item.id) };
+        }
+        task.dueDate = nextDueDate;
+        task.status = "pending";
+        task.recurrenceOccurrence = (task.recurrenceOccurrence ?? 1) + 1;
+        task.recurrenceExcludedDates = Array.from(
+          new Set([...(task.recurrenceExcludedDates ?? []), occurrenceDate]),
+        );
+        return { ok: true, id: data.id, removedIds: [], updatedTask: task };
+      }
+
+      const removedIds = matchingTasks.map((item) => item.id);
+      db.tasks = db.tasks.filter((item) => !removedIds.includes(item.id));
+      for (const item of db.tasks.filter(belongsToSeries)) {
+        item.recurrenceExcludedDates = Array.from(
+          new Set([...(item.recurrenceExcludedDates ?? []), occurrenceDate]),
+        );
+      }
+      return { ok: true, id: data.id, removedIds };
     });
   });
 

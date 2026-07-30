@@ -16,6 +16,7 @@ export type TaskFormState = {
   reviewerId: string;
   requiresReview: boolean;
   tags: string;
+  checklist: string;
   recurrence: RecurrenceFormState;
 };
 
@@ -25,6 +26,8 @@ export type TaskEditState = {
   priority: Priority;
   dueDate: string;
   tags: string;
+  targetKey: string;
+  responsibleId: string;
   recurrence: RecurrenceFormState;
 };
 

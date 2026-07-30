@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, X } from "lucide-react";
+import { Check, ListChecks, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { priorityLabels, type Employee, type Priority } from "@/lib/domain";
 import { Field } from "@/components/form-field";
@@ -12,7 +12,7 @@ const inputClass =
   "task-create-input w-full h-10 px-3 rounded-md border outline-none text-sm transition";
 
 const textareaClass =
-  "task-create-input min-h-[96px] w-full resize-none rounded-md border px-3 py-2.5 text-sm leading-relaxed outline-none transition";
+  "task-create-input min-h-[160px] w-full resize-y rounded-md border px-3 py-2.5 text-sm leading-relaxed outline-none transition";
 
 const companySteps = ["Dados", "Acesso", "Finalizar"] as const;
 const personalSteps = ["Dados", "Recorrência", "Finalizar"] as const;
@@ -28,6 +28,7 @@ export function TaskCreateDrawer({
   employees,
   targetOptions,
   personalMode = false,
+  canCreateChecklist = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -39,6 +40,7 @@ export function TaskCreateDrawer({
   employees: Employee[];
   targetOptions: Array<{ value: string; label: string }>;
   personalMode?: boolean;
+  canCreateChecklist?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(0);
@@ -325,6 +327,32 @@ export function TaskCreateDrawer({
                     placeholder="Separadas por vírgula"
                   />
                 </Field>
+                {canCreateChecklist && (
+                  <div className="task-create-card rounded-2xl border p-4">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-bold text-foreground">
+                      <ListChecks className="h-4 w-4 text-primary" />
+                      Checklist inicial
+                    </div>
+                    <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+                      Digite um item por linha. Somente administradores podem incluir o checklist
+                      durante o cadastro.
+                    </p>
+                    <textarea
+                      value={form.checklist}
+                      onChange={(event) =>
+                        onFormChange((current) => ({
+                          ...current,
+                          checklist: event.target.value,
+                        }))
+                      }
+                      rows={5}
+                      className="task-create-input min-h-[120px] w-full resize-y rounded-md border px-3 py-2.5 text-sm leading-relaxed outline-none transition"
+                      placeholder={
+                        "Ex: Conferir materiais\nRegistrar no sistema\nEnviar confirmação"
+                      }
+                    />
+                  </div>
+                )}
               </>
             )}
 

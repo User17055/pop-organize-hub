@@ -1,6 +1,6 @@
 import { Calendar, Check, ListChecks, MessageSquare, Paperclip } from "lucide-react";
 import { motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { cn } from "@/lib/utils";
 import { PriorityBadge, StatusBadge } from "@/components/app-shell";
 import {
@@ -34,6 +34,8 @@ export function TaskList({
   onOpen,
   onComplete,
   isCompleting,
+  preferences,
+  onTitleWidthChange,
 }: {
   tasks: Task[];
   employees: Employee[];
@@ -46,10 +48,37 @@ export function TaskList({
   onOpen: (task: Task) => void;
   onComplete: (task: Task) => void;
   isCompleting: boolean;
+  preferences?: {
+    titleWidth: number;
+    density: "compact" | "comfortable";
+    showDescription: boolean;
+  };
+  onTitleWidthChange?: (width: number) => void;
 }) {
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
   const [celebratingTaskId, setCelebratingTaskId] = useState<string | null>(null);
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tablePreferences = preferences ?? {
+    titleWidth: 340,
+    density: "comfortable" as const,
+    showDescription: true,
+  };
+  function startTitleResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!onTitleWidthChange) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = tablePreferences.titleWidth;
+    const onMove = (moveEvent: PointerEvent) => {
+      onTitleWidthChange(Math.min(680, Math.max(240, startWidth + moveEvent.clientX - startX)));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
 
   useEffect(
     () => () => {
@@ -70,12 +99,35 @@ export function TaskList({
   return (
     <>
       {/* Desktop dense table */}
-      <div className="task-glass-panel hidden rounded-[24px] p-4 lg:block xl:p-5">
-        <Table className="table-fixed border-separate border-spacing-y-3">
+      <div className="task-glass-panel hidden overflow-x-auto rounded-[24px] p-4 lg:block xl:p-5">
+        <Table
+          className="table-fixed border-separate border-spacing-y-3"
+          style={{ minWidth: `${showResponsible ? 1160 : 970}px` }}
+        >
+          <colgroup>
+            <col style={{ width: 56 }} />
+            <col style={{ width: tablePreferences.titleWidth }} />
+            {showResponsible && <col style={{ width: 190 }} />}
+            <col style={{ width: 190 }} />
+            <col style={{ width: 140 }} />
+            <col style={{ width: 125 }} />
+            <col style={{ width: 150 }} />
+            <col style={{ width: 115 }} />
+          </colgroup>
           <TableHeader className="[&_th]:h-8 [&_th]:px-4 [&_th]:pb-1 [&_th]:text-[10px] [&_th]:font-bold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-foreground/38 [&_tr]:border-0">
             <TableRow className="border-0 hover:bg-transparent">
               <TableHead className="w-14"></TableHead>
-              <TableHead>Título</TableHead>
+              <TableHead className="relative">
+                Título
+                {onTitleWidthChange && (
+                  <button
+                    type="button"
+                    onPointerDown={startTitleResize}
+                    className="absolute inset-y-0 right-0 w-2 cursor-col-resize touch-none rounded-full transition hover:bg-primary/25"
+                    aria-label="Ajustar largura da coluna de atividade"
+                  />
+                )}
+              </TableHead>
               {showResponsible && <TableHead>Responsável</TableHead>}
               <TableHead>Visível para</TableHead>
               <TableHead>Prazo</TableHead>
@@ -103,6 +155,7 @@ export function TaskList({
                   onClick={() => onOpen(task)}
                   className={cn(
                     "task-glass-row group cursor-pointer border-0 transition-all duration-300 hover:text-foreground",
+                    tablePreferences.density === "compact" && "[&_td]:!py-2.5",
                     overdue && "bg-destructive/[0.05] hover:bg-destructive/[0.08]",
                     selectedTaskId === task.id && "task-row-selected",
                   )}
@@ -133,6 +186,16 @@ export function TaskList({
                     >
                       {task.title}
                     </div>
+                    {tablePreferences.showDescription && task.description && (
+                      <div
+                        className={cn(
+                          "mt-1.5 text-xs leading-relaxed text-muted-foreground",
+                          tablePreferences.density === "compact" ? "line-clamp-1" : "line-clamp-3",
+                        )}
+                      >
+                        {task.description}
+                      </div>
+                    )}
                     <div className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
                       {task.comments > 0 && (
                         <span className="task-chip inline-flex items-center gap-1 rounded-full px-2 py-0.5">

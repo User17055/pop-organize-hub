@@ -4,7 +4,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.datetime.Clock
+import kotlinx.datetime.DatePeriod
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -30,6 +33,16 @@ class PopStore(private val platform: PopPlatformServices) {
             WorkspaceKind.Company -> state.tasks.filter {
                 it.workspace == WorkspaceKind.Company && it.companyId == state.selectedCompanyId
             }
+        }
+
+    val isCurrentUserAdmin: Boolean
+        get() {
+            if (state.workspace == WorkspaceKind.Personal) return true
+            val email = state.currentUser?.email ?: return false
+            return selectedCompany?.members
+                ?.firstOrNull { it.email.equals(email, ignoreCase = true) }
+                ?.role
+                ?.contains("admin", ignoreCase = true) == true
         }
 
     init {
@@ -84,9 +97,12 @@ class PopStore(private val platform: PopPlatformServices) {
         dueTime: String,
         priority: Priority,
         assignment: AssignmentTarget,
+        checklistTitles: List<String> = emptyList(),
+        recurrence: RecurrenceKind = RecurrenceKind.None,
     ) {
+        val taskId = newId("task")
         val task = PopTask(
-            id = newId("task"),
+            id = taskId,
             title = title.trim(),
             description = description.trim(),
             dueDate = dueDate.ifBlank { todayIso() },
@@ -96,6 +112,15 @@ class PopStore(private val platform: PopPlatformServices) {
             companyId = state.selectedCompanyId.takeIf { state.workspace == WorkspaceKind.Company },
             assignment = assignment,
             createdBy = state.currentUser?.name.orEmpty(),
+            checklist = if (isCurrentUserAdmin) {
+                checklistTitles.filter { it.isNotBlank() }.map {
+                    ChecklistItem(id = newId("check"), title = it.trim())
+                }
+            } else {
+                emptyList()
+            },
+            recurrence = recurrence,
+            recurrenceSeriesId = taskId.takeIf { recurrence != RecurrenceKind.None },
         )
         update { copy(tasks = listOf(task) + tasks) }
         platform.playActionSound()
@@ -108,6 +133,52 @@ class PopStore(private val platform: PopPlatformServices) {
 
     fun deleteTask(taskId: String) {
         update { copy(tasks = tasks.filterNot { it.id == taskId }) }
+        platform.playActionSound()
+    }
+
+    fun toggleChecklistItem(taskId: String, itemId: String) {
+        if (!isCurrentUserAdmin) return
+        update {
+            copy(
+                tasks = tasks.map { task ->
+                    if (task.id != taskId) task
+                    else task.copy(
+                        checklist = task.checklist.map { item ->
+                            if (item.id == itemId) item.copy(done = !item.done) else item
+                        },
+                    )
+                },
+            )
+        }
+        platform.playActionSound()
+    }
+
+    fun moveTask(taskId: String, assignment: AssignmentTarget) {
+        update {
+            copy(tasks = tasks.map { if (it.id == taskId) it.copy(assignment = assignment) else it })
+        }
+        platform.playActionSound()
+    }
+
+    fun deleteRecurringOccurrence(taskId: String) {
+        update {
+            copy(
+                tasks = tasks.mapNotNull { task ->
+                    if (task.id != taskId) return@mapNotNull task
+                    val nextDate = nextRecurrenceDate(task.dueDate, task.recurrence)
+                    if (nextDate == null) null else task.copy(dueDate = nextDate, completed = false)
+                },
+            )
+        }
+        platform.playActionSound()
+    }
+
+    fun deleteTaskSeries(taskId: String) {
+        val task = state.tasks.firstOrNull { it.id == taskId } ?: return
+        val seriesId = task.recurrenceSeriesId ?: task.id
+        update {
+            copy(tasks = tasks.filterNot { (it.recurrenceSeriesId ?: it.id) == seriesId })
+        }
         platform.playActionSound()
     }
 
@@ -164,6 +235,18 @@ internal fun todayIso(): String = Clock.System.now()
     .toLocalDateTime(TimeZone.currentSystemDefault())
     .date
     .toString()
+
+private fun nextRecurrenceDate(value: String, recurrence: RecurrenceKind): String? {
+    if (recurrence == RecurrenceKind.None) return null
+    val date = runCatching { LocalDate.parse(value) }.getOrNull() ?: return null
+    val period = when (recurrence) {
+        RecurrenceKind.Daily -> DatePeriod(days = 1)
+        RecurrenceKind.Weekly -> DatePeriod(days = 7)
+        RecurrenceKind.Monthly -> DatePeriod(months = 1)
+        RecurrenceKind.None -> return null
+    }
+    return date.plus(period).toString()
+}
 
 internal fun greetingForCurrentTime(): String = when (
     Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).hour

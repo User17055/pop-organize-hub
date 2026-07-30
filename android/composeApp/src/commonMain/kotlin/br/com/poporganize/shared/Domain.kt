@@ -25,6 +25,21 @@ enum class AssignmentKind(val label: String) {
 }
 
 @Serializable
+enum class RecurrenceKind(val label: String) {
+    None("Sem recorrência"),
+    Daily("Diária"),
+    Weekly("Semanal"),
+    Monthly("Mensal"),
+}
+
+@Serializable
+data class ChecklistItem(
+    val id: String,
+    val title: String,
+    val done: Boolean = false,
+)
+
+@Serializable
 data class AssignmentTarget(
     val kind: AssignmentKind = AssignmentKind.None,
     val id: String? = null,
@@ -88,6 +103,9 @@ data class PopTask(
     val companyId: String? = null,
     val assignment: AssignmentTarget = AssignmentTarget(),
     val createdBy: String = "",
+    val checklist: List<ChecklistItem> = emptyList(),
+    val recurrence: RecurrenceKind = RecurrenceKind.None,
+    val recurrenceSeriesId: String? = null,
 )
 
 @Serializable

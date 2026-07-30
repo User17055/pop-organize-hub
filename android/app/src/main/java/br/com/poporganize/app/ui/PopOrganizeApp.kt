@@ -61,6 +61,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
@@ -79,6 +80,7 @@ import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronLeft
@@ -87,6 +89,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PendingActions
 import androidx.compose.material.icons.rounded.PersonOutline
@@ -105,6 +108,7 @@ import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -226,6 +230,12 @@ private enum class PopDestination(
     More("Mais", Icons.Rounded.MoreHoriz),
 }
 
+private data class TaskChecklistItem(
+    val id: String,
+    val title: String,
+    val done: Boolean = false,
+)
+
 private data class PopTask(
     val id: Int,
     val title: String,
@@ -257,6 +267,7 @@ private data class PopTask(
     val assignmentTargetId: String = "",
     val assignmentTargetLabel: String = "",
     val assignees: List<String> = emptyList(),
+    val checklist: List<TaskChecklistItem> = emptyList(),
 )
 
 private enum class SessionMode { Guest, Email, Google }
@@ -438,6 +449,16 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                         .filter(String::isNotBlank)
                         .take(3)
                 }.orEmpty(),
+                checklist = item.optJSONArray("checklist")?.let { values ->
+                    List(values.length()) { checklistIndex ->
+                        val checklistItem = values.optJSONObject(checklistIndex) ?: JSONObject()
+                        TaskChecklistItem(
+                            id = checklistItem.optString("id", "check-$checklistIndex"),
+                            title = checklistItem.optString("title"),
+                            done = checklistItem.optBoolean("done"),
+                        )
+                    }.filter { it.title.isNotBlank() }
+                }.orEmpty(),
             )
         }
     }.getOrElse { fallback }
@@ -537,7 +558,7 @@ private fun mergeRemoteTaskRouting(
                         local.assignmentTargetLabel.isNotBlank() ||
                         local.assignees.isNotEmpty()
                     )
-        if (remoteRoutingMissing && localHasRouting) {
+        val merged = if (remoteRoutingMissing && localHasRouting) {
             remote.copy(
                 department = local.department,
                 assignee = local.assignee,
@@ -548,6 +569,11 @@ private fun mergeRemoteTaskRouting(
             )
         } else {
             remote
+        }
+        if (merged.checklist.isEmpty() && !local?.checklist.isNullOrEmpty()) {
+            merged.copy(checklist = local?.checklist.orEmpty())
+        } else {
+            merged
         }
     }
 }
@@ -586,7 +612,20 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("assignmentType", task.assignmentType)
                 .put("assignmentTargetId", task.assignmentTargetId)
                 .put("assignmentTargetLabel", task.assignmentTargetLabel)
-                .put("assignees", JSONArray(task.assignees)),
+                .put("assignees", JSONArray(task.assignees))
+                .put(
+                    "checklist",
+                    JSONArray().apply {
+                        task.checklist.forEach { item ->
+                            put(
+                                JSONObject()
+                                    .put("id", item.id)
+                                    .put("title", item.title)
+                                    .put("done", item.done),
+                            )
+                        }
+                    },
+                ),
         )
     }
     return items
@@ -3877,6 +3916,7 @@ private fun TasksScreen(
     var showCreate by remember { mutableStateOf(false) }
     var newTaskTitle by remember { mutableStateOf("") }
     var newTaskDescription by remember { mutableStateOf("") }
+    var newTaskChecklistText by remember { mutableStateOf("") }
     var newTaskAssignee by remember { mutableStateOf("") }
     var newTaskAssignmentType by remember { mutableStateOf("company") }
     var newTaskAssignmentTargetId by remember { mutableStateOf("") }
@@ -3922,6 +3962,11 @@ private fun TasksScreen(
     var editRecurrenceEnd by remember { mutableStateOf("Nunca") }
     var editRecurrenceEndValue by remember { mutableStateOf("") }
     var editAssignee by remember { mutableStateOf("") }
+    var editAssignmentType by remember { mutableStateOf("company") }
+    var editAssignmentTargetId by remember { mutableStateOf("") }
+    var editAssignmentTargetLabel by remember { mutableStateOf("") }
+    var editResponsibleNames by remember { mutableStateOf(setOf<String>()) }
+    var editChecklist by remember { mutableStateOf<List<TaskChecklistItem>>(emptyList()) }
     var editAttachment by remember { mutableStateOf("") }
     val createTaskSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val taskDetailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -3954,6 +3999,15 @@ private fun TasksScreen(
         }
     }
     val today = LocalDate.now()
+    val isTaskAdmin =
+        workSpace == WorkSpace.Personal ||
+            companyMembers.any {
+                (
+                    it.id.equals(currentUserId, ignoreCase = true) ||
+                        it.name.equals(currentUserName, ignoreCase = true)
+                    ) &&
+                    (it.isOwner || it.role.contains("admin", ignoreCase = true))
+            }
 
     fun canCompleteTask(task: PopTask): Boolean = task.canComplete
     fun canEditTask(task: PopTask): Boolean = task.canEdit
@@ -4023,6 +4077,8 @@ private fun TasksScreen(
         }
     val pendingTasks = filtered.filterNot { it.completed }
     val completedTasks = filtered.filter { it.completed }
+    val displayedPendingTasks =
+        if (selectedFilter == "Setor") pendingTasks.sortedBy { it.department } else pendingTasks
 
     fun toggleTask(task: PopTask) {
         if (!canCompleteTask(task)) {
@@ -4081,6 +4137,11 @@ private fun TasksScreen(
             else -> task.recurrenceEndValue
         }
         editAssignee = task.assignee
+        editAssignmentType = task.assignmentType
+        editAssignmentTargetId = task.assignmentTargetId
+        editAssignmentTargetLabel = task.assignmentTargetLabel
+        editResponsibleNames = task.assignees.toSet()
+        editChecklist = task.checklist
         editAttachment = task.attachmentName
     }
 
@@ -4149,12 +4210,16 @@ private fun TasksScreen(
             recurrenceEndValue = storedEndValue,
             assignee = editedAssignees.joinToString(", ").ifBlank { "Sem responsável" },
             assignees = editedAssignees,
+            assignmentType = editAssignmentType,
+            assignmentTargetId = editAssignmentTargetId,
             assignmentTargetLabel =
-                if (original.assignmentType == "user") {
+                if (editAssignmentType == "user") {
                     editedAssignees.firstOrNull() ?: original.assignmentTargetLabel
                 } else {
-                    original.assignmentTargetLabel
+                    editAssignmentTargetLabel
                 },
+            department = editAssignmentTargetLabel.ifBlank { original.department },
+            checklist = if (isTaskAdmin) editChecklist else original.checklist,
             attachmentName = editAttachment,
         )
         editingTaskId = null
@@ -4252,10 +4317,25 @@ private fun TasksScreen(
                 recurrenceInterval = newTaskRecurrenceInterval,
                 recurrenceEndMode = newTaskRecurrenceEnd,
                 recurrenceEndValue = recurrenceEndValue,
+                checklist = if (isTaskAdmin) {
+                    newTaskChecklistText
+                        .lines()
+                        .map(String::trim)
+                        .filter(String::isNotBlank)
+                        .mapIndexed { index, title ->
+                            TaskChecklistItem(
+                                id = "check-${System.currentTimeMillis()}-$index",
+                                title = title,
+                            )
+                        }
+                } else {
+                    emptyList()
+                },
             ),
         )
         newTaskTitle = ""
         newTaskDescription = ""
+        newTaskChecklistText = ""
         newTaskAssignee = ""
         newTaskAssignmentType = "company"
         newTaskAssignmentTargetId = ""
@@ -4323,23 +4403,50 @@ private fun TasksScreen(
                 }
                 Text("${pendingTasks.size} atividades pendentes", color = PopMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
             }
-            items(pendingTasks, key = { it.id }) { task ->
+            itemsIndexed(displayedPendingTasks, key = { _, task -> task.id }) { index, task ->
                 val isCompleting = completingTaskId == task.id
                 val taskSlotHeight by animateDpAsState(
                     targetValue = if (isCompleting) 0.dp else 94.dp,
                     animationSpec = tween(580, easing = FastOutSlowInEasing),
                     label = "taskSlotHeight",
                 )
-                Box(Modifier.fillMaxWidth().height(taskSlotHeight).clipToBounds().padding(horizontal = 26.dp, vertical = 6.dp)) {
-                    TaskCard(
-                        task = task,
-                        members = companyMembers,
-                        showAssigneeAvatars =
-                            selectedFilter in setOf("Grupo", "Setor", "Empresa"),
-                        isCompleting = isCompleting,
-                        onComplete = { toggleTask(task) },
-                        onOpen = { openTask(task) },
-                    )
+                Column {
+                    if (
+                        selectedFilter == "Setor" &&
+                        (index == 0 || displayedPendingTasks[index - 1].department != task.department)
+                    ) {
+                        Text(
+                            task.department.ifBlank { "Sem setor" },
+                            color = PopBlue,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(start = 26.dp, top = 12.dp, bottom = 2.dp),
+                        )
+                    }
+                    Box(Modifier.fillMaxWidth().height(taskSlotHeight).clipToBounds().padding(horizontal = 26.dp, vertical = 6.dp)) {
+                        TaskCard(
+                            task = task,
+                            members = companyMembers,
+                            groups = companyGroups,
+                            sectors = companySectors,
+                            showAssigneeAvatars =
+                                selectedFilter in setOf("Grupo", "Setor", "Empresa"),
+                            isCompleting = isCompleting,
+                            onComplete = { toggleTask(task) },
+                            onOpen = { openTask(task) },
+                            onMove = { type, id, label ->
+                                val taskIndex = tasks.indexOfFirst { it.id == task.id }
+                                if (taskIndex >= 0) {
+                                    tasks[taskIndex] = task.copy(
+                                        assignmentType = type,
+                                        assignmentTargetId = id,
+                                        assignmentTargetLabel = label,
+                                        department = label,
+                                    )
+                                }
+                            },
+                        )
+                    }
                 }
             }
             if (completedTasks.isNotEmpty()) {
@@ -4380,11 +4487,24 @@ private fun TasksScreen(
                                         TaskCard(
                                             task = task,
                                             members = companyMembers,
+                                            groups = companyGroups,
+                                            sectors = companySectors,
                                             showAssigneeAvatars =
                                                 selectedFilter in setOf("Grupo", "Setor", "Empresa"),
                                             isCompleting = false,
                                             onComplete = { toggleTask(task) },
                                             onOpen = { openTask(task) },
+                                            onMove = { type, id, label ->
+                                                val taskIndex = tasks.indexOfFirst { it.id == task.id }
+                                                if (taskIndex >= 0) {
+                                                    tasks[taskIndex] = task.copy(
+                                                        assignmentType = type,
+                                                        assignmentTargetId = id,
+                                                        assignmentTargetLabel = label,
+                                                        department = label,
+                                                    )
+                                                }
+                                            },
                                         )
                                     }
                                 }
@@ -4558,6 +4678,21 @@ private fun TasksScreen(
                                 },
                                 forceOpen = showAssignmentSheet,
                                 onSheetClosed = { showAssignmentSheet = false },
+                            )
+                        }
+                        if (isTaskAdmin) {
+                            TextField(
+                                value = newTaskChecklistText,
+                                onValueChange = { newTaskChecklistText = it },
+                                label = { Text("Checklist (um item por linha)") },
+                                leadingIcon = {
+                                    Icon(Icons.Rounded.Checklist, null, tint = PopBlue)
+                                },
+                                minLines = 3,
+                                maxLines = 6,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = taskEditorFieldColors(PopSurface),
+                                modifier = Modifier.fillMaxWidth(),
                             )
                         }
                         if (newTaskAttachment.isNotBlank()) {
@@ -4978,6 +5113,27 @@ private fun TasksScreen(
                     }
                     if (workSpace == WorkSpace.Company) {
                         item {
+                            AssignmentSelector(
+                                companyName = companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
+                                assignmentType = editAssignmentType,
+                                targetId = editAssignmentTargetId,
+                                targetLabel = editAssignmentTargetLabel,
+                                responsibleNames = editResponsibleNames,
+                                members = companyMembers,
+                                sectors = companySectors,
+                                groups = companyGroups,
+                                onChange = { type, id, label, responsibles ->
+                                    editAssignmentType = type
+                                    editAssignmentTargetId = id
+                                    editAssignmentTargetLabel = label
+                                    editResponsibleNames = responsibles.take(3).toSet()
+                                    editAssignee = editResponsibleNames.joinToString(", ")
+                                },
+                                forceOpen = false,
+                                onSheetClosed = {},
+                            )
+                        }
+                        item {
                             ResponsibleSelector(
                                 selectedNames = editAssignee
                                     .split(",")
@@ -4992,6 +5148,91 @@ private fun TasksScreen(
                                     editAssignee = selected.joinToString(", ")
                                 },
                             )
+                        }
+                    }
+                    if (openedTask != null && (openedTask.checklist.isNotEmpty() || isTaskAdmin)) {
+                        item {
+                            Surface(
+                                color = PopSurface,
+                                shape = RoundedCornerShape(18.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(
+                                    Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        "Checklist",
+                                        color = PopMuted,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                    )
+                                    editChecklist.forEach { checklistItem ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable(enabled = isTaskAdmin) {
+                                                    editChecklist = editChecklist.map {
+                                                        if (it.id == checklistItem.id) {
+                                                            it.copy(done = !it.done)
+                                                        } else {
+                                                            it
+                                                        }
+                                                    }
+                                                },
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Checkbox(
+                                                checked = checklistItem.done,
+                                                onCheckedChange = if (isTaskAdmin) {
+                                                    {
+                                                        editChecklist = editChecklist.map {
+                                                            if (it.id == checklistItem.id) {
+                                                                it.copy(done = !it.done)
+                                                            } else {
+                                                                it
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    null
+                                                },
+                                            )
+                                            Text(checklistItem.title, modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                    if (isTaskAdmin) {
+                                        var newChecklistItem by remember(editingTaskId) {
+                                            mutableStateOf("")
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            TextField(
+                                                value = newChecklistItem,
+                                                onValueChange = { newChecklistItem = it },
+                                                placeholder = { Text("Novo item") },
+                                                singleLine = true,
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = taskEditorFieldColors(PopSurfaceAlt),
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            IconButton(
+                                                onClick = {
+                                                    val title = newChecklistItem.trim()
+                                                    if (title.isNotBlank()) {
+                                                        editChecklist = editChecklist + TaskChecklistItem(
+                                                            id = "check-${System.currentTimeMillis()}",
+                                                            title = title,
+                                                        )
+                                                        newChecklistItem = ""
+                                                    }
+                                                },
+                                            ) {
+                                                Icon(Icons.Rounded.Add, "Adicionar item", tint = PopBlue)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     item {
@@ -5059,27 +5300,84 @@ private fun TasksScreen(
     }
 
     if (showDeleteTaskConfirmation) {
+        val taskToDelete = tasks.firstOrNull { it.id == editingTaskId }
+        val recurringDelete = taskToDelete?.recurrenceRule != null &&
+            taskToDelete.recurrenceRule != "Não repetir"
         AlertDialog(
             onDismissRequest = { showDeleteTaskConfirmation = false },
-            title = { Text("Excluir tarefa?", fontWeight = FontWeight.ExtraBold) },
-            text = { Text("Tem certeza de que deseja excluir esta tarefa? Essa ação não pode ser desfeita.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val taskId = editingTaskId
-                        if (taskId != null) {
-                            deletingTaskId = taskId
-                            taskActionScope.launch {
-                                delay(340)
-                                tasks.firstOrNull { it.id == taskId }?.let(onTaskDeleted)
-                                tasks.removeAll { it.id == taskId }
-                                editingTaskId = null
-                                deletingTaskId = null
-                            }
-                        }
-                        showDeleteTaskConfirmation = false
+            title = {
+                Text(
+                    if (recurringDelete) "Excluir atividade recorrente?" else "Excluir tarefa?",
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            },
+            text = {
+                Text(
+                    if (recurringDelete) {
+                        "Escolha se deseja excluir somente esta data ou toda a recorrência."
+                    } else {
+                        "Tem certeza de que deseja excluir esta tarefa? Essa ação não pode ser desfeita."
                     },
-                ) { Text("Excluir", color = Color(0xFFE5484D), fontWeight = FontWeight.Bold) }
+                )
+            },
+            confirmButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    if (recurringDelete) {
+                        TextButton(
+                            onClick = {
+                                val taskId = editingTaskId
+                                if (taskId != null) {
+                                    deletingTaskId = taskId
+                                    taskActionScope.launch {
+                                        delay(340)
+                                        tasks.firstOrNull { it.id == taskId }?.let(onTaskDeleted)
+                                        tasks.removeAll { it.id == taskId }
+                                        editingTaskId = null
+                                        deletingTaskId = null
+                                    }
+                                }
+                                showDeleteTaskConfirmation = false
+                            },
+                        ) {
+                            Text("Somente esta data", color = PopBlue, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            val taskId = editingTaskId
+                            val selectedTask = tasks.firstOrNull { it.id == taskId }
+                            if (taskId != null && selectedTask != null) {
+                                deletingTaskId = taskId
+                                taskActionScope.launch {
+                                    delay(340)
+                                    if (recurringDelete) {
+                                        val seriesTasks = tasks.filter {
+                                            it.title == selectedTask.title &&
+                                                it.recurrenceRule == selectedTask.recurrenceRule &&
+                                                it.createdBy == selectedTask.createdBy &&
+                                                it.assignmentType == selectedTask.assignmentType &&
+                                                it.assignmentTargetId == selectedTask.assignmentTargetId
+                                        }
+                                        seriesTasks.forEach(onTaskDeleted)
+                                        tasks.removeAll(seriesTasks.toSet())
+                                    } else {
+                                        onTaskDeleted(selectedTask)
+                                        tasks.removeAll { it.id == taskId }
+                                    }
+                                    editingTaskId = null
+                                    deletingTaskId = null
+                                }
+                            }
+                            showDeleteTaskConfirmation = false
+                        },
+                    ) {
+                        Text(
+                            if (recurringDelete) "Toda a recorrência" else "Excluir",
+                            color = Color(0xFFE5484D),
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteTaskConfirmation = false }) { Text("Cancelar", color = PopMuted) }
@@ -5953,11 +6251,15 @@ private fun TaskAssigneeAvatarStack(
 private fun TaskCard(
     task: PopTask,
     members: List<CompanyMember>,
+    groups: List<CompanyGroup>,
+    sectors: List<CompanySector>,
     showAssigneeAvatars: Boolean,
     isCompleting: Boolean,
     onComplete: () -> Unit,
     onOpen: () -> Unit,
+    onMove: (String, String, String) -> Unit,
 ) {
+    var showMoveMenu by remember(task.id) { mutableStateOf(false) }
     val completedVisual = task.completed || isCompleting
     val isOverdue = isTaskOverdue(task) && !isCompleting
     val isUrgent = task.priority == "Urgente" && !completedVisual
@@ -6126,6 +6428,38 @@ private fun TaskCard(
             if (showAssigneeAvatars && hasVisibleAssignees) {
                 TaskAssigneeAvatarStack(task = task, members = members)
                 Spacer(Modifier.width(8.dp))
+            }
+            Box {
+                IconButton(onClick = { showMoveMenu = true }) {
+                    Icon(
+                        Icons.Rounded.MoreVert,
+                        "Mover atividade",
+                        tint = if (isUrgent) Color.White else PopMuted,
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMoveMenu,
+                    onDismissRequest = { showMoveMenu = false },
+                ) {
+                    groups.forEach { group ->
+                        DropdownMenuItem(
+                            text = { Text("Grupo: ${group.name}") },
+                            onClick = {
+                                onMove("group", group.id, group.name)
+                                showMoveMenu = false
+                            },
+                        )
+                    }
+                    sectors.forEach { sector ->
+                        DropdownMenuItem(
+                            text = { Text("Setor: ${sector.name}") },
+                            onClick = {
+                                onMove("department", sector.id, sector.name)
+                                showMoveMenu = false
+                            },
+                        )
+                    }
+                }
             }
             PriorityPill(task.priority, if (isUrgent) Color.White else null)
         }

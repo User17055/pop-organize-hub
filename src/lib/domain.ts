@@ -194,6 +194,7 @@ export interface Task {
   recurrence?: TaskRecurrence;
   recurrenceParentId?: string;
   recurrenceOccurrence?: number;
+  recurrenceExcludedDates?: string[];
   commentItems?: TaskComment[];
   attachmentItems?: TaskAttachment[];
   subtasks?: TaskSubtask[];

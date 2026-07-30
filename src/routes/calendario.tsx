@@ -8,12 +8,13 @@ import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
 import { getTaskPermissions } from "@/lib/permissions";
-import type { Task } from "@/lib/domain";
+import type { TargetType, Task } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 import { MonthGrid } from "@/components/calendar/month-grid";
 import { DaySheet } from "@/components/calendar/day-sheet";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
+import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialog";
 import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import {
   formatFileSizeMb,
@@ -47,6 +48,8 @@ function CalendarPage() {
   const filters = emptyTaskFilters;
   const [isMounted, setIsMounted] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedOccurrenceDate, setSelectedOccurrenceDate] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [commentBody, setCommentBody] = useState("");
   const [editForm, setEditForm] = useState<TaskEditState>({
     title: "",
@@ -54,6 +57,8 @@ function CalendarPage() {
     priority: "medium",
     dueDate: "",
     tags: "",
+    targetKey: "",
+    responsibleId: "",
     recurrence: {
       frequency: "none",
       interval: "1",
@@ -75,7 +80,10 @@ function CalendarPage() {
     deleteSubtaskMutation,
   } = useTaskMutations({
     onCompleted: () => setSelectedTaskId(null),
-    onDeleted: () => setSelectedTaskId(null),
+    onDeleted: () => {
+      setSelectedTaskId(null);
+      setShowDeleteDialog(false);
+    },
     onCommented: () => setCommentBody(""),
   });
 
@@ -168,6 +176,7 @@ function CalendarPage() {
     const sourceTask = tasks.find((item) => item.id === task.id) ?? task;
     setSelectedDay(null);
     setSelectedTaskId(sourceTask.id);
+    setSelectedOccurrenceDate(task.dueDate);
     setCommentBody("");
     setEditForm({
       title: sourceTask.title,
@@ -175,6 +184,8 @@ function CalendarPage() {
       priority: sourceTask.priority,
       dueDate: sourceTask.dueDate,
       tags: sourceTask.tags.join(", "),
+      targetKey: `${sourceTask.target.type}:${sourceTask.target.id}`,
+      responsibleId: sourceTask.responsibleId,
       recurrence: recurrenceToForm(sourceTask.recurrence, sourceTask.dueDate),
     });
     updateTaskMutation.reset();
@@ -183,12 +194,15 @@ function CalendarPage() {
   function handleEditSubmit(event: FormEvent) {
     event.preventDefault();
     if (!selectedTask) return;
+    const [selectedType, selectedId] = editForm.targetKey.split(":") as [TargetType, string];
     updateTaskMutation.mutate({
       id: selectedTask.id,
       title: editForm.title,
       description: editForm.description,
       priority: editForm.priority,
       dueDate: editForm.dueDate,
+      target: { type: selectedType, id: selectedId },
+      responsibleId: editForm.responsibleId,
       tags: editForm.tags
         .split(",")
         .map((tag) => tag.trim())
@@ -199,11 +213,7 @@ function CalendarPage() {
 
   function handleDeleteSelectedTask() {
     if (!selectedTask) return;
-    const confirmed = window.confirm(
-      `Excluir a tarefa "${selectedTask.title}"? Esta ação não pode ser desfeita.`,
-    );
-    if (!confirmed) return;
-    deleteTaskMutation.mutate({ id: selectedTask.id });
+    setShowDeleteDialog(true);
   }
 
   function handleCommentSubmit() {
@@ -256,6 +266,8 @@ function CalendarPage() {
                 permissions={selectedPermissions}
                 employees={employees}
                 departments={departments}
+                groups={groups}
+                company={data.company}
                 editForm={editForm}
                 onEditFormChange={setEditForm}
                 onSubmit={handleEditSubmit}
@@ -372,6 +384,22 @@ function CalendarPage() {
       />
 
       {taskDetailLayer}
+
+      <RecurringDeleteDialog
+        task={selectedTask ?? null}
+        occurrenceDate={selectedOccurrenceDate ?? selectedTask?.dueDate}
+        open={showDeleteDialog}
+        pending={deleteTaskMutation.isPending}
+        onClose={() => setShowDeleteDialog(false)}
+        onConfirm={(scope) => {
+          if (!selectedTask) return;
+          deleteTaskMutation.mutate({
+            id: selectedTask.id,
+            scope,
+            occurrenceDate: selectedOccurrenceDate ?? selectedTask.dueDate,
+          });
+        }}
+      />
     </AppShell>
   );
 }

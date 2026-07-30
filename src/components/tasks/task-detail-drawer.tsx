@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
+  Building2,
   Calendar,
   Check,
+  ChevronDown,
   FileText,
   Flag,
   MessageSquare,
@@ -12,11 +14,20 @@ import {
   Tag,
   Target,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusBadge, PriorityBadge } from "@/components/app-shell";
-import type { Department, Employee, Priority, Task } from "@/lib/domain";
+import type {
+  Company,
+  Department,
+  Employee,
+  Group,
+  Priority,
+  TargetType,
+  Task,
+} from "@/lib/domain";
 import { priorityLabels } from "@/lib/domain";
 import type { TaskPermissions } from "@/lib/permissions";
 import { EmployeeAvatar } from "./employee-avatar";
@@ -37,6 +48,8 @@ export function TaskDetailDrawer({
   permissions,
   employees,
   departments,
+  groups,
+  company,
   editForm,
   onEditFormChange,
   onSubmit,
@@ -63,6 +76,8 @@ export function TaskDetailDrawer({
   permissions: TaskPermissions;
   employees: Employee[];
   departments: Department[];
+  groups: Group[];
+  company: Company;
   editForm: TaskEditState;
   onEditFormChange: (updater: (current: TaskEditState) => TaskEditState) => void;
   onSubmit: (event: FormEvent) => void;
@@ -87,7 +102,29 @@ export function TaskDetailDrawer({
 }) {
   const getEmployee = (id?: string) => employees.find((employee) => employee.id === id);
   const [isCelebrating, setIsCelebrating] = useState(false);
+  const [destinationOpen, setDestinationOpen] = useState(false);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selectedTargetType] = editForm.targetKey.split(":") as [TargetType, string];
+  const destinationOptions =
+    selectedTargetType === "company"
+      ? [{ id: company.id, label: company.name, description: "Toda a empresa" }]
+      : selectedTargetType === "department"
+        ? departments.map((department) => ({
+            id: department.id,
+            label: department.name,
+            description: department.description,
+          }))
+        : selectedTargetType === "group"
+          ? groups.map((group) => ({
+              id: group.id,
+              label: group.name,
+              description: group.description,
+            }))
+          : employees.map((employee) => ({
+              id: employee.id,
+              label: employee.name,
+              description: employee.role,
+            }));
 
   useEffect(
     () => () => {
@@ -196,9 +233,9 @@ export function TaskDetailDrawer({
             onChange={(e) =>
               onEditFormChange((current) => ({ ...current, description: e.target.value }))
             }
-            rows={3}
+            rows={8}
             placeholder="Adicionar uma nota..."
-            className="w-full px-3.5 py-3 rounded-md bg-muted/30 border border-border/60 outline-none focus:border-primary focus:bg-background text-xs resize-none disabled:opacity-60 transition leading-relaxed"
+            className="min-h-[240px] w-full resize-y rounded-md border border-border/60 bg-muted/30 px-4 py-3.5 text-sm leading-relaxed outline-none transition focus:border-primary focus:bg-background disabled:opacity-60"
             required
           />
         </div>
@@ -301,7 +338,12 @@ export function TaskDetailDrawer({
             </div>
 
             {/* Target */}
-            <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
+            <button
+              type="button"
+              disabled={!permissions.canEditContent}
+              onClick={() => setDestinationOpen((current) => !current)}
+              className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 text-left transition hover:bg-muted/45 disabled:cursor-default sm:col-span-1"
+            >
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-accent/50 text-accent-foreground">
                 <Target className="h-4 w-4" />
               </div>
@@ -310,10 +352,19 @@ export function TaskDetailDrawer({
                   Visível para
                 </div>
                 <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
-                  {taskTargetLabel(task.target)}
+                  {editForm.targetKey === `${task.target.type}:${task.target.id}`
+                    ? taskTargetLabel(task.target)
+                    : (destinationOptions.find(
+                        (option) => editForm.targetKey === `${selectedTargetType}:${option.id}`,
+                      )?.label ?? taskTargetLabel(task.target))}
                 </div>
               </div>
-            </div>
+              {permissions.canEditContent && (
+                <ChevronDown
+                  className={cn("h-4 w-4 transition-transform", destinationOpen && "rotate-180")}
+                />
+              )}
+            </button>
 
             {/* Responsible */}
             <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
@@ -325,10 +376,27 @@ export function TaskDetailDrawer({
                 <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
                   Responsável
                 </div>
-                <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
-                  {getEmployee(task.responsibleId)?.name ??
-                    (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
-                </div>
+                {permissions.canEditContent ? (
+                  <GlassSelect
+                    value={editForm.responsibleId}
+                    options={[
+                      { value: "", label: "Sem responsável" },
+                      ...employees.map((employee) => ({
+                        value: employee.id,
+                        label: employee.name,
+                      })),
+                    ]}
+                    onChange={(responsibleId) =>
+                      onEditFormChange((current) => ({ ...current, responsibleId }))
+                    }
+                    compact
+                  />
+                ) : (
+                  <div className="mt-0.5 truncate text-xs font-semibold text-foreground">
+                    {getEmployee(task.responsibleId)?.name ??
+                      (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -347,6 +415,78 @@ export function TaskDetailDrawer({
               </div>
             )}
           </div>
+
+          {permissions.canEditContent && destinationOpen && (
+            <div className="mt-2 rounded-[18px] border border-primary/15 bg-primary/[0.035] p-3.5">
+              <div className="mb-3 flex flex-wrap gap-2">
+                {(
+                  [
+                    ["company", "Empresa", Building2],
+                    ["department", "Setores", Target],
+                    ["group", "Grupos", Users],
+                    ["user", "Pessoas", Users],
+                  ] as const
+                ).map(([type, label, Icon]) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => {
+                      const firstId =
+                        type === "company"
+                          ? company.id
+                          : type === "department"
+                            ? departments[0]?.id
+                            : type === "group"
+                              ? groups[0]?.id
+                              : employees[0]?.id;
+                      if (!firstId) return;
+                      onEditFormChange((current) => ({
+                        ...current,
+                        targetKey: `${type}:${firstId}`,
+                      }));
+                    }}
+                    className={cn(
+                      "inline-flex h-9 items-center gap-2 rounded-full border px-3 text-xs font-bold transition",
+                      selectedTargetType === type
+                        ? "border-primary/25 bg-primary/12 text-primary"
+                        : "border-border/70 bg-background/70 text-foreground/65 hover:text-primary",
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {destinationOptions.map((option) => {
+                  const selected = editForm.targetKey === `${selectedTargetType}:${option.id}`;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() =>
+                        onEditFormChange((current) => ({
+                          ...current,
+                          targetKey: `${selectedTargetType}:${option.id}`,
+                        }))
+                      }
+                      className={cn(
+                        "rounded-[14px] border p-3 text-left transition",
+                        selected
+                          ? "border-primary/30 bg-primary/10"
+                          : "border-border/65 bg-background/70 hover:border-primary/25",
+                      )}
+                    >
+                      <div className="truncate text-xs font-bold">{option.label}</div>
+                      <div className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">
+                        {option.description || "Sem descrição"}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {permissions.canEditContent && editForm.recurrence.frequency !== "none" && (
             <div className="mt-2 rounded-[14px] bg-muted/28 p-3">

@@ -301,6 +301,7 @@ function TasksPage() {
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
   const currentUserIsAdmin = isAdminUser({ currentUser, employees });
   const isPersonalWorkspace = company.kind === "personal";
+  const showResponsible = canSeePeopleContext && !isPersonalWorkspace;
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
   const selectedPermissions = selectedTask
     ? getTaskPermissions({
@@ -820,7 +821,7 @@ function TasksPage() {
                   groups={groups}
                   permissionGroups={data.permissionGroups}
                   currentUser={currentUser}
-                  showResponsible={canSeePeopleContext}
+                  showResponsible={showResponsible}
                   selectedTaskId={selectedTaskId}
                   onOpen={openTask}
                   onComplete={(task) => statusMutation.mutate({ id: task.id, status: "completed" })}
@@ -906,10 +907,10 @@ function TasksPage() {
                     <div
                       className={cn(
                         "mt-3 flex items-center gap-3 text-[11px] text-muted-foreground",
-                        canSeePeopleContext ? "justify-between" : "justify-end",
+                        showResponsible ? "justify-between" : "justify-end",
                       )}
                     >
-                      {canSeePeopleContext && (
+                      {showResponsible && (
                         <span className="truncate">
                           {emp?.name ?? (task.target.type === "department" ? "Setor inteiro" : "")}
                         </span>

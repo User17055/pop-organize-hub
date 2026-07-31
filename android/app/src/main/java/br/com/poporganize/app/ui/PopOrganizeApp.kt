@@ -38,7 +38,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +65,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
@@ -139,11 +142,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -4024,6 +4029,7 @@ private fun TasksScreen(
     val createTaskSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val taskDetailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val taskDateSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val taskListState = rememberLazyListState()
     val taskTimePickerState = rememberTimePickerState(initialHour = 9, initialMinute = 0, is24Hour = true)
     val newTaskTitleFocusRequester = remember { FocusRequester() }
     val taskActionScope = rememberCoroutineScope()
@@ -4210,6 +4216,25 @@ private fun TasksScreen(
             delay(90)
             movingTaskId = null
         }
+    }
+
+    fun moveTaskOneStep(taskId: Int, direction: Int): Boolean {
+        val visibleIndex = displayedPendingTasks.indexOfFirst { it.id == taskId }
+        if (visibleIndex < 0) return false
+        val targetIndex = visibleIndex + direction
+        val target = displayedPendingTasks.getOrNull(targetIndex) ?: return false
+        val sourceIndex = tasks.indexOfFirst { it.id == taskId }
+        if (sourceIndex < 0) return false
+        val source = tasks.removeAt(sourceIndex)
+        val targetSourceIndex = tasks.indexOfFirst { it.id == target.id }
+        if (targetSourceIndex < 0) {
+            tasks.add(sourceIndex.coerceAtMost(tasks.size), source)
+            return false
+        }
+        val insertionIndex =
+            if (direction < 0) targetSourceIndex else (targetSourceIndex + 1).coerceAtMost(tasks.size)
+        tasks.add(insertionIndex, source)
+        return true
     }
 
     fun openTask(task: PopTask) {
@@ -4454,7 +4479,10 @@ private fun TasksScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(contentPadding = PaddingValues(bottom = 92.dp)) {
+        LazyColumn(
+            state = taskListState,
+            contentPadding = PaddingValues(bottom = 92.dp),
+        ) {
             item {
                 WorkSpaceHeader(
                     subtitle = if (workSpace == WorkSpace.Personal) "Tarefas pessoais • só você pode visualizar" else "Tarefas e prioridades da empresa",
@@ -4514,7 +4542,7 @@ private fun TasksScreen(
                             Icon(Icons.Rounded.TaskAlt, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                "Agora toque na tarefa abaixo da qual deseja posicionar.",
+                                "Continue segurando e arraste para cima ou para baixo.",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f),
@@ -4534,7 +4562,13 @@ private fun TasksScreen(
                     label = "taskSlotHeight",
                 )
                 Column {
-                    Box(Modifier.fillMaxWidth().height(taskSlotHeight).clipToBounds().padding(horizontal = 26.dp, vertical = 6.dp)) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(taskSlotHeight)
+                            .clipToBounds()
+                            .padding(horizontal = 26.dp, vertical = 6.dp),
+                    ) {
                         TaskCard(
                             task = task,
                             members = companyMembers,
@@ -4545,17 +4579,13 @@ private fun TasksScreen(
                             isMoving = movingTaskId == task.id,
                             isReorderSelected = reorderTaskId == task.id,
                             onComplete = { toggleTask(task) },
-                            onOpen = {
-                                val source = tasks.firstOrNull { it.id == reorderTaskId }
-                                if (source != null && source.id != task.id) {
-                                    reorderTask(source, task, placeAfter = true)
-                                } else if (source?.id == task.id) {
-                                    reorderTaskId = null
-                                } else {
-                                    openTask(task)
-                                }
-                            },
+                            onOpen = { openTask(task) },
                             onReorderStart = { reorderTaskId = task.id },
+                            onReorderStep = { direction -> moveTaskOneStep(task.id, direction) },
+                            onReorderEnd = { reorderTaskId = null },
+                            onAutoScroll = { amount ->
+                                taskActionScope.launch { taskListState.scrollBy(amount) }
+                            },
                         )
                     }
                 }
@@ -4605,17 +4635,12 @@ private fun TasksScreen(
                                             isMoving = movingTaskId == task.id,
                                             isReorderSelected = reorderTaskId == task.id,
                                             onComplete = { toggleTask(task) },
-                                            onOpen = {
-                                                val source = tasks.firstOrNull { it.id == reorderTaskId }
-                                                if (source != null && source.id != task.id) {
-                                                    reorderTask(source, task, placeAfter = true)
-                                                } else if (source?.id == task.id) {
-                                                    reorderTaskId = null
-                                                } else {
-                                                    openTask(task)
-                                                }
-                                            },
-                                            onReorderStart = { reorderTaskId = task.id },
+                                            onOpen = { openTask(task) },
+                                            onReorderStart = {},
+                                            onReorderStep = { false },
+                                            onReorderEnd = {},
+                                            onAutoScroll = {},
+                                            reorderEnabled = false,
                                         )
                                     }
                                 }
@@ -6444,9 +6469,17 @@ private fun TaskCard(
     onComplete: () -> Unit,
     onOpen: () -> Unit,
     onReorderStart: () -> Unit,
+    onReorderStep: (direction: Int) -> Boolean,
+    onReorderEnd: () -> Unit,
+    onAutoScroll: (amount: Float) -> Unit,
+    reorderEnabled: Boolean = true,
 ) {
     val hapticFeedback = LocalHapticFeedback.current
+    val currentOnReorderStep by rememberUpdatedState(onReorderStep)
+    val currentOnReorderEnd by rememberUpdatedState(onReorderEnd)
+    val currentOnAutoScroll by rememberUpdatedState(onAutoScroll)
     var suppressTap by remember(task.id) { mutableStateOf(false) }
+    var dragTranslationY by remember(task.id) { mutableFloatStateOf(0f) }
     val completedVisual = task.completed || isCompleting
     val isOverdue = isTaskOverdue(task) && !isCompleting
     val isUrgent = task.priority == "Urgente" && !completedVisual
@@ -6508,6 +6541,10 @@ private fun TaskCard(
                 detectTapGestures(
                     onPress = {
                         suppressTap = false
+                        if (!reorderEnabled) {
+                            tryAwaitRelease()
+                            return@detectTapGestures
+                        }
                         coroutineScope {
                             val activation = launch {
                                 delay(2_000)
@@ -6515,8 +6552,9 @@ private fun TaskCard(
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onReorderStart()
                             }
-                            tryAwaitRelease()
+                            val released = tryAwaitRelease()
                             activation.cancel()
+                            if (released && suppressTap) currentOnReorderEnd()
                         }
                     },
                     onTap = {
@@ -6524,10 +6562,46 @@ private fun TaskCard(
                     },
                 )
             }
+            .pointerInput(task.id, reorderEnabled) {
+                if (!reorderEnabled) return@pointerInput
+                detectDragGestures(
+                    onDragEnd = {
+                        if (suppressTap) currentOnReorderEnd()
+                        dragTranslationY = 0f
+                        suppressTap = false
+                    },
+                    onDragCancel = {
+                        if (suppressTap) currentOnReorderEnd()
+                        dragTranslationY = 0f
+                        suppressTap = false
+                    },
+                    onDrag = { change, dragAmount ->
+                        if (!suppressTap) return@detectDragGestures
+                        change.consume()
+                        dragTranslationY += dragAmount.y
+                        val stepThreshold = size.height * .58f
+                        when {
+                            dragTranslationY <= -stepThreshold -> {
+                                if (currentOnReorderStep(-1)) dragTranslationY += stepThreshold
+                                else dragTranslationY = -stepThreshold
+                            }
+                            dragTranslationY >= stepThreshold -> {
+                                if (currentOnReorderStep(1)) dragTranslationY -= stepThreshold
+                                else dragTranslationY = stepThreshold
+                            }
+                        }
+                        when {
+                            change.position.y < 0f -> currentOnAutoScroll(-22f)
+                            change.position.y > size.height -> currentOnAutoScroll(22f)
+                        }
+                    },
+                )
+            }
             .graphicsLayer {
                 scaleX = cardScale - (.025f * moveProgress) - if (isReorderSelected) .02f else 0f
                 scaleY = cardScale - (.025f * moveProgress) - if (isReorderSelected) .02f else 0f
                 translationX = (-34f * completionProgress) + (34f * moveProgress)
+                translationY = dragTranslationY
                 alpha =
                     (1f - completionProgress) *
                         (1f - (.68f * moveProgress)) *

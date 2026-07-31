@@ -12,7 +12,7 @@ import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { PENDING_TASK_KEY } from "@/components/notifications-menu";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
-import type { PermissionKey, TargetType, Task, TaskStatus } from "@/lib/domain";
+import type { PermissionKey, TargetType, Task, TaskStatus, WorkspaceData } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import {
@@ -64,6 +64,33 @@ const statusFilters: Array<{ key: TaskStatus | "all"; label: string }> = [
   { key: "reopened", label: "Reabertas" },
 ];
 
+type TaskScope = "department" | "group" | "company" | "all";
+
+const adminScopeFilters: Array<{ key: TaskScope; label: string }> = [
+  { key: "department", label: "Setor" },
+  { key: "group", label: "Grupo" },
+  { key: "company", label: "Geral" },
+  { key: "all", label: "Todas" },
+];
+
+function taskMatchesAdminScope(task: Task, scope: TaskScope, data: WorkspaceData) {
+  if (scope === "all") return true;
+  if (scope === "company") return task.target.type === "company";
+
+  const currentEmployee = data.employees.find((employee) => employee.id === data.currentUser.id);
+  if (!currentEmployee) return false;
+  if (scope === "department") {
+    return task.target.type === "department" && task.target.id === currentEmployee.departmentId;
+  }
+
+  const currentGroupIds = new Set(
+    data.groups
+      .filter((group) => group.memberIds.includes(currentEmployee.id))
+      .map((group) => group.id),
+  );
+  return task.target.type === "group" && currentGroupIds.has(task.target.id);
+}
+
 type TaskLayoutPreferences = {
   layoutMode: "list" | "department";
   titleWidth: number;
@@ -81,6 +108,7 @@ const defaultLayoutPreferences: TaskLayoutPreferences = {
 function TasksPage() {
   const { data, isLoading, error } = useWorkspaceData();
   const [active, setActive] = useState<TaskStatus | "all">("all");
+  const [taskScope, setTaskScope] = useState<TaskScope>("all");
   const [search, setSearch] = useState("");
   const filters = emptyTaskFilters;
   const [isMounted, setIsMounted] = useState(false);
@@ -207,10 +235,11 @@ function TasksPage() {
           (normalizedSearch === "" ||
             t.title.toLowerCase().includes(normalizedSearch) ||
             t.description.toLowerCase().includes(normalizedSearch)) &&
+          (!data || taskMatchesAdminScope(t, taskScope, data)) &&
           (!data ||
             taskMatchesFilters(t, filters, { employees: data.employees, groups: data.groups })),
       ),
-    [active, normalizedSearch, taskRows, filters, data],
+    [active, normalizedSearch, taskRows, taskScope, filters, data],
   );
   const completedTasks = useMemo(
     () =>
@@ -219,9 +248,10 @@ function TasksPage() {
           task.status === "completed" &&
           (normalizedSearch === "" ||
             task.title.toLowerCase().includes(normalizedSearch) ||
-            task.description.toLowerCase().includes(normalizedSearch)),
+            task.description.toLowerCase().includes(normalizedSearch)) &&
+          (!data || taskMatchesAdminScope(task, taskScope, data)),
       ),
-    [normalizedSearch, taskRows],
+    [normalizedSearch, taskRows, taskScope, data],
   );
 
   if (isLoading) {
@@ -252,6 +282,7 @@ function TasksPage() {
       hasPermission(permissionSet, key),
     );
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
+  const currentUserIsAdmin = isAdminUser({ currentUser, employees });
   const isPersonalWorkspace = company.kind === "personal";
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
   const selectedPermissions = selectedTask
@@ -592,6 +623,35 @@ function TasksPage() {
           );
         })}
       </div>
+
+      {currentUserIsAdmin && !isPersonalWorkspace && (
+        <div className="mobile-horizontal-scroll mb-5 flex gap-2 overflow-x-auto pb-1">
+          {adminScopeFilters.map((filter) => {
+            const count = activeTaskRows.filter((task) =>
+              taskMatchesAdminScope(task, filter.key, data),
+            ).length;
+            const isActive = taskScope === filter.key;
+            return (
+              <button
+                key={filter.key}
+                type="button"
+                onClick={() => setTaskScope(filter.key)}
+                className={cn(
+                  "pressable inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-all",
+                  isActive
+                    ? "border border-primary/18 bg-primary/10 text-primary"
+                    : "task-glass-control text-foreground/70 hover:border-primary/50 hover:text-primary",
+                )}
+              >
+                {filter.label}
+                <span className="rounded-md bg-white/60 px-1.5 text-[11px] text-primary">
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">

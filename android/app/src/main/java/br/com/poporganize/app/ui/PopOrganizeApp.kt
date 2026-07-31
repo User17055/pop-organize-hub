@@ -4054,6 +4054,19 @@ private fun TasksScreen(
                     ) &&
                     (it.isOwner || it.role.contains("admin", ignoreCase = true))
             }
+    val currentCompanyMember = companyMembers.firstOrNull {
+        it.id.equals(currentUserId, ignoreCase = true) ||
+            it.name.equals(currentUserName, ignoreCase = true)
+    }
+    val currentMemberGroupIds = buildSet {
+        addAll(currentCompanyMember?.groupIds.orEmpty())
+        companyGroups
+            .filter { group ->
+                currentCompanyMember != null &&
+                    group.memberIds.any { it.equals(currentCompanyMember.id, ignoreCase = true) }
+            }
+            .forEach { add(it.id) }
+    }
     fun canCompleteTask(task: PopTask): Boolean = task.canComplete
     fun canEditTask(task: PopTask): Boolean = task.canEdit
 
@@ -4068,7 +4081,11 @@ private fun TasksScreen(
         if (!canCreateTask) showCreate = false
     }
 
-    val taskFilters = listOf("Hoje", "Atrasadas", "Próximas")
+    val taskFilters = if (isTaskAdmin && workSpace == WorkSpace.Company) {
+        listOf("Hoje", "Atrasadas", "Próximas", "Setor", "Grupo", "Geral", "Todas")
+    } else {
+        listOf("Hoje", "Atrasadas", "Próximas")
+    }
 
     LaunchedEffect(workSpace, isTaskAdmin) {
         if (selectedFilter !in taskFilters) {
@@ -4095,6 +4112,23 @@ private fun TasksScreen(
                     !task.completed &&
                         dueDate != null &&
                         dueDate > today
+                "Setor" ->
+                    task.assignmentType == "department" &&
+                        currentCompanyMember != null &&
+                        (
+                            currentCompanyMember.sectorId.isNotBlank() &&
+                                task.assignmentTargetId == currentCompanyMember.sectorId ||
+                                currentCompanyMember.sector.isNotBlank() &&
+                                task.assignmentTargetLabel.equals(
+                                    currentCompanyMember.sector,
+                                    ignoreCase = true,
+                                )
+                            )
+                "Grupo" ->
+                    task.assignmentType == "group" &&
+                        task.assignmentTargetId in currentMemberGroupIds
+                "Geral" -> task.assignmentType == "company"
+                "Todas" -> true
                 else -> true
             }
         }
@@ -7169,6 +7203,8 @@ private fun MoreScreen(
                     companyName = companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
                     tasks = tasks,
                     companyMembers = companyMembers,
+                    companySectors = companySectors,
+                    companyGroups = companyGroups,
                     currentUserEmail = googleAccount?.email.orEmpty(),
                     currentUserPhotoUrl = googleAccount?.photoUrl.orEmpty(),
                     onBack = { activeManagementPage = null },
@@ -7918,11 +7954,31 @@ private data class UserReportStats(
     val dueToday: Int,
 )
 
+private data class TargetReportStats(
+    val id: String,
+    val name: String,
+    val total: Int,
+    val completed: Int,
+    val unassigned: Int,
+)
+
+private fun PopTask.hasResponsible(): Boolean =
+    assignees.any { it.isNotBlank() && !it.equals("Sem responsável", ignoreCase = true) } ||
+        assignee
+            .split(",")
+            .any { it.trim().isNotBlank() && !it.trim().equals("Sem responsável", ignoreCase = true) }
+
+private fun PopTask.isAssignedTo(memberName: String): Boolean =
+    assignees.any { it.equals(memberName, ignoreCase = true) } ||
+        assignee.split(",").any { it.trim().equals(memberName, ignoreCase = true) }
+
 @Composable
 private fun MobileReportsPage(
     companyName: String,
     tasks: List<PopTask>,
     companyMembers: List<CompanyMember>,
+    companySectors: List<CompanySector>,
+    companyGroups: List<CompanyGroup>,
     currentUserEmail: String,
     currentUserPhotoUrl: String,
     onBack: () -> Unit,
@@ -7941,12 +7997,38 @@ private fun MobileReportsPage(
     val dueToday = reportTasks.count { task ->
         !task.completed && runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == today
     }
+    val assigned = reportTasks.count { it.hasResponsible() }
+    val unassigned = reportTasks.size - assigned
+    val sectorStats = companySectors.map { sector ->
+        val sectorTasks = reportTasks.filter {
+            it.assignmentType == "department" &&
+                (it.assignmentTargetId == sector.id || it.assignmentTargetLabel == sector.name)
+        }
+        TargetReportStats(
+            id = sector.id,
+            name = sector.name,
+            total = sectorTasks.size,
+            completed = sectorTasks.count { it.completed },
+            unassigned = sectorTasks.count { !it.hasResponsible() },
+        )
+    }.sortedByDescending { it.total }
+    val groupStats = companyGroups.map { group ->
+        val groupTasks = reportTasks.filter {
+            it.assignmentType == "group" &&
+                (it.assignmentTargetId == group.id || it.assignmentTargetLabel == group.name)
+        }
+        TargetReportStats(
+            id = group.id,
+            name = group.name,
+            total = groupTasks.size,
+            completed = groupTasks.count { it.completed },
+            unassigned = groupTasks.count { !it.hasResponsible() },
+        )
+    }.sortedByDescending { it.total }
     val userStats = companyMembers
         .filterNot { it.pending }
         .map { member ->
-            val memberTasks = reportTasks.filter {
-                it.assignee.equals(member.name, ignoreCase = true)
-            }
+            val memberTasks = reportTasks.filter { it.isAssignedTo(member.name) }
             UserReportStats(
                 member = member,
                 total = memberTasks.size,
@@ -8109,6 +8191,67 @@ private fun MobileReportsPage(
 
         item {
             Column(Modifier.padding(top = 10.dp, bottom = 2.dp)) {
+                Text("Por setor", color = PopText, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Todas as atividades destinadas a cada setor", color = PopMuted, fontSize = 11.sp)
+            }
+        }
+
+        if (sectorStats.isEmpty()) {
+            item { ReportEmptyState("Nenhum setor cadastrado nesta empresa.") }
+        } else {
+            items(sectorStats, key = { "sector-${it.id.ifBlank { it.name }}" }) { stats ->
+                TargetReportCard(stats = stats, icon = Icons.Rounded.AccountTree)
+            }
+        }
+
+        item {
+            Column(Modifier.padding(top = 10.dp, bottom = 2.dp)) {
+                Text("Por grupo", color = PopText, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Todas as atividades destinadas a cada grupo", color = PopMuted, fontSize = 11.sp)
+            }
+        }
+
+        if (groupStats.isEmpty()) {
+            item { ReportEmptyState("Nenhum grupo cadastrado nesta empresa.") }
+        } else {
+            items(groupStats, key = { "group-${it.id.ifBlank { it.name }}" }) { stats ->
+                TargetReportCard(stats = stats, icon = Icons.Rounded.Groups)
+            }
+        }
+
+        item {
+            Column(Modifier.padding(top = 10.dp, bottom = 2.dp)) {
+                Text("Responsabilidade", color = PopText, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Quem está responsável e o que ainda está sem responsável", color = PopMuted, fontSize = 11.sp)
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(126.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                MetricCard(
+                    label = "Com responsável",
+                    value = assigned,
+                    total = reportTasks.size,
+                    tint = Color(0xFF2EAF6D),
+                    showProgress = true,
+                    modifier = Modifier.weight(1f),
+                )
+                MetricCard(
+                    label = "Sem responsável",
+                    value = unassigned,
+                    total = reportTasks.size,
+                    tint = Color(0xFFE49A28),
+                    showProgress = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        item {
+            Column(Modifier.padding(top = 10.dp, bottom = 2.dp)) {
                 Text(
                     "Por usuário",
                     color = PopText,
@@ -8147,6 +8290,69 @@ private fun MobileReportsPage(
                     onClick = { openTaskList("Todas", stats.member) },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ReportEmptyState(message: String) {
+    Surface(
+        color = PopSurfaceAlt,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(message, color = PopMuted, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+    }
+}
+
+@Composable
+private fun TargetReportCard(stats: TargetReportStats, icon: ImageVector) {
+    val rate = if (stats.total == 0) 0f else stats.completed.toFloat() / stats.total
+    Surface(
+        color = PopSurface,
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, PopBorder.copy(alpha = .7f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(15.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier.size(40.dp).background(PopBlueSoft, RoundedCornerShape(13.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(icon, null, tint = PopBlue, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stats.name,
+                        color = PopText,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "${stats.completed} concluídas • ${stats.unassigned} sem responsável",
+                        color = PopMuted,
+                        fontSize = 10.sp,
+                    )
+                }
+                Text(
+                    "${stats.total} total",
+                    color = PopBlue,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            LinearProgressIndicator(
+                progress = { rate },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                color = Color(0xFF2EAF6D),
+                trackColor = PopBorder.copy(alpha = .45f),
+                drawStopIndicator = {},
+            )
         }
     }
 }
@@ -8259,7 +8465,7 @@ private fun ReportTasksPage(
     val scopedTasks = if (member == null) {
         tasks
     } else {
-        tasks.filter { it.assignee.equals(member.name, ignoreCase = true) }
+        tasks.filter { it.isAssignedTo(member.name) }
     }
     val filters = listOf("Todas", "Concluídas", "Pendentes", "Atrasadas", "Hoje")
     val filteredTasks = scopedTasks

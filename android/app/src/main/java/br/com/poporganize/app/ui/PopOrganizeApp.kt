@@ -4535,7 +4535,7 @@ private fun TasksScreen(
                         TaskCard(
                             task = task,
                             members = companyMembers,
-                            showAssigneeAvatars = false,
+                            showAssigneeAvatars = task.assignmentType in setOf("department", "group"),
                             isCompleting = isCompleting,
                             isMoving = movingTaskId == task.id,
                             isReorderSelected = reorderTaskId == task.id,
@@ -4593,7 +4593,7 @@ private fun TasksScreen(
                                         TaskCard(
                                             task = task,
                                             members = companyMembers,
-                                            showAssigneeAvatars = false,
+                                            showAssigneeAvatars = task.assignmentType in setOf("department", "group"),
                                             isCompleting = false,
                                             isMoving = movingTaskId == task.id,
                                             isReorderSelected = reorderTaskId == task.id,
@@ -8190,33 +8190,23 @@ private fun MobileReportsPage(
         }
 
         item {
-            Column(Modifier.padding(top = 10.dp, bottom = 2.dp)) {
-                Text("Por setor", color = PopText, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                Text("Todas as atividades destinadas a cada setor", color = PopMuted, fontSize = 11.sp)
-            }
-        }
-
-        if (sectorStats.isEmpty()) {
-            item { ReportEmptyState("Nenhum setor cadastrado nesta empresa.") }
-        } else {
-            items(sectorStats, key = { "sector-${it.id.ifBlank { it.name }}" }) { stats ->
-                TargetReportCard(stats = stats, icon = Icons.Rounded.AccountTree)
-            }
+            CompactTargetReportSection(
+                title = "Por setor",
+                subtitle = "Atividades organizadas por setor",
+                stats = sectorStats,
+                icon = Icons.Rounded.AccountTree,
+                emptyMessage = "Nenhum setor cadastrado nesta empresa.",
+            )
         }
 
         item {
-            Column(Modifier.padding(top = 10.dp, bottom = 2.dp)) {
-                Text("Por grupo", color = PopText, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                Text("Todas as atividades destinadas a cada grupo", color = PopMuted, fontSize = 11.sp)
-            }
-        }
-
-        if (groupStats.isEmpty()) {
-            item { ReportEmptyState("Nenhum grupo cadastrado nesta empresa.") }
-        } else {
-            items(groupStats, key = { "group-${it.id.ifBlank { it.name }}" }) { stats ->
-                TargetReportCard(stats = stats, icon = Icons.Rounded.Groups)
-            }
+            CompactTargetReportSection(
+                title = "Por grupo",
+                subtitle = "Atividades organizadas por grupo",
+                stats = groupStats,
+                icon = Icons.Rounded.Groups,
+                emptyMessage = "Nenhum grupo cadastrado nesta empresa.",
+            )
         }
 
         item {
@@ -8295,64 +8285,66 @@ private fun MobileReportsPage(
 }
 
 @Composable
-private fun ReportEmptyState(message: String) {
-    Surface(
-        color = PopSurfaceAlt,
-        shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(message, color = PopMuted, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
-    }
-}
-
-@Composable
-private fun TargetReportCard(stats: TargetReportStats, icon: ImageVector) {
-    val rate = if (stats.total == 0) 0f else stats.completed.toFloat() / stats.total
+private fun CompactTargetReportSection(
+    title: String,
+    subtitle: String,
+    stats: List<TargetReportStats>,
+    icon: ImageVector,
+    emptyMessage: String,
+) {
     Surface(
         color = PopSurface,
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, PopBorder.copy(alpha = .7f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(15.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.padding(horizontal = 15.dp, vertical = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
                 Box(
-                    modifier = Modifier.size(40.dp).background(PopBlueSoft, RoundedCornerShape(13.dp)),
+                    modifier = Modifier.size(36.dp).background(PopBlueSoft, RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(icon, null, tint = PopBlue, modifier = Modifier.size(20.dp))
+                    Icon(icon, null, tint = PopBlue, modifier = Modifier.size(18.dp))
                 }
-                Spacer(Modifier.width(11.dp))
+                Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        stats.name,
-                        color = PopText,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        "${stats.completed} concluídas • ${stats.unassigned} sem responsável",
-                        color = PopMuted,
-                        fontSize = 10.sp,
-                    )
+                    Text(title, color = PopText, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(subtitle, color = PopMuted, fontSize = 10.sp)
                 }
-                Text(
-                    "${stats.total} total",
-                    color = PopBlue,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                )
             }
-            Spacer(Modifier.height(12.dp))
-            LinearProgressIndicator(
-                progress = { rate },
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                color = Color(0xFF2EAF6D),
-                trackColor = PopBorder.copy(alpha = .45f),
-                drawStopIndicator = {},
-            )
+            if (stats.isEmpty()) {
+                Text(emptyMessage, color = PopMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 10.dp))
+            } else {
+                stats.forEachIndexed { index, item ->
+                    if (index > 0) HorizontalDivider(color = PopBorder.copy(alpha = .55f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                item.name,
+                                color = PopText,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                "${item.completed} concluídas • ${item.unassigned} sem responsável",
+                                color = PopMuted,
+                                fontSize = 9.sp,
+                            )
+                        }
+                        Text(
+                            item.total.toString(),
+                            color = PopBlue,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                    }
+                }
+            }
         }
     }
 }

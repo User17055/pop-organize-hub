@@ -30,6 +30,7 @@ import {
 } from "../domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "../permission-groups";
 import { getTaskPermissions } from "../permissions";
+import { materializeRecurringTasks } from "../recurrence.server";
 
 const SESSION_COOKIE = "pop_organize_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
@@ -534,6 +535,11 @@ function getNextRecurringDueDate(task: Task) {
 function createNextRecurringTask(db: Database, task: Task) {
   const nextDueDate = getNextRecurringDueDate(task);
   if (!nextDueDate) return;
+  const seriesId = task.recurrenceParentId ?? task.id;
+  const alreadyExists = db.tasks.some(
+    (item) => (item.recurrenceParentId ?? item.id) === seriesId && item.dueDate === nextDueDate,
+  );
+  if (alreadyExists) return;
 
   db.tasks.unshift({
     id: nextId("t", db.tasks),
@@ -545,13 +551,16 @@ function createNextRecurringTask(db: Database, task: Task) {
     createdAt: today(),
     target: task.target,
     responsibleId: task.responsibleId,
+    responsibleIds: task.responsibleIds ? [...task.responsibleIds] : undefined,
+    assignedById: task.assignedById,
+    assignedAt: task.assignedAt,
     reviewerId: task.reviewerId,
     requiresReview: task.requiresReview,
     tags: task.tags,
     comments: 0,
     attachments: 0,
     recurrence: task.recurrence,
-    recurrenceParentId: task.recurrenceParentId ?? task.id,
+    recurrenceParentId: seriesId,
     recurrenceOccurrence: (task.recurrenceOccurrence ?? 1) + 1,
     recurrenceExcludedDates: task.recurrenceExcludedDates,
     subtasks: (task.subtasks ?? []).map((subtask, index) => ({
@@ -605,8 +614,10 @@ function requireAdmin(db: Database, currentUserId: string) {
 }
 
 export const getWorkspaceData = createServerFn({ method: "GET" }).handler(async () => {
-  const { platform, account, workspace } = await requireSessionContext();
-  return sanitizeDatabase(workspace, account.id, platform.workspaces);
+  return mutateCurrentWorkspace((workspace, currentUserId, platform) => {
+    materializeRecurringTasks(workspace);
+    return sanitizeDatabase(workspace, currentUserId, platform.workspaces);
+  });
 });
 
 const createCompanySchema = z.object({

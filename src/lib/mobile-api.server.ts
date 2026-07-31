@@ -14,6 +14,7 @@ import {
 import { departmentColors, type Task } from "./domain";
 import { hasPermission, resolvePermissionSet } from "./permission-groups";
 import { canViewTask, getTaskPermissions } from "./permissions";
+import { materializeRecurringTasks } from "./recurrence.server";
 
 const MOBILE_SESSION_EXPIRY = "9999-12-31T23:59:59.999Z";
 const NATIVE_SOURCE = "android";
@@ -852,8 +853,7 @@ export async function respondToMobileInvitation(
   });
 }
 
-export async function readMobileTasks(request: Request) {
-  const { workspace, account } = await requireMobileWorkspace(request);
+function visibleMobileTasks(workspace: Database, account: PlatformDatabase["accounts"][number]) {
   const currentUser = workspace.employees.find((employee) => employee.id === account.id);
   if (!currentUser) return [];
   const isAdministrator =
@@ -892,6 +892,21 @@ export async function readMobileTasks(request: Request) {
       return isDirectTask || isDepartmentTask || isGroupTask;
     })
     .map((task) => taskToMobileTask(task, workspace, currentUser));
+}
+
+export async function readMobileTasks(request: Request) {
+  const { workspace: authorizedWorkspace, account } = await requireMobileWorkspace(request);
+  return mutateDatabase((platform) => {
+    const workspace = platform.workspaces.find(
+      (item) => item.company.id === authorizedWorkspace.company.id,
+    );
+    const currentAccount = platform.accounts.find((item) => item.id === account.id);
+    if (!workspace || !currentAccount) {
+      throw Object.assign(new Error("Espaço da conta não encontrado."), { statusCode: 401 });
+    }
+    materializeRecurringTasks(workspace);
+    return visibleMobileTasks(workspace, currentAccount);
+  });
 }
 
 function mobileId(taskId: string) {
@@ -1161,6 +1176,7 @@ export async function replaceMobileTasks(
     const today = new Intl.DateTimeFormat("sv-SE", {
       timeZone: "America/Sao_Paulo",
     }).format(new Date());
+    materializeRecurringTasks(workspace, today);
     let created = 0;
     let updated = 0;
     let deleted = 0;

@@ -4082,7 +4082,7 @@ private fun TasksScreen(
     }
 
     val taskFilters = if (isTaskAdmin && workSpace == WorkSpace.Company) {
-        listOf("Hoje", "Atrasadas", "Próximas", "Setor", "Grupo", "Geral", "Todas")
+        listOf("Hoje", "Atrasadas", "Próximas", "Para mim", "Setor", "Grupo", "Todas")
     } else {
         listOf("Hoje", "Atrasadas", "Próximas")
     }
@@ -4112,6 +4112,15 @@ private fun TasksScreen(
                     !task.completed &&
                         dueDate != null &&
                         dueDate > today
+                "Para mim" ->
+                    (
+                        task.assignmentType == "user" &&
+                            task.assignmentTargetId.equals(currentUserId, ignoreCase = true)
+                        ) ||
+                        task.assignees.any { it.equals(currentUserName, ignoreCase = true) } ||
+                        task.assignee.split(",").any {
+                            it.trim().equals(currentUserName, ignoreCase = true)
+                        }
                 "Setor" ->
                     task.assignmentType == "department" &&
                         currentCompanyMember != null &&
@@ -4127,7 +4136,6 @@ private fun TasksScreen(
                 "Grupo" ->
                     task.assignmentType == "group" &&
                         task.assignmentTargetId in currentMemberGroupIds
-                "Geral" -> task.assignmentType == "company"
                 "Todas" -> true
                 else -> true
             }

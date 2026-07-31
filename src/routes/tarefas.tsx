@@ -64,21 +64,38 @@ const statusFilters: Array<{ key: TaskStatus | "all"; label: string }> = [
   { key: "reopened", label: "Reabertas" },
 ];
 
-type TaskScope = "department" | "group" | "company" | "all";
+type TaskScope = "today" | "overdue" | "upcoming" | "mine" | "department" | "group" | "all";
 
 const adminScopeFilters: Array<{ key: TaskScope; label: string }> = [
+  { key: "today", label: "Hoje" },
+  { key: "overdue", label: "Atrasadas" },
+  { key: "upcoming", label: "Próximas" },
+  { key: "mine", label: "Para mim" },
   { key: "department", label: "Setor" },
   { key: "group", label: "Grupo" },
-  { key: "company", label: "Geral" },
   { key: "all", label: "Todas" },
 ];
 
 function taskMatchesAdminScope(task: Task, scope: TaskScope, data: WorkspaceData) {
   if (scope === "all") return true;
-  if (scope === "company") return task.target.type === "company";
+  const today = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date());
+  if (scope === "today") return task.status !== "completed" && task.dueDate === today;
+  if (scope === "overdue") return task.status !== "completed" && task.dueDate < today;
+  if (scope === "upcoming") return task.status !== "completed" && task.dueDate > today;
 
   const currentEmployee = data.employees.find((employee) => employee.id === data.currentUser.id);
   if (!currentEmployee) return false;
+  if (scope === "mine") {
+    const responsibleIds = new Set(
+      [task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean),
+    );
+    return (
+      responsibleIds.has(currentEmployee.id) ||
+      (task.target.type === "user" && task.target.id === currentEmployee.id)
+    );
+  }
   if (scope === "department") {
     return task.target.type === "department" && task.target.id === currentEmployee.departmentId;
   }

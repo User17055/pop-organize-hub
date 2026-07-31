@@ -4519,7 +4519,7 @@ private fun TasksScreen(
                     }
                 }
             }
-            itemsIndexed(displayedPendingTasks, key = { _, task -> task.id }) { index, task ->
+            itemsIndexed(displayedPendingTasks, key = { _, task -> task.id }) { _, task ->
                 val isCompleting = completingTaskId == task.id
                 val taskSlotHeight by animateDpAsState(
                     targetValue = if (isCompleting) 0.dp else 94.dp,
@@ -4527,18 +4527,6 @@ private fun TasksScreen(
                     label = "taskSlotHeight",
                 )
                 Column {
-                    if (
-                        selectedFilter == "Setor" &&
-                        (index == 0 || displayedPendingTasks[index - 1].department != task.department)
-                    ) {
-                        Text(
-                            task.department.ifBlank { "Sem setor" },
-                            color = PopBlue,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(start = 26.dp, top = 12.dp, bottom = 2.dp),
-                        )
-                    }
                     Box(Modifier.fillMaxWidth().height(taskSlotHeight).clipToBounds().padding(horizontal = 26.dp, vertical = 6.dp)) {
                         TaskCard(
                             task = task,

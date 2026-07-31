@@ -251,7 +251,7 @@ private data class PopTask(
     val dueDate: String = LocalDate.now().toString(),
     val completed: Boolean = false,
     val description: String = "",
-    val assignee: String = "Eu",
+    val assignee: String = "",
     val assignedBy: String = "",
     val createdBy: String = "",
     val recurrence: String = "Não repetir",
@@ -430,7 +430,7 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 dueDate = normalizedDueDate(dueLabel, storedDueDate),
                 completed = item.optBoolean("completed"),
                 description = item.optString("description"),
-                assignee = item.optString("assignee", "Eu"),
+                assignee = item.optString("assignee"),
                 assignedBy = item.optString("assignedBy"),
                 createdBy = item.optString("createdBy"),
                 recurrence = item.optString("recurrence", "Não repetir"),
@@ -4281,7 +4281,7 @@ private fun TasksScreen(
             }.joinToString(" • ")
         }
         val editedAssignees = if (workSpace == WorkSpace.Personal) {
-            listOf("Eu")
+            emptyList()
         } else {
             editAssignee
                 .split(",")
@@ -4375,7 +4375,7 @@ private fun TasksScreen(
                 dueDate = selectedDueDate.toString(),
                 description = newTaskDescription.trim(),
                 assignee = if (workSpace == WorkSpace.Personal) {
-                    "Eu"
+                    ""
                 } else {
                     newTaskResponsibleNames.joinToString(", ").ifBlank { "Sem responsável" }
                 },
@@ -4390,7 +4390,7 @@ private fun TasksScreen(
                         }
                     },
                 assignees =
-                    if (workSpace == WorkSpace.Personal) listOf("Eu") else newTaskResponsibleNames.take(3),
+                    if (workSpace == WorkSpace.Personal) emptyList() else newTaskResponsibleNames.take(3),
                 recurrence = if (newTaskRecurrence == "Não repetir") {
                     newTaskRecurrence
                 } else {
@@ -4538,7 +4538,9 @@ private fun TasksScreen(
                         TaskCard(
                             task = task,
                             members = companyMembers,
-                            showAssigneeAvatars = task.assignmentType in setOf("department", "group"),
+                            showAssigneeAvatars =
+                                workSpace == WorkSpace.Company &&
+                                    task.assignmentType in setOf("department", "group"),
                             isCompleting = isCompleting,
                             isMoving = movingTaskId == task.id,
                             isReorderSelected = reorderTaskId == task.id,
@@ -4596,7 +4598,9 @@ private fun TasksScreen(
                                         TaskCard(
                                             task = task,
                                             members = companyMembers,
-                                            showAssigneeAvatars = task.assignmentType in setOf("department", "group"),
+                                            showAssigneeAvatars =
+                                                workSpace == WorkSpace.Company &&
+                                                    task.assignmentType in setOf("department", "group"),
                                             isCompleting = false,
                                             isMoving = movingTaskId == task.id,
                                             isReorderSelected = reorderTaskId == task.id,
@@ -5971,7 +5975,7 @@ private fun TasksScreen(
                                 dueDate = LocalDate.now().plusDays(newTaskDateOffset.toLong()).toString(),
                                 description = newTaskDescription.trim(),
                                 assignee = if (workSpace == WorkSpace.Personal) {
-                                    "Eu"
+                                    ""
                                 } else {
                                     newTaskAssignee.trim().ifBlank { "Sem responsável" }
                                 },

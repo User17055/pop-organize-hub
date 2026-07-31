@@ -2139,7 +2139,6 @@ private fun PopMainContent(
     var showMoreSheet by remember { mutableStateOf(false) }
     val moreSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var taskToOpenId by remember { mutableStateOf<Int?>(null) }
-    var taskToCreateDate by remember { mutableStateOf<LocalDate?>(null) }
     var workSpace by remember { mutableStateOf(WorkSpace.Personal) }
     var selectedCompanyIndex by remember { mutableIntStateOf(0) }
     var preferredWorkspaceRestored by remember(googleAccount?.id) { mutableStateOf(false) }
@@ -2626,8 +2625,6 @@ private fun PopMainContent(
                         onCreateCompany = ::requestCreateCompany,
                         initialTaskId = taskToOpenId,
                         onInitialTaskOpened = { taskToOpenId = null },
-                        initialCreateDate = taskToCreateDate,
-                        onInitialCreateOpened = { taskToCreateDate = null },
                         onTaskDeleted = { deletedTask ->
                             val account = googleAccount
                             if (account != null && deletedTask.serverId.isNotBlank()) {
@@ -2649,6 +2646,9 @@ private fun PopMainContent(
                     PopDestination.Calendar -> CalendarScreen(
                         tasks = tasks,
                         canCreateTask = canCreateTask,
+                        currentUserId = googleAccount?.id.orEmpty(),
+                        currentUserName = googleAccount?.name.orEmpty(),
+                        workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
                         workSpace = workSpace,
                         onWorkSpaceChange = ::selectWorkSpace,
                         companyNames = companyNames,
@@ -2657,18 +2657,12 @@ private fun PopMainContent(
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
                         onOpenTask = { task ->
-                            taskToCreateDate = null
                             taskToOpenId = null
                             destination = PopDestination.Tasks
                             navigationScope.launch {
                                 delay(240)
                                 taskToOpenId = task.id
                             }
-                        },
-                        onCreateTaskForDate = { date ->
-                            taskToOpenId = null
-                            taskToCreateDate = date
-                            destination = PopDestination.Tasks
                         },
                     )
                     PopDestination.More -> MoreScreen(
@@ -3975,8 +3969,6 @@ private fun TasksScreen(
     onCreateCompany: () -> Unit,
     initialTaskId: Int?,
     onInitialTaskOpened: () -> Unit,
-    initialCreateDate: LocalDate?,
-    onInitialCreateOpened: () -> Unit,
     onTaskDeleted: (PopTask) -> Unit,
 ) {
     val context = LocalContext.current
@@ -4105,16 +4097,6 @@ private fun TasksScreen(
 
     LaunchedEffect(canCreateTask) {
         if (!canCreateTask) showCreate = false
-    }
-
-    LaunchedEffect(initialCreateDate) {
-        val date = initialCreateDate ?: return@LaunchedEffect
-        newTaskDateOffset = ChronoUnit.DAYS.between(LocalDate.now(), date).toInt()
-        taskDateDraft = date
-        taskDateMonth = YearMonth.from(date)
-        showAdvancedOptions = false
-        showCreate = true
-        onInitialCreateOpened()
     }
 
     val taskFilters = if (isTaskAdmin && workSpace == WorkSpace.Company) {
@@ -6866,10 +6848,42 @@ private fun taskPriorityColor(priority: String): Color = when (priority) {
     else -> Color(0xFF159B62)
 }
 
+private fun calendarVisibleTasks(tasks: List<PopTask>): List<PopTask> {
+    val today = LocalDate.now()
+    fun seriesKey(task: PopTask) = listOf(
+        task.title.trim().lowercase(Locale("pt", "BR")),
+        task.assignmentType,
+        task.assignmentTargetId,
+        task.recurrenceRule,
+        task.recurrenceDetail,
+        task.recurrenceInterval.toString(),
+    ).joinToString("|")
+
+    val firstFutureBySeries = tasks
+        .asSequence()
+        .filter { it.recurrenceRule != "Não repetir" }
+        .mapNotNull { task ->
+            val date = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
+            if (date != null && date.isAfter(today)) seriesKey(task) to date else null
+        }
+        .groupBy({ it.first }, { it.second })
+        .mapValues { (_, dates) -> dates.minOrNull() }
+
+    return tasks.filter { task ->
+        if (task.recurrenceRule == "Não repetir") return@filter true
+        val date = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return@filter true
+        !date.isAfter(today) || firstFutureBySeries[seriesKey(task)] == date
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CalendarScreen(
-    tasks: List<PopTask>,
+    tasks: MutableList<PopTask>,
     canCreateTask: Boolean,
+    currentUserId: String,
+    currentUserName: String,
+    workspaceId: String,
     workSpace: WorkSpace,
     onWorkSpaceChange: (WorkSpace) -> Unit,
     companyNames: List<String>,
@@ -6878,13 +6892,17 @@ private fun CalendarScreen(
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
     onOpenTask: (PopTask) -> Unit,
-    onCreateTaskForDate: (LocalDate) -> Unit,
 ) {
     var month by remember { mutableStateOf(YearMonth.now()) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var createDate by remember { mutableStateOf<LocalDate?>(null) }
+    var createTitle by remember { mutableStateOf("") }
+    var createDescription by remember { mutableStateOf("") }
+    var createPriority by remember { mutableStateOf("Média") }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
-    val selectedDayTasks = tasks.filter { task ->
+    val visibleCalendarTasks = calendarVisibleTasks(tasks)
+    val selectedDayTasks = visibleCalendarTasks.filter { task ->
         runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == selectedDate
     }.sortedWith(compareByDescending<PopTask> { it.completed }.thenBy {
         when (it.priority) {
@@ -6935,39 +6953,22 @@ private fun CalendarScreen(
         item {
             CalendarGrid(
                 month = month,
-                tasks = tasks,
+                tasks = visibleCalendarTasks,
                 selectedDate = selectedDate,
                 onDateSelected = { selectedDate = it },
+                onDateDoubleSelected = if (canCreateTask) {
+                    { date ->
+                        selectedDate = date
+                        createDate = date
+                    }
+                } else {
+                    null
+                },
             )
         }
         item {
             Column(Modifier.padding(20.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(selectedDateLabel, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-                        Text(selectedCountLabel, color = PopMuted, fontSize = 11.sp)
-                    }
-                    if (canCreateTask) {
-                        Surface(
-                            onClick = { onCreateTaskForDate(selectedDate) },
-                            color = PopBlueSoft,
-                            contentColor = PopBlue,
-                            shape = RoundedCornerShape(12.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(Icons.Rounded.Add, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(5.dp))
-                                Text("Nova tarefa", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
+                SectionTitle(selectedDateLabel, selectedCountLabel)
                 Spacer(Modifier.height(6.dp))
                 if (selectedDayTasks.isEmpty()) {
                     Text("Nenhuma tarefa para este dia.", color = PopMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
@@ -6990,6 +6991,116 @@ private fun CalendarScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    if (createDate != null && canCreateTask) {
+        ModalBottomSheet(
+            onDismissRequest = { createDate = null },
+            containerColor = PopSurface,
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            dragHandle = null,
+        ) {
+            KeepModalNavigationBarHidden()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Nova tarefa", fontWeight = FontWeight.ExtraBold, fontSize = 19.sp)
+                        Text(
+                            createDate
+                                ?.format(DateTimeFormatter.ofPattern("dd 'de' MMMM", Locale("pt", "BR")))
+                                .orEmpty(),
+                            color = PopBlue,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    IconButton(onClick = { createDate = null }) {
+                        Icon(Icons.Rounded.Close, "Fechar")
+                    }
+                }
+                OutlinedTextField(
+                    value = createTitle,
+                    onValueChange = { createTitle = it },
+                    label = { Text("Título") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = createDescription,
+                    onValueChange = { createDescription = it },
+                    label = { Text("Descrição") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Prioridade", color = PopMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    listOf("Baixa", "Média", "Alta", "Urgente").forEach { priority ->
+                        Surface(
+                            onClick = { createPriority = priority },
+                            color = if (createPriority == priority) PopBlue else PopSurfaceAlt,
+                            contentColor = if (createPriority == priority) Color.White else PopText,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                priority,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(vertical = 10.dp),
+                            )
+                        }
+                    }
+                }
+                Surface(
+                    onClick = {
+                        val date = createDate ?: return@Surface
+                        if (createTitle.trim().length < 3) return@Surface
+                        val companyName = companyNames.getOrElse(selectedCompanyIndex) { "Empresa" }
+                        tasks.add(
+                            0,
+                            PopTask(
+                                id = (tasks.filter { it.id > 0 }.maxOfOrNull { it.id } ?: 0) + 1,
+                                title = createTitle.trim(),
+                                department = if (workSpace == WorkSpace.Personal) "Pessoal" else companyName,
+                                dueLabel = dueLabelForDate(date),
+                                priority = createPriority,
+                                dueDate = date.toString(),
+                                description = createDescription.trim(),
+                                assignedBy = currentUserName,
+                                createdBy = currentUserName,
+                                assignmentType = if (workSpace == WorkSpace.Personal) "user" else "company",
+                                assignmentTargetId = if (workSpace == WorkSpace.Personal) currentUserId else workspaceId,
+                                assignmentTargetLabel = if (workSpace == WorkSpace.Personal) "Eu" else companyName,
+                            ),
+                        )
+                        createTitle = ""
+                        createDescription = ""
+                        createPriority = "Média"
+                        createDate = null
+                    },
+                    color = if (createTitle.trim().length >= 3) PopBlue else PopBorder,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "Criar tarefa",
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(vertical = 14.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
             }
         }
     }
@@ -7113,6 +7224,7 @@ private fun CalendarGrid(
     tasks: List<PopTask>,
     selectedDate: LocalDate,
     onDateSelected: (LocalDate) -> Unit,
+    onDateDoubleSelected: ((LocalDate) -> Unit)? = null,
 ) {
     val firstOffset = month.atDay(1).dayOfWeek.value - 1
     val monthCells = List(firstOffset) { null } + (1..month.lengthOfMonth()).map { it }
@@ -7137,7 +7249,19 @@ private fun CalendarGrid(
                     Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
                         if (day != null) {
                             Box(
-                                Modifier.size(38.dp).clip(CircleShape).clickable { date?.let(onDateSelected) },
+                                Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .pointerInput(date, onDateDoubleSelected) {
+                                        val selectedDay = date ?: return@pointerInput
+                                        detectTapGestures(
+                                            onTap = { onDateSelected(selectedDay) },
+                                            onDoubleTap = {
+                                                onDateDoubleSelected?.invoke(selectedDay)
+                                                    ?: onDateSelected(selectedDay)
+                                            },
+                                        )
+                                    },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Canvas(Modifier.fillMaxSize()) {

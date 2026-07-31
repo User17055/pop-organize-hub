@@ -14,17 +14,21 @@ import { cn } from "@/lib/utils";
 import { MonthGrid } from "@/components/calendar/month-grid";
 import { DaySheet } from "@/components/calendar/day-sheet";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
+import { TaskCreateDrawer } from "@/components/tasks/task-create-drawer";
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
 import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialog";
 import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import {
   formatFileSizeMb,
+  getDefaultDueDate,
+  getDefaultRecurrence,
   recurrenceFromForm,
   recurrenceToForm,
   type TaskEditState,
+  type TaskFormState,
 } from "@/components/tasks/task-form-types";
 import { recurringTaskDatesInRange } from "@/lib/recurrence";
-import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
+import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 
 export const Route = createFileRoute("/calendario")({
   head: () => ({
@@ -50,9 +54,26 @@ function CalendarPage() {
   const filters = emptyTaskFilters;
   const [isMounted, setIsMounted] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedOccurrenceDate, setSelectedOccurrenceDate] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [commentBody, setCommentBody] = useState("");
+  const [createForm, setCreateForm] = useState<TaskFormState>(() => {
+    const dueDate = getDefaultDueDate();
+    return {
+      title: "",
+      description: "",
+      priority: "medium",
+      dueDate,
+      targetKey: "",
+      responsibleId: "",
+      reviewerId: "",
+      requiresReview: false,
+      tags: "",
+      checklist: "",
+      recurrence: getDefaultRecurrence(dueDate),
+    };
+  });
   const [editForm, setEditForm] = useState<TaskEditState>({
     title: "",
     description: "",
@@ -72,6 +93,7 @@ function CalendarPage() {
   });
 
   const {
+    createTaskMutation,
     statusMutation,
     updateTaskMutation,
     deleteTaskMutation,
@@ -81,6 +103,7 @@ function CalendarPage() {
     toggleSubtaskMutation,
     deleteSubtaskMutation,
   } = useTaskMutations({
+    onCreated: () => setShowCreateForm(false),
     onCompleted: () => setSelectedTaskId(null),
     onDeleted: () => {
       setSelectedTaskId(null);
@@ -181,6 +204,73 @@ function CalendarPage() {
     : null;
   const selectedDayKey = selectedDay ? format(selectedDay, "yyyy-MM-dd") : null;
   const dayTasks = selectedDayKey ? (tasksByDay.get(selectedDayKey) ?? []) : [];
+  const company = data.company;
+  const isPersonalWorkspace = company.kind === "personal";
+  const canCreateTask = hasPermission(permissionSet, "tasks.create");
+  const targetOptions = isPersonalWorkspace
+    ? [{ value: `user:${currentUser.id}`, label: "Somente eu" }]
+    : [
+        { value: `company:${company.id}`, label: "Empresa inteira" },
+        ...departments.map((department) => ({
+          value: `department:${department.id}`,
+          label: `Setor: ${department.name}`,
+        })),
+        ...groups.map((group) => ({ value: `group:${group.id}`, label: `Grupo: ${group.name}` })),
+        ...employees.map((employee) => ({
+          value: `user:${employee.id}`,
+          label: `Pessoa: ${employee.name}`,
+        })),
+      ];
+
+  function openCreateTaskForDay(day: Date) {
+    const dueDate = format(day, "yyyy-MM-dd");
+    setCreateForm({
+      title: "",
+      description: "",
+      priority: "medium",
+      dueDate,
+      targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : `company:${company.id}`,
+      responsibleId: "",
+      reviewerId: "",
+      requiresReview: false,
+      tags: "",
+      checklist: "",
+      recurrence: getDefaultRecurrence(dueDate),
+    });
+    createTaskMutation.reset();
+    setSelectedDay(null);
+    setShowCreateForm(true);
+  }
+
+  function handleCreateSubmit(event: FormEvent) {
+    event.preventDefault();
+    const [selectedType, selectedId] = createForm.targetKey.split(":") as [TargetType, string];
+    const type = isPersonalWorkspace ? "user" : selectedType;
+    const id = isPersonalWorkspace ? currentUser.id : selectedId;
+    const responsibleId = type === "user" ? "" : createForm.responsibleId;
+    createTaskMutation.mutate({
+      title: createForm.title,
+      description: createForm.description,
+      priority: createForm.priority,
+      dueDate: createForm.dueDate,
+      target: { type, id },
+      responsibleId,
+      reviewerId:
+        !isPersonalWorkspace && createForm.requiresReview
+          ? createForm.reviewerId || responsibleId || undefined
+          : undefined,
+      requiresReview: !isPersonalWorkspace && createForm.requiresReview,
+      tags: createForm.tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+      checklist: createForm.checklist
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+      recurrence: recurrenceFromForm(createForm.recurrence),
+    });
+  }
 
   function openTask(task: Task) {
     const sourceTask = tasks.find((item) => item.id === task.id) ?? task;
@@ -386,11 +476,30 @@ function CalendarPage() {
           if (!open) setSelectedDay(null);
         }}
         onOpenTask={openTask}
+        onCreateTask={
+          canCreateTask && selectedDay ? () => openCreateTaskForDay(selectedDay) : undefined
+        }
         isTaskAvailable={(task) =>
           tasks.some(
             (sourceTask) => sourceTask.id === task.id && sourceTask.dueDate === task.dueDate,
           )
         }
+      />
+
+      <TaskCreateDrawer
+        open={showCreateForm}
+        onOpenChange={setShowCreateForm}
+        form={createForm}
+        onFormChange={setCreateForm}
+        onSubmit={handleCreateSubmit}
+        isSubmitting={createTaskMutation.isPending}
+        errorMessage={
+          createTaskMutation.error instanceof Error ? createTaskMutation.error.message : null
+        }
+        employees={employees}
+        targetOptions={targetOptions}
+        personalMode={isPersonalWorkspace}
+        canCreateChecklist={isAdminUser({ currentUser, employees })}
       />
 
       {taskDetailLayer}

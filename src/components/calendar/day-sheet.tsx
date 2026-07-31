@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ListChecks, MessageSquare, Paperclip } from "lucide-react";
+import { ListChecks, MessageSquare, Paperclip, Plus } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -19,6 +19,7 @@ export function DaySheet({
   departments,
   onOpenChange,
   onOpenTask,
+  onCreateTask,
   isTaskAvailable = () => true,
 }: {
   day: Date | null;
@@ -27,6 +28,7 @@ export function DaySheet({
   departments: Department[];
   onOpenChange: (open: boolean) => void;
   onOpenTask: (task: Task) => void;
+  onCreateTask?: () => void;
   isTaskAvailable?: (task: Task) => boolean;
 }) {
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
@@ -38,9 +40,21 @@ export function DaySheet({
         className="safe-bottom-bar flex max-h-[78vh] flex-col gap-0 rounded-t-[28px] border-border/70 bg-card/95 p-0 backdrop-blur-2xl sm:left-1/2 sm:max-w-lg sm:-translate-x-1/2"
       >
         <SheetHeader className="border-b border-border/55 px-5 pb-4 pt-5 text-left">
-          <SheetTitle className="font-display text-xl font-bold">
-            {day ? format(day, "d 'de' MMMM", { locale: ptBR }) : ""}
-          </SheetTitle>
+          <div className="flex items-center justify-between gap-3">
+            <SheetTitle className="font-display text-xl font-bold">
+              {day ? format(day, "d 'de' MMMM", { locale: ptBR }) : ""}
+            </SheetTitle>
+            {onCreateTask && (
+              <button
+                type="button"
+                onClick={onCreateTask}
+                className="pressable inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-bold text-primary-foreground"
+              >
+                <Plus className="h-4 w-4" />
+                Nova tarefa
+              </button>
+            )}
+          </div>
           <SheetDescription className="text-sm">
             {tasks.length} {tasks.length === 1 ? "tarefa" : "tarefas"} com vencimento neste dia
           </SheetDescription>

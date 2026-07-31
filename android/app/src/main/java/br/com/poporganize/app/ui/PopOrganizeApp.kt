@@ -159,6 +159,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -4527,33 +4528,6 @@ private fun TasksScreen(
                 }
                 Text("${pendingTasks.size} atividades pendentes", color = PopMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
             }
-            if (reorderTaskId != null) {
-                item {
-                    Surface(
-                        color = PopBlueSoft,
-                        contentColor = PopBlue,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Rounded.TaskAlt, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "Continue segurando e arraste para cima ou para baixo.",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = { reorderTaskId = null }) {
-                                Text("Cancelar", color = PopBlue, fontSize = 10.sp)
-                            }
-                        }
-                    }
-                }
-            }
             itemsIndexed(displayedPendingTasks, key = { _, task -> task.id }) { _, task ->
                 val isCompleting = completingTaskId == task.id
                 val taskSlotHeight by animateDpAsState(
@@ -4562,11 +4536,12 @@ private fun TasksScreen(
                     label = "taskSlotHeight",
                 )
                 Column {
+                    val placementModifier =
+                        if (reorderTaskId == task.id) Modifier.zIndex(10f) else Modifier.animateItem()
                     Box(
-                        Modifier
+                        placementModifier
                             .fillMaxWidth()
                             .height(taskSlotHeight)
-                            .clipToBounds()
                             .padding(horizontal = 26.dp, vertical = 6.dp),
                     ) {
                         TaskCard(
@@ -6547,7 +6522,7 @@ private fun TaskCard(
                         }
                         coroutineScope {
                             val activation = launch {
-                                delay(2_000)
+                                delay(1_500)
                                 suppressTap = true
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onReorderStart()
@@ -6579,14 +6554,15 @@ private fun TaskCard(
                         if (!suppressTap) return@detectDragGestures
                         change.consume()
                         dragTranslationY += dragAmount.y
-                        val stepThreshold = size.height * .58f
+                        val stepThreshold = size.height * .52f
+                        val slotDistance = size.height + 12.dp.toPx()
                         when {
                             dragTranslationY <= -stepThreshold -> {
-                                if (currentOnReorderStep(-1)) dragTranslationY += stepThreshold
+                                if (currentOnReorderStep(-1)) dragTranslationY += slotDistance
                                 else dragTranslationY = -stepThreshold
                             }
                             dragTranslationY >= stepThreshold -> {
-                                if (currentOnReorderStep(1)) dragTranslationY -= stepThreshold
+                                if (currentOnReorderStep(1)) dragTranslationY -= slotDistance
                                 else dragTranslationY = stepThreshold
                             }
                         }
@@ -6598,14 +6574,14 @@ private fun TaskCard(
                 )
             }
             .graphicsLayer {
-                scaleX = cardScale - (.025f * moveProgress) - if (isReorderSelected) .02f else 0f
-                scaleY = cardScale - (.025f * moveProgress) - if (isReorderSelected) .02f else 0f
+                scaleX = cardScale - (.025f * moveProgress)
+                scaleY = cardScale - (.025f * moveProgress)
                 translationX = (-34f * completionProgress) + (34f * moveProgress)
                 translationY = dragTranslationY
+                shadowElevation = if (isReorderSelected) 18f else 0f
                 alpha =
                     (1f - completionProgress) *
-                        (1f - (.68f * moveProgress)) *
-                        if (isReorderSelected) .78f else 1f
+                        (1f - (.68f * moveProgress))
             },
     ) {
         Box(Modifier.fillMaxSize()) {

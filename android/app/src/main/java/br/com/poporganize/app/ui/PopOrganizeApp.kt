@@ -2139,6 +2139,7 @@ private fun PopMainContent(
     var showMoreSheet by remember { mutableStateOf(false) }
     val moreSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var taskToOpenId by remember { mutableStateOf<Int?>(null) }
+    var taskToCreateDate by remember { mutableStateOf<LocalDate?>(null) }
     var workSpace by remember { mutableStateOf(WorkSpace.Personal) }
     var selectedCompanyIndex by remember { mutableIntStateOf(0) }
     var preferredWorkspaceRestored by remember(googleAccount?.id) { mutableStateOf(false) }
@@ -2643,28 +2644,52 @@ private fun PopMainContent(
                             }
                         },
                     )
-                    PopDestination.Calendar -> CalendarScreen(
-                        tasks = tasks,
-                        canCreateTask = canCreateTask,
-                        currentUserId = googleAccount?.id.orEmpty(),
-                        currentUserName = googleAccount?.name.orEmpty(),
-                        workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
-                        workSpace = workSpace,
-                        onWorkSpaceChange = ::selectWorkSpace,
-                        companyNames = companyNames,
-                        companyDescriptions = companyDescriptions,
-                        selectedCompanyIndex = selectedCompanyIndex,
-                        onCompanySelect = ::selectCompany,
-                        onCreateCompany = ::requestCreateCompany,
-                        onOpenTask = { task ->
-                            taskToOpenId = null
-                            destination = PopDestination.Tasks
-                            navigationScope.launch {
-                                delay(240)
-                                taskToOpenId = task.id
-                            }
-                        },
-                    )
+                    PopDestination.Calendar -> Box(Modifier.fillMaxSize()) {
+                        CalendarScreen(
+                            tasks = tasks,
+                            canCreateTask = canCreateTask,
+                            workSpace = workSpace,
+                            onWorkSpaceChange = ::selectWorkSpace,
+                            companyNames = companyNames,
+                            companyDescriptions = companyDescriptions,
+                            selectedCompanyIndex = selectedCompanyIndex,
+                            onCompanySelect = ::selectCompany,
+                            onCreateCompany = ::requestCreateCompany,
+                            onOpenTask = { task ->
+                                taskToOpenId = null
+                                destination = PopDestination.Tasks
+                                navigationScope.launch {
+                                    delay(240)
+                                    taskToOpenId = task.id
+                                }
+                            },
+                            onCreateTaskForDate = { date -> taskToCreateDate = date },
+                        )
+                        if (taskToCreateDate != null) {
+                            TasksScreen(
+                                tasks = tasks,
+                                canCreateTask = canCreateTask,
+                                currentUserId = googleAccount?.id.orEmpty(),
+                                currentUserName = googleAccount?.name.orEmpty(),
+                                workSpace = workSpace,
+                                onWorkSpaceChange = ::selectWorkSpace,
+                                companyNames = companyNames,
+                                companyDescriptions = companyDescriptions,
+                                companyMembers = companyMembers,
+                                companySectors = companySectors,
+                                companyGroups = companyGroups,
+                                selectedCompanyIndex = selectedCompanyIndex,
+                                onCompanySelect = ::selectCompany,
+                                onCreateCompany = ::requestCreateCompany,
+                                initialTaskId = null,
+                                onInitialTaskOpened = {},
+                                onTaskDeleted = {},
+                                initialCreateDate = taskToCreateDate,
+                                createOnly = true,
+                                onCreateFormClosed = { taskToCreateDate = null },
+                            )
+                        }
+                    }
                     PopDestination.More -> MoreScreen(
                         sessionMode = sessionMode,
                         googleAccount = googleAccount,
@@ -3970,11 +3995,15 @@ private fun TasksScreen(
     initialTaskId: Int?,
     onInitialTaskOpened: () -> Unit,
     onTaskDeleted: (PopTask) -> Unit,
+    initialCreateDate: LocalDate? = null,
+    createOnly: Boolean = false,
+    onCreateFormClosed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var query by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
+    var createOnlyOpened by remember { mutableStateOf(false) }
     var newTaskTitle by remember { mutableStateOf("") }
     var newTaskDescription by remember { mutableStateOf("") }
     var newTaskChecklistText by remember { mutableStateOf("") }
@@ -4097,6 +4126,23 @@ private fun TasksScreen(
 
     LaunchedEffect(canCreateTask) {
         if (!canCreateTask) showCreate = false
+    }
+
+    LaunchedEffect(initialCreateDate) {
+        val date = initialCreateDate ?: return@LaunchedEffect
+        newTaskDateOffset = ChronoUnit.DAYS.between(LocalDate.now(), date).toInt()
+        taskDateDraft = date
+        taskDateMonth = YearMonth.from(date)
+        showAdvancedOptions = false
+        createOnlyOpened = true
+        showCreate = true
+    }
+
+    LaunchedEffect(showCreate, createOnly, createOnlyOpened) {
+        if (createOnly && createOnlyOpened && !showCreate) {
+            createOnlyOpened = false
+            onCreateFormClosed()
+        }
     }
 
     val taskFilters = if (isTaskAdmin && workSpace == WorkSpace.Company) {
@@ -4483,7 +4529,7 @@ private fun TasksScreen(
         showCreate = false
     }
 
-    Box(Modifier.fillMaxSize()) {
+    if (!createOnly) Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = taskListState,
             contentPadding = PaddingValues(bottom = 92.dp),
@@ -4643,7 +4689,7 @@ private fun TasksScreen(
         }
     }
 
-    if (showCreate && canCreateTask) {
+    if (false && showCreate && canCreateTask) {
         ModalBottomSheet(
             onDismissRequest = { showCreate = false },
             sheetState = createTaskSheetState,
@@ -5784,12 +5830,12 @@ private fun TasksScreen(
         )
     }
 
-    if (false && showCreate) {
+    if (showCreate && canCreateTask) {
         AlertDialog(
             onDismissRequest = { showCreate = false },
             title = {
                 Text(
-                    if (workSpace == WorkSpace.Personal) "Nova tarefa pessoal" else "Nova tarefa da empresa",
+                    "Nova tarefa",
                     fontWeight = FontWeight.ExtraBold,
                 )
             },
@@ -5860,8 +5906,17 @@ private fun TasksScreen(
                         }
                     }
                     Text("Data", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Hoje" to 0, "Amanhã" to 1, "+7 dias" to 7).forEach { (label, offset) ->
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val dateOptions = buildList {
+                            add("Hoje" to 0)
+                            add("Amanhã" to 1)
+                            add("+7 dias" to 7)
+                            if (newTaskDateOffset !in setOf(0, 1, 7)) {
+                                val selectedDate = LocalDate.now().plusDays(newTaskDateOffset.toLong())
+                                add("${selectedDate.dayOfMonth}/${selectedDate.monthValue}" to newTaskDateOffset)
+                            }
+                        }
+                        items(dateOptions) { (label, offset) ->
                             ChoicePill(label, newTaskDateOffset == offset) { newTaskDateOffset = offset }
                         }
                     }
@@ -5963,48 +6018,8 @@ private fun TasksScreen(
             confirmButton = {
                 TextButton(
                     enabled = newTaskTitle.trim().length >= 3,
-                    onClick = {
-                        tasks.add(
-                            0,
-                            PopTask(
-                                id = (tasks.maxOfOrNull { it.id } ?: 0) + 1,
-                                title = newTaskTitle.trim(),
-                                department = if (workSpace == WorkSpace.Personal) "Pessoal" else "Empresa",
-                                dueLabel = when (newTaskDateOffset) {
-                                    0 -> "Hoje"
-                                    1 -> "Amanhã"
-                                    else -> "Em 7 dias"
-                                },
-                                priority = newTaskPriority,
-                                dueDate = LocalDate.now().plusDays(newTaskDateOffset.toLong()).toString(),
-                                description = newTaskDescription.trim(),
-                                assignee = if (workSpace == WorkSpace.Personal) {
-                                    ""
-                                } else {
-                                    newTaskAssignee.trim().ifBlank { "Sem responsável" }
-                                },
-                                recurrence = if (newTaskRecurrenceDetail.isBlank()) {
-                                    newTaskRecurrence
-                                } else {
-                                    "$newTaskRecurrence • ${newTaskRecurrenceDetail.trim()}"
-                                },
-                                reminder = newTaskReminder,
-                                attachmentName = newTaskAttachment,
-                            ),
-                        )
-                        newTaskTitle = ""
-                        newTaskDescription = ""
-                        newTaskAssignee = ""
-                        newTaskPriority = "Média"
-                        newTaskDateOffset = 0
-                        newTaskRecurrence = "Não repetir"
-                        newTaskRecurrenceDetail = ""
-                        newTaskReminder = "Sem lembrete"
-                        newTaskAttachment = ""
-                        showAdvancedOptions = false
-                        showCreate = false
-                    },
-                ) { Text("Adicionar", color = PopBlue, fontWeight = FontWeight.Bold) }
+                    onClick = ::addTask,
+                ) { Text("Criar", color = PopBlue, fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
                 TextButton(onClick = { showCreate = false }) { Text("Cancelar") }
@@ -6876,14 +6891,10 @@ private fun calendarVisibleTasks(tasks: List<PopTask>): List<PopTask> {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CalendarScreen(
-    tasks: MutableList<PopTask>,
+    tasks: List<PopTask>,
     canCreateTask: Boolean,
-    currentUserId: String,
-    currentUserName: String,
-    workspaceId: String,
     workSpace: WorkSpace,
     onWorkSpaceChange: (WorkSpace) -> Unit,
     companyNames: List<String>,
@@ -6892,13 +6903,10 @@ private fun CalendarScreen(
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
     onOpenTask: (PopTask) -> Unit,
+    onCreateTaskForDate: (LocalDate) -> Unit,
 ) {
     var month by remember { mutableStateOf(YearMonth.now()) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-    var createDate by remember { mutableStateOf<LocalDate?>(null) }
-    var createTitle by remember { mutableStateOf("") }
-    var createDescription by remember { mutableStateOf("") }
-    var createPriority by remember { mutableStateOf("Média") }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
     val visibleCalendarTasks = calendarVisibleTasks(tasks)
@@ -6959,7 +6967,7 @@ private fun CalendarScreen(
                 onDateDoubleSelected = if (canCreateTask) {
                     { date ->
                         selectedDate = date
-                        createDate = date
+                        onCreateTaskForDate(date)
                     }
                 } else {
                     null
@@ -6995,115 +7003,6 @@ private fun CalendarScreen(
         }
     }
 
-    if (createDate != null && canCreateTask) {
-        ModalBottomSheet(
-            onDismissRequest = { createDate = null },
-            containerColor = PopSurface,
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-            dragHandle = null,
-        ) {
-            KeepModalNavigationBarHidden()
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .imePadding()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Nova tarefa", fontWeight = FontWeight.ExtraBold, fontSize = 19.sp)
-                        Text(
-                            createDate
-                                ?.format(DateTimeFormatter.ofPattern("dd 'de' MMMM", Locale("pt", "BR")))
-                                .orEmpty(),
-                            color = PopBlue,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                    IconButton(onClick = { createDate = null }) {
-                        Icon(Icons.Rounded.Close, "Fechar")
-                    }
-                }
-                OutlinedTextField(
-                    value = createTitle,
-                    onValueChange = { createTitle = it },
-                    label = { Text("Título") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = createDescription,
-                    onValueChange = { createDescription = it },
-                    label = { Text("Descrição") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text("Prioridade", color = PopMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    listOf("Baixa", "Média", "Alta", "Urgente").forEach { priority ->
-                        Surface(
-                            onClick = { createPriority = priority },
-                            color = if (createPriority == priority) PopBlue else PopSurfaceAlt,
-                            contentColor = if (createPriority == priority) Color.White else PopText,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(
-                                priority,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(vertical = 10.dp),
-                            )
-                        }
-                    }
-                }
-                Surface(
-                    onClick = {
-                        val date = createDate ?: return@Surface
-                        if (createTitle.trim().length < 3) return@Surface
-                        val companyName = companyNames.getOrElse(selectedCompanyIndex) { "Empresa" }
-                        tasks.add(
-                            0,
-                            PopTask(
-                                id = (tasks.filter { it.id > 0 }.maxOfOrNull { it.id } ?: 0) + 1,
-                                title = createTitle.trim(),
-                                department = if (workSpace == WorkSpace.Personal) "Pessoal" else companyName,
-                                dueLabel = dueLabelForDate(date),
-                                priority = createPriority,
-                                dueDate = date.toString(),
-                                description = createDescription.trim(),
-                                assignedBy = currentUserName,
-                                createdBy = currentUserName,
-                                assignmentType = if (workSpace == WorkSpace.Personal) "user" else "company",
-                                assignmentTargetId = if (workSpace == WorkSpace.Personal) currentUserId else workspaceId,
-                                assignmentTargetLabel = if (workSpace == WorkSpace.Personal) "Eu" else companyName,
-                            ),
-                        )
-                        createTitle = ""
-                        createDescription = ""
-                        createPriority = "Média"
-                        createDate = null
-                    },
-                    color = if (createTitle.trim().length >= 3) PopBlue else PopBorder,
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        "Criar tarefa",
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(vertical = 14.dp),
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-        }
-    }
 }
 
 @Composable

@@ -7,6 +7,28 @@ import type { Employee, Task } from "@/lib/domain";
 const SEEN_KEY_PREFIX = "pop-organize:seen-tasks:";
 const OVERDUE_KEY_PREFIX = "pop-organize:overdue-alert:";
 
+function assignmentNotificationTitle(task: Task, currentUserId: string, assignedBy?: string) {
+  const author = assignedBy || "Alguém";
+  const isOtherAuthor = Boolean(task.assignedById && task.assignedById !== currentUserId);
+
+  switch (task.target.type) {
+    case "department":
+      return `${isOtherAuthor ? author : "Nova tarefa"} ${
+        isOtherAuthor ? "atribuiu uma tarefa ao" : "no"
+      } setor ${task.target.label}`;
+    case "group":
+      return `${isOtherAuthor ? author : "Nova tarefa"} ${
+        isOtherAuthor ? "atribuiu uma tarefa ao" : "no"
+      } grupo ${task.target.label}`;
+    case "company":
+      return isOtherAuthor
+        ? `${author} atribuiu uma tarefa à empresa ${task.target.label}`
+        : `Nova tarefa na empresa ${task.target.label}`;
+    default:
+      return isOtherAuthor ? `${author} colocou uma tarefa para você` : "Nova tarefa para você";
+  }
+}
+
 function todayStamp() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -52,7 +74,8 @@ export function useTaskAlerts(
 
     const myOpenTasks = tasks.filter(
       (task) =>
-        task.responsibleId === currentUserId &&
+        (task.responsibleId === currentUserId ||
+          (task.responsibleIds ?? []).includes(currentUserId)) &&
         task.status !== "completed" &&
         task.status !== "canceled",
     );
@@ -67,16 +90,11 @@ export function useTaskAlerts(
       const fresh = myOpenTasks.filter((task) => !seen.has(task.id));
       for (const task of fresh.slice(0, 3)) {
         const assignedBy = employees?.find((employee) => employee.id === task.assignedById)?.name;
-        toast.info(
-          task.assignedById && task.assignedById !== currentUserId
-            ? `${assignedBy || "Alguém"} colocou uma tarefa para você`
-            : "Nova tarefa para você",
-          {
-            description: task.title,
-            action: { label: "Ver tarefa", onClick: () => openTask(task.id) },
-            duration: 8000,
-          },
-        );
+        toast.info(assignmentNotificationTitle(task, currentUserId, assignedBy), {
+          description: task.title,
+          action: { label: "Ver tarefa", onClick: () => openTask(task.id) },
+          duration: 8000,
+        });
       }
       if (fresh.length > 0) {
         writeSeen(currentUserId, new Set([...seen, ...currentIds]));

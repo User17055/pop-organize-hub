@@ -55,6 +55,8 @@ private data class AssignedTaskSnapshot(
     val serverId: String,
     val title: String,
     val assignedBy: String,
+    val assignmentType: String,
+    val assignmentTargetLabel: String,
 )
 
 fun createPopNotificationChannel(context: Context) {
@@ -117,11 +119,26 @@ fun showAssignedTaskNotification(
     title: String,
     assignedBy: String?,
     taskId: Int,
+    assignmentType: String = "user",
+    assignmentTargetLabel: String = "",
 ) {
+    val targetLabel = assignmentTargetLabel.takeIf { it.isNotBlank() }
+    val destination = when (assignmentType) {
+        "department" -> "ao setor ${targetLabel ?: "selecionado"}"
+        "group" -> "ao grupo ${targetLabel ?: "selecionado"}"
+        "company" -> "à empresa ${targetLabel ?: "selecionada"}"
+        else -> "para você"
+    }
+    val notificationTitle = when (assignmentType) {
+        "department" -> "Nova tarefa no setor ${targetLabel ?: "selecionado"}"
+        "group" -> "Nova tarefa no grupo ${targetLabel ?: "selecionado"}"
+        "company" -> "Nova tarefa na empresa ${targetLabel ?: "selecionada"}"
+        else -> "Nova tarefa para você"
+    }
     val body = assignedBy?.takeIf { it.isNotBlank() }
-        ?.let { "$it colocou uma tarefa para você. Clique aqui para ver: $title" }
-        ?: "Uma nova tarefa foi colocada para você. Clique aqui para ver: $title"
-    postNotification(context, "Nova tarefa para você", body, 1, 7_200 + taskId.mod(100_000), taskId)
+        ?.let { "$it atribuiu uma tarefa $destination. Clique aqui para ver: $title" }
+        ?: "Uma nova tarefa foi atribuída $destination. Clique aqui para ver: $title"
+    postNotification(context, notificationTitle, body, 1, 7_200 + taskId.mod(100_000), taskId)
 }
 
 class PopReminderWorker(
@@ -214,6 +231,8 @@ private fun checkForAssignedTasks(context: Context) {
                         serverId = task.optString("serverId").ifBlank { task.optInt("id").toString() },
                         title = task.optString("title"),
                         assignedBy = assignedBy,
+                        assignmentType = task.optString("assignmentType", "user"),
+                        assignmentTargetLabel = task.optString("assignmentTargetLabel"),
                     ),
                 )
             }
@@ -231,7 +250,14 @@ private fun checkForAssignedTasks(context: Context) {
         .apply()
     if (hasBaseline) {
         fresh.forEach { task ->
-            showAssignedTaskNotification(context, task.title, task.assignedBy, task.id)
+            showAssignedTaskNotification(
+                context,
+                task.title,
+                task.assignedBy,
+                task.id,
+                task.assignmentType,
+                task.assignmentTargetLabel,
+            )
         }
     }
 }

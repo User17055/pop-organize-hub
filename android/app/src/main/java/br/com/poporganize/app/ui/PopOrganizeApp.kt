@@ -2343,7 +2343,14 @@ private fun PopMainContent(
         }
         if (notify) {
             fresh.forEach { task ->
-                showAssignedTaskNotification(context, task.title, task.assignedBy, task.id)
+                showAssignedTaskNotification(
+                    context,
+                    task.title,
+                    task.assignedBy,
+                    task.id,
+                    task.assignmentType,
+                    task.assignmentTargetLabel,
+                )
             }
         }
         var changed = false

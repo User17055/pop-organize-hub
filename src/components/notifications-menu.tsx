@@ -31,6 +31,20 @@ const toneIcon: Record<NotificationTone, typeof AlertTriangle> = {
 
 const toneRank: Record<NotificationTone, number> = { destructive: 0, warning: 1, primary: 2 };
 
+function assignmentNotificationTitle(task: Task, assignedBy?: string) {
+  const author = assignedBy || "Alguém";
+  switch (task.target.type) {
+    case "department":
+      return `${author} atribuiu uma tarefa ao setor ${task.target.label}`;
+    case "group":
+      return `${author} atribuiu uma tarefa ao grupo ${task.target.label}`;
+    case "company":
+      return `${author} atribuiu uma tarefa à empresa ${task.target.label}`;
+    default:
+      return `${author} colocou uma tarefa para você`;
+  }
+}
+
 function computeNotifications(
   tasks: Task[],
   employees: Employee[],
@@ -45,7 +59,8 @@ function computeNotifications(
   for (const task of tasks) {
     if (task.status === "completed" || task.status === "canceled") continue;
     const due = new Date(`${task.dueDate}T00:00:00`).getTime();
-    const isMine = task.responsibleId === currentUserId;
+    const isMine =
+      task.responsibleId === currentUserId || (task.responsibleIds ?? []).includes(currentUserId);
     const isReviewer = task.reviewerId === currentUserId;
     const assignedBy = employees.find((employee) => employee.id === task.assignedById)?.name;
 
@@ -54,7 +69,7 @@ function computeNotifications(
         id: `assigned-${task.id}`,
         taskId: task.id,
         tone: "primary",
-        title: `${assignedBy || "Alguém"} colocou uma tarefa para você`,
+        title: assignmentNotificationTitle(task, assignedBy),
         description: `${task.title} · Clique aqui para ver`,
       });
     }

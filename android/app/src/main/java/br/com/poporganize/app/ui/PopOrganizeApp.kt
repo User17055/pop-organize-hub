@@ -4529,7 +4529,7 @@ private fun TasksScreen(
         showCreate = false
     }
 
-    if (!createOnly) Box(Modifier.fillMaxSize()) {
+    if (!createOnly && initialCreateDate == null) Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = taskListState,
             contentPadding = PaddingValues(bottom = 92.dp),
@@ -4689,7 +4689,7 @@ private fun TasksScreen(
         }
     }
 
-    if (false && showCreate && canCreateTask) {
+    if (showCreate && canCreateTask) {
         ModalBottomSheet(
             onDismissRequest = { showCreate = false },
             sheetState = createTaskSheetState,
@@ -5830,12 +5830,12 @@ private fun TasksScreen(
         )
     }
 
-    if (showCreate && canCreateTask) {
+    if (false && showCreate) {
         AlertDialog(
             onDismissRequest = { showCreate = false },
             title = {
                 Text(
-                    "Nova tarefa",
+                    if (workSpace == WorkSpace.Personal) "Nova tarefa pessoal" else "Nova tarefa da empresa",
                     fontWeight = FontWeight.ExtraBold,
                 )
             },
@@ -5906,17 +5906,8 @@ private fun TasksScreen(
                         }
                     }
                     Text("Data", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val dateOptions = buildList {
-                            add("Hoje" to 0)
-                            add("Amanhã" to 1)
-                            add("+7 dias" to 7)
-                            if (newTaskDateOffset !in setOf(0, 1, 7)) {
-                                val selectedDate = LocalDate.now().plusDays(newTaskDateOffset.toLong())
-                                add("${selectedDate.dayOfMonth}/${selectedDate.monthValue}" to newTaskDateOffset)
-                            }
-                        }
-                        items(dateOptions) { (label, offset) ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("Hoje" to 0, "Amanhã" to 1, "+7 dias" to 7).forEach { (label, offset) ->
                             ChoicePill(label, newTaskDateOffset == offset) { newTaskDateOffset = offset }
                         }
                     }
@@ -6018,8 +6009,48 @@ private fun TasksScreen(
             confirmButton = {
                 TextButton(
                     enabled = newTaskTitle.trim().length >= 3,
-                    onClick = ::addTask,
-                ) { Text("Criar", color = PopBlue, fontWeight = FontWeight.Bold) }
+                    onClick = {
+                        tasks.add(
+                            0,
+                            PopTask(
+                                id = (tasks.maxOfOrNull { it.id } ?: 0) + 1,
+                                title = newTaskTitle.trim(),
+                                department = if (workSpace == WorkSpace.Personal) "Pessoal" else "Empresa",
+                                dueLabel = when (newTaskDateOffset) {
+                                    0 -> "Hoje"
+                                    1 -> "Amanhã"
+                                    else -> "Em 7 dias"
+                                },
+                                priority = newTaskPriority,
+                                dueDate = LocalDate.now().plusDays(newTaskDateOffset.toLong()).toString(),
+                                description = newTaskDescription.trim(),
+                                assignee = if (workSpace == WorkSpace.Personal) {
+                                    ""
+                                } else {
+                                    newTaskAssignee.trim().ifBlank { "Sem responsável" }
+                                },
+                                recurrence = if (newTaskRecurrenceDetail.isBlank()) {
+                                    newTaskRecurrence
+                                } else {
+                                    "$newTaskRecurrence • ${newTaskRecurrenceDetail.trim()}"
+                                },
+                                reminder = newTaskReminder,
+                                attachmentName = newTaskAttachment,
+                            ),
+                        )
+                        newTaskTitle = ""
+                        newTaskDescription = ""
+                        newTaskAssignee = ""
+                        newTaskPriority = "Média"
+                        newTaskDateOffset = 0
+                        newTaskRecurrence = "Não repetir"
+                        newTaskRecurrenceDetail = ""
+                        newTaskReminder = "Sem lembrete"
+                        newTaskAttachment = ""
+                        showAdvancedOptions = false
+                        showCreate = false
+                    },
+                ) { Text("Adicionar", color = PopBlue, fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
                 TextButton(onClick = { showCreate = false }) { Text("Cancelar") }

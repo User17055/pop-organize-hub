@@ -38,9 +38,12 @@ const INVITATION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 const LOGIN_ATTEMPT_LIMIT = 5;
 const LOGIN_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_ATTEMPT_MAP_LIMIT = 5_000;
+const POP_REQUEST_LIMIT = 20;
+const POP_REQUEST_WINDOW_MS = 60 * 1000;
 
 type LoginAttempt = { count: number; resetAt: number };
 const loginAttempts = new Map<string, LoginAttempt>();
+const popRequestWindows = new Map<string, LoginAttempt>();
 
 const prioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 const statusSchema = z.enum([
@@ -94,6 +97,31 @@ const createTaskSchema = z.object({
   checklist: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
   recurrence: recurrenceSchema,
 });
+
+const popMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().trim().min(1).max(4_000),
+});
+
+const askPopSchema = z
+  .object({
+    messages: z.array(popMessageSchema).max(12).default([]),
+    message: z.string().trim().max(4_000).default(""),
+    draftContext: z.string().max(6_000).optional(),
+    imageDataUrl: z
+      .string()
+      .max(8_100_000, "A imagem deve ter no máximo 6 MB.")
+      .regex(/^data:image\/(?:jpeg|png|webp|gif);base64,/i, "Formato de imagem inválido.")
+      .optional(),
+    audioDataUrl: z
+      .string()
+      .max(14_000_000, "O áudio deve ter no máximo 10 MB.")
+      .regex(/^data:audio\/[a-z0-9.+-]+;base64,/i, "Formato de áudio inválido.")
+      .optional(),
+  })
+  .refine((data) => Boolean(data.message || data.imageDataUrl || data.audioDataUrl), {
+    message: "Escreva, envie uma imagem ou grave um áudio.",
+  });
 
 const createDepartmentSchema = z.object({
   name: z.string().trim().min(2),
@@ -305,6 +333,28 @@ function recordFailedLogin(key: string) {
       const oldestKey = loginAttempts.keys().next().value;
       if (!oldestKey) break;
       loginAttempts.delete(oldestKey);
+    }
+  }
+}
+
+function assertPopRateLimit(userId: string) {
+  const now = Date.now();
+  const current = popRequestWindows.get(userId);
+  if (!current || current.resetAt <= now) {
+    popRequestWindows.set(userId, { count: 1, resetAt: now + POP_REQUEST_WINDOW_MS });
+  } else {
+    if (current.count >= POP_REQUEST_LIMIT) {
+      throw createHttpError(
+        "Muitas mensagens para a Pop. Aguarde um minuto e tente novamente.",
+        429,
+      );
+    }
+    current.count += 1;
+  }
+
+  if (popRequestWindows.size > LOGIN_ATTEMPT_MAP_LIMIT) {
+    for (const [key, window] of popRequestWindows) {
+      if (window.resetAt <= now) popRequestWindows.delete(key);
     }
   }
 }
@@ -991,6 +1041,86 @@ export const updateProfile = createServerFn({ method: "POST" })
         currentUser: toCurrentUser(employee),
       };
     });
+  });
+
+export const askPop = createServerFn({ method: "POST" })
+  .validator((data) => askPopSchema.parse(data))
+  .handler(async ({ data }) => {
+    const { account, workspace } = await requireSessionContext();
+    requireGroupPermission(
+      workspace,
+      account.id,
+      "tasks.create",
+      "Seu grupo de permissão não pode criar tarefas.",
+    );
+    assertPopRateLimit(account.id);
+
+    const currentUser = workspace.employees.find((employee) => employee.id === account.id);
+    if (!currentUser) throw createHttpError("Usuário não encontrado.", 404);
+
+    try {
+      const { runPopAssistant, transcribePopAudio } = await import("../pop-ai.server");
+      const transcription = data.audioDataUrl
+        ? await transcribePopAudio(data.audioDataUrl)
+        : undefined;
+      const message = [
+        data.message,
+        transcription,
+        data.draftContext
+          ? `[Rascunho atual mantido pelo sistema]\n${data.draftContext}`
+          : undefined,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const answer = await runPopAssistant({
+        context: {
+          company: {
+            id: workspace.company.id,
+            name: workspace.company.name,
+            kind: workspace.company.kind === "personal" ? "personal" : "company",
+          },
+          currentUser: { id: currentUser.id, name: currentUser.name },
+          employees: workspace.employees.map((employee) => ({
+            id: employee.id,
+            name: employee.name,
+            status: employee.status,
+            departmentId: employee.departmentId,
+          })),
+          departments: workspace.departments.map((department) => ({
+            id: department.id,
+            name: department.name,
+          })),
+          groups: workspace.groups.map((group) => ({
+            id: group.id,
+            name: group.name,
+            memberIds: group.memberIds,
+          })),
+          canCreateChecklist: isAdminUser({
+            currentUser,
+            employees: workspace.employees,
+          }),
+        },
+        messages: data.messages,
+        message,
+        imageDataUrl: data.imageDataUrl,
+        safetyUserId: `${workspace.company.id}:${account.id}`,
+      });
+
+      return { ...answer, transcription };
+    } catch (error) {
+      const typed = error as Error & { status?: number; statusCode?: number };
+      if (typed.statusCode === 503 || typed.statusCode === 400 || typed.statusCode === 422) {
+        throw error;
+      }
+      if (typed.status === 429 || typed.statusCode === 429) {
+        throw createHttpError(
+          "A Pop está recebendo muitas solicitações. Tente novamente em instantes.",
+          429,
+        );
+      }
+      console.error("Pop assistant request failed:", typed.message);
+      throw createHttpError("A Pop está temporariamente indisponível. Tente novamente.", 502);
+    }
   });
 
 export const createTask = createServerFn({ method: "POST" })

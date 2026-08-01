@@ -18,6 +18,9 @@ export default defineConfig(({ mode, command }) => {
     "AUTH_PASSWORD_PEPPER",
     "GOOGLE_CLIENT_ID",
     "VITE_GOOGLE_CLIENT_ID",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "OPENAI_TRANSCRIBE_MODEL",
   ]) {
     if (!process.env[key] && serverEnv[key]) {
       process.env[key] = serverEnv[key];

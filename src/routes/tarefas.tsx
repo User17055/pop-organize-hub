@@ -26,9 +26,11 @@ import {
   Repeat,
   Search,
   Settings2,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskCreateDrawer } from "@/components/tasks/task-create-drawer";
+import { PopAssistant, type PopTaskDraft } from "@/components/tasks/pop-assistant";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { TaskList } from "@/components/tasks/task-list";
 import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialog";
@@ -42,6 +44,7 @@ import {
   recurrenceLabel,
   recurrenceToForm,
   formatFileSizeMb,
+  type RecurrenceInput,
   type TaskEditState,
   type TaskFormState,
 } from "@/components/tasks/task-form-types";
@@ -130,6 +133,7 @@ function TasksPage() {
   const filters = emptyTaskFilters;
   const [isMounted, setIsMounted] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [showPop, setShowPop] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -182,7 +186,10 @@ function TasksPage() {
     reorderTaskMutation,
   } = useTaskMutations({
     onCompleted: () => setSelectedTaskId(null),
-    onCreated: () => setShowForm(false),
+    onCreated: () => {
+      setShowForm(false);
+      setShowPop(false);
+    },
     onDeleted: () => {
       setSelectedTaskId(null);
       setShowDeleteDialog(false);
@@ -416,6 +423,51 @@ function TasksPage() {
     });
   }
 
+  function handlePopConfirm(draft: PopTaskDraft) {
+    if (
+      !draft.title ||
+      !draft.description ||
+      !draft.dueDate ||
+      !draft.targetType ||
+      !draft.targetId
+    ) {
+      return;
+    }
+
+    const recurrence: RecurrenceInput =
+      draft.recurrence.frequency === "none"
+        ? undefined
+        : {
+            frequency: draft.recurrence.frequency,
+            interval: draft.recurrence.interval ?? undefined,
+            intervalDays:
+              draft.recurrence.frequency === "custom" && draft.recurrence.customUnit === "days"
+                ? (draft.recurrence.interval ?? undefined)
+                : undefined,
+            customUnit: draft.recurrence.customUnit ?? undefined,
+            dayOfMonth: draft.recurrence.dayOfMonth ?? undefined,
+            monthOfYear: draft.recurrence.monthOfYear ?? undefined,
+            endDate: draft.recurrence.endDate || undefined,
+          };
+    const responsibleId = draft.targetType === "user" ? "" : (draft.responsibleId ?? "");
+
+    createTaskMutation.mutate({
+      title: draft.title,
+      description: draft.description,
+      priority: draft.priority ?? "medium",
+      dueDate: draft.dueDate,
+      target: { type: draft.targetType, id: draft.targetId },
+      responsibleId,
+      reviewerId: draft.requiresReview
+        ? (draft.reviewerId ?? responsibleId) || undefined
+        : undefined,
+      requiresReview: Boolean(draft.requiresReview),
+      tags: draft.tags,
+      checklist: draft.checklist,
+      recurrence,
+    });
+  }
+
   function handleEditSubmit(event: FormEvent) {
     event.preventDefault();
     if (!selectedTask) return;
@@ -575,15 +627,24 @@ function TasksPage() {
       subtitle="Acompanhe e organize todas as demandas da empresa"
       actions={
         canCreateTask ? (
-          <button
-            onClick={openForm}
-            className="hidden h-11 items-center gap-2 rounded-full bg-primary px-5 text-sm font-bold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:bg-primary/90 lg:inline-flex"
-          >
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/16">
-              <Plus className="h-4 w-4" />
-            </span>
-            Nova tarefa
-          </button>
+          <div className="hidden items-center gap-2 lg:flex">
+            <button
+              onClick={() => setShowPop(true)}
+              className="inline-flex h-11 items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 text-sm font-bold text-primary transition hover:-translate-y-0.5 hover:bg-primary/15"
+            >
+              <Sparkles className="h-4 w-4" />
+              Criar com a Pop
+            </button>
+            <button
+              onClick={openForm}
+              className="inline-flex h-11 items-center gap-2 rounded-full bg-primary px-5 text-sm font-bold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:bg-primary/90"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/16">
+                <Plus className="h-4 w-4" />
+              </span>
+              Nova tarefa
+            </button>
+          </div>
         ) : undefined
       }
     >
@@ -598,15 +659,25 @@ function TasksPage() {
           />
         </div>
         {canCreateTask && (
-          <button
-            onClick={openForm}
-            className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full bg-primary px-3.5 text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 sm:px-4 lg:hidden"
-          >
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
-              <Plus className="h-4 w-4" />
-            </span>
-            Nova
-          </button>
+          <>
+            <button
+              onClick={() => setShowPop(true)}
+              className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 text-sm font-bold text-primary transition hover:bg-primary/15 lg:hidden"
+              aria-label="Criar com a Pop"
+            >
+              <Sparkles className="h-4 w-4" />
+              <span className="hidden sm:inline">Pop</span>
+            </button>
+            <button
+              onClick={openForm}
+              className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full bg-primary px-3.5 text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 sm:px-4 lg:hidden"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
+                <Plus className="h-4 w-4" />
+              </span>
+              Nova
+            </button>
+          </>
         )}
       </div>
 
@@ -942,6 +1013,14 @@ function TasksPage() {
             occurrenceDate: selectedTask.dueDate,
           });
         }}
+      />
+
+      <PopAssistant
+        open={showPop}
+        onOpenChange={setShowPop}
+        onConfirm={handlePopConfirm}
+        isCreating={createTaskMutation.isPending}
+        createError={mutationError}
       />
 
       <TaskCreateDrawer

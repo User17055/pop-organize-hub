@@ -261,6 +261,7 @@ export function AppShell({
   const [profileOpen, setProfileOpen] = useState(false);
   const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<PwaInstallPrompt | null>(null);
   const [isStandalone, setIsStandalone] = useState(false);
   const [isIos, setIsIos] = useState(false);
@@ -465,7 +466,13 @@ export function AppShell({
   const createCompanyError =
     createCompanyMutation.error instanceof Error ? createCompanyMutation.error.message : null;
 
-  function WorkspaceSwitcher({ compact = false }: { compact?: boolean }) {
+  function WorkspaceSwitcher({
+    compact = false,
+    mobile = false,
+  }: {
+    compact?: boolean;
+    mobile?: boolean;
+  }) {
     const workspaceData = data!;
     return (
       <DropdownMenu>
@@ -474,7 +481,11 @@ export function AppShell({
             type="button"
             className={cn(
               "flex items-center rounded-xl text-left transition hover:bg-sidebar-accent focus:outline-none",
-              compact ? "h-9 w-9 justify-center" : "w-full gap-2 px-3 py-2",
+              compact
+                ? "h-9 w-9 justify-center"
+                : mobile
+                  ? "h-9 max-w-[60vw] gap-1.5 px-2.5"
+                  : "w-full gap-2 px-3 py-2",
             )}
             aria-label="Trocar espaço"
           >
@@ -485,7 +496,8 @@ export function AppShell({
                   <span className="block truncate text-sm font-semibold text-sidebar-foreground">
                     {workspaceData.company.name}
                   </span>
-                  {workspaceData.company.kind === "company" &&
+                  {!mobile &&
+                    workspaceData.company.kind === "company" &&
                     workspaceData.company.description && (
                       <span className="block truncate text-[10px] text-sidebar-foreground/55">
                         {workspaceData.company.description}
@@ -497,7 +509,10 @@ export function AppShell({
             )}
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align={compact ? "start" : "center"} className="w-72 p-1.5">
+        <DropdownMenuContent
+          align={compact ? "start" : "center"}
+          className="w-[min(18rem,calc(100vw-2rem))] p-1.5"
+        >
           <DropdownMenuLabel className="text-[11px] text-muted-foreground">
             Seus espaços
           </DropdownMenuLabel>
@@ -953,56 +968,54 @@ export function AppShell({
       <main className="app-main-shell flex min-w-0 flex-1 flex-col">
         {/* Mobile header */}
         <header className="mobile-fixed-header glass-header safe-top relative z-[70] shrink-0 lg:hidden">
-          <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-5 sm:py-3 md:px-6">
-            <div className="app-page-heading min-w-0 flex-1">
-              <div className="mb-0.5 w-fit max-w-full">
-                <WorkspaceSwitcher />
+          <div className="relative mx-auto w-full max-w-[1600px] px-3 py-2.5 sm:px-5 sm:py-3 md:px-6">
+            <div className="relative flex h-10 items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(true)}
+                className="glass-icon-button flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-foreground/70 transition hover:text-primary"
+                aria-label="Abrir menu"
+                title="Menu"
+              >
+                <Menu className="h-[19px] w-[19px]" />
+              </button>
+
+              <div className="absolute left-1/2 top-1/2 max-w-[60vw] -translate-x-1/2 -translate-y-1/2">
+                <WorkspaceSwitcher mobile />
               </div>
-              <h1 className="truncate font-display text-[19px] font-bold leading-tight text-foreground sm:text-[22px]">
-                {title}
-              </h1>
-              {subtitle && (
-                <p className="mt-0.5 truncate text-[11px] text-muted-foreground sm:text-xs">
-                  {subtitle}
-                </p>
-              )}
+
+              <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+                {data.accessMode === "personal" ? (
+                  <Link
+                    to="/login"
+                    className="glass-icon-button flex h-9 w-9 items-center justify-center rounded-xl text-foreground/70"
+                    aria-label="Entrar"
+                    title="Entrar"
+                  >
+                    <UserRound className="h-[18px] w-[18px]" />
+                  </Link>
+                ) : (
+                  <NotificationsMenu
+                    tasks={data?.tasks ?? []}
+                    employees={data?.employees ?? []}
+                    currentUserId={data?.currentUser.id}
+                  />
+                )}
+              </div>
             </div>
-            <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-              <NotificationsMenu
-                tasks={data?.tasks ?? []}
-                employees={data?.employees ?? []}
-                currentUserId={data?.currentUser.id}
-              />
+
+            <div className="app-page-heading mt-2 flex min-w-0 items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate font-display text-[19px] font-bold leading-tight text-foreground sm:text-[22px]">
+                  {title}
+                </h1>
+                {subtitle && (
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground sm:text-xs">
+                    {subtitle}
+                  </p>
+                )}
+              </div>
               {actions}
-              {data.accessMode === "personal" ? (
-                <Link
-                  to="/login"
-                  className="glass-icon-button flex h-9 w-9 items-center justify-center rounded-xl text-foreground/70"
-                  aria-label="Entrar"
-                  title="Entrar"
-                >
-                  <UserRound className="h-[18px] w-[18px]" />
-                </Link>
-              ) : (
-                <button
-                  type="button"
-                  onClick={openProfile}
-                  className="glass-icon-button flex h-9 w-9 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-primary-foreground"
-                  aria-label="Abrir perfil"
-                  title="Perfil"
-                >
-                  {avatar ? (
-                    <img src={avatar} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <span
-                      className="flex h-full w-full items-center justify-center"
-                      style={{ background: getAvatarGradient(currentUser.id) }}
-                    >
-                      {initials}
-                    </span>
-                  )}
-                </button>
-              )}
             </div>
           </div>
         </header>
@@ -1102,6 +1115,8 @@ export function AppShell({
         showLogout={data.accessMode === "team"}
         showInstall={!isStandalone}
         onInstall={() => void installWebApp()}
+        menuOpen={mobileMenuOpen}
+        onMenuOpenChange={setMobileMenuOpen}
       />
 
       <Toaster position="top-center" closeButton richColors />

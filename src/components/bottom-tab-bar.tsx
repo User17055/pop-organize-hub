@@ -29,6 +29,8 @@ export function BottomTabBar({
   showLogout = true,
   showInstall = false,
   onInstall,
+  menuOpen,
+  onMenuOpenChange,
 }: {
   primaryItems: NavItem[];
   moreItems: NavItem[];
@@ -40,8 +42,15 @@ export function BottomTabBar({
   showLogout?: boolean;
   showInstall?: boolean;
   onInstall?: () => void;
+  menuOpen?: boolean;
+  onMenuOpenChange?: (open: boolean) => void;
 }) {
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [internalMenuOpen, setInternalMenuOpen] = useState(false);
+  const moreOpen = menuOpen ?? internalMenuOpen;
+  const setMoreOpen = (open: boolean) => {
+    if (menuOpen === undefined) setInternalMenuOpen(open);
+    onMenuOpenChange?.(open);
+  };
   const moreActive = moreItems.some((item) =>
     item.exact ? pathname === item.to : pathname.startsWith(item.to),
   );

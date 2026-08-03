@@ -38,7 +38,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
@@ -61,6 +61,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -94,6 +95,7 @@ import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PendingActions
 import androidx.compose.material.icons.rounded.PersonOutline
@@ -143,6 +145,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -213,7 +216,6 @@ import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -2603,6 +2605,7 @@ private fun PopMainContent(
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
+                        onOpenMenu = { showMoreSheet = true },
                         onViewTasks = { destination = PopDestination.Tasks },
                         onOpenTask = { task ->
                             taskToOpenId = task.id
@@ -2624,6 +2627,7 @@ private fun PopMainContent(
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
+                        onOpenMenu = { showMoreSheet = true },
                         initialTaskId = taskToOpenId,
                         onInitialTaskOpened = { taskToOpenId = null },
                         onTaskDeleted = { deletedTask ->
@@ -2655,6 +2659,7 @@ private fun PopMainContent(
                             selectedCompanyIndex = selectedCompanyIndex,
                             onCompanySelect = ::selectCompany,
                             onCreateCompany = ::requestCreateCompany,
+                            onOpenMenu = { showMoreSheet = true },
                             onOpenTask = { task ->
                                 taskToOpenId = null
                                 destination = PopDestination.Tasks
@@ -2681,6 +2686,7 @@ private fun PopMainContent(
                                 selectedCompanyIndex = selectedCompanyIndex,
                                 onCompanySelect = ::selectCompany,
                                 onCreateCompany = ::requestCreateCompany,
+                                onOpenMenu = { showMoreSheet = true },
                                 initialTaskId = null,
                                 onInitialTaskOpened = {},
                                 onTaskDeleted = {},
@@ -3167,6 +3173,7 @@ private fun WorkSpaceHeader(
     onSelect: (WorkSpace) -> Unit,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
+    onOpenMenu: () -> Unit,
     showPopBrand: Boolean = false,
 ) {
     val context = LocalContext.current
@@ -3179,20 +3186,49 @@ private fun WorkSpaceHeader(
             .padding(WindowInsets.statusBars.asPaddingValues())
             .padding(horizontal = 20.dp, vertical = 14.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier.fillMaxWidth().height(48.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                WorkSpaceSelector(selected, companyNames, companyDescriptions, selectedCompanyIndex, onSelect, onCompanySelect, onCreateCompany)
-            }
-            if (showPopBrand) {
-                PopWordmark()
-            } else {
-                GoogleProfileAvatar(
-                    photoUrl = profilePhotoUrl,
-                    modifier = Modifier.size(48.dp).clickable { },
+            IconButton(
+                onClick = onOpenMenu,
+                modifier = Modifier.align(Alignment.CenterStart).size(44.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.Menu,
+                    contentDescription = "Abrir menu",
+                    tint = PopText,
+                    modifier = Modifier.size(25.dp),
                 )
             }
+
+            Box(
+                modifier = Modifier.align(Alignment.Center).widthIn(max = 220.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                WorkSpaceSelector(
+                    selected,
+                    companyNames,
+                    companyDescriptions,
+                    selectedCompanyIndex,
+                    onSelect,
+                    onCompanySelect,
+                    onCreateCompany,
+                )
+            }
+
+            Box(
+                modifier = Modifier.align(Alignment.CenterEnd).size(44.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (showPopBrand) {
+                    PopWordmark()
+                } else {
+                GoogleProfileAvatar(
+                    photoUrl = profilePhotoUrl,
+                        modifier = Modifier.size(40.dp).clickable { onOpenMenu() },
+                )
+            }
+        }
         }
     }
 }
@@ -3210,6 +3246,7 @@ private fun DashboardScreen(
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
+    onOpenMenu: () -> Unit,
     onViewTasks: () -> Unit,
     onOpenTask: (PopTask) -> Unit,
 ) {
@@ -3238,6 +3275,7 @@ private fun DashboardScreen(
                 onSelect = onWorkSpaceChange,
                 onCompanySelect = onCompanySelect,
                 onCreateCompany = onCreateCompany,
+                onOpenMenu = onOpenMenu,
             )
         }
         item {
@@ -3992,6 +4030,7 @@ private fun TasksScreen(
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
+    onOpenMenu: () -> Unit,
     initialTaskId: Int?,
     onInitialTaskOpened: () -> Unit,
     onTaskDeleted: (PopTask) -> Unit,
@@ -4544,6 +4583,7 @@ private fun TasksScreen(
                     onSelect = onWorkSpaceChange,
                     onCompanySelect = onCompanySelect,
                     onCreateCompany = onCreateCompany,
+                    onOpenMenu = onOpenMenu,
                 )
             }
             item {
@@ -6504,6 +6544,8 @@ private fun TaskCard(
     val currentOnReorderEnd by rememberUpdatedState(onReorderEnd)
     val currentOnAutoScroll by rememberUpdatedState(onAutoScroll)
     var suppressTap by remember(task.id) { mutableStateOf(false) }
+    var ignoreTapUntil by remember(task.id) { mutableLongStateOf(0L) }
+    var dragTranslationX by remember(task.id) { mutableFloatStateOf(0f) }
     var dragTranslationY by remember(task.id) { mutableFloatStateOf(0f) }
     val completedVisual = task.completed || isCompleting
     val isOverdue = isTaskOverdue(task) && !isCompleting
@@ -6564,45 +6606,39 @@ private fun TaskCard(
             .height(82.dp)
             .pointerInput(task.id) {
                 detectTapGestures(
-                    onPress = {
-                        suppressTap = false
-                        if (!reorderEnabled) {
-                            tryAwaitRelease()
-                            return@detectTapGestures
-                        }
-                        coroutineScope {
-                            val activation = launch {
-                                delay(1_500)
-                                suppressTap = true
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onReorderStart()
-                            }
-                            val released = tryAwaitRelease()
-                            activation.cancel()
-                            if (released && suppressTap) currentOnReorderEnd()
-                        }
-                    },
                     onTap = {
-                        if (!suppressTap) onOpen()
+                        if (!suppressTap && System.currentTimeMillis() >= ignoreTapUntil) onOpen()
                     },
                 )
             }
             .pointerInput(task.id, reorderEnabled) {
                 if (!reorderEnabled) return@pointerInput
-                detectDragGestures(
+                detectDragGesturesAfterLongPress(
+                    onDragStart = {
+                        suppressTap = true
+                        ignoreTapUntil = Long.MAX_VALUE
+                        dragTranslationX = 0f
+                        dragTranslationY = 0f
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onReorderStart()
+                    },
                     onDragEnd = {
                         if (suppressTap) currentOnReorderEnd()
+                        dragTranslationX = 0f
                         dragTranslationY = 0f
                         suppressTap = false
+                        ignoreTapUntil = System.currentTimeMillis() + 500L
                     },
                     onDragCancel = {
                         if (suppressTap) currentOnReorderEnd()
+                        dragTranslationX = 0f
                         dragTranslationY = 0f
                         suppressTap = false
+                        ignoreTapUntil = System.currentTimeMillis() + 500L
                     },
                     onDrag = { change, dragAmount ->
-                        if (!suppressTap) return@detectDragGestures
                         change.consume()
+                        dragTranslationX += dragAmount.x
                         dragTranslationY += dragAmount.y
                         val stepThreshold = size.height * .52f
                         val slotDistance = size.height + 12.dp.toPx()
@@ -6626,7 +6662,8 @@ private fun TaskCard(
             .graphicsLayer {
                 scaleX = cardScale - (.025f * moveProgress)
                 scaleY = cardScale - (.025f * moveProgress)
-                translationX = (-34f * completionProgress) + (34f * moveProgress)
+                translationX =
+                    (-34f * completionProgress) + (34f * moveProgress) + dragTranslationX
                 translationY = dragTranslationY
                 shadowElevation = if (isReorderSelected) 18f else 0f
                 alpha =
@@ -6933,6 +6970,7 @@ private fun CalendarScreen(
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
+    onOpenMenu: () -> Unit,
     onOpenTask: (PopTask) -> Unit,
     onCreateTaskForDate: (LocalDate) -> Unit,
 ) {
@@ -6975,6 +7013,7 @@ private fun CalendarScreen(
                 onSelect = onWorkSpaceChange,
                 onCompanySelect = onCompanySelect,
                 onCreateCompany = onCreateCompany,
+                onOpenMenu = onOpenMenu,
             )
         }
         item {

@@ -284,6 +284,26 @@ private data class PopTask(
     val checklist: List<TaskChecklistItem> = emptyList(),
 )
 
+private data class NativeTaskFolder(
+    val id: String,
+    val name: String,
+    val parentId: String = "",
+    val position: Int = 0,
+)
+
+private data class NativeTaskList(
+    val id: String,
+    val name: String,
+    val folderId: String = "",
+    val taskIds: List<String> = emptyList(),
+    val position: Int = 0,
+)
+
+private data class NativeTaskOrganization(
+    val folders: List<NativeTaskFolder> = emptyList(),
+    val lists: List<NativeTaskList> = emptyList(),
+)
+
 private enum class SessionMode { Guest, Email, Google }
 private data class GoogleAccount(
     val id: String,
@@ -1253,6 +1273,138 @@ private fun SystemBarAppearance(darkBackground: Boolean) {
     }
 }
 
+private fun decodeTaskOrganization(response: JSONObject): NativeTaskOrganization {
+    val foldersJson = response.optJSONArray("folders") ?: JSONArray()
+    val listsJson = response.optJSONArray("lists") ?: JSONArray()
+    val folders = buildList {
+        repeat(foldersJson.length()) { index ->
+            val item = foldersJson.optJSONObject(index) ?: return@repeat
+            add(
+                NativeTaskFolder(
+                    id = item.optString("id"),
+                    name = item.optString("name"),
+                    parentId = item.optString("parentId"),
+                    position = item.optInt("position", index),
+                ),
+            )
+        }
+    }
+    val lists = buildList {
+        repeat(listsJson.length()) { index ->
+            val item = listsJson.optJSONObject(index) ?: return@repeat
+            val taskIdsJson = item.optJSONArray("taskIds") ?: JSONArray()
+            add(
+                NativeTaskList(
+                    id = item.optString("id"),
+                    name = item.optString("name"),
+                    folderId = item.optString("folderId"),
+                    taskIds = buildList {
+                        repeat(taskIdsJson.length()) { taskIndex ->
+                            taskIdsJson.optString(taskIndex).takeIf(String::isNotBlank)?.let(::add)
+                        }
+                    },
+                    position = item.optInt("position", index),
+                ),
+            )
+        }
+    }
+    return NativeTaskOrganization(folders, lists)
+}
+
+private fun taskOrganizationJson(organization: NativeTaskOrganization): JSONObject =
+    JSONObject()
+        .put(
+            "folders",
+            JSONArray().apply {
+                organization.folders.forEach { folder ->
+                    put(
+                        JSONObject()
+                            .put("id", folder.id)
+                            .put("name", folder.name)
+                            .put("position", folder.position)
+                            .apply {
+                                if (folder.parentId.isNotBlank()) put("parentId", folder.parentId)
+                            },
+                    )
+                }
+            },
+        )
+        .put(
+            "lists",
+            JSONArray().apply {
+                organization.lists.forEach { list ->
+                    put(
+                        JSONObject()
+                            .put("id", list.id)
+                            .put("name", list.name)
+                            .put("taskIds", JSONArray(list.taskIds))
+                            .put("position", list.position)
+                            .apply {
+                                if (list.folderId.isNotBlank()) put("folderId", list.folderId)
+                            },
+                    )
+                }
+            },
+        )
+
+private suspend fun loadRemoteTaskOrganization(
+    apiToken: String,
+    workspaceId: String = "",
+): NativeTaskOrganization = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/task-lists").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 15_000
+        readTimeout = 20_000
+        setRequestProperty("Authorization", "Bearer $apiToken")
+        if (workspaceId.isNotBlank()) setRequestProperty("X-Workspace-Id", workspaceId)
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) {
+            throw IllegalStateException(response.optString("error", "Falha ao carregar listas."))
+        }
+        decodeTaskOrganization(response)
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private suspend fun syncRemoteTaskOrganization(
+    apiToken: String,
+    organization: NativeTaskOrganization,
+    workspaceId: String = "",
+): NativeTaskOrganization = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/task-lists").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "PUT"
+        connectTimeout = 15_000
+        readTimeout = 20_000
+        doOutput = true
+        setRequestProperty("Authorization", "Bearer $apiToken")
+        if (workspaceId.isNotBlank()) setRequestProperty("X-Workspace-Id", workspaceId)
+        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+            writer.write(taskOrganizationJson(organization).toString())
+        }
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) {
+            throw IllegalStateException(response.optString("error", "Falha ao salvar listas."))
+        }
+        decodeTaskOrganization(response)
+    } finally {
+        connection.disconnect()
+    }
+}
+
 private suspend fun mutateMobileWorkspace(
     apiToken: String,
     workspaceId: String,
@@ -2139,6 +2291,7 @@ private fun PopMainContent(
     val navigationScope = rememberCoroutineScope()
     var destination by remember { mutableStateOf(PopDestination.Dashboard) }
     var showMoreSheet by remember { mutableStateOf(false) }
+    var showTaskOrganizer by remember { mutableStateOf(false) }
     val moreSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var taskToOpenId by remember { mutableStateOf<Int?>(null) }
     var taskToCreateDate by remember { mutableStateOf<LocalDate?>(null) }
@@ -2184,6 +2337,9 @@ private fun PopMainContent(
     var lastSyncedTasksJson by remember(sessionMode, googleAccount?.id) { mutableStateOf("") }
     val lastSyncedCompanyTasks = remember(sessionMode, googleAccount?.id) { mutableStateMapOf<String, String>() }
     val companyTaskGroups = remember(sessionMode) { mutableStateListOf<MutableList<PopTask>>() }
+    val taskFolders = remember(sessionMode, googleAccount?.id) { mutableStateListOf<NativeTaskFolder>() }
+    val taskLists = remember(sessionMode, googleAccount?.id) { mutableStateListOf<NativeTaskList>() }
+    var selectedTaskListId by remember { mutableStateOf<String?>(null) }
     val assignmentPreferences = remember {
         context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
     }
@@ -2214,6 +2370,62 @@ private fun PopMainContent(
     }
     val canCreateTask =
         workSpace == WorkSpace.Personal || companyCanCreateTasks.getOrElse(selectedCompanyIndex) { false }
+    val selectedNativeTaskList = taskLists.firstOrNull { it.id == selectedTaskListId }
+
+    LaunchedEffect(
+        sessionMode,
+        googleAccount?.apiToken,
+        workSpace,
+        selectedCompanyIndex,
+        companyIds.toList(),
+    ) {
+        selectedTaskListId = null
+        val account = googleAccount
+        if (sessionMode == SessionMode.Guest || account?.apiToken.isNullOrBlank()) {
+            taskFolders.clear()
+            taskLists.clear()
+            return@LaunchedEffect
+        }
+        val workspaceId =
+            if (workSpace == WorkSpace.Company) companyIds.getOrNull(selectedCompanyIndex).orEmpty()
+            else ""
+        if (workSpace == WorkSpace.Company && workspaceId.isBlank()) return@LaunchedEffect
+        runCatching { loadRemoteTaskOrganization(account!!.apiToken, workspaceId) }
+            .onSuccess { organization ->
+                taskFolders.clear()
+                taskFolders.addAll(organization.folders)
+                taskLists.clear()
+                taskLists.addAll(organization.lists)
+            }
+    }
+
+    fun updateTaskOrganization(organization: NativeTaskOrganization) {
+        taskFolders.clear()
+        taskFolders.addAll(organization.folders)
+        taskLists.clear()
+        taskLists.addAll(organization.lists)
+        val account = googleAccount ?: return
+        if (account.apiToken.isBlank()) return
+        val workspaceId =
+            if (workSpace == WorkSpace.Company) companyIds.getOrNull(selectedCompanyIndex).orEmpty()
+            else ""
+        navigationScope.launch {
+            runCatching {
+                syncRemoteTaskOrganization(account.apiToken, organization, workspaceId)
+            }.onSuccess { synced ->
+                taskFolders.clear()
+                taskFolders.addAll(synced.folders)
+                taskLists.clear()
+                taskLists.addAll(synced.lists)
+            }.onFailure { error ->
+                Toast.makeText(
+                    context,
+                    error.localizedMessage ?: "A organização será sincronizada depois.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
 
     fun selectWorkSpace(next: WorkSpace) {
         if (next == WorkSpace.Company && sessionMode == SessionMode.Guest) {
@@ -2605,7 +2817,7 @@ private fun PopMainContent(
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
-                        onOpenMenu = { showMoreSheet = true },
+                        onOpenMenu = { showTaskOrganizer = true },
                         onViewTasks = { destination = PopDestination.Tasks },
                         onOpenTask = { task ->
                             taskToOpenId = task.id
@@ -2627,7 +2839,8 @@ private fun PopMainContent(
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
                         onCreateCompany = ::requestCreateCompany,
-                        onOpenMenu = { showMoreSheet = true },
+                        onOpenMenu = { showTaskOrganizer = true },
+                        selectedTaskList = selectedNativeTaskList,
                         initialTaskId = taskToOpenId,
                         onInitialTaskOpened = { taskToOpenId = null },
                         onTaskDeleted = { deletedTask ->
@@ -2659,7 +2872,7 @@ private fun PopMainContent(
                             selectedCompanyIndex = selectedCompanyIndex,
                             onCompanySelect = ::selectCompany,
                             onCreateCompany = ::requestCreateCompany,
-                            onOpenMenu = { showMoreSheet = true },
+                            onOpenMenu = { showTaskOrganizer = true },
                             onOpenTask = { task ->
                                 taskToOpenId = null
                                 destination = PopDestination.Tasks
@@ -2686,7 +2899,7 @@ private fun PopMainContent(
                                 selectedCompanyIndex = selectedCompanyIndex,
                                 onCompanySelect = ::selectCompany,
                                 onCreateCompany = ::requestCreateCompany,
-                                onOpenMenu = { showMoreSheet = true },
+                                onOpenMenu = { showTaskOrganizer = true },
                                 initialTaskId = null,
                                 onInitialTaskOpened = {},
                                 onTaskDeleted = {},
@@ -2771,6 +2984,22 @@ private fun PopMainContent(
                 onDismiss = { showMoreSheet = false },
             )
         }
+    }
+
+    if (showTaskOrganizer) {
+        TaskOrganizerDrawer(
+            folders = taskFolders,
+            lists = taskLists,
+            tasks = tasks,
+            isSignedIn = sessionMode != SessionMode.Guest,
+            onDismiss = { showTaskOrganizer = false },
+            onOrganizationChange = ::updateTaskOrganization,
+            onOpenList = { list ->
+                selectedTaskListId = list.id
+                destination = PopDestination.Tasks
+                showTaskOrganizer = false
+            },
+        )
     }
 
     LaunchedEffect(
@@ -3159,6 +3388,363 @@ private fun GoogleProfileAvatar(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+        }
+    }
+}
+
+private fun organizationId(prefix: String): String =
+    "$prefix-${System.currentTimeMillis()}-${SecureRandom().nextInt(1_000_000)}"
+
+@Composable
+private fun TaskOrganizerDrawer(
+    folders: List<NativeTaskFolder>,
+    lists: List<NativeTaskList>,
+    tasks: List<PopTask>,
+    isSignedIn: Boolean,
+    onDismiss: () -> Unit,
+    onOrganizationChange: (NativeTaskOrganization) -> Unit,
+    onOpenList: (NativeTaskList) -> Unit,
+) {
+    var expandedFolderIds by remember(folders) {
+        mutableStateOf(folders.map(NativeTaskFolder::id).toSet())
+    }
+    var editingListId by remember { mutableStateOf<String?>(null) }
+    var selectedTaskIds by remember { mutableStateOf(setOf<String>()) }
+    var createKind by remember { mutableStateOf<String?>(null) }
+    var createParentId by remember { mutableStateOf("") }
+    var newName by remember { mutableStateOf("") }
+    val editingList = lists.firstOrNull { it.id == editingListId }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        val dialogView = LocalView.current
+        SideEffect {
+            (dialogView.parent as? DialogWindowProvider)?.window?.apply {
+                setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+                setLayout(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                )
+                attributes = attributes.apply { gravity = android.view.Gravity.START }
+            }
+        }
+        Row(Modifier.fillMaxSize()) {
+            Surface(
+                color = PopSurface,
+                shape = RoundedCornerShape(topEnd = 26.dp, bottomEnd = 26.dp),
+                shadowElevation = 12.dp,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(.9f)
+                    .widthIn(max = 410.dp),
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 20.dp, end = 10.dp, top = 22.dp, bottom = 16.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                if (editingList == null) "Organização" else editingList.name,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 22.sp,
+                            )
+                            Text(
+                                if (editingList == null) "Grupos, subgrupos e listas" else "Selecione as tarefas desta lista",
+                                color = PopMuted,
+                                fontSize = 12.sp,
+                            )
+                        }
+                        IconButton(onClick = { if (editingList != null) editingListId = null else onDismiss() }) {
+                            Icon(
+                                if (editingList != null) Icons.Rounded.ArrowBack else Icons.Rounded.Close,
+                                contentDescription = if (editingList != null) "Voltar" else "Fechar",
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = PopBorder)
+
+                    if (editingList != null) {
+                        LazyColumn(
+                            contentPadding = PaddingValues(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            items(tasks, key = { it.id }) { task ->
+                                val serverId = task.serverId
+                                val checked = serverId.isNotBlank() && serverId in selectedTaskIds
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(15.dp))
+                                        .background(if (checked) PopBlueSoft else PopSurfaceAlt)
+                                        .clickable(enabled = serverId.isNotBlank()) {
+                                            selectedTaskIds =
+                                                if (checked) selectedTaskIds - serverId
+                                                else selectedTaskIds + serverId
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                                ) {
+                                    Checkbox(
+                                        checked = checked,
+                                        enabled = serverId.isNotBlank(),
+                                        onCheckedChange = {
+                                            selectedTaskIds =
+                                                if (checked) selectedTaskIds - serverId
+                                                else selectedTaskIds + serverId
+                                        },
+                                    )
+                                    Column(Modifier.weight(1f)) {
+                                        Text(task.title, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                        Text(
+                                            when {
+                                                isTaskOverdue(task) -> "Atrasada"
+                                                task.dueDate == LocalDate.now().toString() -> "Hoje"
+                                                else -> "Próxima"
+                                            },
+                                            color = PopMuted,
+                                            fontSize = 11.sp,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Surface(
+                            color = PopBlue,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth()
+                                .clickable {
+                                    onOrganizationChange(
+                                        NativeTaskOrganization(
+                                            folders,
+                                            lists.map { list ->
+                                                if (list.id == editingList.id) {
+                                                    list.copy(taskIds = selectedTaskIds.toList())
+                                                } else list
+                                            },
+                                        ),
+                                    )
+                                    editingListId = null
+                                },
+                        ) {
+                            Text(
+                                "Salvar tarefas",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier.padding(14.dp),
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            val rootFolders = folders.filter { it.parentId.isBlank() }.sortedBy { it.position }
+                            if (rootFolders.isEmpty()) {
+                                item {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 18.dp, vertical = 36.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.AccountTree, null, tint = PopBlue, modifier = Modifier.size(34.dp))
+                                        Text("Crie seu primeiro grupo", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+                                        Text("Depois adicione subgrupos, listas e escolha as tarefas.", color = PopMuted, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                    }
+                                }
+                            }
+                            rootFolders.forEach { folder ->
+                                item(key = folder.id) {
+                                    val expanded = folder.id in expandedFolderIds
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .clickable {
+                                                expandedFolderIds =
+                                                    if (expanded) expandedFolderIds - folder.id
+                                                    else expandedFolderIds + folder.id
+                                            }
+                                            .padding(start = 4.dp, end = 2.dp, top = 5.dp, bottom = 5.dp),
+                                    ) {
+                                        Icon(
+                                            if (expanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.ChevronRight,
+                                            null,
+                                            tint = PopMuted,
+                                        )
+                                        Icon(Icons.Rounded.AccountTree, null, tint = PopBlue, modifier = Modifier.size(20.dp))
+                                        Text(folder.name, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 9.dp).weight(1f), maxLines = 1)
+                                        IconButton(onClick = {
+                                            createKind = "subgroup"
+                                            createParentId = folder.id
+                                            newName = ""
+                                        }) { Icon(Icons.Rounded.AddBusiness, "Criar subgrupo", tint = PopMuted, modifier = Modifier.size(20.dp)) }
+                                        IconButton(onClick = {
+                                            createKind = "list"
+                                            createParentId = folder.id
+                                            newName = ""
+                                        }) { Icon(Icons.Rounded.Checklist, "Criar lista", tint = PopBlue, modifier = Modifier.size(20.dp)) }
+                                    }
+                                }
+                                if (folder.id in expandedFolderIds) {
+                                    val subgroups = folders.filter { it.parentId == folder.id }.sortedBy { it.position }
+                                    subgroups.forEach { subgroup ->
+                                        item(key = subgroup.id) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.fillMaxWidth().padding(start = 30.dp, end = 2.dp, top = 3.dp, bottom = 3.dp),
+                                            ) {
+                                                Icon(Icons.Rounded.AccountTree, null, tint = PopBlue.copy(alpha = .75f), modifier = Modifier.size(18.dp))
+                                                Text(subgroup.name, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 9.dp).weight(1f), maxLines = 1)
+                                                IconButton(onClick = {
+                                                    createKind = "list"
+                                                    createParentId = subgroup.id
+                                                    newName = ""
+                                                }) { Icon(Icons.Rounded.Add, "Criar lista", tint = PopBlue, modifier = Modifier.size(20.dp)) }
+                                            }
+                                        }
+                                        lists.filter { it.folderId == subgroup.id }.sortedBy { it.position }.forEach { list ->
+                                            item(key = list.id) {
+                                                TaskOrganizerListRow(
+                                                    list = list,
+                                                    tasks = tasks,
+                                                    indent = 50.dp,
+                                                    onOpen = { onOpenList(list) },
+                                                    onSelectTasks = {
+                                                        selectedTaskIds = list.taskIds.toSet()
+                                                        editingListId = list.id
+                                                    },
+                                                )
+                                            }
+                                        }
+                                    }
+                                    lists.filter { it.folderId == folder.id }.sortedBy { it.position }.forEach { list ->
+                                        item(key = list.id) {
+                                            TaskOrganizerListRow(
+                                                list = list,
+                                                tasks = tasks,
+                                                indent = 30.dp,
+                                                onOpen = { onOpenList(list) },
+                                                onSelectTasks = {
+                                                    selectedTaskIds = list.taskIds.toSet()
+                                                    editingListId = list.id
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = PopBorder)
+                        TextButton(
+                            enabled = isSignedIn,
+                            onClick = {
+                                createKind = "group"
+                                createParentId = ""
+                                newName = ""
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(10.dp),
+                        ) {
+                            Icon(Icons.Rounded.Add, null)
+                            Text(if (isSignedIn) "Novo grupo" else "Entre para criar grupos", fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.weight(1f).fillMaxHeight().clickable(onClick = onDismiss))
+        }
+    }
+
+    if (createKind != null) {
+        AlertDialog(
+            onDismissRequest = { createKind = null },
+            title = {
+                Text(
+                    when (createKind) {
+                        "list" -> "Nova lista"
+                        "subgroup" -> "Novo subgrupo"
+                        else -> "Novo grupo"
+                    },
+                )
+            },
+            text = {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("Nome") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newName.trim().length >= 2,
+                    onClick = {
+                        val name = newName.trim()
+                        val next = when (createKind) {
+                            "list" -> NativeTaskOrganization(
+                                folders,
+                                lists + NativeTaskList(
+                                    id = organizationId("list"),
+                                    name = name,
+                                    folderId = createParentId,
+                                    position = lists.size,
+                                ),
+                            )
+                            else -> NativeTaskOrganization(
+                                folders + NativeTaskFolder(
+                                    id = organizationId("folder"),
+                                    name = name,
+                                    parentId = if (createKind == "subgroup") createParentId else "",
+                                    position = folders.size,
+                                ),
+                                lists,
+                            )
+                        }
+                        onOrganizationChange(next)
+                        createKind = null
+                    },
+                ) { Text("Criar") }
+            },
+            dismissButton = { TextButton(onClick = { createKind = null }) { Text("Cancelar") } },
+        )
+    }
+}
+
+@Composable
+private fun TaskOrganizerListRow(
+    list: NativeTaskList,
+    tasks: List<PopTask>,
+    indent: Dp,
+    onOpen: () -> Unit,
+    onSelectTasks: () -> Unit,
+) {
+    val activeCount = tasks.count {
+        !it.completed && it.serverId.isNotBlank() && it.serverId in list.taskIds
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = indent, end = 2.dp, top = 2.dp, bottom = 2.dp)
+            .clip(RoundedCornerShape(13.dp))
+            .clickable(onClick = onOpen)
+            .padding(start = 8.dp, top = 5.dp, bottom = 5.dp),
+    ) {
+        Icon(Icons.Rounded.Checklist, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+        Text(list.name, modifier = Modifier.padding(start = 9.dp).weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(activeCount.toString(), color = PopMuted, fontSize = 12.sp)
+        IconButton(onClick = onSelectTasks) {
+            Icon(Icons.Rounded.Settings, "Selecionar tarefas", tint = PopMuted, modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -4034,6 +4620,7 @@ private fun TasksScreen(
     initialTaskId: Int?,
     onInitialTaskOpened: () -> Unit,
     onTaskDeleted: (PopTask) -> Unit,
+    selectedTaskList: NativeTaskList? = null,
     initialCreateDate: LocalDate? = null,
     createOnly: Boolean = false,
     onCreateFormClosed: () -> Unit = {},
@@ -4184,19 +4771,25 @@ private fun TasksScreen(
         }
     }
 
-    val taskFilters = if (isTaskAdmin && workSpace == WorkSpace.Company) {
+    val taskFilters = if (selectedTaskList != null) {
+        listOf("Todas", "Atrasadas", "Hoje", "Próximas")
+    } else if (isTaskAdmin && workSpace == WorkSpace.Company) {
         listOf("Hoje", "Atrasadas", "Próximas", "Para mim", "Setor", "Grupo", "Todas")
     } else {
         listOf("Hoje", "Atrasadas", "Próximas")
     }
 
-    LaunchedEffect(workSpace, isTaskAdmin) {
+    LaunchedEffect(workSpace, isTaskAdmin, selectedTaskList?.id) {
         if (selectedFilter !in taskFilters) {
-            selectedFilter = "Hoje"
+            selectedFilter = if (selectedTaskList != null) "Todas" else "Hoje"
         }
     }
 
-    val filtered = tasks
+    val selectedListTaskIds = selectedTaskList?.taskIds?.toSet()
+    val listedTasks = if (selectedListTaskIds == null) tasks else tasks.filter {
+        it.serverId.isNotBlank() && it.serverId in selectedListTaskIds
+    }
+    val filtered = listedTasks
         .filterNot { isFutureRecurrence(it, today) }
         .filter {
             it.title.contains(query, ignoreCase = true) ||
@@ -4575,7 +5168,8 @@ private fun TasksScreen(
         ) {
             item {
                 WorkSpaceHeader(
-                    subtitle = if (workSpace == WorkSpace.Personal) "Tarefas pessoais • só você pode visualizar" else "Tarefas e prioridades da empresa",
+                    subtitle = selectedTaskList?.let { "Lista • ${it.name}" }
+                        ?: if (workSpace == WorkSpace.Personal) "Tarefas pessoais • só você pode visualizar" else "Tarefas e prioridades da empresa",
                     selected = workSpace,
                     companyNames = companyNames,
                     companyDescriptions = companyDescriptions,
@@ -4587,6 +5181,46 @@ private fun TasksScreen(
                 )
             }
             item {
+                if (selectedTaskList != null) {
+                    val activeListTasks = listedTasks.filterNot { it.completed }
+                    val overdueCount = activeListTasks.count { isTaskOverdue(it) }
+                    val todayCount = activeListTasks.count {
+                        runCatching { LocalDate.parse(it.dueDate) }.getOrNull() == today
+                    }
+                    val upcomingCount = activeListTasks.count {
+                        runCatching { LocalDate.parse(it.dueDate) }.getOrNull()?.isAfter(today) == true
+                    }
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
+                            .background(PopBlueSoft, RoundedCornerShape(22.dp))
+                            .padding(16.dp),
+                    ) {
+                        Text("LISTA", color = PopBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(selectedTaskList.name, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(
+                                "Todas" to activeListTasks.size,
+                                "Atrasadas" to overdueCount,
+                                "Hoje" to todayCount,
+                                "Próximas" to upcomingCount,
+                            ).forEach { (label, count) ->
+                                Surface(
+                                    color = PopSurface,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Column(Modifier.padding(horizontal = 8.dp, vertical = 9.dp)) {
+                                        Text(count.toString(), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                        Text(label, color = PopMuted, fontSize = 9.sp, maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 TextField(
                     value = query,
                     onValueChange = { query = it },

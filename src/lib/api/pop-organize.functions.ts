@@ -29,7 +29,7 @@ import {
   type TargetType,
 } from "../domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "../permission-groups";
-import { getTaskPermissions } from "../permissions";
+import { canViewTask, getTaskPermissions } from "../permissions";
 import { materializeRecurringTasks } from "../recurrence.server";
 
 const SESSION_COOKIE = "pop_organize_session";
@@ -226,6 +226,32 @@ const deleteTaskSchema = z.object({
 const reorderTaskSchema = z.object({
   taskId: z.string().min(1),
   beforeTaskId: z.string().min(1).nullable(),
+});
+
+const createTaskFolderSchema = z.object({
+  name: z.string().trim().min(2, "Informe um nome").max(80),
+  parentId: z.string().min(1).optional(),
+});
+
+const createTaskListDefinitionSchema = z.object({
+  name: z.string().trim().min(2, "Informe um nome").max(80),
+  folderId: z.string().min(1).optional(),
+});
+
+const renameTaskOrganizerItemSchema = z.object({
+  kind: z.enum(["folder", "list"]),
+  id: z.string().min(1),
+  name: z.string().trim().min(2, "Informe um nome").max(80),
+});
+
+const deleteTaskOrganizerItemSchema = z.object({
+  kind: z.enum(["folder", "list"]),
+  id: z.string().min(1),
+});
+
+const updateTaskListTasksSchema = z.object({
+  listId: z.string().min(1),
+  taskIds: z.array(z.string().min(1)).max(5_000),
 });
 
 const addTaskCommentSchema = z.object({
@@ -1330,6 +1356,149 @@ export const reorderTask = createServerFn({ method: "POST" })
           : db.tasks.findIndex((task) => task.id === data.beforeTaskId);
       db.tasks.splice(targetIndex < 0 ? db.tasks.length : targetIndex, 0, sourceTask);
       return { taskId: sourceTask.id, beforeTaskId: data.beforeTaskId };
+    });
+  });
+
+export const createTaskFolder = createServerFn({ method: "POST" })
+  .validator((data) => createTaskFolderSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const ownedFolders = db.taskFolders.filter((folder) => folder.ownerId === currentUserId);
+      if (ownedFolders.length >= 100) {
+        throw createHttpError("Limite de grupos e subgrupos atingido.", 409);
+      }
+      if (data.parentId) {
+        const parent = ownedFolders.find((folder) => folder.id === data.parentId);
+        if (!parent) throw createHttpError("Grupo nÃ£o encontrado.", 404);
+        if (parent.parentId) {
+          throw createHttpError("Um subgrupo nÃ£o pode conter outro subgrupo.", 400);
+        }
+      }
+      const duplicate = ownedFolders.some(
+        (folder) =>
+          (folder.parentId ?? "") === (data.parentId ?? "") &&
+          folder.name.localeCompare(data.name, "pt-BR", { sensitivity: "base" }) === 0,
+      );
+      if (duplicate) throw createHttpError("JÃ¡ existe uma pasta com esse nome.", 409);
+
+      const folder = {
+        id: nextId("tf", db.taskFolders),
+        ownerId: currentUserId,
+        name: data.name,
+        parentId: data.parentId,
+        position: ownedFolders.length,
+      };
+      db.taskFolders.push(folder);
+      return folder;
+    });
+  });
+
+export const createTaskListDefinition = createServerFn({ method: "POST" })
+  .validator((data) => createTaskListDefinitionSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const ownedLists = db.taskLists.filter((list) => list.ownerId === currentUserId);
+      if (ownedLists.length >= 200) throw createHttpError("Limite de listas atingido.", 409);
+      if (
+        data.folderId &&
+        !db.taskFolders.some(
+          (folder) => folder.id === data.folderId && folder.ownerId === currentUserId,
+        )
+      ) {
+        throw createHttpError("Grupo ou subgrupo nÃ£o encontrado.", 404);
+      }
+      const duplicate = ownedLists.some(
+        (list) =>
+          (list.folderId ?? "") === (data.folderId ?? "") &&
+          list.name.localeCompare(data.name, "pt-BR", { sensitivity: "base" }) === 0,
+      );
+      if (duplicate) throw createHttpError("JÃ¡ existe uma lista com esse nome.", 409);
+
+      const list = {
+        id: nextId("tl", db.taskLists),
+        ownerId: currentUserId,
+        name: data.name,
+        folderId: data.folderId,
+        taskIds: [],
+        position: ownedLists.length,
+      };
+      db.taskLists.push(list);
+      return list;
+    });
+  });
+
+export const renameTaskOrganizerItem = createServerFn({ method: "POST" })
+  .validator((data) => renameTaskOrganizerItemSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const collection = data.kind === "folder" ? db.taskFolders : db.taskLists;
+      const item = collection.find(
+        (candidate) => candidate.id === data.id && candidate.ownerId === currentUserId,
+      );
+      if (!item) throw createHttpError("Item nÃ£o encontrado.", 404);
+      item.name = data.name;
+      return item;
+    });
+  });
+
+export const deleteTaskOrganizerItem = createServerFn({ method: "POST" })
+  .validator((data) => deleteTaskOrganizerItemSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      if (data.kind === "list") {
+        const index = db.taskLists.findIndex(
+          (list) => list.id === data.id && list.ownerId === currentUserId,
+        );
+        if (index < 0) throw createHttpError("Lista nÃ£o encontrada.", 404);
+        db.taskLists.splice(index, 1);
+        return { id: data.id };
+      }
+
+      const folder = db.taskFolders.find(
+        (candidate) => candidate.id === data.id && candidate.ownerId === currentUserId,
+      );
+      if (!folder) throw createHttpError("Grupo nÃ£o encontrado.", 404);
+      const folderIds = new Set([
+        folder.id,
+        ...db.taskFolders
+          .filter(
+            (candidate) => candidate.ownerId === currentUserId && candidate.parentId === folder.id,
+          )
+          .map((candidate) => candidate.id),
+      ]);
+      db.taskFolders = db.taskFolders.filter((candidate) => !folderIds.has(candidate.id));
+      db.taskLists = db.taskLists.filter(
+        (list) => list.ownerId !== currentUserId || !list.folderId || !folderIds.has(list.folderId),
+      );
+      return { id: data.id };
+    });
+  });
+
+export const updateTaskListTasks = createServerFn({ method: "POST" })
+  .validator((data) => updateTaskListTasksSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const list = db.taskLists.find(
+        (candidate) => candidate.id === data.listId && candidate.ownerId === currentUserId,
+      );
+      if (!list) throw createHttpError("Lista nÃ£o encontrada.", 404);
+
+      const visibleTaskIds = new Set(
+        db.tasks
+          .filter((task) =>
+            canViewTask({
+              task,
+              currentUser: db.employees.find((employee) => employee.id === currentUserId),
+              employees: db.employees,
+              departments: db.departments,
+              groups: db.groups,
+              permissionGroups: db.permissionGroups,
+            }),
+          )
+          .map((task) => task.id),
+      );
+      list.taskIds = [...new Set(data.taskIds)].filter((taskId) => visibleTaskIds.has(taskId));
+      return list;
     });
   });
 

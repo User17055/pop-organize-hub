@@ -69,7 +69,7 @@ export function useTaskAlerts(
 
     const openTask = (taskId: string) => {
       sessionStorage.setItem(PENDING_TASK_KEY, taskId);
-      navigate({ to: "/tarefas" });
+      navigate({ to: "/tarefas", search: { lista: undefined } });
     };
 
     const myOpenTasks = tasks.filter(

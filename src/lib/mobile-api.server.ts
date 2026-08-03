@@ -909,6 +909,95 @@ export async function readMobileTasks(request: Request) {
   });
 }
 
+export type MobileTaskOrganization = {
+  folders: Array<{
+    id: string;
+    name: string;
+    parentId?: string;
+    position: number;
+  }>;
+  lists: Array<{
+    id: string;
+    name: string;
+    folderId?: string;
+    taskIds: string[];
+    position: number;
+  }>;
+};
+
+export async function readMobileTaskOrganization(request: Request) {
+  const { workspace, account } = await requireMobileWorkspace(request);
+  return {
+    folders: (workspace.taskFolders ?? [])
+      .filter((folder) => folder.ownerId === account.id)
+      .map(({ ownerId: _ownerId, ...folder }) => folder),
+    lists: (workspace.taskLists ?? [])
+      .filter((list) => list.ownerId === account.id)
+      .map(({ ownerId: _ownerId, ...list }) => list),
+  } satisfies MobileTaskOrganization;
+}
+
+export async function replaceMobileTaskOrganization(
+  request: Request,
+  organization: MobileTaskOrganization,
+) {
+  const { workspace: authorizedWorkspace, account } = await requireMobileWorkspace(request);
+  return mutateDatabase((platform) => {
+    const workspace = platform.workspaces.find(
+      (item) => item.company.id === authorizedWorkspace.company.id,
+    );
+    const currentAccount = platform.accounts.find((item) => item.id === account.id);
+    if (!workspace || !currentAccount) {
+      throw Object.assign(new Error("Espaço da conta não encontrado."), { statusCode: 401 });
+    }
+
+    const folderIds = new Set(organization.folders.map((folder) => folder.id));
+    const parentById = new Map(
+      organization.folders.map((folder) => [folder.id, folder.parentId] as const),
+    );
+    for (const folder of organization.folders) {
+      if (folder.parentId && !folderIds.has(folder.parentId)) {
+        throw Object.assign(new Error("O grupo principal do subgrupo não existe."), {
+          statusCode: 400,
+        });
+      }
+      if (folder.parentId && parentById.get(folder.parentId)) {
+        throw Object.assign(new Error("A organização aceita apenas grupo e subgrupo."), {
+          statusCode: 400,
+        });
+      }
+    }
+
+    const visibleTaskIds = new Set(
+      visibleMobileTasks(workspace, currentAccount)
+        .map((task) => task.serverId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    workspace.taskFolders = [
+      ...(workspace.taskFolders ?? []).filter((folder) => folder.ownerId !== account.id),
+      ...organization.folders.map((folder) => ({ ...folder, ownerId: account.id })),
+    ];
+    workspace.taskLists = [
+      ...(workspace.taskLists ?? []).filter((list) => list.ownerId !== account.id),
+      ...organization.lists.map((list) => ({
+        ...list,
+        ownerId: account.id,
+        folderId: list.folderId && folderIds.has(list.folderId) ? list.folderId : undefined,
+        taskIds: Array.from(new Set(list.taskIds.filter((id) => visibleTaskIds.has(id)))),
+      })),
+    ];
+
+    return {
+      folders: workspace.taskFolders
+        .filter((folder) => folder.ownerId === account.id)
+        .map(({ ownerId: _ownerId, ...folder }) => folder),
+      lists: workspace.taskLists
+        .filter((list) => list.ownerId === account.id)
+        .map(({ ownerId: _ownerId, ...list }) => list),
+    } satisfies MobileTaskOrganization;
+  });
+}
+
 function mobileId(taskId: string) {
   let hash = 0;
   for (let index = 0; index < taskId.length; index += 1) {

@@ -23,6 +23,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiMobileWorkspacesRouteImport } from './routes/api/mobile/workspaces'
 import { Route as ApiMobileTasksRouteImport } from './routes/api/mobile/tasks'
+import { Route as ApiMobileTaskListsRouteImport } from './routes/api/mobile/task-lists'
 import { Route as ApiMobileInvitationsRouteImport } from './routes/api/mobile/invitations'
 import { Route as ApiMobileAuthGoogleRouteImport } from './routes/api/mobile/auth/google'
 import { Route as ApiMobileAuthEmailVerifyCodeRouteImport } from './routes/api/mobile/auth/email/verify-code'
@@ -98,6 +99,11 @@ const ApiMobileTasksRoute = ApiMobileTasksRouteImport.update({
   path: '/api/mobile/tasks',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMobileTaskListsRoute = ApiMobileTaskListsRouteImport.update({
+  id: '/api/mobile/task-lists',
+  path: '/api/mobile/task-lists',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMobileInvitationsRoute = ApiMobileInvitationsRouteImport.update({
   id: '/api/mobile/invitations',
   path: '/api/mobile/invitations',
@@ -135,6 +141,7 @@ export interface FileRoutesByFullPath {
   '/tarefas': typeof TarefasRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
+  '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
@@ -155,6 +162,7 @@ export interface FileRoutesByTo {
   '/tarefas': typeof TarefasRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
+  '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
@@ -176,6 +184,7 @@ export interface FileRoutesById {
   '/tarefas': typeof TarefasRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
+  '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
@@ -198,6 +207,7 @@ export interface FileRouteTypes {
     | '/tarefas'
     | '/api/health'
     | '/api/mobile/invitations'
+    | '/api/mobile/task-lists'
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
     | '/api/mobile/auth/google'
@@ -218,6 +228,7 @@ export interface FileRouteTypes {
     | '/tarefas'
     | '/api/health'
     | '/api/mobile/invitations'
+    | '/api/mobile/task-lists'
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
     | '/api/mobile/auth/google'
@@ -238,6 +249,7 @@ export interface FileRouteTypes {
     | '/tarefas'
     | '/api/health'
     | '/api/mobile/invitations'
+    | '/api/mobile/task-lists'
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
     | '/api/mobile/auth/google'
@@ -259,6 +271,7 @@ export interface RootRouteChildren {
   TarefasRoute: typeof TarefasRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiMobileInvitationsRoute: typeof ApiMobileInvitationsRoute
+  ApiMobileTaskListsRoute: typeof ApiMobileTaskListsRoute
   ApiMobileTasksRoute: typeof ApiMobileTasksRoute
   ApiMobileWorkspacesRoute: typeof ApiMobileWorkspacesRoute
   ApiMobileAuthGoogleRoute: typeof ApiMobileAuthGoogleRoute
@@ -366,6 +379,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMobileTasksRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mobile/task-lists': {
+      id: '/api/mobile/task-lists'
+      path: '/api/mobile/task-lists'
+      fullPath: '/api/mobile/task-lists'
+      preLoaderRoute: typeof ApiMobileTaskListsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mobile/invitations': {
       id: '/api/mobile/invitations'
       path: '/api/mobile/invitations'
@@ -411,6 +431,7 @@ const rootRouteChildren: RootRouteChildren = {
   TarefasRoute: TarefasRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiMobileInvitationsRoute: ApiMobileInvitationsRoute,
+  ApiMobileTaskListsRoute: ApiMobileTaskListsRoute,
   ApiMobileTasksRoute: ApiMobileTasksRoute,
   ApiMobileWorkspacesRoute: ApiMobileWorkspacesRoute,
   ApiMobileAuthGoogleRoute: ApiMobileAuthGoogleRoute,

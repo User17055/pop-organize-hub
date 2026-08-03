@@ -237,6 +237,23 @@ export interface Group {
   memberIds: string[];
 }
 
+export interface TaskFolder {
+  id: string;
+  ownerId: string;
+  name: string;
+  parentId?: string;
+  position: number;
+}
+
+export interface TaskListDefinition {
+  id: string;
+  ownerId: string;
+  name: string;
+  folderId?: string;
+  taskIds: string[];
+  position: number;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -279,6 +296,8 @@ export interface WorkspaceData {
   employees: Employee[];
   groups: Group[];
   tasks: Task[];
+  taskFolders: TaskFolder[];
+  taskLists: TaskListDefinition[];
   permissionGroups: PermissionGroup[];
   invitations: Array<{
     id: string;

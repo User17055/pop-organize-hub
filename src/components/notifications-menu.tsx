@@ -137,7 +137,7 @@ export function NotificationsMenu({
   function openTask(taskId: string) {
     sessionStorage.setItem(PENDING_TASK_KEY, taskId);
     setOpen(false);
-    navigate({ to: "/tarefas" });
+    navigate({ to: "/tarefas", search: { lista: undefined } });
   }
 
   return (

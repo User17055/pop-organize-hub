@@ -114,6 +114,7 @@ function Dashboard() {
         canCreateTask ? (
           <Link
             to="/tarefas"
+            search={{ lista: undefined }}
             style={{ background: "var(--gradient-primary)" }}
             className="hidden lg:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
           >
@@ -157,6 +158,7 @@ function Dashboard() {
             </div>
             <Link
               to="/tarefas"
+              search={{ lista: undefined }}
               className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline sm:text-sm"
             >
               Ver todas <ArrowRight className="h-3.5 w-3.5" />
@@ -241,6 +243,7 @@ function Dashboard() {
             </p>
             <Link
               to="/tarefas"
+              search={{ lista: undefined }}
               className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium bg-white/15 hover:bg-white/25 transition-colors px-3 py-1.5 rounded-xl"
             >
               Revisar agora <ArrowRight className="h-3.5 w-3.5" />

@@ -26,6 +26,7 @@ import {
   Plus,
   Check,
   DoorOpen,
+  ListTree,
 } from "lucide-react";
 import {
   useEffect,
@@ -50,6 +51,7 @@ import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permissi
 import { useTaskAlerts } from "@/hooks/use-task-alerts";
 import { NotificationsMenu } from "@/components/notifications-menu";
 import { BottomTabBar, type NavItem } from "@/components/bottom-tab-bar";
+import { TaskOrganizerSheet } from "@/components/task-organizer-sheet";
 import { Toaster } from "@/components/ui/sonner";
 import {
   Dialog,
@@ -639,6 +641,21 @@ export function AppShell({
           <WorkspaceSwitcher compact={collapsed} />
         </div>
 
+        <div className={cn("pb-2", collapsed ? "px-3.5" : "px-5")}>
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            title={collapsed ? "Grupos e listas" : undefined}
+            className={cn(
+              "flex w-full items-center rounded-2xl border border-primary/15 bg-primary/[0.07] text-sm font-semibold text-primary transition hover:bg-primary/12",
+              collapsed ? "justify-center px-0 py-3" : "gap-3.5 px-4 py-2.5",
+            )}
+          >
+            <ListTree className="h-[18px] w-[18px] shrink-0" />
+            {!collapsed && <span className="truncate">Grupos e listas</span>}
+          </button>
+        </div>
+
         <nav
           className={cn("flex-1 space-y-1.5 overflow-y-auto py-2", collapsed ? "px-3.5" : "px-5")}
           style={{ overscrollBehavior: "contain" }}
@@ -1104,6 +1121,8 @@ export function AppShell({
         </AnimatePresence>
       </main>
 
+      <TaskOrganizerSheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen} data={data} />
+
       <BottomTabBar
         primaryItems={primaryMobileNav}
         moreItems={moreMobileNav}
@@ -1115,8 +1134,6 @@ export function AppShell({
         showLogout={data.accessMode === "team"}
         showInstall={!isStandalone}
         onInstall={() => void installWebApp()}
-        menuOpen={mobileMenuOpen}
-        onMenuOpenChange={setMobileMenuOpen}
       />
 
       <Toaster position="top-center" closeButton richColors />

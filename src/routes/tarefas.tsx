@@ -17,6 +17,7 @@ import { getTaskPermissions } from "@/lib/permissions";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import {
   Archive,
+  ArrowLeft,
   ChevronDown,
   Columns3,
   Eye,
@@ -50,6 +51,10 @@ import {
 } from "@/components/tasks/task-form-types";
 
 export const Route = createFileRoute("/tarefas")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    lista:
+      typeof search.lista === "string" && search.lista.trim() ? search.lista.trim() : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Tarefas - Pop Organize" },
@@ -126,6 +131,8 @@ const defaultLayoutPreferences: TaskLayoutPreferences = {
 };
 
 function TasksPage() {
+  const { lista: organizerListId } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const { data, isLoading, error } = useWorkspaceData();
   const [active, setActive] = useState<TaskStatus | "all">("all");
   const [taskScope, setTaskScope] = useState<TaskScope>("all");
@@ -245,7 +252,16 @@ function TasksPage() {
 
   const deferredSearch = useDeferredValue(search);
   const normalizedSearch = deferredSearch.trim().toLowerCase();
-  const taskRows = useMemo(() => data?.tasks ?? [], [data?.tasks]);
+  const selectedOrganizerList = data?.taskLists.find((item) => item.id === organizerListId);
+  const organizerTaskIds = useMemo(
+    () => new Set(selectedOrganizerList?.taskIds ?? []),
+    [selectedOrganizerList?.taskIds],
+  );
+  const taskRows = useMemo(
+    () =>
+      (data?.tasks ?? []).filter((task) => !selectedOrganizerList || organizerTaskIds.has(task.id)),
+    [data?.tasks, organizerTaskIds, selectedOrganizerList],
+  );
   const activeTaskRows = useMemo(
     () => taskRows.filter((task) => task.status !== "completed"),
     [taskRows],
@@ -356,6 +372,16 @@ function TasksPage() {
           },
         ].filter((section) => section.tasks.length > 0)
       : [{ id: "all", label: "Todas as atividades", tasks: list }];
+
+  const organizerToday = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date());
+  const organizerCounts = {
+    all: activeTaskRows.length,
+    overdue: activeTaskRows.filter((task) => task.dueDate < organizerToday).length,
+    today: activeTaskRows.filter((task) => task.dueDate === organizerToday).length,
+    upcoming: activeTaskRows.filter((task) => task.dueDate > organizerToday).length,
+  };
 
   function openForm() {
     const dueDate = getDefaultDueDate();
@@ -623,8 +649,12 @@ function TasksPage() {
 
   return (
     <AppShell
-      title="Tarefas"
-      subtitle="Acompanhe e organize todas as demandas da empresa"
+      title={selectedOrganizerList?.name ?? "Tarefas"}
+      subtitle={
+        selectedOrganizerList
+          ? "Tarefas selecionadas para esta lista"
+          : "Acompanhe e organize todas as demandas da empresa"
+      }
       actions={
         canCreateTask ? (
           <div className="hidden items-center gap-2 lg:flex">
@@ -648,6 +678,66 @@ function TasksPage() {
         ) : undefined
       }
     >
+      {organizerListId && !selectedOrganizerList && (
+        <section className="task-glass-panel mb-4 rounded-[20px] border border-dashed border-border p-4">
+          <p className="text-sm font-semibold">Esta lista não existe mais.</p>
+          <button
+            type="button"
+            onClick={() => navigate({ to: "/tarefas", search: { lista: undefined } })}
+            className="mt-2 text-xs font-bold text-primary"
+          >
+            Voltar para todas as tarefas
+          </button>
+        </section>
+      )}
+
+      {selectedOrganizerList && (
+        <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+                Lista
+              </p>
+              <h2 className="mt-1 truncate font-display text-xl font-bold">
+                {selectedOrganizerList.name}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate({ to: "/tarefas", search: { lista: undefined } })}
+              className="task-glass-control inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
+            >
+              <ArrowLeft className="h-4 w-4" /> Todas as tarefas
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {(
+              [
+                ["all", "Todas", organizerCounts.all],
+                ["overdue", "Atrasadas", organizerCounts.overdue],
+                ["today", "Hoje", organizerCounts.today],
+                ["upcoming", "Próximas", organizerCounts.upcoming],
+              ] as const
+            ).map(([scope, label, count]) => (
+              <button
+                key={scope}
+                type="button"
+                onClick={() => setTaskScope(scope)}
+                className={cn(
+                  "rounded-2xl border px-3 py-3 text-left transition",
+                  taskScope === scope
+                    ? "border-primary/25 bg-primary/10 text-primary"
+                    : "border-border/65 bg-background/55 hover:border-primary/25",
+                )}
+              >
+                <span className="block text-2xl font-bold tabular-nums">{count}</span>
+                <span className="text-xs font-semibold">{label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       <div className="mb-4 flex min-w-0 items-center gap-2 sm:gap-3">
         <div className="task-glass-control flex h-12 min-w-0 flex-1 items-center gap-2 rounded-[18px] px-3 transition-colors focus-within:border-primary/45 sm:px-4 md:h-11">
           <Search className="h-4 w-4 text-primary" />

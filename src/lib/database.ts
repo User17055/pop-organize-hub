@@ -6,6 +6,8 @@ import type {
   Group,
   PermissionGroup,
   Task,
+  TaskFolder,
+  TaskListDefinition,
 } from "./domain";
 import { canViewTask } from "./permissions";
 
@@ -66,6 +68,8 @@ export type Database = {
   departments: Department[];
   groups: Group[];
   tasks: Task[];
+  taskFolders: TaskFolder[];
+  taskLists: TaskListDefinition[];
   permissionGroups: PermissionGroup[];
   sessions: SessionRecord[];
   invitations: InvitationRecord[];
@@ -125,6 +129,16 @@ export function sanitizeDatabase(
     employees,
     groups: db.groups,
     tasks: visibleTasks,
+    taskFolders: (db.taskFolders ?? [])
+      .filter((folder) => folder.ownerId === currentUserId)
+      .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, "pt-BR")),
+    taskLists: (db.taskLists ?? [])
+      .filter((list) => list.ownerId === currentUserId)
+      .map((list) => ({
+        ...list,
+        taskIds: list.taskIds.filter((taskId) => visibleTasks.some((task) => task.id === taskId)),
+      }))
+      .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, "pt-BR")),
     permissionGroups: db.permissionGroups,
     invitations:
       db.company.kind === "personal"

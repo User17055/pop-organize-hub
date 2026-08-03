@@ -23,6 +23,18 @@ import { getTaskPermissions } from "@/lib/permissions";
 import { EmployeeAvatar } from "./employee-avatar";
 import { isOverdue, taskTargetLabel } from "./task-form-types";
 
+type MobileDragState = {
+  taskId: string;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startScrollY: number;
+  deltaX: number;
+  deltaY: number;
+  beforeTaskId: string | null;
+  hasMoved: boolean;
+};
+
 function subtaskProgress(task: Task) {
   const subtasks = task.subtasks ?? [];
   if (subtasks.length === 0) return null;
@@ -69,6 +81,8 @@ export function TaskList({
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
   const [celebratingTaskId, setCelebratingTaskId] = useState<string | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [mobileDrag, setMobileDrag] = useState<MobileDragState | null>(null);
+  const mobileDragRef = useRef<MobileDragState | null>(null);
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tablePreferences = preferences ?? {
     titleWidth: 340,
@@ -92,9 +106,95 @@ export function TaskList({
     window.addEventListener("pointerup", onUp);
   }
 
+  function startMobileDrag(event: ReactPointerEvent<HTMLButtonElement>, task: Task) {
+    if (!onReorder || (event.pointerType === "mouse" && event.button !== 0)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const nextDrag: MobileDragState = {
+      taskId: task.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollY: window.scrollY,
+      deltaX: 0,
+      deltaY: 0,
+      beforeTaskId: null,
+      hasMoved: false,
+    };
+    mobileDragRef.current = nextDrag;
+    setMobileDrag(nextDrag);
+    setDraggedTaskId(task.id);
+    document.body.style.userSelect = "none";
+  }
+
+  function moveMobileDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const current = mobileDragRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const deltaX = event.clientX - current.startX;
+    const deltaY = event.clientY - current.startY + (window.scrollY - current.startScrollY);
+    const hasMoved = current.hasMoved || Math.hypot(deltaX, deltaY) > 5;
+    let beforeTaskId = current.beforeTaskId;
+
+    if (hasMoved) {
+      const candidates = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-mobile-task-id]"),
+      ).filter((element) => element.dataset.mobileTaskId !== current.taskId);
+      const nextCandidate = candidates.find((element) => {
+        const rect = element.getBoundingClientRect();
+        return event.clientY < rect.top + rect.height / 2;
+      });
+      beforeTaskId = nextCandidate?.dataset.mobileTaskId ?? null;
+
+      const scrollEdge = 72;
+      if (event.clientY < scrollEdge) {
+        window.scrollBy({ top: -14, behavior: "auto" });
+      } else if (event.clientY > window.innerHeight - scrollEdge) {
+        window.scrollBy({ top: 14, behavior: "auto" });
+      }
+    }
+
+    const nextDrag = { ...current, deltaX, deltaY, beforeTaskId, hasMoved };
+    mobileDragRef.current = nextDrag;
+    setMobileDrag(nextDrag);
+  }
+
+  function finishMobileDrag(event: ReactPointerEvent<HTMLButtonElement>, commit: boolean) {
+    const current = mobileDragRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    document.body.style.userSelect = "";
+    mobileDragRef.current = null;
+    setMobileDrag(null);
+    setDraggedTaskId(null);
+
+    if (!commit || !current.hasMoved) return;
+    const source = tasks.find((item) => item.id === current.taskId);
+    if (!source) return;
+
+    const tasksWithoutSource = tasks.filter((item) => item.id !== current.taskId);
+    const destinationIndex =
+      current.beforeTaskId === null
+        ? tasksWithoutSource.length
+        : tasksWithoutSource.findIndex((item) => item.id === current.beforeTaskId);
+    const originalIndex = tasks.findIndex((item) => item.id === current.taskId);
+    if (destinationIndex === originalIndex) return;
+
+    onReorder?.(source, current.beforeTaskId);
+  }
+
   useEffect(
     () => () => {
       if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
+      document.body.style.userSelect = "";
     },
     [],
   );
@@ -354,44 +454,40 @@ export function TaskList({
               permissionGroups,
             });
             const progress = subtaskProgress(task);
+            const isMobileDragging = mobileDrag?.taskId === task.id;
+            const isMobileDropTarget = mobileDrag?.hasMoved && mobileDrag.beforeTaskId === task.id;
             return (
               <motion.div
                 key={task.id}
+                data-mobile-task-id={task.id}
                 layout
                 initial={{ opacity: 0, y: 12, scale: 0.98 }}
                 animate={
-                  movingTaskId === task.id
-                    ? { opacity: 0.28, x: 34, scale: 0.97 }
-                    : { opacity: 1, x: 0, y: 0, scale: 1 }
+                  isMobileDragging
+                    ? {
+                        opacity: 0.92,
+                        x: mobileDrag.deltaX,
+                        y: mobileDrag.deltaY,
+                        scale: 1.02,
+                      }
+                    : movingTaskId === task.id
+                      ? { opacity: 0.28, x: 34, scale: 0.97 }
+                      : { opacity: 1, x: 0, y: 0, scale: 1 }
                 }
                 exit={{ opacity: 0, y: -8, scale: 0.98 }}
                 whileTap={{ scale: 0.992 }}
                 transition={{
-                  duration: 0.34,
-                  delay: Math.min(index * 0.018, 0.09),
+                  duration: isMobileDragging ? 0 : 0.34,
+                  delay: isMobileDragging ? 0 : Math.min(index * 0.018, 0.09),
                   ease: [0.22, 1, 0.36, 1],
                   layout: { type: "spring", stiffness: 280, damping: 32, mass: 0.9 },
                 }}
                 role="button"
-                draggable={Boolean(onReorder && permissions.canMove)}
-                onDragStartCapture={(event) => {
-                  setDraggedTaskId(task.id);
-                  event.dataTransfer.setData("text/plain", task.id);
-                }}
-                onDragOver={(event) => {
-                  if (draggedTaskId && draggedTaskId !== task.id) event.preventDefault();
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const sourceId = event.dataTransfer.getData("text/plain") || draggedTaskId;
-                  const source = tasks.find((item) => item.id === sourceId);
-                  if (source && source.id !== task.id) onReorder?.(source, task.id);
-                  setDraggedTaskId(null);
-                }}
-                onDragEnd={() => setDraggedTaskId(null)}
                 tabIndex={0}
                 aria-label={`Abrir atividade ${task.title}`}
-                onClick={() => onOpen(task)}
+                onClick={() => {
+                  if (!mobileDragRef.current) onOpen(task);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
@@ -399,11 +495,19 @@ export function TaskList({
                   }
                 }}
                 className={cn(
-                  "pressable group flex cursor-pointer items-start gap-3 rounded-[20px] border border-border/60 bg-card/65 p-4 shadow-none outline-none backdrop-blur-xl transition-colors focus-visible:ring-2 focus-visible:ring-primary/20",
+                  "pressable group relative flex cursor-pointer items-start gap-3 rounded-[20px] border border-border/60 bg-card/65 p-4 shadow-none outline-none backdrop-blur-xl transition-colors focus-visible:ring-2 focus-visible:ring-primary/20",
                   overdue && "border-destructive/20 bg-destructive/[0.055]",
                   selectedTaskId === task.id && "border-primary/25 bg-primary/[0.075]",
+                  isMobileDragging &&
+                    "z-50 cursor-grabbing border-primary/45 bg-card shadow-[0_18px_50px_-18px_hsl(var(--primary)/0.48)]",
                 )}
               >
+                {isMobileDropTarget && (
+                  <span
+                    className="pointer-events-none absolute -top-2.5 left-3 right-3 h-1 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
+                    aria-hidden="true"
+                  />
+                )}
                 <button
                   type="button"
                   onClick={(event) => {
@@ -488,10 +592,36 @@ export function TaskList({
                     <EmployeeAvatar employee={emp} departments={departments} />
                   </div>
                 )}
+
+                {onReorder && permissions.canMove && (
+                  <button
+                    type="button"
+                    onPointerDown={(event) => startMobileDrag(event, task)}
+                    onPointerMove={moveMobileDrag}
+                    onPointerUp={(event) => finishMobileDrag(event, true)}
+                    onPointerCancel={(event) => finishMobileDrag(event, false)}
+                    onLostPointerCapture={(event) => finishMobileDrag(event, false)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    className="-mr-2 -mt-1 flex h-10 w-9 shrink-0 touch-none select-none items-center justify-center rounded-xl text-primary/55 transition-colors active:bg-primary/10 active:text-primary"
+                    aria-label={`Arrastar ${task.title} para outra posição`}
+                    title="Arraste para organizar"
+                  >
+                    <GripVertical className="h-5 w-5" />
+                  </button>
+                )}
               </motion.div>
             );
           })}
         </AnimatePresence>
+        {mobileDrag?.hasMoved && mobileDrag.beforeTaskId === null && (
+          <div
+            className="mx-3 -mt-1 h-1 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
+            aria-hidden="true"
+          />
+        )}
       </div>
     </>
   );

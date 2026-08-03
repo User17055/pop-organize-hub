@@ -35,6 +35,18 @@ type MobileDragState = {
   hasMoved: boolean;
 };
 
+type PendingMobileDrag = {
+  taskId: string;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  element: HTMLDivElement;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+const MOBILE_LONG_PRESS_MS = 360;
+const MOBILE_SCROLL_CANCEL_DISTANCE = 10;
+
 function subtaskProgress(task: Task) {
   const subtasks = task.subtasks ?? [];
   if (subtasks.length === 0) return null;
@@ -83,6 +95,8 @@ export function TaskList({
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [mobileDrag, setMobileDrag] = useState<MobileDragState | null>(null);
   const mobileDragRef = useRef<MobileDragState | null>(null);
+  const pendingMobileDragRef = useRef<PendingMobileDrag | null>(null);
+  const ignoreMobileClickUntilRef = useRef(0);
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tablePreferences = preferences ?? {
     titleWidth: 340,
@@ -106,18 +120,30 @@ export function TaskList({
     window.addEventListener("pointerup", onUp);
   }
 
-  function startMobileDrag(event: ReactPointerEvent<HTMLButtonElement>, task: Task) {
-    if (!onReorder || (event.pointerType === "mouse" && event.button !== 0)) return;
+  function clearPendingMobileDrag(pointerId?: number) {
+    const pending = pendingMobileDragRef.current;
+    if (!pending || (pointerId !== undefined && pending.pointerId !== pointerId)) return;
+    clearTimeout(pending.timer);
+    pendingMobileDragRef.current = null;
+  }
 
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
+  function activateMobileDrag(pointerId: number) {
+    const pending = pendingMobileDragRef.current;
+    if (!pending || pending.pointerId !== pointerId) return;
 
+    try {
+      pending.element.setPointerCapture(pointerId);
+    } catch {
+      clearPendingMobileDrag(pointerId);
+      return;
+    }
+
+    pendingMobileDragRef.current = null;
     const nextDrag: MobileDragState = {
-      taskId: task.id,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
+      taskId: pending.taskId,
+      pointerId: pending.pointerId,
+      startX: pending.startX,
+      startY: pending.startY,
       startScrollY: window.scrollY,
       deltaX: 0,
       deltaY: 0,
@@ -126,13 +152,40 @@ export function TaskList({
     };
     mobileDragRef.current = nextDrag;
     setMobileDrag(nextDrag);
-    setDraggedTaskId(task.id);
+    setDraggedTaskId(pending.taskId);
+    ignoreMobileClickUntilRef.current = Date.now() + 600;
     document.body.style.userSelect = "none";
+    navigator.vibrate?.(18);
   }
 
-  function moveMobileDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+  function startMobileDrag(event: ReactPointerEvent<HTMLDivElement>, task: Task) {
+    if (!onReorder || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if ((event.target as HTMLElement).closest("button, a, input, textarea, select")) return;
+
+    clearPendingMobileDrag();
+    pendingMobileDragRef.current = {
+      taskId: task.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      element: event.currentTarget,
+      timer: setTimeout(() => activateMobileDrag(event.pointerId), MOBILE_LONG_PRESS_MS),
+    };
+  }
+
+  function moveMobileDrag(event: ReactPointerEvent<HTMLDivElement>) {
     const current = mobileDragRef.current;
-    if (!current || current.pointerId !== event.pointerId) return;
+    if (!current || current.pointerId !== event.pointerId) {
+      const pending = pendingMobileDragRef.current;
+      if (
+        pending?.pointerId === event.pointerId &&
+        Math.hypot(event.clientX - pending.startX, event.clientY - pending.startY) >
+          MOBILE_SCROLL_CANCEL_DISTANCE
+      ) {
+        clearPendingMobileDrag(event.pointerId);
+      }
+      return;
+    }
 
     event.preventDefault();
     event.stopPropagation();
@@ -165,12 +218,14 @@ export function TaskList({
     setMobileDrag(nextDrag);
   }
 
-  function finishMobileDrag(event: ReactPointerEvent<HTMLButtonElement>, commit: boolean) {
+  function finishMobileDrag(event: ReactPointerEvent<HTMLDivElement>, commit: boolean) {
+    clearPendingMobileDrag(event.pointerId);
     const current = mobileDragRef.current;
     if (!current || current.pointerId !== event.pointerId) return;
 
     event.preventDefault();
     event.stopPropagation();
+    ignoreMobileClickUntilRef.current = Date.now() + 600;
     document.body.style.userSelect = "";
     mobileDragRef.current = null;
     setMobileDrag(null);
@@ -191,13 +246,20 @@ export function TaskList({
     onReorder?.(source, current.beforeTaskId);
   }
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const preventTouchScrollWhileDragging = (event: TouchEvent) => {
+      if (mobileDragRef.current) event.preventDefault();
+    };
+    document.addEventListener("touchmove", preventTouchScrollWhileDragging, { passive: false });
+
+    return () => {
       if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
+      if (pendingMobileDragRef.current) clearTimeout(pendingMobileDragRef.current.timer);
+      pendingMobileDragRef.current = null;
       document.body.style.userSelect = "";
-    },
-    [],
-  );
+      document.removeEventListener("touchmove", preventTouchScrollWhileDragging);
+    };
+  }, []);
 
   function completeFromMobile(task: Task) {
     if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
@@ -484,9 +546,23 @@ export function TaskList({
                 }}
                 role="button"
                 tabIndex={0}
-                aria-label={`Abrir atividade ${task.title}`}
+                aria-label={
+                  onReorder && permissions.canMove
+                    ? `Abrir atividade ${task.title}. Segure para reorganizar.`
+                    : `Abrir atividade ${task.title}`
+                }
+                onPointerDown={(event) => {
+                  if (permissions.canMove) startMobileDrag(event, task);
+                }}
+                onPointerMove={moveMobileDrag}
+                onPointerUp={(event) => finishMobileDrag(event, true)}
+                onPointerCancel={(event) => finishMobileDrag(event, false)}
+                onLostPointerCapture={(event) => finishMobileDrag(event, false)}
+                onContextMenu={(event) => {
+                  if (onReorder && permissions.canMove) event.preventDefault();
+                }}
                 onClick={() => {
-                  if (!mobileDragRef.current) onOpen(task);
+                  if (Date.now() >= ignoreMobileClickUntilRef.current) onOpen(task);
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
@@ -496,6 +572,9 @@ export function TaskList({
                 }}
                 className={cn(
                   "pressable group relative flex cursor-pointer items-start gap-3 rounded-[20px] border border-border/60 bg-card/65 p-4 shadow-none outline-none backdrop-blur-xl transition-colors focus-visible:ring-2 focus-visible:ring-primary/20",
+                  onReorder &&
+                    permissions.canMove &&
+                    "touch-pan-y select-none [-webkit-touch-callout:none]",
                   overdue && "border-destructive/20 bg-destructive/[0.055]",
                   selectedTaskId === task.id && "border-primary/25 bg-primary/[0.075]",
                   isMobileDragging &&
@@ -594,23 +673,12 @@ export function TaskList({
                 )}
 
                 {onReorder && permissions.canMove && (
-                  <button
-                    type="button"
-                    onPointerDown={(event) => startMobileDrag(event, task)}
-                    onPointerMove={moveMobileDrag}
-                    onPointerUp={(event) => finishMobileDrag(event, true)}
-                    onPointerCancel={(event) => finishMobileDrag(event, false)}
-                    onLostPointerCapture={(event) => finishMobileDrag(event, false)}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                    className="-mr-2 -mt-1 flex h-10 w-9 shrink-0 touch-none select-none items-center justify-center rounded-xl text-primary/55 transition-colors active:bg-primary/10 active:text-primary"
-                    aria-label={`Arrastar ${task.title} para outra posição`}
-                    title="Arraste para organizar"
+                  <span
+                    className="-mr-2 -mt-1 flex h-10 w-7 shrink-0 items-center justify-center text-primary/45"
+                    aria-hidden="true"
                   >
                     <GripVertical className="h-5 w-5" />
-                  </button>
+                  </span>
                 )}
               </motion.div>
             );

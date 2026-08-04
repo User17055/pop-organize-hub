@@ -4667,6 +4667,7 @@ private fun TasksScreen(
     var completingTaskId by remember { mutableStateOf<Int?>(null) }
     var movingTaskId by remember { mutableStateOf<Int?>(null) }
     var reorderTaskId by remember { mutableStateOf<Int?>(null) }
+    var reorderOriginalIndex by remember { mutableStateOf<Int?>(null) }
     var deletingTaskId by remember { mutableStateOf<Int?>(null) }
     var showDeleteTaskConfirmation by remember { mutableStateOf(false) }
     var expandedDetailSection by remember { mutableStateOf<String?>(null) }
@@ -4922,6 +4923,17 @@ private fun TasksScreen(
             if (direction < 0) targetSourceIndex else (targetSourceIndex + 1).coerceAtMost(tasks.size)
         tasks.add(insertionIndex, source)
         return true
+    }
+
+    fun cancelTaskReorder(taskId: Int) {
+        val originalIndex = reorderOriginalIndex ?: return
+        val currentIndex = tasks.indexOfFirst { it.id == taskId }
+        if (currentIndex >= 0 && currentIndex != originalIndex) {
+            val task = tasks.removeAt(currentIndex)
+            tasks.add(originalIndex.coerceIn(0, tasks.size), task)
+        }
+        reorderOriginalIndex = null
+        reorderTaskId = null
     }
 
     fun openTask(task: PopTask) {
@@ -5270,11 +5282,17 @@ private fun TasksScreen(
                     animationSpec = tween(580, easing = FastOutSlowInEasing),
                     label = "taskSlotHeight",
                 )
-                Column {
-                    val placementModifier =
-                        if (reorderTaskId == task.id) Modifier.zIndex(10f) else Modifier.animateItem()
+                val placementModifier =
+                    if (reorderTaskId == task.id) {
+                        Modifier.zIndex(10f)
+                    } else {
+                        Modifier.animateItem(
+                            placementSpec = tween(240, easing = FastOutSlowInEasing),
+                        )
+                    }
+                Column(placementModifier) {
                     Box(
-                        placementModifier
+                        Modifier
                             .fillMaxWidth()
                             .height(taskSlotHeight)
                             .padding(horizontal = 26.dp, vertical = 6.dp),
@@ -5290,12 +5308,17 @@ private fun TasksScreen(
                             isReorderSelected = reorderTaskId == task.id,
                             onComplete = { toggleTask(task) },
                             onOpen = { openTask(task) },
-                            onReorderStart = { reorderTaskId = task.id },
-                            onReorderStep = { direction -> moveTaskOneStep(task.id, direction) },
-                            onReorderEnd = { reorderTaskId = null },
-                            onAutoScroll = { amount ->
-                                taskActionScope.launch { taskListState.scrollBy(amount) }
+                            onReorderStart = {
+                                reorderOriginalIndex = tasks.indexOfFirst { it.id == task.id }
+                                reorderTaskId = task.id
                             },
+                            onReorderStep = { direction -> moveTaskOneStep(task.id, direction) },
+                            onReorderEnd = {
+                                reorderOriginalIndex = null
+                                reorderTaskId = null
+                            },
+                            onReorderCancel = { cancelTaskReorder(task.id) },
+                            onAutoScroll = { amount -> taskListState.scrollBy(amount) },
                             autoScrollViewportTopPx = taskViewportTopPx,
                             autoScrollViewportBottomPx = taskViewportBottomPx,
                         )
@@ -5351,6 +5374,7 @@ private fun TasksScreen(
                                             onReorderStart = {},
                                             onReorderStep = { false },
                                             onReorderEnd = {},
+                                            onReorderCancel = {},
                                             onAutoScroll = {},
                                             reorderEnabled = false,
                                         )
@@ -7183,7 +7207,8 @@ private fun TaskCard(
     onReorderStart: () -> Unit,
     onReorderStep: (direction: Int) -> Boolean,
     onReorderEnd: () -> Unit,
-    onAutoScroll: (amount: Float) -> Unit,
+    onReorderCancel: () -> Unit,
+    onAutoScroll: suspend (amount: Float) -> Unit,
     autoScrollViewportTopPx: Float = 0f,
     autoScrollViewportBottomPx: Float = Float.MAX_VALUE,
     reorderEnabled: Boolean = true,
@@ -7191,6 +7216,7 @@ private fun TaskCard(
     val hapticFeedback = LocalHapticFeedback.current
     val currentOnReorderStep by rememberUpdatedState(onReorderStep)
     val currentOnReorderEnd by rememberUpdatedState(onReorderEnd)
+    val currentOnReorderCancel by rememberUpdatedState(onReorderCancel)
     val currentOnAutoScroll by rememberUpdatedState(onAutoScroll)
     var suppressTap by remember(task.id) { mutableStateOf(false) }
     var ignoreTapUntil by remember(task.id) { mutableLongStateOf(0L) }
@@ -7202,6 +7228,21 @@ private fun TaskCard(
     var fingerDragY by remember(task.id) { mutableFloatStateOf(0f) }
     var reorderStepPending by remember(task.id) { mutableStateOf(false) }
     var draggingCard by remember(task.id) { mutableStateOf(false) }
+    var autoScrollDirection by remember(task.id) { mutableIntStateOf(0) }
+    var dropOutsideViewport by remember(task.id) { mutableStateOf(false) }
+
+    LaunchedEffect(draggingCard, autoScrollDirection) {
+        var reorderElapsedMs = 0L
+        while (draggingCard && autoScrollDirection != 0) {
+            currentOnAutoScroll(14f * autoScrollDirection)
+            delay(16)
+            reorderElapsedMs += 16
+            if (reorderElapsedMs >= 96 && !reorderStepPending) {
+                reorderStepPending = currentOnReorderStep(autoScrollDirection)
+                reorderElapsedMs = 0
+            }
+        }
+    }
     val completedVisual = task.completed || isCompleting
     val isOverdue = isTaskOverdue(task) && !isCompleting
     val isUrgent = task.priority == "Urgente" && !completedVisual
@@ -7288,26 +7329,35 @@ private fun TaskCard(
                         fingerDragY = 0f
                         reorderStepPending = false
                         draggingCard = true
+                        autoScrollDirection = 0
+                        dropOutsideViewport = false
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         onReorderStart()
                     },
                     onDragEnd = {
-                        if (suppressTap) currentOnReorderEnd()
+                        if (suppressTap) {
+                            if (dropOutsideViewport) currentOnReorderCancel()
+                            else currentOnReorderEnd()
+                        }
                         dragTranslationX = 0f
                         dragTranslationY = 0f
                         fingerDragY = 0f
                         reorderStepPending = false
                         draggingCard = false
+                        autoScrollDirection = 0
+                        dropOutsideViewport = false
                         suppressTap = false
                         ignoreTapUntil = System.currentTimeMillis() + 500L
                     },
                     onDragCancel = {
-                        if (suppressTap) currentOnReorderEnd()
+                        if (suppressTap) currentOnReorderCancel()
                         dragTranslationX = 0f
                         dragTranslationY = 0f
                         fingerDragY = 0f
                         reorderStepPending = false
                         draggingCard = false
+                        autoScrollDirection = 0
+                        dropOutsideViewport = false
                         suppressTap = false
                         ignoreTapUntil = System.currentTimeMillis() + 500L
                     },
@@ -7327,14 +7377,16 @@ private fun TaskCard(
                         }
                         val visualCardTop = cardTopInWindowPx + dragTranslationY
                         val visualCardBottom = visualCardTop + cardHeightPx
-                        val edgeMargin = 12.dp.toPx()
-                        when {
-                            dragAmount.y < 0f &&
-                                visualCardTop <= autoScrollViewportTopPx + edgeMargin ->
-                                currentOnAutoScroll(-22f)
-                            dragAmount.y > 0f &&
-                                visualCardBottom >= autoScrollViewportBottomPx - edgeMargin ->
-                                currentOnAutoScroll(22f)
+                        val visualCardCenter = (visualCardTop + visualCardBottom) / 2f
+                        val edgeZone = 42.dp.toPx()
+                        dropOutsideViewport =
+                            visualCardCenter > autoScrollViewportBottomPx ||
+                                visualCardCenter < autoScrollViewportTopPx
+                        autoScrollDirection = when {
+                            dropOutsideViewport -> 0
+                            visualCardTop <= autoScrollViewportTopPx + edgeZone -> -1
+                            visualCardBottom >= autoScrollViewportBottomPx - edgeZone -> 1
+                            else -> 0
                         }
                     },
                 )

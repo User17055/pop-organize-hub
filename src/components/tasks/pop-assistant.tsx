@@ -42,7 +42,7 @@ const greeting: ChatMessage = {
   id: "greeting",
   role: "assistant",
   content:
-    "Oi! Eu sou a Pop. Me conte o que precisa ser feito por texto, imagem ou áudio. Eu preparo o resumo e você confirma antes de criar.",
+    "Oi! Eu sou a Pop 😊 Bora deixar o dia mais organizado? Me conte o que precisa ser feito por texto, imagem, áudio ou ligação. Eu preparo o resumo e você confirma antes de criar.",
 };
 
 function fileToDataUrl(file: Blob) {

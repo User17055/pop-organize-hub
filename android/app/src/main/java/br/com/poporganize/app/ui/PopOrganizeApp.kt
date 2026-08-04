@@ -7198,6 +7198,10 @@ private fun TaskCard(
     var dragTranslationY by remember(task.id) { mutableFloatStateOf(0f) }
     var cardTopInWindowPx by remember(task.id) { mutableFloatStateOf(0f) }
     var cardHeightPx by remember(task.id) { mutableFloatStateOf(0f) }
+    var dragStartCardTopPx by remember(task.id) { mutableFloatStateOf(0f) }
+    var fingerDragY by remember(task.id) { mutableFloatStateOf(0f) }
+    var reorderStepPending by remember(task.id) { mutableStateOf(false) }
+    var draggingCard by remember(task.id) { mutableStateOf(false) }
     val completedVisual = task.completed || isCompleting
     val isOverdue = isTaskOverdue(task) && !isCompleting
     val isUrgent = task.priority == "Urgente" && !completedVisual
@@ -7256,8 +7260,14 @@ private fun TaskCard(
             .fillMaxWidth()
             .height(82.dp)
             .onGloballyPositioned { coordinates ->
-                cardTopInWindowPx = coordinates.boundsInWindow().top
+                val nextTop = coordinates.boundsInWindow().top
+                val layoutMoved = kotlin.math.abs(nextTop - cardTopInWindowPx) > 1f
+                cardTopInWindowPx = nextTop
                 cardHeightPx = coordinates.size.height.toFloat()
+                if (draggingCard) {
+                    dragTranslationY = dragStartCardTopPx + fingerDragY - nextTop
+                    if (layoutMoved) reorderStepPending = false
+                }
             }
             .pointerInput(task.id) {
                 detectTapGestures(
@@ -7274,6 +7284,10 @@ private fun TaskCard(
                         ignoreTapUntil = Long.MAX_VALUE
                         dragTranslationX = 0f
                         dragTranslationY = 0f
+                        dragStartCardTopPx = cardTopInWindowPx
+                        fingerDragY = 0f
+                        reorderStepPending = false
+                        draggingCard = true
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         onReorderStart()
                     },
@@ -7281,6 +7295,9 @@ private fun TaskCard(
                         if (suppressTap) currentOnReorderEnd()
                         dragTranslationX = 0f
                         dragTranslationY = 0f
+                        fingerDragY = 0f
+                        reorderStepPending = false
+                        draggingCard = false
                         suppressTap = false
                         ignoreTapUntil = System.currentTimeMillis() + 500L
                     },
@@ -7288,23 +7305,24 @@ private fun TaskCard(
                         if (suppressTap) currentOnReorderEnd()
                         dragTranslationX = 0f
                         dragTranslationY = 0f
+                        fingerDragY = 0f
+                        reorderStepPending = false
+                        draggingCard = false
                         suppressTap = false
                         ignoreTapUntil = System.currentTimeMillis() + 500L
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
                         dragTranslationX += dragAmount.x
-                        dragTranslationY += dragAmount.y
+                        fingerDragY += dragAmount.y
+                        dragTranslationY = dragStartCardTopPx + fingerDragY - cardTopInWindowPx
                         val stepThreshold = size.height * .52f
-                        val slotDistance = size.height + 12.dp.toPx()
-                        when {
-                            dragTranslationY <= -stepThreshold -> {
-                                if (currentOnReorderStep(-1)) dragTranslationY += slotDistance
-                                else dragTranslationY = -stepThreshold
+                        if (!reorderStepPending) when {
+                            dragAmount.y < 0f && dragTranslationY <= -stepThreshold -> {
+                                reorderStepPending = currentOnReorderStep(-1)
                             }
-                            dragTranslationY >= stepThreshold -> {
-                                if (currentOnReorderStep(1)) dragTranslationY -= slotDistance
-                                else dragTranslationY = stepThreshold
+                            dragAmount.y > 0f && dragTranslationY >= stepThreshold -> {
+                                reorderStepPending = currentOnReorderStep(1)
                             }
                         }
                         val visualCardTop = cardTopInWindowPx + dragTranslationY

@@ -5289,10 +5289,12 @@ private fun TasksScreen(
                         Modifier.zIndex(10f)
                     } else {
                         Modifier.animateItem(
+                            fadeInSpec = null,
                             placementSpec = spring(
                                 dampingRatio = Spring.DampingRatioNoBouncy,
                                 stiffness = Spring.StiffnessMedium,
                             ),
+                            fadeOutSpec = null,
                         )
                     }
                 Column(placementModifier) {
@@ -7399,19 +7401,12 @@ private fun TaskCard(
                                 visualCardCenter < autoScrollViewportTopPx
                         when {
                             visualCardTop <= autoScrollViewportTopPx + edgeZone -> {
-                                val depth = (
-                                    (autoScrollViewportTopPx + edgeZone - visualCardTop) / edgeZone
-                                    ).coerceIn(0f, 1.6f)
                                 autoScrollDirection = -1
-                                autoScrollSpeedPx = 4f + 12f * depth
+                                autoScrollSpeedPx = 8f
                             }
                             visualCardBottom >= autoScrollViewportBottomPx - edgeZone -> {
-                                val depth = (
-                                    (visualCardBottom - (autoScrollViewportBottomPx - edgeZone)) /
-                                        edgeZone
-                                    ).coerceIn(0f, 1.6f)
                                 autoScrollDirection = 1
-                                autoScrollSpeedPx = 4f + 12f * depth
+                                autoScrollSpeedPx = 8f
                             }
                             else -> {
                                 autoScrollDirection = 0

@@ -170,6 +170,25 @@ function sanitizeDraft(
     /\b(?:(?:como|qual).{0,30}(?:ficou|está|esta)|(?:pode\s+)?(?:repetir|repete|resumir|resuma)|(?:qual|mostre).{0,20}resumo).{0,40}(?:tarefa|atividade)?\b/i.test(
       currentRequest,
     );
+  const isTaskGuidanceRequest =
+    /\b(?:tarefa|atividade|cadastro|cadastrar|organizar|organização|titulo|título|descrição|prazo|prioridade|responsável|responsavel|checklist|etapas?|recorrência|recorrente|etiquetas?|tags?|destino|setor|grupo|entrega|objetivo|trabalho)\b/i.test(
+      currentRequest,
+    );
+
+  if (asksForDraftSummary) {
+    const storedDraft = extractStoredDraft(sourceMessage);
+    if (storedDraft) Object.assign(draft, storedDraft);
+    if (draft.title?.trim() && draft.description?.trim()) answer.intent = "create_task";
+  }
+
+  if (answer.intent === "task_guidance" && !isTaskGuidanceRequest && !asksForDraftSummary) {
+    answer.intent = "out_of_scope";
+    answer.status = "needs_input";
+    answer.missingFields = [];
+    answer.reply =
+      "Eu não consigo ajudar com esse assunto. Minha função é criar, detalhar e organizar tarefas no Pop Organize. Me conte o que precisa ser feito e eu monto a atividade para você.";
+    return answer;
+  }
 
   if (answer.intent === "out_of_scope") {
     answer.status = "needs_input";
@@ -192,10 +211,6 @@ function sanitizeDraft(
     answer.reply =
       "Eu consigo ajudar apenas com o cadastro e a organização de tarefas no Pop Organize. Me conte o que precisa ser feito e eu monto a atividade para você.";
     return answer;
-  }
-
-  if (asksForDraftSummary && draft.title?.trim() && draft.description?.trim()) {
-    answer.intent = "create_task";
   }
 
   if (
@@ -285,6 +300,19 @@ function sanitizeDraft(
   answer.status = answer.missingFields.length > 0 ? "needs_input" : "ready";
   if (answer.status === "ready") answer.reply = buildReadyReply(draft, context);
   return answer;
+}
+
+function extractStoredDraft(sourceMessage: string) {
+  const marker = "[Rascunho atual mantido pelo sistema]";
+  const markerIndex = sourceMessage.indexOf(marker);
+  if (markerIndex < 0) return null;
+  const serialized = sourceMessage.slice(markerIndex + marker.length).trim();
+  try {
+    const parsed = popDraftSchema.safeParse(JSON.parse(serialized));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
 
 function buildReadyReply(draft: PopTaskDraft, context: PopWorkspaceContext) {

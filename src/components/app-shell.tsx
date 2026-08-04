@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Menu,
   Moon,
+  Sparkles,
   Sun,
   UserRound,
   ChevronDown,
@@ -50,6 +51,7 @@ import type { PermissionKey, Priority, TaskStatus } from "@/lib/domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { useTaskAlerts } from "@/hooks/use-task-alerts";
 import { NotificationsMenu } from "@/components/notifications-menu";
+import { PopDock, openPopAssistant } from "@/components/pop-launcher";
 import { BottomTabBar, type NavItem } from "@/components/bottom-tab-bar";
 import { TaskOrganizerSheet } from "@/components/task-organizer-sheet";
 import { Toaster } from "@/components/ui/sonner";
@@ -244,6 +246,7 @@ export function AppShell({
     permissionGroups: data?.permissionGroups ?? [],
   });
   const isAdmin = isAdminUser({ currentUser, employees: data?.employees ?? [] });
+  const canCreateTask = hasPermission(permissionSet, "tasks.create");
   const visibleNav = nav.filter((item) => {
     if (data?.company.kind === "personal" && companyOnlyPaths.includes(item.to)) {
       return false;
@@ -299,7 +302,7 @@ export function AppShell({
     document.documentElement.style.colorScheme = theme;
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute("content", isDark ? "#071727" : "#1687f8");
+      ?.setAttribute("content", isDark ? "#0b0c12" : "#4f46e5");
     try {
       localStorage.setItem(THEME_KEY, theme);
     } catch {
@@ -610,7 +613,7 @@ export function AppShell({
       {/* Sidebar (desktop/tablet only) */}
       <aside
         className={cn(
-          "glass-sidebar native-sidebar sticky top-0 hidden h-screen flex-col border-r border-white/70 text-sidebar-foreground soft-transition transition-[width,background-color] duration-300 lg:flex",
+          "sidebar-shell native-sidebar sticky top-0 hidden h-screen flex-col border-r soft-transition transition-[width,background-color] duration-300 lg:flex",
           collapsed ? "w-[84px]" : "w-72",
         )}
       >
@@ -620,18 +623,28 @@ export function AppShell({
             collapsed ? "flex-col gap-3 px-3" : "justify-between px-5",
           )}
         >
-          {!collapsed && (
-            <Link to="/" className="flex items-center overflow-hidden" aria-label="Pop Organize">
-              <span className="truncate font-display text-base font-bold text-sidebar-foreground">
+          <Link
+            to="/"
+            className="flex min-w-0 items-center gap-2.5 overflow-hidden"
+            aria-label="Pop Organize"
+          >
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white shadow-lg shadow-indigo-950/40"
+              style={{ background: "var(--gradient-primary)" }}
+            >
+              <CheckSquare className="h-4 w-4" />
+            </span>
+            {!collapsed && (
+              <span className="truncate font-display text-[15px] font-bold text-white">
                 Pop Organize
               </span>
-            </Link>
-          )}
+            )}
+          </Link>
           <button
             type="button"
             onClick={toggleCollapsed}
             title={collapsed ? "Expandir menu" : "Recolher menu"}
-            className="glass-icon-button flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sidebar-foreground/70 hover:text-primary"
+            className="glass-icon-button flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sidebar-foreground/70 hover:text-white"
           >
             <Menu className="h-4 w-4" />
           </button>
@@ -656,6 +669,11 @@ export function AppShell({
           </button>
         </div>
 
+        {!collapsed && (
+          <div className="px-6 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-sidebar-foreground/35">
+            Menu
+          </div>
+        )}
         <nav
           className={cn("flex-1 space-y-1.5 overflow-y-auto py-2", collapsed ? "px-3.5" : "px-5")}
           style={{ overscrollBehavior: "contain" }}
@@ -669,16 +687,15 @@ export function AppShell({
                 to={item.to}
                 title={collapsed ? item.label : undefined}
                 className={cn(
-                  "flex items-center rounded-2xl text-sm font-medium soft-transition transition-all duration-300",
+                  "flex items-center rounded-xl text-sm font-medium soft-transition transition-all duration-300",
                   collapsed ? "justify-center px-0 py-3" : "gap-3.5 px-4 py-2.5",
                   active
-                    ? "text-primary-foreground"
+                    ? "sidebar-nav-item-active"
                     : cn(
-                        "text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                        "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-white",
                         !collapsed && "hover:translate-x-0.5",
                       ),
                 )}
-                style={active ? { background: "var(--gradient-primary)" } : undefined}
               >
                 <Icon className="h-[18px] w-[18px] shrink-0" />
                 {!collapsed && <span className="truncate">{item.label}</span>}
@@ -687,7 +704,51 @@ export function AppShell({
           })}
         </nav>
 
-        <div className={cn("space-y-1.5 py-4", collapsed ? "px-3.5" : "px-5")}>
+        {canCreateTask &&
+          (collapsed ? (
+            <div className="px-3.5 pb-1">
+              <button
+                type="button"
+                onClick={() => openPopAssistant()}
+                title="Falar com a Pop (IA)"
+                className="flex h-11 w-full items-center justify-center rounded-xl text-white transition hover:opacity-90"
+                style={{ background: "var(--gradient-primary)" }}
+              >
+                <Sparkles className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="mx-5 mb-1 rounded-2xl border border-white/10 bg-white/[0.05] p-3.5">
+              <div className="flex items-center gap-2">
+                <span
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-white"
+                  style={{ background: "var(--gradient-primary)" }}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                </span>
+                <span className="text-sm font-bold text-white">Pop IA</span>
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-sidebar-foreground/55">
+                Crie tarefas conversando por texto, áudio ou imagem.
+              </p>
+              <button
+                type="button"
+                onClick={() => openPopAssistant()}
+                className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-bold text-white transition hover:opacity-90"
+                style={{ background: "var(--gradient-primary)" }}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Falar com a Pop
+              </button>
+            </div>
+          ))}
+
+        <div
+          className={cn(
+            "mt-1 space-y-1.5 border-t border-white/[0.06] py-4",
+            collapsed ? "px-3.5" : "px-5",
+          )}
+        >
           <button
             type="button"
             onClick={openProfile}
@@ -1048,7 +1109,7 @@ export function AppShell({
                 <p className="mt-1 truncate text-sm text-muted-foreground">{subtitle}</p>
               )}
             </div>
-            <div className="glass-surface hidden h-9 w-64 items-center gap-2 rounded-xl border border-white/70 bg-white/50 px-3 soft-transition transition-colors focus-within:border-primary/40 focus-within:bg-white/85 lg:flex">
+            <div className="hidden h-9 w-64 items-center gap-2 rounded-xl border border-border bg-card px-3 shadow-[var(--shadow-xs)] soft-transition transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 lg:flex">
               <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 placeholder="Buscar tarefas, pessoas..."
@@ -1065,7 +1126,7 @@ export function AppShell({
               {data.accessMode === "personal" ? (
                 <Link
                   to="/login"
-                  className="glass-surface hidden h-9 items-center gap-2 rounded-xl border border-white/70 bg-white/50 px-3 text-sm font-medium text-foreground/75 transition hover:text-primary lg:inline-flex"
+                  className="hidden h-9 items-center gap-2 rounded-xl border border-border bg-card px-3 text-sm font-medium text-foreground/75 shadow-[var(--shadow-xs)] transition hover:text-primary lg:inline-flex"
                 >
                   <UserRound className="h-4 w-4" />
                   Entrar
@@ -1135,6 +1196,8 @@ export function AppShell({
         showInstall={!isStandalone}
         onInstall={() => void installWebApp()}
       />
+
+      {canCreateTask && <PopDock />}
 
       <Toaster position="top-center" closeButton richColors />
       <ScrollBoundaryEffect />

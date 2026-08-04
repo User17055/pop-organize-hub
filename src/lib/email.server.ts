@@ -65,7 +65,7 @@ export async function sendVerificationCode(
           </div>
           <h1 style="font-size:22px;margin:0 0 14px">Confirme seu e-mail</h1>
           <p style="line-height:1.6">Recebemos uma solicitação de acesso. Use o código abaixo para entrar no Pop Organize:</p>
-          <div style="font-size:34px;font-weight:800;letter-spacing:8px;color:#1687f8;padding:20px 0">${code}</div>
+          <div style="font-size:34px;font-weight:800;letter-spacing:8px;color:#4f46e5;padding:20px 0">${code}</div>
           <p style="color:#657383;font-size:13px">O código expira em 10 minutos e pode ser usado apenas uma vez.</p>
           <p style="color:#657383;font-size:13px">Se você não solicitou este acesso, ignore este e-mail.</p>
         </div>
@@ -137,18 +137,18 @@ export async function sendEmployeeInvitation({
         </div>
         <div style="background:#f4f7fb;padding:32px 16px;font-family:Arial,sans-serif;color:#17212b">
           <div style="max-width:560px;margin:auto;background:#fff;border-radius:24px;padding:32px;box-shadow:0 18px 45px rgba(18,35,51,.10)">
-            <div style="font-size:20px;font-weight:800;margin-bottom:24px;color:#122333">Pop <span style="color:#1687f8">Organize</span></div>
+            <div style="font-size:20px;font-weight:800;margin-bottom:24px;color:#122333">Pop <span style="color:#4f46e5">Organize</span></div>
             <h1 style="font-size:24px;line-height:1.25;margin:0 0 14px">Olá, ${safeName}!</h1>
             <p style="font-size:15px;line-height:1.65;margin:0 0 12px;color:#3c4747">
               <strong>${safeInviter}</strong> convidou você para fazer parte da equipe <strong>${safeCompany}</strong>.
             </p>
             <p style="font-size:14px;line-height:1.6;margin:0 0 24px;color:#657383">Cargo: ${safeRole}</p>
-            <a href="${safeUrl}" style="display:inline-block;background:#1687f8;color:#fff;text-decoration:none;font-size:14px;font-weight:700;padding:15px 22px;border-radius:14px">
+            <a href="${safeUrl}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;font-size:14px;font-weight:700;padding:15px 22px;border-radius:14px">
               Aceitar convite
             </a>
             <p style="font-size:12px;line-height:1.55;margin:24px 0 0;color:#8fa0a1">
               Este convite expira em 7 dias. Se o botão não funcionar, copie este endereço:<br />
-              <a href="${safeUrl}" style="color:#1687f8;word-break:break-all">${safeUrl}</a>
+              <a href="${safeUrl}" style="color:#4f46e5;word-break:break-all">${safeUrl}</a>
             </p>
           </div>
         </div>

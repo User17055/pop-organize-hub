@@ -6,6 +6,7 @@ import { getAvatarGradient } from "@/lib/avatar-colors";
 import { statusLabels, type PermissionKey } from "@/lib/domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { Plus, TrendingUp, Clock, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -70,25 +71,26 @@ function Dashboard() {
       label: "Total de tarefas",
       value: total,
       icon: TrendingUp,
-      accent: "text-violet-500 dark:text-violet-400",
+      chip: "bg-white/20 text-white",
+      featured: true,
     },
     {
       label: "Concluídas",
       value: completed,
       icon: CheckCircle2,
-      accent: "text-emerald-500 dark:text-emerald-400",
+      chip: "bg-emerald-500/12 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-400",
     },
     {
       label: "Em andamento",
       value: pending,
       icon: Clock,
-      accent: "text-sky-500 dark:text-sky-400",
+      chip: "bg-primary/10 text-primary",
     },
     {
       label: "Atrasadas",
       value: overdue,
       icon: AlertTriangle,
-      accent: "text-rose-500 dark:text-rose-400",
+      chip: "bg-rose-500/12 text-rose-600 dark:bg-rose-400/15 dark:text-rose-400",
     },
   ];
 
@@ -130,18 +132,41 @@ function Dashboard() {
           return (
             <div
               key={s.label}
-              className="mobile-card hover-lift min-w-0 rounded-[20px] p-3.5 sm:rounded-[24px] sm:p-4 md:rounded-2xl"
+              className={cn(
+                "hover-lift min-w-0 rounded-[20px] p-3.5 sm:rounded-[24px] sm:p-4 md:rounded-2xl",
+                s.featured
+                  ? "text-white shadow-[var(--shadow-elegant)]"
+                  : "mobile-card",
+              )}
+              style={s.featured ? { background: "var(--gradient-primary)" } : undefined}
             >
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="truncate text-xs text-muted-foreground sm:text-sm">{s.label}</div>
-                  <div className="text-2xl font-display font-bold text-foreground mt-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div
+                    className={cn(
+                      "truncate text-xs sm:text-sm",
+                      s.featured ? "text-white/75" : "text-muted-foreground",
+                    )}
+                  >
+                    {s.label}
+                  </div>
+                  <div
+                    className={cn(
+                      "mt-2 font-display text-2xl font-bold sm:text-[28px] sm:leading-tight",
+                      s.featured ? "text-white" : "text-foreground",
+                    )}
+                  >
                     {s.value}
                   </div>
                 </div>
-                <div className="flex h-9 w-9 items-center justify-center">
-                  <Icon className={`h-5.5 w-5.5 ${s.accent}`} strokeWidth={2.25} />
-                </div>
+                <span
+                  className={cn(
+                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+                    s.chip,
+                  )}
+                >
+                  <Icon className="h-5 w-5" strokeWidth={2.25} />
+                </span>
               </div>
             </div>
           );

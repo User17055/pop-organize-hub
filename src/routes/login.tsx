@@ -199,7 +199,7 @@ function EmailCodeInputs({
             if (event.key === "ArrowRight" && index < 5) inputRefs.current[index + 1]?.focus();
           }}
           onFocus={(event) => event.currentTarget.select()}
-          className="h-12 min-w-0 rounded-[14px] border border-white/10 bg-white/[0.075] text-center font-display text-xl font-bold text-white outline-none transition focus:border-[#1687f8] focus:bg-white/10 disabled:opacity-55"
+          className="h-12 min-w-0 rounded-[14px] border border-white/10 bg-white/[0.075] text-center font-display text-xl font-bold text-white outline-none transition focus:border-[#6366f1] focus:bg-white/10 disabled:opacity-55"
         />
       ))}
     </div>
@@ -260,15 +260,15 @@ function DesktopLoginIntro() {
 
   return (
     <aside className="relative hidden min-h-screen overflow-hidden border-r border-white/10 bg-[#242424] px-12 py-10 text-white lg:flex lg:flex-col xl:px-16 xl:py-12">
-      <div className="pointer-events-none absolute -left-32 top-1/4 h-96 w-96 rounded-full bg-[#1687f8]/16 blur-[110px]" />
-      <div className="pointer-events-none absolute -bottom-40 right-0 h-96 w-96 rounded-full bg-[#1687f8]/10 blur-[120px]" />
+      <div className="pointer-events-none absolute -left-32 top-1/4 h-96 w-96 rounded-full bg-[#6366f1]/16 blur-[110px]" />
+      <div className="pointer-events-none absolute -bottom-40 right-0 h-96 w-96 rounded-full bg-[#6366f1]/10 blur-[120px]" />
 
       <div className="relative flex items-center font-display text-2xl font-bold tracking-[-0.05em]">
-        P<span className="mx-[2px] h-4 w-4 rounded-full bg-[#1687f8]" />p Organize
+        P<span className="mx-[2px] h-4 w-4 rounded-full bg-[#6366f1]" />p Organize
       </div>
 
       <div className="relative my-auto max-w-[680px] py-12">
-        <span className="inline-flex rounded-full border border-[#1687f8]/25 bg-[#1687f8]/10 px-3 py-1 text-xs font-semibold text-[#5aaaff]">
+        <span className="inline-flex rounded-full border border-[#6366f1]/25 bg-[#6366f1]/10 px-3 py-1 text-xs font-semibold text-[#a5b4fc]">
           Gestão simples para equipes produtivas
         </span>
         <h1 className="mt-6 max-w-[620px] font-display text-4xl font-bold leading-[1.12] tracking-[-0.04em] xl:text-5xl">
@@ -287,7 +287,7 @@ function DesktopLoginIntro() {
                 key={item.title}
                 className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur-xl"
               >
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1687f8]/15 text-[#5aaaff]">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#6366f1]/15 text-[#a5b4fc]">
                   <Icon className="h-[18px] w-[18px]" />
                 </span>
                 <div className="mt-3 text-sm font-semibold">{item.title}</div>
@@ -335,7 +335,7 @@ function OnboardingFlow({ onFinish }: { onFinish: () => void }) {
       <DesktopLoginIntro />
       <section className="flex min-h-screen w-full flex-col overflow-hidden bg-[#2c2c2c] px-7 pb-[max(1.75rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-white sm:px-8 lg:border-l lg:border-white/5 lg:px-12">
         <div className="flex items-center justify-center font-display text-[28px] font-bold tracking-[-0.05em]">
-          P<span className="mx-[2px] h-[18px] w-[18px] rounded-full bg-[#1687f8]" />
+          P<span className="mx-[2px] h-[18px] w-[18px] rounded-full bg-[#6366f1]" />
           pOrganize
         </div>
 
@@ -354,17 +354,17 @@ function OnboardingFlow({ onFinish }: { onFinish: () => void }) {
                   <h1 className="mt-10 max-w-[320px] font-display text-[29px] font-bold leading-[1.16] tracking-[-0.035em]">
                     {index === 0 && (
                       <>
-                        Organize <span className="text-[#1687f8]">tudo</span> em um só lugar
+                        Organize <span className="text-[#6366f1]">tudo</span> em um só lugar
                       </>
                     )}
                     {index === 1 && (
                       <>
-                        Trabalhe junto com sua <span className="text-[#1687f8]">equipe</span>
+                        Trabalhe junto com sua <span className="text-[#6366f1]">equipe</span>
                       </>
                     )}
                     {index === 2 && (
                       <>
-                        Acompanhe <span className="text-[#1687f8]">cada</span> etapa
+                        Acompanhe <span className="text-[#6366f1]">cada</span> etapa
                       </>
                     )}
                   </h1>
@@ -383,7 +383,7 @@ function OnboardingFlow({ onFinish }: { onFinish: () => void }) {
               <span
                 key={item.title}
                 className={`h-2.5 rounded-full transition-all duration-300 ${
-                  index === currentIndex ? "w-8 bg-[#1687f8]" : "w-2.5 bg-white"
+                  index === currentIndex ? "w-8 bg-[#6366f1]" : "w-2.5 bg-white"
                 }`}
               />
             ))}
@@ -401,7 +401,7 @@ function OnboardingFlow({ onFinish }: { onFinish: () => void }) {
               <button
                 type="button"
                 onClick={onFinish}
-                className="flex h-14 items-center justify-center gap-2 rounded-[18px] bg-white text-sm font-bold text-[#1687f8] shadow-[0_14px_30px_-18px_rgba(255,255,255,0.65)] transition active:scale-[0.98]"
+                className="flex h-14 items-center justify-center gap-2 rounded-[18px] bg-white text-sm font-bold text-[#6366f1] shadow-[0_14px_30px_-18px_rgba(255,255,255,0.65)] transition active:scale-[0.98]"
               >
                 Começar <ArrowRight className="h-4 w-4" />
               </button>
@@ -485,7 +485,7 @@ function OnboardingArtwork({
         }`}
       />
       <div
-        className={`absolute bg-[#1687f8]/12 ${
+        className={`absolute bg-[#6366f1]/12 ${
           isTeamSlide
             ? "right-5 top-5 h-24 w-16 rounded-[999px_999px_24px_24px]"
             : "left-5 top-7 h-20 w-20 rounded-[24px_42px_28px_44px]"
@@ -504,12 +504,12 @@ function OnboardingArtwork({
         }`}
       >
         <Icon
-          className={`h-14 w-14 text-[#1687f8] ${isTeamSlide ? "" : "-rotate-3"}`}
+          className={`h-14 w-14 text-[#6366f1] ${isTeamSlide ? "" : "-rotate-3"}`}
           strokeWidth={1.8}
         />
       </div>
       <div
-        className={`absolute flex h-12 w-12 items-center justify-center bg-[#1687f8] text-white shadow-lg ${
+        className={`absolute flex h-12 w-12 items-center justify-center bg-[#6366f1] text-white shadow-lg ${
           isTeamSlide
             ? "-right-1 bottom-8 rounded-[16px_24px_18px_22px] rotate-6"
             : "-right-1 top-8 rounded-[22px_16px_24px_18px] -rotate-6"
@@ -617,7 +617,7 @@ function LoginPage() {
       <section className="login-card-enter flex min-h-screen w-full flex-col overflow-hidden bg-[#2c2c2c] px-7 pb-7 pt-[max(2rem,env(safe-area-inset-top))] text-white sm:px-8 lg:border-l lg:border-white/5 lg:px-12">
         <div className="flex items-center justify-center font-display text-xl font-bold tracking-[-0.04em]">
           P
-          <span className="mx-px h-3.5 w-3.5 rounded-full bg-[#1687f8]" aria-label="o" />
+          <span className="mx-px h-3.5 w-3.5 rounded-full bg-[#6366f1]" aria-label="o" />
           pOrganize
         </div>
 
@@ -627,18 +627,18 @@ function LoginPage() {
           <div
             className={`${emailLoginOpen ? "hidden" : "relative flex"} h-48 w-48 items-center justify-center rounded-full bg-[#f7f7f7] shadow-[0_24px_55px_-30px_rgba(0,0,0,0.8)]`}
           >
-            <div className="absolute left-5 top-10 h-20 w-20 rounded-full bg-[#1687f8]/12" />
+            <div className="absolute left-5 top-10 h-20 w-20 rounded-full bg-[#6366f1]/12" />
             <div className="absolute bottom-7 right-5 h-16 w-16 rounded-full bg-[#d9dde3]" />
             <div className="relative w-28 rounded-[20px] bg-[#2c2c2c] p-4 text-left shadow-xl">
               <div className="mb-3 flex items-center gap-2 text-white">
-                <ListTodo className="h-5 w-5 text-[#1687f8]" />
+                <ListTodo className="h-5 w-5 text-[#6366f1]" />
                 <span className="text-xs font-bold">Minhas tarefas</span>
               </div>
               {["Planejar", "Organizar", "Concluir"].map((item, index) => (
                 <div key={item} className="mt-2 flex items-center gap-2">
                   <span
                     className={`flex h-4 w-4 items-center justify-center rounded-full ${
-                      index < 2 ? "bg-[#1687f8]" : "bg-white/18"
+                      index < 2 ? "bg-[#6366f1]" : "bg-white/18"
                     }`}
                   >
                     {index < 2 && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
@@ -647,13 +647,13 @@ function LoginPage() {
                 </div>
               ))}
             </div>
-            <div className="absolute -right-1 bottom-8 flex h-10 w-10 items-center justify-center rounded-full bg-[#1687f8] text-white shadow-lg">
+            <div className="absolute -right-1 bottom-8 flex h-10 w-10 items-center justify-center rounded-full bg-[#6366f1] text-white shadow-lg">
               <Users className="h-5 w-5" />
             </div>
           </div>
 
           {emailLoginOpen && (
-            <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[#1687f8]/14 text-[#5aaaff]">
+            <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[#6366f1]/14 text-[#a5b4fc]">
               <Mail className="h-7 w-7" />
             </div>
           )}
@@ -711,7 +711,7 @@ function LoginPage() {
                     required
                     autoComplete="email"
                     placeholder="voce@exemplo.com"
-                    className="h-14 w-full rounded-[18px] border border-white/10 bg-white/[0.075] px-4 text-sm font-medium text-white outline-none transition placeholder:text-white/28 focus:border-[#1687f8] focus:bg-white/10 read-only:cursor-default read-only:text-white/65 disabled:opacity-65"
+                    className="h-14 w-full rounded-[18px] border border-white/10 bg-white/[0.075] px-4 text-sm font-medium text-white outline-none transition placeholder:text-white/28 focus:border-[#6366f1] focus:bg-white/10 read-only:cursor-default read-only:text-white/65 disabled:opacity-65"
                   />
                 </label>
 
@@ -739,7 +739,7 @@ function LoginPage() {
                     !email.trim() ||
                     (emailCodeSent && codeDigits.join("").length !== 6)
                   }
-                  className="flex h-14 w-full items-center justify-center rounded-[18px] bg-[#1687f8] text-sm font-bold text-white shadow-[0_14px_28px_-18px_rgba(22,135,248,0.8)] transition hover:bg-[#2d93fa] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45"
+                  className="flex h-14 w-full items-center justify-center rounded-[18px] bg-[#6366f1] text-sm font-bold text-white shadow-[0_14px_28px_-18px_rgba(99,102,241,0.8)] transition hover:bg-[#7679f2] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   {emailPending ? (
                     <LoginSpinner light />
@@ -755,7 +755,7 @@ function LoginPage() {
                     type="button"
                     onClick={sendEmailCode}
                     disabled={emailPending}
-                    className="flex h-11 w-full items-center justify-center rounded-[15px] border border-[#1687f8]/55 text-xs font-bold text-[#5aaaff] transition hover:bg-[#1687f8]/10 disabled:opacity-40"
+                    className="flex h-11 w-full items-center justify-center rounded-[15px] border border-[#6366f1]/55 text-xs font-bold text-[#a5b4fc] transition hover:bg-[#6366f1]/10 disabled:opacity-40"
                   >
                     Reenviar código
                   </button>
@@ -792,7 +792,7 @@ function LoginPage() {
                 }}
                 className="flex h-14 w-full items-center justify-center gap-3 rounded-[18px] bg-white/10 text-sm font-bold text-white transition hover:bg-white/15 active:scale-[0.99]"
               >
-                <Mail className="h-5 w-5 text-[#5aaaff]" />
+                <Mail className="h-5 w-5 text-[#a5b4fc]" />
                 Continuar com e-mail
               </button>
 

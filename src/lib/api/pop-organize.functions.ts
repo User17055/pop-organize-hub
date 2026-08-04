@@ -1149,6 +1149,29 @@ export const askPop = createServerFn({ method: "POST" })
     }
   });
 
+export const createPopRealtimeSession = createServerFn({ method: "POST" }).handler(async () => {
+  const { account, workspace } = await requireSessionContext();
+  requireGroupPermission(
+    workspace,
+    account.id,
+    "tasks.create",
+    "Seu grupo de permissão não pode criar tarefas.",
+  );
+  assertPopRateLimit(account.id);
+  try {
+    const { createPopRealtimeClientSecret } = await import("../pop-ai.server");
+    return await createPopRealtimeClientSecret(`${workspace.company.id}:${account.id}`);
+  } catch (error) {
+    const typed = error as Error & { status?: number; statusCode?: number };
+    if (typed.statusCode === 503) throw error;
+    if (typed.status === 429 || typed.statusCode === 429) {
+      throw createHttpError("A Pop está ocupada. Tente novamente em instantes.", 429);
+    }
+    console.error("Pop realtime session failed:", typed.message);
+    throw createHttpError("Não foi possível iniciar a ligação com a Pop agora.", 502);
+  }
+});
+
 export const createTask = createServerFn({ method: "POST" })
   .validator((data) => createTaskSchema.parse(data))
   .handler(async ({ data }) => {

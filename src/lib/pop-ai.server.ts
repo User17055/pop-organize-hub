@@ -31,6 +31,7 @@ export const popDraftSchema = z.object({
 });
 
 const popAnswerSchema = z.object({
+  intent: z.enum(["conversation", "create_task"]),
   reply: z.string(),
   status: z.enum(["needs_input", "ready"]),
   missingFields: z.array(z.string()),
@@ -83,9 +84,10 @@ function buildInstructions(context: PopWorkspaceContext) {
 
   return `Você é a Pop, assistente de criação de atividades do Pop Organize. Fale em português do Brasil, de forma simpática, direta e curta.
 
-Seu único objetivo nesta conversa é preparar UMA tarefa. Nunca afirme que criou a tarefa: quando o rascunho estiver pronto, o sistema fará a criação automaticamente e confirmará o resultado no chat.
+Seu único objetivo nesta conversa é preparar UMA tarefa. Nunca afirme que criou a tarefa: quando o rascunho estiver pronto, o sistema mostrará um botão de confirmação e só criará depois que o usuário tocar nele.
 
 Regras:
+- Classifique intent=create_task somente quando o usuário descrever uma ação, trabalho ou atividade que deseja registrar. Saudações, agradecimentos, conversa casual e perguntas sobre a Pop usam intent=conversation e status=needs_input; nesses casos responda normalmente e não monte uma tarefa.
 - Extraia e mantenha um rascunho completo a partir de toda a conversa e de eventuais imagens.
 - Não faça perguntas nem solicite confirmações. Complete sozinho as informações ausentes usando os padrões abaixo e devolva status=ready já na primeira solicitação útil.
 - Use somente IDs existentes no contexto do workspace. Nunca invente funcionários, setores, grupos ou IDs.
@@ -116,6 +118,21 @@ function sanitizeDraft(
   const departmentIds = new Set(context.departments.map((department) => department.id));
   const groupIds = new Set(context.groups.map((group) => group.id));
   const draft = answer.draft;
+  const currentRequest = sourceMessage
+    .split("[Rascunho atual mantido pelo sistema]")[0]
+    .trim()
+    .replace(/\s+/g, " ");
+  const isCasualOnly =
+    /^(?:(?:oi|olá|ola|eae|e aí|hey|hello|bom dia|boa tarde|boa noite)(?:[,!?.\s]*(?:tudo bem|como vai|beleza|blz))?|tudo bem|como vai|obrigad[oa])[,!?.\s]*$/i.test(
+      currentRequest,
+    );
+
+  if (answer.intent !== "create_task" || isCasualOnly) {
+    answer.intent = "conversation";
+    answer.status = "needs_input";
+    answer.missingFields = [];
+    return answer;
+  }
 
   if (context.company.kind === "personal") {
     draft.targetType = "user";
@@ -173,10 +190,7 @@ function sanitizeDraft(
     .filter(Boolean)
     .slice(0, 100);
 
-  const fallbackText = sourceMessage
-    .split("[Rascunho atual mantido pelo sistema]")[0]
-    .trim()
-    .replace(/\s+/g, " ");
+  const fallbackText = currentRequest;
   const canUseFallback =
     fallbackText.length >= 3 && fallbackText !== "Use a imagem para criar a tarefa.";
   if (!draft.title?.trim() && canUseFallback) draft.title = fallbackText.slice(0, 120);
@@ -263,4 +277,62 @@ export async function transcribePopAudio(audioDataUrl: string) {
       statusCode: 422,
     });
   return text;
+}
+
+export async function createPopRealtimeClientSecret(safetyUserId: string) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    throw Object.assign(new Error("A Pop ainda não foi configurada pelo administrador."), {
+      statusCode: 503,
+    });
+  }
+
+  const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "OpenAI-Safety-Identifier": createHash("sha256")
+        .update(safetyUserId)
+        .digest("hex")
+        .slice(0, 32),
+    },
+    body: JSON.stringify({
+      expires_after: { anchor: "created_at", seconds: 600 },
+      session: {
+        type: "realtime",
+        model: process.env.OPENAI_REALTIME_MODEL?.trim() || "gpt-realtime-2.1",
+        output_modalities: ["audio"],
+        instructions: `Você é a Pop, assistente do Pop Organize, em uma ligação de voz.
+Fale sempre em português brasileiro, de forma natural, simpática, curta e clara.
+Converse normalmente sobre saudações e perguntas casuais. Quando a pessoa descrever uma tarefa, diga que você vai preparar o resumo no chat para ela conferir.
+Nunca diga que criou, salvou ou confirmou uma tarefa. A tarefa só será criada quando a pessoa tocar no botão "Confirmar e criar" no chat.
+Não leia listas longas nem invente pessoas, datas ou dados do workspace. Se o áudio estiver confuso, peça para a pessoa repetir.`,
+        audio: {
+          input: {
+            transcription: {
+              model: "gpt-live-transcribe",
+              languages: ["pt"],
+              delay: "low",
+            },
+          },
+          output: { voice: "marin" },
+        },
+      },
+    }),
+  });
+
+  const body = (await response.json()) as {
+    value?: string;
+    expires_at?: number;
+    error?: { message?: string };
+  };
+  if (!response.ok || !body.value) {
+    throw Object.assign(
+      new Error(body.error?.message || "Não foi possível iniciar a ligação com a Pop."),
+      { statusCode: response.status || 502 },
+    );
+  }
+
+  return { value: body.value, expiresAt: body.expires_at };
 }

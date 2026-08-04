@@ -1,7 +1,29 @@
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+} from "react";
 import { createPortal } from "react-dom";
-import { Bot, ImagePlus, Loader2, Mic, Send, Sparkles, Square, Trash2, X } from "lucide-react";
-import { askPop } from "@/lib/api/pop-organize.functions";
+import {
+  AudioLines,
+  Bot,
+  Check,
+  ImagePlus,
+  Loader2,
+  Mic,
+  MicOff,
+  Phone,
+  PhoneOff,
+  Send,
+  Sparkles,
+  Square,
+  Trash2,
+  X,
+} from "lucide-react";
+import { askPop, createPopRealtimeSession } from "@/lib/api/pop-organize.functions";
 import { cn } from "@/lib/utils";
 
 type PopAnswer = Awaited<ReturnType<typeof askPop>>;
@@ -13,11 +35,14 @@ type ChatMessage = {
   content: string;
 };
 
+type RecordedAudio = { dataUrl: string; name: string };
+type CallState = "idle" | "connecting" | "listening" | "speaking";
+
 const greeting: ChatMessage = {
   id: "greeting",
   role: "assistant",
   content:
-    "Oi! Eu sou a Pop. Me conte o que precisa ser feito por texto, imagem ou áudio. Quando estiver tudo certo, eu crio a atividade para você.",
+    "Oi! Eu sou a Pop. Me conte o que precisa ser feito por texto, imagem ou áudio. Eu preparo o resumo e você confirma antes de criar.",
 };
 
 function fileToDataUrl(file: Blob) {
@@ -27,6 +52,12 @@ function fileToDataUrl(file: Blob) {
     reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
     reader.readAsDataURL(file);
   });
+}
+
+function formatCallDuration(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
 export function PopAssistant({
@@ -45,14 +76,35 @@ export function PopAssistant({
   const [audio, setAudio] = useState<{ dataUrl: string; name: string } | null>(null);
   const [answer, setAnswer] = useState<PopAnswer | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [callState, setCallState] = useState<CallState>("idle");
+  const [callSeconds, setCallSeconds] = useState(0);
+  const [isCallMuted, setIsCallMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const callPeerRef = useRef<RTCPeerConnection | null>(null);
+  const callChannelRef = useRef<RTCDataChannel | null>(null);
+  const callStreamRef = useRef<MediaStream | null>(null);
+  const callAudioRef = useRef<HTMLAudioElement | null>(null);
+  const handledCallItemsRef = useRef(new Set<string>());
+  const callTaskQueueRef = useRef(Promise.resolve());
+  const messagesRef = useRef(messages);
+  const answerRef = useRef(answer);
+  const submitRecordedAudioRef = useRef<(recording: RecordedAudio) => void>(() => undefined);
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    answerRef.current = answer;
+  }, [answer]);
 
   useEffect(() => {
     if (!open) return;
@@ -68,21 +120,62 @@ export function PopAssistant({
     };
   }, [mounted, open]);
 
+  const stopCallResources = useCallback(() => {
+    callChannelRef.current?.close();
+    callChannelRef.current = null;
+    callPeerRef.current?.close();
+    callPeerRef.current = null;
+    callStreamRef.current?.getTracks().forEach((track) => track.stop());
+    callStreamRef.current = null;
+    if (callAudioRef.current) {
+      callAudioRef.current.pause();
+      callAudioRef.current.srcObject = null;
+      callAudioRef.current = null;
+    }
+  }, []);
+
+  const endCall = useCallback(() => {
+    stopCallResources();
+    setCallState("idle");
+    setCallSeconds(0);
+    setIsCallMuted(false);
+  }, [stopCallResources]);
+
   useEffect(
     () => () => {
-      recorderRef.current?.stop();
+      const recorder = recorderRef.current;
+      if (recorder?.state === "recording") {
+        recorder.onstop = null;
+        recorder.stop();
+      }
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      stopCallResources();
     },
-    [],
+    [stopCallResources],
   );
 
+  useEffect(() => {
+    if (open) return;
+    endCall();
+  }, [endCall, open]);
+
+  useEffect(() => {
+    if (callState === "idle" || callState === "connecting") return;
+    const timer = window.setInterval(() => setCallSeconds((current) => current + 1), 1_000);
+    return () => window.clearInterval(timer);
+  }, [callState]);
+
   function resetConversation() {
+    messagesRef.current = [greeting];
+    answerRef.current = null;
     setMessages([greeting]);
     setInput("");
     setImage(null);
     setAudio(null);
     setAnswer(null);
+    setIsCreating(false);
     setError(null);
+    endCall();
   }
 
   async function handleImage(event: ChangeEvent<HTMLInputElement>) {
@@ -123,7 +216,11 @@ export function PopAssistant({
         if (blob.size > 10_000_000) {
           setError("O áudio deve ter no máximo 10 MB.");
         } else if (blob.size > 0) {
-          setAudio({ dataUrl: await fileToDataUrl(blob), name: "Gravação de voz" });
+          const recording = {
+            dataUrl: await fileToDataUrl(blob),
+            name: "Gravação de voz",
+          };
+          submitRecordedAudioRef.current(recording);
         }
         setIsRecording(false);
       };
@@ -139,12 +236,17 @@ export function PopAssistant({
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
   }
 
-  async function sendMessage() {
-    const text = input.trim();
-    if (isSending || (!text && !image && !audio)) return;
+  async function sendMessage(options?: { audioOverride?: RecordedAudio }) {
+    const text = options?.audioOverride ? "" : input.trim();
+    const pendingImage = options?.audioOverride ? null : image;
+    const pendingAudio = options?.audioOverride ?? audio;
+    if (isSending || (!text && !pendingImage && !pendingAudio)) return;
 
     const optimisticId = `user-${Date.now()}`;
-    const attachmentLabel = [image ? `🖼️ ${image.name}` : "", audio ? "🎙️ Áudio enviado" : ""]
+    const attachmentLabel = [
+      pendingImage ? `🖼️ ${pendingImage.name}` : "",
+      pendingAudio ? "🎙️ Áudio enviado" : "",
+    ]
       .filter(Boolean)
       .join("\n");
     const optimisticContent = [text, attachmentLabel].filter(Boolean).join("\n");
@@ -152,9 +254,6 @@ export function PopAssistant({
       .filter((message) => message.id !== "greeting")
       .slice(-10)
       .map(({ role, content }) => ({ role, content }));
-    const pendingImage = image;
-    const pendingAudio = audio;
-
     setMessages((current) => [
       ...current,
       { id: optimisticId, role: "user", content: optimisticContent },
@@ -182,31 +281,198 @@ export function PopAssistant({
       ]
         .filter(Boolean)
         .join("\n");
+      const assistantId = `assistant-${Date.now()}`;
       setMessages((current) => [
         ...current.map((message) =>
           message.id === optimisticId ? { ...message, content: userContent } : message,
         ),
-        { id: `assistant-${Date.now()}`, role: "assistant", content: result.reply },
+        { id: assistantId, role: "assistant", content: result.reply },
       ]);
       setAnswer(result);
-      if (result.status === "ready") {
-        await onCreate(result.draft);
-        setMessages((current) => [
-          ...current,
-          {
-            id: `created-${Date.now()}`,
-            role: "assistant",
-            content: `Pronto! A atividade "${result.draft.title}" foi criada com sucesso.`,
-          },
-        ]);
-        setAnswer(null);
-      }
     } catch (requestError) {
       setError(
         requestError instanceof Error ? requestError.message : "Não foi possível falar com a Pop.",
       );
     } finally {
       setIsSending(false);
+    }
+  }
+
+  submitRecordedAudioRef.current = (recording) => {
+    void sendMessage({ audioOverride: recording });
+  };
+
+  async function processCallTranscript(itemId: string, transcript: string) {
+    const cleanTranscript = transcript.trim();
+    if (!cleanTranscript || handledCallItemsRef.current.has(itemId)) return;
+    handledCallItemsRef.current.add(itemId);
+
+    const userMessage: ChatMessage = {
+      id: `call-user-${itemId}`,
+      role: "user",
+      content: cleanTranscript,
+    };
+    const history = messagesRef.current
+      .filter((message) => message.id !== "greeting")
+      .slice(-10)
+      .map(({ role, content }) => ({ role, content }));
+    messagesRef.current = [...messagesRef.current, userMessage];
+    setMessages(messagesRef.current);
+
+    try {
+      const result = await askPop({
+        data: {
+          messages: history,
+          message: cleanTranscript,
+          draftContext: answerRef.current ? JSON.stringify(answerRef.current.draft) : undefined,
+        },
+      });
+      if (result.status === "ready") {
+        answerRef.current = result;
+        setAnswer(result);
+        const summary: ChatMessage = {
+          id: `call-summary-${itemId}`,
+          role: "assistant",
+          content: result.reply,
+        };
+        messagesRef.current = [...messagesRef.current, summary];
+        setMessages(messagesRef.current);
+      } else if (answerRef.current?.status !== "ready") {
+        answerRef.current = result;
+        setAnswer(result);
+      }
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Não foi possível preparar a atividade falada.",
+      );
+    }
+  }
+
+  function handleCallEvent(rawEvent: string) {
+    try {
+      const event = JSON.parse(rawEvent) as {
+        type?: string;
+        item_id?: string;
+        transcript?: string;
+      };
+      if (event.type === "input_audio_buffer.speech_started") setCallState("listening");
+      if (event.type === "response.created" || event.type === "response.output_audio.delta") {
+        setCallState("speaking");
+      }
+      if (event.type === "response.done") setCallState("listening");
+      if (
+        event.type === "conversation.item.input_audio_transcription.completed" &&
+        event.item_id &&
+        event.transcript
+      ) {
+        callTaskQueueRef.current = callTaskQueueRef.current.then(() =>
+          processCallTranscript(event.item_id!, event.transcript!),
+        );
+      }
+    } catch {
+      // Ignore malformed transport events and keep the call alive.
+    }
+  }
+
+  async function startCall() {
+    if (callState !== "idle") return;
+    setError(null);
+    setCallSeconds(0);
+    setIsCallMuted(false);
+    setCallState("connecting");
+    handledCallItemsRef.current.clear();
+
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") {
+        throw new Error("A ligação não é compatível com este aparelho ou navegador.");
+      }
+
+      const microphone = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      callStreamRef.current = microphone;
+      const session = await createPopRealtimeSession();
+
+      const peer = new RTCPeerConnection();
+      callPeerRef.current = peer;
+      microphone.getAudioTracks().forEach((track) => peer.addTrack(track, microphone));
+
+      const remoteAudio = new Audio();
+      remoteAudio.autoplay = true;
+      remoteAudio.setAttribute("playsinline", "true");
+      callAudioRef.current = remoteAudio;
+      peer.ontrack = (event) => {
+        remoteAudio.srcObject = event.streams[0];
+        void remoteAudio.play().catch(() => undefined);
+      };
+
+      const channel = peer.createDataChannel("oai-events");
+      callChannelRef.current = channel;
+      channel.addEventListener("open", () => setCallState("listening"));
+      channel.addEventListener("message", (event) => handleCallEvent(String(event.data)));
+      channel.addEventListener("close", () => {
+        if (callPeerRef.current === peer) endCall();
+      });
+      peer.addEventListener("connectionstatechange", () => {
+        if (!["failed", "disconnected", "closed"].includes(peer.connectionState)) return;
+        if (callPeerRef.current !== peer) return;
+        const failed = peer.connectionState === "failed";
+        endCall();
+        if (failed) setError("A ligação com a Pop foi interrompida.");
+      });
+
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      const response = await fetch("https://api.openai.com/v1/realtime/calls", {
+        method: "POST",
+        body: offer.sdp,
+        headers: {
+          Authorization: `Bearer ${session.value}`,
+          "Content-Type": "application/sdp",
+        },
+      });
+      if (!response.ok) throw new Error("A Pop não conseguiu atender a ligação agora.");
+      await peer.setRemoteDescription({ type: "answer", sdp: await response.text() });
+    } catch (callError) {
+      stopCallResources();
+      setCallState("idle");
+      setError(
+        callError instanceof Error
+          ? callError.message
+          : "Não foi possível iniciar a ligação com a Pop.",
+      );
+    }
+  }
+
+  function toggleCallMute() {
+    const nextMuted = !isCallMuted;
+    callStreamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = !nextMuted;
+    });
+    setIsCallMuted(nextMuted);
+  }
+
+  async function confirmTask() {
+    if (answer?.status !== "ready" || isCreating) return;
+    setError(null);
+    setIsCreating(true);
+    try {
+      await onCreate(answer.draft);
+      const messageId = `created-${Date.now()}`;
+      const content = `Pronto! A atividade "${answer.draft.title}" foi criada com sucesso.`;
+      const createdMessage: ChatMessage = { id: messageId, role: "assistant", content };
+      messagesRef.current = [...messagesRef.current, createdMessage];
+      setMessages(messagesRef.current);
+      answerRef.current = null;
+      setAnswer(null);
+    } catch (createError) {
+      setError(
+        createError instanceof Error ? createError.message : "Não foi possível criar a atividade.",
+      );
+    } finally {
+      setIsCreating(false);
     }
   }
 
@@ -249,6 +515,16 @@ export function PopAssistant({
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void startCall()}
+              disabled={callState !== "idle"}
+              className="glass-icon-button flex h-9 w-9 items-center justify-center rounded-xl text-emerald-600 disabled:opacity-50"
+              aria-label="Ligar para a Pop"
+              title="Ligar para a Pop"
+            >
+              <Phone className="h-4 w-4" />
+            </button>
             <button
               type="button"
               onClick={resetConversation}
@@ -304,6 +580,31 @@ export function PopAssistant({
             </div>
           )}
 
+          {answer?.status === "ready" && (
+            <div className="ml-10 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.07] p-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                <Check className="h-4 w-4" />
+                Atividade pronta
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Confira o resumo acima e confirme para salvar.
+              </p>
+              <button
+                type="button"
+                onClick={() => void confirmTask()}
+                disabled={isCreating || isSending}
+                className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {isCreating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
+                Confirmar e criar
+              </button>
+            </div>
+          )}
+
           <div ref={messageEndRef} />
         </div>
 
@@ -346,7 +647,7 @@ export function PopAssistant({
             <button
               type="button"
               onClick={() => imageInputRef.current?.click()}
-              disabled={isSending || isRecording}
+              disabled={isSending || isRecording || isCreating}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-background hover:text-primary disabled:opacity-40"
               aria-label="Enviar imagem"
             >
@@ -355,7 +656,7 @@ export function PopAssistant({
             <button
               type="button"
               onClick={isRecording ? stopRecording : startRecording}
-              disabled={isSending}
+              disabled={isSending || isCreating}
               className={cn(
                 "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition disabled:opacity-40",
                 isRecording
@@ -374,7 +675,7 @@ export function PopAssistant({
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={isSending || isRecording}
+              disabled={isSending || isRecording || isCreating}
               rows={1}
               maxLength={4_000}
               placeholder={isRecording ? "Gravando..." : "Peça uma atividade para a Pop..."}
@@ -383,7 +684,9 @@ export function PopAssistant({
             <button
               type="button"
               onClick={() => void sendMessage()}
-              disabled={isSending || isRecording || (!input.trim() && !image && !audio)}
+              disabled={
+                isSending || isRecording || isCreating || (!input.trim() && !image && !audio)
+              }
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition hover:bg-primary/90 disabled:opacity-40"
               aria-label="Enviar para a Pop"
             >
@@ -395,9 +698,104 @@ export function PopAssistant({
             </button>
           </div>
           <p className="mt-2 text-center text-[10px] text-muted-foreground">
-            A Pop pode cometer erros. Confira o resumo antes de criar.
+            Confira o resumo e confirme antes de criar.
           </p>
         </footer>
+
+        {callState !== "idle" && (
+          <section className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[radial-gradient(circle_at_top,_hsl(var(--primary)/0.22),_hsl(var(--background))_52%)] px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(28px,env(safe-area-inset-top))]">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Ligação com IA
+                </p>
+                <h3 className="mt-1 font-display text-xl font-bold">Pop</h3>
+              </div>
+              <span className="rounded-full border border-border/70 bg-background/70 px-3 py-1 text-xs font-semibold tabular-nums backdrop-blur">
+                {callState === "connecting" ? "Conectando" : formatCallDuration(callSeconds)}
+              </span>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">
+              <div className="relative mb-8 flex h-44 w-44 items-center justify-center">
+                <span
+                  className={cn(
+                    "absolute inset-0 rounded-full bg-primary/15 blur-md transition-transform duration-700",
+                    callState === "speaking" ? "scale-110 animate-pulse" : "scale-95",
+                  )}
+                />
+                <span
+                  className={cn(
+                    "absolute inset-5 rounded-full border border-primary/25 bg-primary/10",
+                    callState !== "connecting" && "animate-pulse",
+                  )}
+                />
+                <span className="relative flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-primary to-violet-500 text-primary-foreground shadow-2xl shadow-primary/30">
+                  {callState === "connecting" ? (
+                    <Loader2 className="h-10 w-10 animate-spin" />
+                  ) : (
+                    <AudioLines
+                      className={cn("h-11 w-11", callState === "speaking" && "animate-pulse")}
+                    />
+                  )}
+                </span>
+              </div>
+
+              <p className="text-lg font-bold">
+                {callState === "connecting"
+                  ? "Chamando a Pop..."
+                  : isCallMuted
+                    ? "Microfone desligado"
+                    : callState === "speaking"
+                      ? "Pop está falando"
+                      : "Pode falar"}
+              </p>
+              <p className="mt-2 max-w-xs text-sm leading-relaxed text-muted-foreground">
+                Converse naturalmente. A Pop prepara a atividade, mas só salva depois da sua
+                confirmação no chat.
+              </p>
+
+              {answer?.status === "ready" && (
+                <button
+                  type="button"
+                  onClick={endCall}
+                  className="mt-6 inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-bold text-emerald-700 dark:text-emerald-300"
+                >
+                  <Check className="h-4 w-4" />
+                  Ver e confirmar no chat
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center justify-center gap-5">
+              <button
+                type="button"
+                onClick={toggleCallMute}
+                disabled={callState === "connecting"}
+                className={cn(
+                  "flex h-14 w-14 items-center justify-center rounded-full border shadow-lg transition disabled:opacity-40",
+                  isCallMuted
+                    ? "border-amber-500/30 bg-amber-500 text-white"
+                    : "border-border/70 bg-background/90 text-foreground",
+                )}
+                aria-label={isCallMuted ? "Ligar microfone" : "Desligar microfone"}
+              >
+                {isCallMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+              </button>
+              <button
+                type="button"
+                onClick={endCall}
+                className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-xl shadow-red-500/25 transition hover:bg-red-600"
+                aria-label="Encerrar ligação"
+              >
+                <PhoneOff className="h-6 w-6" />
+              </button>
+            </div>
+            <p className="mt-5 text-center text-[10px] text-muted-foreground">
+              A voz da Pop é gerada por inteligência artificial.
+            </p>
+          </section>
+        )}
       </aside>
     </>,
     document.body,

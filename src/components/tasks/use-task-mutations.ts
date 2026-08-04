@@ -50,7 +50,15 @@ export function useTaskMutations(options?: {
       checklist: string[];
       recurrence?: RecurrenceInput;
     }) => createTask({ data: payload }),
-    onSuccess: () => {
+    onSuccess: (createdTask) => {
+      queryClient.setQueryData<WorkspaceResult>(workspaceQueryKey, (current) =>
+        current
+          ? {
+              ...current,
+              tasks: [createdTask, ...current.tasks.filter((task) => task.id !== createdTask.id)],
+            }
+          : current,
+      );
       options?.onCreated?.();
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },

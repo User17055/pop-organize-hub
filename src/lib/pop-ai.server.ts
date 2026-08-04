@@ -87,18 +87,18 @@ Seu único objetivo nesta conversa é preparar UMA tarefa. Nunca afirme que crio
 
 Regras:
 - Extraia e mantenha um rascunho completo a partir de toda a conversa e de eventuais imagens.
+- Não faça perguntas nem solicite confirmações. Complete sozinho as informações ausentes usando os padrões abaixo e devolva status=ready já na primeira solicitação útil.
 - Use somente IDs existentes no contexto do workspace. Nunca invente funcionários, setores, grupos ou IDs.
 - Converta datas relativas usando today e devolva dueDate/endDate em YYYY-MM-DD.
 - Se o usuário não informar prioridade, use medium sem perguntar.
 - Em espaço pessoal, use targetType=user, targetId=currentUser.id, responsibleId=null e responsibleConfirmed=true.
-- Em empresa, pergunte quem será o responsável quando isso não estiver claro. responsibleConfirmed só pode ser true quando uma pessoa estiver claramente indicada, o destino for uma pessoa, ou o usuário disser explicitamente "sem responsável". Nesse último caso use responsibleId=null.
-- Pergunte o prazo quando estiver ausente.
-- Confirme se a tarefa será recorrente. recurrenceConfirmed só pode ser true quando o usuário tiver informado ou respondido sobre recorrência. Use frequency=none quando ele disser que não.
-- Se canCreateChecklist=true, confirme se haverá checklist. checklistConfirmed só pode ser true quando o usuário tiver informado itens ou respondido que não quer checklist. Se false, mantenha checklist vazia.
-- Se canCreateChecklist=false, não pergunte sobre checklist; use checklist=[] e checklistConfirmed=true.
+- Em empresa, quando o responsável ou destino não estiver claro, use currentUser como responsável e a empresa como destino. Use responsibleConfirmed=true.
+- Quando o prazo estiver ausente, use today.
+- Quando recorrência não for mencionada, use frequency=none e recurrenceConfirmed=true.
+- Quando checklist não for mencionado, use checklist=[] e checklistConfirmed=true. Se canCreateChecklist=false, sempre mantenha checklist vazia.
 - Use requiresReview=false e reviewerId=null por padrão, a menos que revisão seja solicitada.
-- Pergunte no máximo duas informações relacionadas por resposta e não repita perguntas já respondidas.
-- status=ready apenas quando houver title, description, dueDate, targetType, targetId, responsibleConfirmed, recurrenceConfirmed e checklistConfirmed.
+- Gere um título curto e uma descrição objetiva a partir do pedido quando eles não vierem separados explicitamente.
+- status=ready quando houver informação suficiente para identificar o trabalho; os demais campos devem ser completados pelos padrões acima.
 - Quando ready, reply deve ser um resumo inequívoco com título, responsável/destino, prazo, recorrência e checklist. Não peça confirmação nem diga que a tarefa já foi criada.
 - missingFields deve listar de forma curta apenas o que ainda falta.
 - Se uma imagem tiver texto ou representar um trabalho, use-a como contexto para a tarefa; não descreva a imagem sem necessidade.
@@ -107,7 +107,11 @@ Contexto autorizado do workspace:
 ${workspace}`;
 }
 
-function sanitizeDraft(answer: PopAssistantAnswer, context: PopWorkspaceContext) {
+function sanitizeDraft(
+  answer: PopAssistantAnswer,
+  context: PopWorkspaceContext,
+  sourceMessage: string,
+) {
   const employeeIds = new Set(context.employees.map((employee) => employee.id));
   const departmentIds = new Set(context.departments.map((department) => department.id));
   const groupIds = new Set(context.groups.map((group) => group.id));
@@ -131,19 +135,33 @@ function sanitizeDraft(answer: PopAssistantAnswer, context: PopWorkspaceContext)
       draft.targetType = "company";
       draft.targetId = context.company.id;
     }
-    if (draft.targetType === "user" && draft.targetId) draft.responsibleConfirmed = true;
-    if (draft.responsibleId && !employeeIds.has(draft.responsibleId)) {
-      draft.responsibleId = null;
-      draft.responsibleConfirmed = false;
-      answer.status = "needs_input";
-      if (!answer.missingFields.includes("responsável")) answer.missingFields.push("responsável");
+    if (draft.targetType === "user" && draft.targetId && !draft.responsibleId) {
+      draft.responsibleId = draft.targetId;
     }
+    if (draft.responsibleId && !employeeIds.has(draft.responsibleId)) {
+      draft.responsibleId = context.currentUser.id;
+    }
+    draft.responsibleId ??= context.currentUser.id;
+    draft.responsibleConfirmed = true;
     if (draft.reviewerId && !employeeIds.has(draft.reviewerId)) draft.reviewerId = null;
   }
 
-  if (!context.canCreateChecklist) {
-    draft.checklist = [];
-    draft.checklistConfirmed = true;
+  draft.priority ??= "medium";
+  draft.dueDate =
+    draft.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(draft.dueDate)
+      ? draft.dueDate
+      : currentDateInSaoPaulo();
+  draft.recurrenceConfirmed = true;
+  draft.checklistConfirmed = true;
+  if (!context.canCreateChecklist) draft.checklist = [];
+  if (draft.recurrence.frequency === "custom" && !draft.recurrence.interval) {
+    draft.recurrence.interval = 1;
+  }
+  if (draft.requiresReview) {
+    draft.reviewerId ??= draft.responsibleId ?? context.currentUser.id;
+  } else {
+    draft.requiresReview = false;
+    draft.reviewerId = null;
   }
 
   draft.tags = draft.tags
@@ -155,26 +173,23 @@ function sanitizeDraft(answer: PopAssistantAnswer, context: PopWorkspaceContext)
     .filter(Boolean)
     .slice(0, 100);
 
-  const missing = new Set(answer.missingFields);
+  const fallbackText = sourceMessage
+    .split("[Rascunho atual mantido pelo sistema]")[0]
+    .trim()
+    .replace(/\s+/g, " ");
+  const canUseFallback =
+    fallbackText.length >= 3 && fallbackText !== "Use a imagem para criar a tarefa.";
+  if (!draft.title?.trim() && canUseFallback) draft.title = fallbackText.slice(0, 120);
+  if (!draft.description?.trim() && canUseFallback)
+    draft.description = fallbackText.slice(0, 2_000);
+
+  const missing = new Set<string>();
   if (!draft.title?.trim()) missing.add("título");
   if (!draft.description?.trim()) missing.add("descrição");
-  if (!draft.dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(draft.dueDate)) {
-    draft.dueDate = null;
-    missing.add("prazo");
-  }
   if (!draft.targetType || !draft.targetId) missing.add("destino");
-  if (!draft.responsibleConfirmed) missing.add("responsável");
-  if (!draft.recurrenceConfirmed) missing.add("recorrência");
-  if (!draft.checklistConfirmed) missing.add("checklist");
-  if (draft.recurrence.frequency === "custom" && !draft.recurrence.interval) {
-    missing.add("intervalo da recorrência");
-  }
-  if (draft.requiresReview && !draft.reviewerId && !draft.responsibleId) {
-    missing.add("revisor");
-  }
 
   answer.missingFields = [...missing];
-  if (answer.missingFields.length > 0) answer.status = "needs_input";
+  answer.status = answer.missingFields.length > 0 ? "needs_input" : "ready";
   return answer;
 }
 
@@ -220,7 +235,7 @@ export async function runPopAssistant(options: {
     );
   }
 
-  return sanitizeDraft(response.output_parsed, options.context);
+  return sanitizeDraft(response.output_parsed, options.context, options.message);
 }
 
 export async function transcribePopAudio(audioDataUrl: string) {

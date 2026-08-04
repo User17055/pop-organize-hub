@@ -348,6 +348,7 @@ private const val API_SESSION_TOKEN_STORAGE = "pop_organize_api_session_token"
 private const val ACCOUNT_TASKS_STORAGE_PREFIX = "pop_organize_account_tasks_"
 private const val COMPANY_TASKS_STORAGE_PREFIX = "pop_organize_company_tasks_"
 private const val ACCOUNT_TASKS_DIRTY_PREFIX = "pop_organize_account_tasks_dirty_"
+private const val COMPANY_TASKS_DIRTY_PREFIX = "pop_organize_company_tasks_dirty_"
 private const val DELETED_TASKS_STORAGE_PREFIX = "pop_organize_deleted_tasks_"
 private const val ASSIGNED_TASKS_SEEN_PREFIX = "pop_organize_assigned_tasks_seen_"
 private const val LAST_WORKSPACE_STORAGE_PREFIX = "pop_organize_last_workspace_"
@@ -512,6 +513,8 @@ private fun accountTasksKey(accountId: String) = "$ACCOUNT_TASKS_STORAGE_PREFIX$
 private fun companyTasksKey(accountId: String, workspaceId: String) =
     "$COMPANY_TASKS_STORAGE_PREFIX${accountId}_$workspaceId"
 private fun accountTasksDirtyKey(accountId: String) = "$ACCOUNT_TASKS_DIRTY_PREFIX$accountId"
+private fun companyTasksDirtyKey(accountId: String, workspaceId: String) =
+    "$COMPANY_TASKS_DIRTY_PREFIX${accountId}_$workspaceId"
 private fun deletedTasksKey(accountId: String, workspaceId: String) =
     "$DELETED_TASKS_STORAGE_PREFIX${accountId}_${workspaceId.ifBlank { "personal" }}"
 
@@ -695,6 +698,20 @@ private fun setAccountTasksDirty(context: Context, accountId: String, dirty: Boo
 private fun accountTasksAreDirty(context: Context, accountId: String): Boolean =
     context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
         .getBoolean(accountTasksDirtyKey(accountId), false)
+
+private fun setCompanyTasksDirty(
+    context: Context,
+    accountId: String,
+    workspaceId: String,
+    dirty: Boolean,
+) {
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .edit().putBoolean(companyTasksDirtyKey(accountId, workspaceId), dirty).apply()
+}
+
+private fun companyTasksAreDirty(context: Context, accountId: String, workspaceId: String): Boolean =
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .getBoolean(companyTasksDirtyKey(accountId, workspaceId), false)
 
 private data class ApiGoogleSession(val token: String)
 private data class ApiEmailCodeRequest(val developmentCode: String?)
@@ -2444,6 +2461,23 @@ private fun PopMainContent(
         }
     }
 
+    suspend fun syncTasksWithPendingDeletions(
+        account: GoogleAccount,
+        localTasks: List<PopTask>,
+        workspaceId: String = "",
+    ) {
+        val deletedServerIds = loadPendingTaskDeletions(context, account.id, workspaceId)
+        syncRemoteTasks(
+            apiToken = account.apiToken,
+            tasks = localTasks,
+            workspaceId = workspaceId,
+            deletedServerIds = deletedServerIds,
+        )
+        if (deletedServerIds.isNotEmpty()) {
+            clearPendingTaskDeletions(context, account.id, workspaceId)
+        }
+    }
+
     fun selectCompany(index: Int) {
         if (sessionMode == SessionMode.Guest) {
             selectWorkSpace(WorkSpace.Company)
@@ -2460,13 +2494,29 @@ private fun PopMainContent(
             val workspaceId = companyIds.getOrNull(index).orEmpty()
             if (token.isNotBlank() && workspaceId.isNotBlank()) {
                 navigationScope.launch {
-                    runCatching { loadRemoteTasks(token, workspaceId) }.onSuccess { remoteTasks ->
+                    val account = googleAccount ?: return@launch
+                    val group = companyTaskGroups.getOrNull(index) ?: return@launch
+                    val localSnapshot = group.toList()
+                    val localJson = tasksToJson(localSnapshot).toString()
+                    val lastSyncedJson = lastSyncedCompanyTasks[workspaceId]
+                    val hasLocalChanges =
+                        companyTasksAreDirty(context, account.id, workspaceId) ||
+                            (lastSyncedJson != null && localJson != lastSyncedJson)
+                    val remoteResult = runCatching {
+                        if (hasLocalChanges) {
+                            syncTasksWithPendingDeletions(account, localSnapshot, workspaceId)
+                        }
+                        loadRemoteTasks(token, workspaceId)
+                    }
+                    remoteResult.onSuccess { remoteTasks ->
                         companyTaskGroups.getOrNull(index)?.let { group ->
+                            if (tasksToJson(group).toString() != localJson) return@let
                             val mergedTasks = mergeRemoteTaskRouting(remoteTasks, group)
                             lastSyncedCompanyTasks[workspaceId] =
                                 tasksToJson(mergedTasks).toString()
                             group.clear()
                             group.addAll(mergedTasks)
+                            setCompanyTasksDirty(context, account.id, workspaceId, false)
                         }
                     }
                 }
@@ -2602,47 +2652,44 @@ private fun PopMainContent(
         remoteTasksLoaded = true
     }
 
-    suspend fun syncTasksWithPendingDeletions(
-        account: GoogleAccount,
-        localTasks: List<PopTask>,
-        workspaceId: String = "",
-    ) {
-        val deletedServerIds = loadPendingTaskDeletions(context, account.id, workspaceId)
-        syncRemoteTasks(
-            apiToken = account.apiToken,
-            tasks = localTasks,
-            workspaceId = workspaceId,
-            deletedServerIds = deletedServerIds,
-        )
-        if (deletedServerIds.isNotEmpty()) {
-            clearPendingTaskDeletions(context, account.id, workspaceId)
-        }
-    }
-
     suspend fun refreshRemoteTasks(showFeedback: Boolean = false) {
         val account = googleAccount ?: return
         if (account.apiToken.isBlank()) return
         val showIndicator = showFeedback
         val refreshStartedAt = System.currentTimeMillis()
         if (showIndicator) isRefreshing = true
+        val localSnapshot = personalTasks.toList()
+        val localTasksJson = tasksToJson(localSnapshot).toString()
         runCatching {
-            val localTasksJson = tasksToJson(personalTasks).toString()
             if (accountTasksAreDirty(context, account.id) || (remoteTasksLoaded && localTasksJson != lastSyncedTasksJson)) {
-                syncTasksWithPendingDeletions(account, personalTasks.toList())
+                syncTasksWithPendingDeletions(account, localSnapshot)
             }
             loadRemoteTasks(account.apiToken)
         }.onSuccess { remoteTasks ->
-            applyRemoteTasks(remoteTasks)
+            if (tasksToJson(personalTasks).toString() == localTasksJson) {
+                applyRemoteTasks(remoteTasks)
+            }
             if (workSpace == WorkSpace.Company) {
                 val workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty()
                 if (workspaceId.isNotBlank()) {
-                    runCatching { loadRemoteTasks(account.apiToken, workspaceId) }.onSuccess { companyTasks ->
-                        companyTaskGroups.getOrNull(selectedCompanyIndex)?.let { group ->
-                            val mergedTasks = mergeRemoteTaskRouting(companyTasks, group)
-                            lastSyncedCompanyTasks[workspaceId] =
-                                tasksToJson(mergedTasks).toString()
-                            group.clear()
-                            group.addAll(mergedTasks)
+                    val groupBeforeRequest = companyTaskGroups.getOrNull(selectedCompanyIndex)
+                    val groupJsonBeforeRequest = groupBeforeRequest?.let(::tasksToJson)?.toString()
+                    val companyHasLocalChanges =
+                        companyTasksAreDirty(context, account.id, workspaceId) ||
+                            (
+                                lastSyncedCompanyTasks[workspaceId] != null &&
+                                    groupJsonBeforeRequest != lastSyncedCompanyTasks[workspaceId]
+                                )
+                    if (!companyHasLocalChanges) {
+                        runCatching { loadRemoteTasks(account.apiToken, workspaceId) }.onSuccess { companyTasks ->
+                            companyTaskGroups.getOrNull(selectedCompanyIndex)?.let { group ->
+                                if (tasksToJson(group).toString() != groupJsonBeforeRequest) return@let
+                                val mergedTasks = mergeRemoteTaskRouting(companyTasks, group)
+                                lastSyncedCompanyTasks[workspaceId] =
+                                    tasksToJson(mergedTasks).toString()
+                                group.clear()
+                                group.addAll(mergedTasks)
+                            }
                         }
                     }
                 }
@@ -2670,19 +2717,32 @@ private fun PopMainContent(
                         val companyTasks = companyTaskGroups.getOrNull(index)
                         val localJson = companyTasks?.let(::tasksToJson)?.toString()
                         val lastSyncedJson = lastSyncedCompanyTasks[workspaceId]
+                        val isDirty = companyTasksAreDirty(context, account.id, workspaceId)
                         if (
                             companyTasks != null &&
                             localJson != null &&
                             (
+                                isDirty ||
                                 (lastSyncedJson != null && localJson != lastSyncedJson) ||
                                     loadPendingTaskDeletions(context, account.id, workspaceId).isNotEmpty()
                             )
                         ) {
-                            runCatching {
+                            val syncSucceeded = runCatching {
                                 syncTasksWithPendingDeletions(account, companyTasks.toList(), workspaceId)
                             }
-                                .onSuccess { lastSyncedCompanyTasks[workspaceId] = localJson }
+                                .onSuccess {
+                                    if (tasksToJson(companyTasks).toString() == localJson) {
+                                        lastSyncedCompanyTasks[workspaceId] = localJson
+                                        setCompanyTasksDirty(context, account.id, workspaceId, false)
+                                    }
+                                }
+                                .isSuccess
+                            if (!syncSucceeded) return@forEachIndexed
                         }
+                        val localJsonBeforeRequest = companyTaskGroups
+                            .getOrNull(index)
+                            ?.let(::tasksToJson)
+                            ?.toString()
                         runCatching { loadRemoteTasks(token, workspaceId) }.onSuccess { remoteTasks ->
                             val currentGroup = companyTaskGroups.getOrNull(index)
                             val mergedTasks =
@@ -2694,8 +2754,11 @@ private fun PopMainContent(
                                 ?.let(::tasksToJson)
                                 ?.toString()
                             if (
-                                lastSyncedCompanyTasks[workspaceId].isNullOrBlank() ||
-                                currentLocalJson == lastSyncedCompanyTasks[workspaceId]
+                                currentLocalJson == localJsonBeforeRequest &&
+                                (
+                                    lastSyncedCompanyTasks[workspaceId].isNullOrBlank() ||
+                                        currentLocalJson == lastSyncedCompanyTasks[workspaceId]
+                                    )
                             ) {
                                 lastSyncedCompanyTasks[workspaceId] = remoteJson
                                 companyTaskGroups.getOrNull(index)?.let { group ->
@@ -2734,12 +2797,16 @@ private fun PopMainContent(
             if (remoteTasksLoaded && googleAccount.apiToken.isNotBlank() && localTasksJson != lastSyncedTasksJson) {
                 setAccountTasksDirty(context, googleAccount.id, true)
                 delay(350)
+                val tasksSnapshot = personalTasks.toList()
+                val snapshotJson = tasksToJson(tasksSnapshot).toString()
                 runCatching {
-                    syncTasksWithPendingDeletions(googleAccount, personalTasks.toList())
+                    syncTasksWithPendingDeletions(googleAccount, tasksSnapshot)
                 }
                     .onSuccess {
-                        lastSyncedTasksJson = localTasksJson
-                        setAccountTasksDirty(context, googleAccount.id, false)
+                        lastSyncedTasksJson = snapshotJson
+                        if (tasksToJson(personalTasks).toString() == snapshotJson) {
+                            setAccountTasksDirty(context, googleAccount.id, false)
+                        }
                     }
                     .onFailure { error ->
                         Toast.makeText(
@@ -3120,11 +3187,19 @@ private fun PopMainContent(
                             hasPendingDeletions
                     )
                 ) {
+                    setCompanyTasksDirty(context, account.id, workspaceId, true)
                     delay(350)
+                    val tasksSnapshot = group.toList()
+                    val snapshotJson = tasksToJson(tasksSnapshot).toString()
                     runCatching {
-                        syncTasksWithPendingDeletions(account, group.toList(), workspaceId)
+                        syncTasksWithPendingDeletions(account, tasksSnapshot, workspaceId)
                     }
-                        .onSuccess { lastSyncedCompanyTasks[workspaceId] = localJson }
+                        .onSuccess {
+                            lastSyncedCompanyTasks[workspaceId] = snapshotJson
+                            if (tasksToJson(group).toString() == snapshotJson) {
+                                setCompanyTasksDirty(context, account.id, workspaceId, false)
+                            }
+                        }
                 }
             }
         }

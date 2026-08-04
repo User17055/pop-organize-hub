@@ -156,6 +156,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -4690,6 +4692,8 @@ private fun TasksScreen(
     val taskDetailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val taskDateSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val taskListState = rememberLazyListState()
+    var taskViewportTopPx by remember { mutableFloatStateOf(0f) }
+    var taskViewportBottomPx by remember { mutableFloatStateOf(Float.MAX_VALUE) }
     val taskTimePickerState = rememberTimePickerState(initialHour = 9, initialMinute = 0, is24Hour = true)
     val newTaskTitleFocusRequester = remember { FocusRequester() }
     val taskActionScope = rememberCoroutineScope()
@@ -5165,6 +5169,13 @@ private fun TasksScreen(
         LazyColumn(
             state = taskListState,
             contentPadding = PaddingValues(bottom = 92.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coordinates ->
+                    val bounds = coordinates.boundsInWindow()
+                    taskViewportTopPx = bounds.top
+                    taskViewportBottomPx = bounds.bottom
+                },
         ) {
             item {
                 WorkSpaceHeader(
@@ -5285,6 +5296,8 @@ private fun TasksScreen(
                             onAutoScroll = { amount ->
                                 taskActionScope.launch { taskListState.scrollBy(amount) }
                             },
+                            autoScrollViewportTopPx = taskViewportTopPx,
+                            autoScrollViewportBottomPx = taskViewportBottomPx,
                         )
                     }
                 }
@@ -7171,6 +7184,8 @@ private fun TaskCard(
     onReorderStep: (direction: Int) -> Boolean,
     onReorderEnd: () -> Unit,
     onAutoScroll: (amount: Float) -> Unit,
+    autoScrollViewportTopPx: Float = 0f,
+    autoScrollViewportBottomPx: Float = Float.MAX_VALUE,
     reorderEnabled: Boolean = true,
 ) {
     val hapticFeedback = LocalHapticFeedback.current
@@ -7181,6 +7196,8 @@ private fun TaskCard(
     var ignoreTapUntil by remember(task.id) { mutableLongStateOf(0L) }
     var dragTranslationX by remember(task.id) { mutableFloatStateOf(0f) }
     var dragTranslationY by remember(task.id) { mutableFloatStateOf(0f) }
+    var cardTopInWindowPx by remember(task.id) { mutableFloatStateOf(0f) }
+    var cardHeightPx by remember(task.id) { mutableFloatStateOf(0f) }
     val completedVisual = task.completed || isCompleting
     val isOverdue = isTaskOverdue(task) && !isCompleting
     val isUrgent = task.priority == "Urgente" && !completedVisual
@@ -7238,6 +7255,10 @@ private fun TaskCard(
         modifier = Modifier
             .fillMaxWidth()
             .height(82.dp)
+            .onGloballyPositioned { coordinates ->
+                cardTopInWindowPx = coordinates.boundsInWindow().top
+                cardHeightPx = coordinates.size.height.toFloat()
+            }
             .pointerInput(task.id) {
                 detectTapGestures(
                     onTap = {
@@ -7286,9 +7307,16 @@ private fun TaskCard(
                                 else dragTranslationY = stepThreshold
                             }
                         }
+                        val visualCardTop = cardTopInWindowPx + dragTranslationY
+                        val visualCardBottom = visualCardTop + cardHeightPx
+                        val edgeMargin = 12.dp.toPx()
                         when {
-                            change.position.y < 0f -> currentOnAutoScroll(-22f)
-                            change.position.y > size.height -> currentOnAutoScroll(22f)
+                            dragAmount.y < 0f &&
+                                visualCardTop <= autoScrollViewportTopPx + edgeMargin ->
+                                currentOnAutoScroll(-22f)
+                            dragAmount.y > 0f &&
+                                visualCardBottom >= autoScrollViewportBottomPx - edgeMargin ->
+                                currentOnAutoScroll(22f)
                         }
                     },
                 )

@@ -7263,7 +7263,8 @@ private fun TaskCard(
             withFrameNanos { }
             val consumed = currentOnAutoScroll(autoScrollSpeedPx * autoScrollDirection)
             scrolledSinceReorder += kotlin.math.abs(consumed)
-            val slotDistance = (cardHeightPx + 12.dp.value * density).coerceAtLeast(1f)
+            val slotDistance =
+                ((cardHeightPx + 12.dp.value * density) * .78f).coerceAtLeast(1f)
             if (scrolledSinceReorder >= slotDistance && !reorderStepPending) {
                 if (currentOnReorderStep(autoScrollDirection)) {
                     reorderStepPending = true
@@ -7405,16 +7406,17 @@ private fun TaskCard(
                         }
                         val visualCardTop = cardTopInWindowPx + dragTranslationY
                         val visualCardBottom = visualCardTop + cardHeightPx
-                        val edgeZone = 42.dp.toPx()
+                        val edgeZone = 78.dp.toPx()
                         when {
                             visualCardTop <= autoScrollViewportTopPx + edgeZone -> {
                                 autoScrollDirection = -1
-                                autoScrollSpeedPx = 8f
+                                autoScrollSpeedPx =
+                                    if (visualCardTop <= autoScrollViewportTopPx) 20f else 14f
                             }
                             visualCardBottom >= autoScrollViewportBottomPx - edgeZone -> {
                                 autoScrollDirection = 1
                                 autoScrollSpeedPx =
-                                    if (visualCardTop >= autoScrollViewportBottomPx) 11f else 8f
+                                    if (visualCardBottom >= autoScrollViewportBottomPx) 20f else 14f
                             }
                             else -> {
                                 autoScrollDirection = 0

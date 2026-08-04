@@ -241,9 +241,21 @@ const onboardingSlides: Array<{
 
 function DesktopLoginIntro() {
   const highlights = [
-    { icon: ListTodo, title: "Tarefas em um só lugar", text: "Planeje, priorize e acompanhe o trabalho em tempo real." },
-    { icon: Users, title: "Equipe organizada", text: "Distribua atividades por pessoa, setor ou grupo." },
-    { icon: BellRing, title: "Prazos sob controle", text: "Visualize pendências, revisões e entregas do dia." },
+    {
+      icon: ListTodo,
+      title: "Tarefas em um só lugar",
+      text: "Planeje, priorize e acompanhe o trabalho em tempo real.",
+    },
+    {
+      icon: Users,
+      title: "Equipe organizada",
+      text: "Distribua atividades por pessoa, setor ou grupo.",
+    },
+    {
+      icon: BellRing,
+      title: "Prazos sob controle",
+      text: "Visualize pendências, revisões e entregas do dia.",
+    },
   ];
 
   return (
@@ -263,14 +275,18 @@ function DesktopLoginIntro() {
           Sua empresa organizada em uma visão feita para trabalhar.
         </h1>
         <p className="mt-5 max-w-[570px] text-base leading-7 text-white/58">
-          O mesmo visual familiar do Pop Organize, com espaço para acompanhar tarefas, pessoas e resultados no computador.
+          O mesmo visual familiar do Pop Organize, com espaço para acompanhar tarefas, pessoas e
+          resultados no computador.
         </p>
 
         <div className="mt-10 grid max-w-[650px] gap-3 xl:grid-cols-3">
           {highlights.map((item) => {
             const Icon = item.icon;
             return (
-              <div key={item.title} className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur-xl">
+              <div
+                key={item.title}
+                className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur-xl"
+              >
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1687f8]/15 text-[#5aaaff]">
                   <Icon className="h-[18px] w-[18px]" />
                 </span>
@@ -644,7 +660,11 @@ function LoginPage() {
           <h1
             className={`${emailLoginOpen ? "mt-5 text-[28px]" : "mt-10 text-[36px]"} font-display font-bold leading-tight tracking-[-0.04em]`}
           >
-            {emailLoginOpen ? (emailCodeSent ? "Verifique seu e-mail" : "Entre com e-mail") : "Organize tudo."}
+            {emailLoginOpen
+              ? emailCodeSent
+                ? "Verifique seu e-mail"
+                : "Entre com e-mail"
+              : "Organize tudo."}
           </h1>
           <p className="mt-3 max-w-[320px] text-sm leading-6 text-white/58">
             {emailLoginOpen
@@ -793,10 +813,6 @@ function LoginPage() {
               )}
             </>
           )}
-
-          <p className="mt-6 text-center text-[11px] leading-5 text-white/42">
-            Ao continuar, você aceita nossos Termos de Uso e Política de Privacidade.
-          </p>
         </div>
       </section>
     </main>

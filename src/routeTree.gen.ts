@@ -9,13 +9,16 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TermosRouteImport } from './routes/termos'
 import { Route as TarefasRouteImport } from './routes/tarefas'
 import { Route as SetoresRouteImport } from './routes/setores'
 import { Route as RelatoriosRouteImport } from './routes/relatorios'
+import { Route as PrivacidadeRouteImport } from './routes/privacidade'
 import { Route as PermissoesRouteImport } from './routes/permissoes'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as GruposRouteImport } from './routes/grupos'
 import { Route as FuncionariosRouteImport } from './routes/funcionarios'
+import { Route as ExcluirContaRouteImport } from './routes/excluir-conta'
 import { Route as EmpresasRouteImport } from './routes/empresas'
 import { Route as CalendarioRouteImport } from './routes/calendario'
 import { Route as AceitarConviteRouteImport } from './routes/aceitar-convite'
@@ -25,10 +28,17 @@ import { Route as ApiMobileWorkspacesRouteImport } from './routes/api/mobile/wor
 import { Route as ApiMobileTasksRouteImport } from './routes/api/mobile/tasks'
 import { Route as ApiMobileTaskListsRouteImport } from './routes/api/mobile/task-lists'
 import { Route as ApiMobileInvitationsRouteImport } from './routes/api/mobile/invitations'
+import { Route as ApiMobileAccountRouteImport } from './routes/api/mobile/account'
 import { Route as ApiMobileAuthGoogleRouteImport } from './routes/api/mobile/auth/google'
+import { Route as ApiMobileAuthAppleRouteImport } from './routes/api/mobile/auth/apple'
 import { Route as ApiMobileAuthEmailVerifyCodeRouteImport } from './routes/api/mobile/auth/email/verify-code'
 import { Route as ApiMobileAuthEmailRequestCodeRouteImport } from './routes/api/mobile/auth/email/request-code'
 
+const TermosRoute = TermosRouteImport.update({
+  id: '/termos',
+  path: '/termos',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TarefasRoute = TarefasRouteImport.update({
   id: '/tarefas',
   path: '/tarefas',
@@ -42,6 +52,11 @@ const SetoresRoute = SetoresRouteImport.update({
 const RelatoriosRoute = RelatoriosRouteImport.update({
   id: '/relatorios',
   path: '/relatorios',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacidadeRoute = PrivacidadeRouteImport.update({
+  id: '/privacidade',
+  path: '/privacidade',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PermissoesRoute = PermissoesRouteImport.update({
@@ -62,6 +77,11 @@ const GruposRoute = GruposRouteImport.update({
 const FuncionariosRoute = FuncionariosRouteImport.update({
   id: '/funcionarios',
   path: '/funcionarios',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExcluirContaRoute = ExcluirContaRouteImport.update({
+  id: '/excluir-conta',
+  path: '/excluir-conta',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EmpresasRoute = EmpresasRouteImport.update({
@@ -109,9 +129,19 @@ const ApiMobileInvitationsRoute = ApiMobileInvitationsRouteImport.update({
   path: '/api/mobile/invitations',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMobileAccountRoute = ApiMobileAccountRouteImport.update({
+  id: '/api/mobile/account',
+  path: '/api/mobile/account',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMobileAuthGoogleRoute = ApiMobileAuthGoogleRouteImport.update({
   id: '/api/mobile/auth/google',
   path: '/api/mobile/auth/google',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileAuthAppleRoute = ApiMobileAuthAppleRouteImport.update({
+  id: '/api/mobile/auth/apple',
+  path: '/api/mobile/auth/apple',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMobileAuthEmailVerifyCodeRoute =
@@ -132,18 +162,23 @@ export interface FileRoutesByFullPath {
   '/aceitar-convite': typeof AceitarConviteRoute
   '/calendario': typeof CalendarioRoute
   '/empresas': typeof EmpresasRoute
+  '/excluir-conta': typeof ExcluirContaRoute
   '/funcionarios': typeof FuncionariosRoute
   '/grupos': typeof GruposRoute
   '/login': typeof LoginRoute
   '/permissoes': typeof PermissoesRoute
+  '/privacidade': typeof PrivacidadeRoute
   '/relatorios': typeof RelatoriosRoute
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
+  '/termos': typeof TermosRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
+  '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
   '/api/mobile/auth/email/request-code': typeof ApiMobileAuthEmailRequestCodeRoute
   '/api/mobile/auth/email/verify-code': typeof ApiMobileAuthEmailVerifyCodeRoute
@@ -153,18 +188,23 @@ export interface FileRoutesByTo {
   '/aceitar-convite': typeof AceitarConviteRoute
   '/calendario': typeof CalendarioRoute
   '/empresas': typeof EmpresasRoute
+  '/excluir-conta': typeof ExcluirContaRoute
   '/funcionarios': typeof FuncionariosRoute
   '/grupos': typeof GruposRoute
   '/login': typeof LoginRoute
   '/permissoes': typeof PermissoesRoute
+  '/privacidade': typeof PrivacidadeRoute
   '/relatorios': typeof RelatoriosRoute
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
+  '/termos': typeof TermosRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
+  '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
   '/api/mobile/auth/email/request-code': typeof ApiMobileAuthEmailRequestCodeRoute
   '/api/mobile/auth/email/verify-code': typeof ApiMobileAuthEmailVerifyCodeRoute
@@ -175,18 +215,23 @@ export interface FileRoutesById {
   '/aceitar-convite': typeof AceitarConviteRoute
   '/calendario': typeof CalendarioRoute
   '/empresas': typeof EmpresasRoute
+  '/excluir-conta': typeof ExcluirContaRoute
   '/funcionarios': typeof FuncionariosRoute
   '/grupos': typeof GruposRoute
   '/login': typeof LoginRoute
   '/permissoes': typeof PermissoesRoute
+  '/privacidade': typeof PrivacidadeRoute
   '/relatorios': typeof RelatoriosRoute
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
+  '/termos': typeof TermosRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
+  '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
   '/api/mobile/auth/email/request-code': typeof ApiMobileAuthEmailRequestCodeRoute
   '/api/mobile/auth/email/verify-code': typeof ApiMobileAuthEmailVerifyCodeRoute
@@ -198,18 +243,23 @@ export interface FileRouteTypes {
     | '/aceitar-convite'
     | '/calendario'
     | '/empresas'
+    | '/excluir-conta'
     | '/funcionarios'
     | '/grupos'
     | '/login'
     | '/permissoes'
+    | '/privacidade'
     | '/relatorios'
     | '/setores'
     | '/tarefas'
+    | '/termos'
     | '/api/health'
+    | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
+    | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
     | '/api/mobile/auth/email/request-code'
     | '/api/mobile/auth/email/verify-code'
@@ -219,18 +269,23 @@ export interface FileRouteTypes {
     | '/aceitar-convite'
     | '/calendario'
     | '/empresas'
+    | '/excluir-conta'
     | '/funcionarios'
     | '/grupos'
     | '/login'
     | '/permissoes'
+    | '/privacidade'
     | '/relatorios'
     | '/setores'
     | '/tarefas'
+    | '/termos'
     | '/api/health'
+    | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
+    | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
     | '/api/mobile/auth/email/request-code'
     | '/api/mobile/auth/email/verify-code'
@@ -240,18 +295,23 @@ export interface FileRouteTypes {
     | '/aceitar-convite'
     | '/calendario'
     | '/empresas'
+    | '/excluir-conta'
     | '/funcionarios'
     | '/grupos'
     | '/login'
     | '/permissoes'
+    | '/privacidade'
     | '/relatorios'
     | '/setores'
     | '/tarefas'
+    | '/termos'
     | '/api/health'
+    | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
+    | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
     | '/api/mobile/auth/email/request-code'
     | '/api/mobile/auth/email/verify-code'
@@ -262,18 +322,23 @@ export interface RootRouteChildren {
   AceitarConviteRoute: typeof AceitarConviteRoute
   CalendarioRoute: typeof CalendarioRoute
   EmpresasRoute: typeof EmpresasRoute
+  ExcluirContaRoute: typeof ExcluirContaRoute
   FuncionariosRoute: typeof FuncionariosRoute
   GruposRoute: typeof GruposRoute
   LoginRoute: typeof LoginRoute
   PermissoesRoute: typeof PermissoesRoute
+  PrivacidadeRoute: typeof PrivacidadeRoute
   RelatoriosRoute: typeof RelatoriosRoute
   SetoresRoute: typeof SetoresRoute
   TarefasRoute: typeof TarefasRoute
+  TermosRoute: typeof TermosRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiMobileAccountRoute: typeof ApiMobileAccountRoute
   ApiMobileInvitationsRoute: typeof ApiMobileInvitationsRoute
   ApiMobileTaskListsRoute: typeof ApiMobileTaskListsRoute
   ApiMobileTasksRoute: typeof ApiMobileTasksRoute
   ApiMobileWorkspacesRoute: typeof ApiMobileWorkspacesRoute
+  ApiMobileAuthAppleRoute: typeof ApiMobileAuthAppleRoute
   ApiMobileAuthGoogleRoute: typeof ApiMobileAuthGoogleRoute
   ApiMobileAuthEmailRequestCodeRoute: typeof ApiMobileAuthEmailRequestCodeRoute
   ApiMobileAuthEmailVerifyCodeRoute: typeof ApiMobileAuthEmailVerifyCodeRoute
@@ -281,6 +346,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/termos': {
+      id: '/termos'
+      path: '/termos'
+      fullPath: '/termos'
+      preLoaderRoute: typeof TermosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tarefas': {
       id: '/tarefas'
       path: '/tarefas'
@@ -300,6 +372,13 @@ declare module '@tanstack/react-router' {
       path: '/relatorios'
       fullPath: '/relatorios'
       preLoaderRoute: typeof RelatoriosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacidade': {
+      id: '/privacidade'
+      path: '/privacidade'
+      fullPath: '/privacidade'
+      preLoaderRoute: typeof PrivacidadeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/permissoes': {
@@ -328,6 +407,13 @@ declare module '@tanstack/react-router' {
       path: '/funcionarios'
       fullPath: '/funcionarios'
       preLoaderRoute: typeof FuncionariosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/excluir-conta': {
+      id: '/excluir-conta'
+      path: '/excluir-conta'
+      fullPath: '/excluir-conta'
+      preLoaderRoute: typeof ExcluirContaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/empresas': {
@@ -393,11 +479,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMobileInvitationsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mobile/account': {
+      id: '/api/mobile/account'
+      path: '/api/mobile/account'
+      fullPath: '/api/mobile/account'
+      preLoaderRoute: typeof ApiMobileAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mobile/auth/google': {
       id: '/api/mobile/auth/google'
       path: '/api/mobile/auth/google'
       fullPath: '/api/mobile/auth/google'
       preLoaderRoute: typeof ApiMobileAuthGoogleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/auth/apple': {
+      id: '/api/mobile/auth/apple'
+      path: '/api/mobile/auth/apple'
+      fullPath: '/api/mobile/auth/apple'
+      preLoaderRoute: typeof ApiMobileAuthAppleRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mobile/auth/email/verify-code': {
@@ -422,18 +522,23 @@ const rootRouteChildren: RootRouteChildren = {
   AceitarConviteRoute: AceitarConviteRoute,
   CalendarioRoute: CalendarioRoute,
   EmpresasRoute: EmpresasRoute,
+  ExcluirContaRoute: ExcluirContaRoute,
   FuncionariosRoute: FuncionariosRoute,
   GruposRoute: GruposRoute,
   LoginRoute: LoginRoute,
   PermissoesRoute: PermissoesRoute,
+  PrivacidadeRoute: PrivacidadeRoute,
   RelatoriosRoute: RelatoriosRoute,
   SetoresRoute: SetoresRoute,
   TarefasRoute: TarefasRoute,
+  TermosRoute: TermosRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiMobileAccountRoute: ApiMobileAccountRoute,
   ApiMobileInvitationsRoute: ApiMobileInvitationsRoute,
   ApiMobileTaskListsRoute: ApiMobileTaskListsRoute,
   ApiMobileTasksRoute: ApiMobileTasksRoute,
   ApiMobileWorkspacesRoute: ApiMobileWorkspacesRoute,
+  ApiMobileAuthAppleRoute: ApiMobileAuthAppleRoute,
   ApiMobileAuthGoogleRoute: ApiMobileAuthGoogleRoute,
   ApiMobileAuthEmailRequestCodeRoute: ApiMobileAuthEmailRequestCodeRoute,
   ApiMobileAuthEmailVerifyCodeRoute: ApiMobileAuthEmailVerifyCodeRoute,

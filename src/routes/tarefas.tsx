@@ -195,7 +195,6 @@ function TasksPage() {
     onCompleted: () => setSelectedTaskId(null),
     onCreated: () => {
       setShowForm(false);
-      setShowPop(false);
     },
     onDeleted: () => {
       setSelectedTaskId(null);
@@ -449,7 +448,7 @@ function TasksPage() {
     });
   }
 
-  function handlePopConfirm(draft: PopTaskDraft) {
+  async function handlePopCreate(draft: PopTaskDraft) {
     if (
       !draft.title ||
       !draft.description ||
@@ -457,7 +456,7 @@ function TasksPage() {
       !draft.targetType ||
       !draft.targetId
     ) {
-      return;
+      throw new Error("A Pop ainda não reuniu todos os dados necessários para criar a atividade.");
     }
 
     const recurrence: RecurrenceInput =
@@ -477,7 +476,7 @@ function TasksPage() {
           };
     const responsibleId = draft.targetType === "user" ? "" : (draft.responsibleId ?? "");
 
-    createTaskMutation.mutate({
+    await createTaskMutation.mutateAsync({
       title: draft.title,
       description: draft.description,
       priority: draft.priority ?? "medium",
@@ -1105,13 +1104,7 @@ function TasksPage() {
         }}
       />
 
-      <PopAssistant
-        open={showPop}
-        onOpenChange={setShowPop}
-        onConfirm={handlePopConfirm}
-        isCreating={createTaskMutation.isPending}
-        createError={mutationError}
-      />
+      <PopAssistant open={showPop} onOpenChange={setShowPop} onCreate={handlePopCreate} />
 
       <TaskCreateDrawer
         open={showForm}

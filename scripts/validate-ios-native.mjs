@@ -10,6 +10,7 @@ const requiredFiles = [
   "ios/App/App/AppDelegate.swift",
   "ios/App/App/App.entitlements",
   "ios/App/App/Info.plist",
+  "ios/App/App/PrivacyInfo.xcprivacy",
   "ios/App/App/pop_notification.mp3",
   "ios/App/App.xcodeproj/project.pbxproj",
 ];
@@ -52,5 +53,7 @@ if (!entitlements.includes("com.apple.developer.applesignin"))
 if (!entitlements.includes("aps-environment")) fail("APNs push entitlement is missing.");
 if (!project.includes("pop_notification.mp3 in Resources"))
   fail("notification audio is not bundled.");
+if (!project.includes("PrivacyInfo.xcprivacy in Resources"))
+  fail("the iOS privacy manifest is not bundled.");
 
 console.log("KMP iOS project validation passed.");

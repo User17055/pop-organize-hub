@@ -23,6 +23,7 @@ export type AccountRecord = {
   avatar?: string;
   passwordHash: string;
   googleSubject?: string;
+  appleSubject?: string;
   emailVerifiedAt?: string;
   createdAt: string;
 };

@@ -1,5 +1,5 @@
 import type { Database, PlatformDatabase } from "./database";
-import { randomInt } from "node:crypto";
+import { createPublicKey, createVerify, randomInt, type JsonWebKey } from "node:crypto";
 import { nextId, toCurrentUser } from "./database";
 import {
   createCompanyWorkspace,
@@ -22,6 +22,9 @@ const EMAIL_CODE_TTL_MS = 10 * 60 * 1000;
 const EMAIL_CODE_RESEND_MS = 60 * 1000;
 const EMAIL_CODE_MAX_ATTEMPTS = 5;
 const MAX_COMPANIES_PER_OWNER = 3;
+const APPLE_ISSUER = "https://appleid.apple.com";
+type AppleJsonWebKey = JsonWebKey & { kid?: string };
+let appleKeysCache: { expiresAt: number; keys: AppleJsonWebKey[] } | undefined;
 
 export type MobileTask = {
   id: number;
@@ -331,6 +334,123 @@ export async function authenticateMobileGoogle(credential: string) {
   return { token, user };
 }
 
+type AppleIdentityClaims = {
+  iss?: string;
+  aud?: string | string[];
+  exp?: number;
+  sub?: string;
+  email?: string;
+  email_verified?: string | boolean;
+};
+
+function decodeJwtPart<T>(value: string): T {
+  return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as T;
+}
+
+async function verifyAppleIdentityToken(identityToken: string) {
+  const parts = identityToken.split(".");
+  if (parts.length !== 3) throw mobileHttpError("Credencial Apple inválida.", 401);
+  const header = decodeJwtPart<{ alg?: string; kid?: string }>(parts[0]);
+  if (header.alg !== "RS256" || !header.kid) {
+    throw mobileHttpError("Credencial Apple inválida.", 401);
+  }
+
+  if (!appleKeysCache || appleKeysCache.expiresAt <= Date.now()) {
+    const response = await fetch("https://appleid.apple.com/auth/keys", {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) throw mobileHttpError("Não foi possível validar a conta Apple.", 503);
+    const body = (await response.json()) as { keys?: AppleJsonWebKey[] };
+    appleKeysCache = { keys: body.keys ?? [], expiresAt: Date.now() + 60 * 60 * 1000 };
+  }
+
+  const key = appleKeysCache.keys.find((item) => item.kid === header.kid);
+  if (!key) {
+    appleKeysCache = undefined;
+    throw mobileHttpError("Chave da credencial Apple não encontrada. Tente novamente.", 401);
+  }
+  const verifier = createVerify("RSA-SHA256");
+  verifier.update(`${parts[0]}.${parts[1]}`);
+  verifier.end();
+  if (
+    !verifier.verify(createPublicKey({ key, format: "jwk" }), Buffer.from(parts[2], "base64url"))
+  ) {
+    throw mobileHttpError("Assinatura da credencial Apple inválida.", 401);
+  }
+
+  const claims = decodeJwtPart<AppleIdentityClaims>(parts[1]);
+  const expectedAudience = process.env.APPLE_CLIENT_ID?.trim() || "br.com.poporganize.app";
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (
+    claims.iss !== APPLE_ISSUER ||
+    !audiences.includes(expectedAudience) ||
+    !claims.exp ||
+    claims.exp * 1000 <= Date.now() ||
+    !claims.sub
+  ) {
+    throw mobileHttpError("Credencial Apple expirada ou destinada a outro aplicativo.", 401);
+  }
+  return claims as AppleIdentityClaims & { sub: string };
+}
+
+export async function authenticateMobileApple(input: {
+  identityToken: string;
+  name?: string;
+  email?: string;
+}) {
+  const appleUser = await verifyAppleIdentityToken(input.identityToken);
+  const token = createSessionToken();
+  const tokenEmail = typeof appleUser.email === "string" ? normalizeEmail(appleUser.email) : "";
+  const suppliedEmail = input.email ? normalizeEmail(input.email) : "";
+  const email = tokenEmail || suppliedEmail;
+  if (!email) throw mobileHttpError("A Apple não informou o e-mail desta conta.", 409);
+
+  return mutateDatabase((platform) => {
+    let account =
+      platform.accounts.find((item) => item.appleSubject === appleUser.sub) ??
+      platform.accounts.find((item) => normalizeEmail(item.email) === email);
+    if (account?.appleSubject && account.appleSubject !== appleUser.sub) {
+      throw mobileHttpError("Este e-mail já está vinculado a outra conta Apple.", 409);
+    }
+    if (!account) {
+      account = {
+        id: nextId("u", platform.accounts),
+        name: input.name?.trim() || email.split("@")[0] || "Usuário Apple",
+        email,
+        passwordHash: `disabled$${hashToken(createSessionToken())}`,
+        appleSubject: appleUser.sub,
+        emailVerifiedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+      platform.accounts.push(account);
+      platform.workspaces.unshift(createPersonalWorkspace(account));
+    } else {
+      account.appleSubject = appleUser.sub;
+      account.emailVerifiedAt ||= new Date().toISOString();
+      if (input.name?.trim()) account.name = input.name.trim();
+    }
+
+    const personalWorkspace = platform.workspaces.find(
+      (workspace) =>
+        workspace.company.kind === "personal" && workspace.company.ownerId === account!.id,
+    );
+    if (!personalWorkspace) throw mobileHttpError("Conta sem espaço pessoal.", 409);
+    platform.sessions.push({
+      id: nextId("s", platform.sessions),
+      tokenHash: hashToken(token),
+      userId: account.id,
+      activeCompanyId: personalWorkspace.company.id,
+      createdAt: new Date().toISOString(),
+      expiresAt: sessionExpiry(),
+    });
+    return {
+      token,
+      user: publicUser(account),
+      workspaces: workspaceSummaries(platform, account.id),
+    };
+  });
+}
+
 async function requireMobileWorkspace(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
@@ -364,6 +484,60 @@ export async function readMobileWorkspaces(request: Request) {
     activeWorkspaceId: session.activeCompanyId,
     workspaces: workspaceSummaries(platform, account.id),
   };
+}
+
+export async function deleteMobileAccount(request: Request) {
+  const { account } = await requireMobileWorkspace(request);
+  await mutateDatabase((platform) => {
+    const ownedCompanyIds = new Set(
+      platform.workspaces
+        .filter(
+          (workspace) =>
+            workspace.company.kind === "company" && workspace.company.ownerId === account.id,
+        )
+        .map((workspace) => workspace.company.id),
+    );
+
+    platform.workspaces = platform.workspaces.filter((workspace) => {
+      if (workspace.company.kind === "personal" && workspace.company.ownerId === account.id) {
+        return false;
+      }
+      if (ownedCompanyIds.has(workspace.company.id)) {
+        const successor = workspace.employees.find(
+          (employee) => employee.id !== account.id && employee.status === "active",
+        );
+        if (!successor) return false;
+        workspace.company.ownerId = successor.id;
+      }
+
+      workspace.employees = workspace.employees.filter((employee) => employee.id !== account.id);
+      workspace.invitations = workspace.invitations.filter(
+        (invitation) => normalizeEmail(invitation.email) !== normalizeEmail(account.email),
+      );
+      workspace.groups = workspace.groups.map((group) => ({
+        ...group,
+        memberIds: group.memberIds.filter((id) => id !== account.id),
+      }));
+      workspace.departments = workspace.departments.map((department) => ({
+        ...department,
+        managerId: department.managerId === account.id ? "" : department.managerId,
+      }));
+      workspace.tasks = workspace.tasks.map((task) => ({
+        ...task,
+        assignedById: task.assignedById === account.id ? "" : task.assignedById,
+        responsibleId: task.responsibleId === account.id ? "" : task.responsibleId,
+        responsibleIds: task.responsibleIds?.filter((id) => id !== account.id),
+      }));
+      return true;
+    });
+
+    platform.accounts = platform.accounts.filter((item) => item.id !== account.id);
+    platform.sessions = platform.sessions.filter((session) => session.userId !== account.id);
+    platform.emailChallenges = platform.emailChallenges.filter(
+      (challenge) => normalizeEmail(challenge.email) !== normalizeEmail(account.email),
+    );
+  });
+  return { ok: true };
 }
 
 const MOBILE_INVITATION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;

@@ -1,17 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import {
-  Bot,
-  Check,
-  ImagePlus,
-  Loader2,
-  Mic,
-  Send,
-  Sparkles,
-  Square,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Bot, ImagePlus, Loader2, Mic, Send, Sparkles, Square, Trash2, X } from "lucide-react";
 import { askPop } from "@/lib/api/pop-organize.functions";
 import { cn } from "@/lib/utils";
 
@@ -28,7 +17,7 @@ const greeting: ChatMessage = {
   id: "greeting",
   role: "assistant",
   content:
-    "Oi! Eu sou a Pop. Me conte o que precisa ser feito por texto, imagem ou áudio. Vou organizar tudo e confirmar antes de criar.",
+    "Oi! Eu sou a Pop. Me conte o que precisa ser feito por texto, imagem ou áudio. Quando estiver tudo certo, eu crio a atividade para você.",
 };
 
 function fileToDataUrl(file: Blob) {
@@ -43,15 +32,11 @@ function fileToDataUrl(file: Blob) {
 export function PopAssistant({
   open,
   onOpenChange,
-  onConfirm,
-  isCreating,
-  createError,
+  onCreate,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (draft: PopTaskDraft) => void;
-  isCreating: boolean;
-  createError?: string | null;
+  onCreate: (draft: PopTaskDraft) => Promise<void>;
 }) {
   const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([greeting]);
@@ -59,7 +44,6 @@ export function PopAssistant({
   const [image, setImage] = useState<{ dataUrl: string; name: string } | null>(null);
   const [audio, setAudio] = useState<{ dataUrl: string; name: string } | null>(null);
   const [answer, setAnswer] = useState<PopAnswer | null>(null);
-  const [isDraftStale, setIsDraftStale] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +82,6 @@ export function PopAssistant({
     setImage(null);
     setAudio(null);
     setAnswer(null);
-    setIsDraftStale(false);
     setError(null);
   }
 
@@ -181,7 +164,6 @@ export function PopAssistant({
     setAudio(null);
     setError(null);
     setIsSending(true);
-    setIsDraftStale(true);
 
     try {
       const result = await askPop({
@@ -207,7 +189,18 @@ export function PopAssistant({
         { id: `assistant-${Date.now()}`, role: "assistant", content: result.reply },
       ]);
       setAnswer(result);
-      setIsDraftStale(false);
+      if (result.status === "ready") {
+        await onCreate(result.draft);
+        setMessages((current) => [
+          ...current,
+          {
+            id: `created-${Date.now()}`,
+            role: "assistant",
+            content: `Pronto! A atividade "${result.draft.title}" foi criada com sucesso.`,
+          },
+        ]);
+        setAnswer(null);
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error ? requestError.message : "Não foi possível falar com a Pop.",
@@ -311,30 +304,6 @@ export function PopAssistant({
             </div>
           )}
 
-          {answer?.status === "ready" && !isDraftStale && (
-            <div className="ml-10 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.07] p-4">
-              <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                <Check className="h-4 w-4" />
-                Atividade pronta para confirmar
-              </div>
-              <button
-                type="button"
-                onClick={() => onConfirm(answer.draft)}
-                disabled={isCreating}
-                className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:opacity-60"
-              >
-                {isCreating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Check className="h-4 w-4" />
-                )}
-                Confirmar e criar
-              </button>
-              <p className="mt-2 text-center text-[11px] text-muted-foreground">
-                Para alterar, basta escrever abaixo.
-              </p>
-            </div>
-          )}
           <div ref={messageEndRef} />
         </div>
 
@@ -361,9 +330,9 @@ export function PopAssistant({
               )}
             </div>
           )}
-          {(error || createError) && (
+          {error && (
             <div className="mb-2 rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              {error ?? createError}
+              {error}
             </div>
           )}
           <div className="flex items-end gap-2 rounded-2xl border border-border/70 bg-muted/35 p-2 focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10">

@@ -16,6 +16,7 @@ import androidx.core.view.WindowCompat
 import br.com.poporganize.app.notifications.NotificationTaskSnapshot
 import br.com.poporganize.app.notifications.saveNotificationTaskSnapshot
 import br.com.poporganize.shared.AuthResult
+import br.com.poporganize.shared.ApiResponse
 import br.com.poporganize.shared.PopPlatformServices
 import br.com.poporganize.shared.PopTask
 import br.com.poporganize.shared.UserProfile
@@ -23,12 +24,17 @@ import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import java.security.SecureRandom
+import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 class PopAndroidServices(private val activity: Activity) : PopPlatformServices {
     private val preferences = activity.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     override val platformName = "Android"
     override val supportsAppleSignIn = false
+    override val supportsGoogleSignIn = true
 
     override fun loadState(): String? = preferences.getString(STATE_KEY, null)
 
@@ -53,18 +59,31 @@ class PopAndroidServices(private val activity: Activity) : PopPlatformServices {
                 AuthResult.Failure("O Google retornou uma credencial incompatível.")
             } else {
                 val google = GoogleIdTokenCredential.createFrom(credential.data)
-                preferences.edit()
-                    .putString(SESSION_MODE, "google")
-                    .putString(ACCOUNT_NAME, google.displayName.orEmpty())
-                    .apply()
-                AuthResult.Success(
-                    UserProfile(
-                        id = google.id,
-                        name = google.displayName.orEmpty().ifBlank { google.id.substringBefore('@') },
-                        email = google.id,
-                        avatarUrl = google.profilePictureUri?.toString(),
-                    ),
+                val response = apiRequest(
+                    path = "auth/google",
+                    method = "POST",
+                    body = JSONObject().put("credential", google.idToken).toString(),
                 )
+                val payload = runCatching { JSONObject(response.body) }.getOrElse { JSONObject() }
+                if (!response.successful) {
+                    AuthResult.Failure(payload.optString("error", "Não foi possível conectar ao servidor."))
+                } else {
+                    val user = payload.optJSONObject("user") ?: JSONObject()
+                    val token = payload.optString("token")
+                    if (token.isBlank() || user.optString("id").isBlank()) {
+                        AuthResult.Failure("O servidor retornou uma sessão inválida.")
+                    } else {
+                        AuthResult.Success(
+                            UserProfile(
+                                id = user.optString("id"),
+                                name = user.optString("name"),
+                                email = user.optString("email"),
+                                avatarUrl = user.optString("photoUrl"),
+                            ),
+                            token,
+                        )
+                    }
+                }
             }
         } catch (_: GetCredentialCancellationException) {
             AuthResult.Cancelled
@@ -79,6 +98,37 @@ class PopAndroidServices(private val activity: Activity) : PopPlatformServices {
 
     override suspend fun signInWithApple(): AuthResult =
         AuthResult.Failure("Entrar com Apple está disponível no iPhone.")
+
+    override suspend fun apiRequest(
+        path: String,
+        method: String,
+        body: String?,
+        token: String?,
+        workspaceId: String?,
+    ): ApiResponse = withContext(Dispatchers.IO) {
+        val base = BuildConfig.POP_API_BASE_URL.trimEnd('/')
+        val connection = (URL("$base/${path.trimStart('/')}").openConnection() as java.net.HttpURLConnection).apply {
+            requestMethod = method
+            connectTimeout = 15_000
+            readTimeout = 30_000
+            setRequestProperty("Accept", "application/json")
+            if (!token.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $token")
+            if (!workspaceId.isNullOrBlank()) setRequestProperty("X-Workspace-Id", workspaceId)
+            if (body != null) {
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            }
+        }
+        try {
+            if (body != null) connection.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(body) }
+            val status = connection.responseCode
+            val responseBody = (if (status in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            ApiResponse(status, responseBody)
+        } finally {
+            connection.disconnect()
+        }
+    }
 
     override fun updateNotifications(tasks: List<PopTask>, firstName: String) {
         preferences.edit().apply {
@@ -113,6 +163,10 @@ class PopAndroidServices(private val activity: Activity) : PopPlatformServices {
                 putExtra(Intent.EXTRA_SUBJECT, "Suporte Pop Organize")
             },
         )
+    }
+
+    override fun openExternalUrl(url: String) {
+        activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     }
 
     private fun generateNonce(): String {

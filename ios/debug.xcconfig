@@ -1,1 +1,1 @@
-POP_API_BASE_URL =
+POP_API_BASE_URL = https:/$()/app.poporganize.com.br/api/mobile

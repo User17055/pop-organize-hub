@@ -40,7 +40,7 @@ private const val LAST_ACTIVE = "pop_organize_last_active"
 private const val ACCOUNT_ID = "pop_organize_google_account_id"
 private const val API_SESSION_TOKEN = "pop_organize_api_session_token"
 private const val ASSIGNED_TASKS_SEEN_PREFIX = "pop_organize_assigned_tasks_seen_"
-private const val MOBILE_API_BASE_URL = "https://app.poporganize.com.br/api/mobile"
+private val MOBILE_API_BASE_URL = br.com.poporganize.app.BuildConfig.POP_API_BASE_URL.trimEnd('/')
 const val EXTRA_OPEN_TASK_ID = "pop_organize_open_task_id"
 
 data class NotificationTaskSnapshot(

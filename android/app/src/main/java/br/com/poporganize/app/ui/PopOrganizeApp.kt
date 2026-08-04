@@ -213,6 +213,7 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
 import br.com.poporganize.app.R
+import br.com.poporganize.app.BuildConfig
 import br.com.poporganize.app.notifications.NotificationTaskSnapshot
 import br.com.poporganize.app.notifications.saveNotificationTaskSnapshot
 import br.com.poporganize.app.notifications.showAssignedTaskNotification
@@ -353,7 +354,7 @@ private const val DELETED_TASKS_STORAGE_PREFIX = "pop_organize_deleted_tasks_"
 private const val ASSIGNED_TASKS_SEEN_PREFIX = "pop_organize_assigned_tasks_seen_"
 private const val LAST_WORKSPACE_STORAGE_PREFIX = "pop_organize_last_workspace_"
 private const val PERSONAL_WORKSPACE_STORAGE_VALUE = "personal"
-private const val MOBILE_API_BASE_URL = "https://app.poporganize.com.br/api/mobile"
+private val MOBILE_API_BASE_URL = BuildConfig.POP_API_BASE_URL.trimEnd('/')
 private const val LIGHT_THEME_STORAGE = "pop_organize_light_theme"
 private const val LOCAL_PREFERENCES = "pop_organize_local"
 private val googleProfileImageCache = mutableMapOf<String, ImageBitmap>()
@@ -1458,6 +1459,27 @@ private suspend fun mutateMobileWorkspace(
     }
 }
 
+private suspend fun deleteMobileAccount(apiToken: String) = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/account").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "DELETE"
+        connectTimeout = 15_000
+        readTimeout = 30_000
+        setRequestProperty("Authorization", "Bearer $apiToken")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (responseCode !in 200..299) {
+            val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+            throw IllegalStateException(response.optString("error", "Não foi possível excluir a conta."))
+        }
+    } finally {
+        connection.disconnect()
+    }
+}
+
 @Composable
 private fun KeepModalNavigationBarHidden() {
     val view = LocalView.current
@@ -2134,13 +2156,6 @@ private fun LoginScreen(
             }
         }
         Spacer(Modifier.height(18.dp))
-        Text(
-            "Ao continuar, você concorda com os Termos de Uso e a Política de Privacidade.",
-            color = Color.White.copy(alpha = .36f),
-            fontSize = 10.sp,
-            lineHeight = 15.sp,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
     }
 }
 
@@ -8196,7 +8211,7 @@ private fun MoreScreen(
     val isGuest = sessionMode == SessionMode.Guest
     val context = LocalContext.current
     val managementScope = rememberCoroutineScope()
-    var showThemeDialog by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
     var activeManagementPage by remember { mutableStateOf<String?>(null) }
     var showSectorsDialog by remember { mutableStateOf(false) }
     var showGroupsDialog by remember { mutableStateOf(false) }
@@ -8216,6 +8231,8 @@ private fun MoreScreen(
     var groupName by remember { mutableStateOf("") }
     var groupDescription by remember { mutableStateOf("") }
     var savingManagementAction by remember { mutableStateOf<String?>(null) }
+    var showDeleteAccountDialog by remember { mutableStateOf(false) }
+    var deletingAccount by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeManagementPage, companySectors.toList()) {
         if (activeManagementPage == "employees" && companySectors.none { it.id == memberSectorId }) {
@@ -8510,31 +8527,56 @@ private fun MoreScreen(
                             TextButton(onClick = onRequireLogin) {
                                 Text("Entrar", color = PopBlue, fontWeight = FontWeight.Bold)
                             }
-                        } else {
-                            IconButton(onClick = { showThemeDialog = true }) {
-                                Icon(Icons.Rounded.Settings, "Configurações", tint = PopMuted)
-                            }
                         }
-                    }
-
-                    if (isGuest) {
-                        MoreAccountAction(
-                            icon = Icons.Rounded.Settings,
-                            label = if (lightTheme) "Tema claro" else "Tema escuro",
-                            onClick = { showThemeDialog = true },
-                        )
-                    } else {
-                        MoreAccountAction(
-                            icon = Icons.Rounded.Logout,
-                            label = "Sair",
-                            accent = Color(0xFFE5484D),
-                            onClick = onSignOut,
-                        )
+                        IconButton(onClick = { showSettingsDialog = true }) {
+                            Icon(Icons.Rounded.Settings, "Configurações", tint = PopMuted)
+                        }
                     }
                     }
                 }
             }
         }
+    }
+
+    if (showDeleteAccountDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!deletingAccount) showDeleteAccountDialog = false },
+            title = { Text("Excluir conta permanentemente?") },
+            text = {
+                Text("Seu espaço pessoal, sessões e dados associados serão removidos. Esta ação não pode ser desfeita.")
+            },
+            dismissButton = {
+                TextButton(enabled = !deletingAccount, onClick = { showDeleteAccountDialog = false }) {
+                    Text("Cancelar")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !deletingAccount,
+                    onClick = {
+                        val token = googleAccount?.apiToken.orEmpty()
+                        if (token.isBlank()) return@TextButton
+                        deletingAccount = true
+                        managementScope.launch {
+                            runCatching { deleteMobileAccount(token) }
+                                .onSuccess {
+                                    showDeleteAccountDialog = false
+                                    onSignOut()
+                                    Toast.makeText(context, "Conta excluída.", Toast.LENGTH_LONG).show()
+                                }
+                                .onFailure { error ->
+                                    Toast.makeText(
+                                        context,
+                                        error.message ?: "Não foi possível excluir a conta.",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            deletingAccount = false
+                        }
+                    },
+                ) { Text(if (deletingAccount) "Excluindo..." else "Excluir conta", color = Color(0xFFE5484D)) }
+            },
+        )
     }
 
     if (showEmployeeForm) {
@@ -8862,37 +8904,80 @@ private fun MoreScreen(
         )
     }
 
-    if (showThemeDialog) {
+    if (showSettingsDialog) {
         AlertDialog(
-            onDismissRequest = { showThemeDialog = false },
-            title = { Text("Aparência", fontWeight = FontWeight.ExtraBold) },
+            onDismissRequest = { showSettingsDialog = false },
+            title = { Text("Configurações", fontWeight = FontWeight.ExtraBold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ThemeChoice(
-                        title = "Tema claro",
-                        subtitle = "Fundo branco e superfícies claras",
-                        icon = Icons.Rounded.LightMode,
-                        selected = lightTheme,
-                        onClick = {
-                            onLightThemeChange(true)
-                            showThemeDialog = false
-                        },
-                    )
-                    ThemeChoice(
-                        title = "Tema escuro",
-                        subtitle = "Visual atual com fundo escuro",
-                        icon = Icons.Rounded.DarkMode,
-                        selected = !lightTheme,
-                        onClick = {
-                            onLightThemeChange(false)
-                            showThemeDialog = false
-                        },
-                    )
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    item {
+                        Text("Aparência", color = PopMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    item {
+                        ThemeChoice(
+                            title = "Tema claro",
+                            subtitle = "Fundo branco e superfícies claras",
+                            icon = Icons.Rounded.LightMode,
+                            selected = lightTheme,
+                            onClick = { onLightThemeChange(true) },
+                        )
+                    }
+                    item {
+                        ThemeChoice(
+                            title = "Tema escuro",
+                            subtitle = "Visual com fundo escuro",
+                            icon = Icons.Rounded.DarkMode,
+                            selected = !lightTheme,
+                            onClick = { onLightThemeChange(false) },
+                        )
+                    }
+                    item { HorizontalDivider(color = PopMuted.copy(alpha = .16f)) }
+                    item {
+                        MoreAccountAction(
+                            icon = Icons.Rounded.Description,
+                            label = "Termos de Uso",
+                            onClick = { openWebPage("/termos") },
+                        )
+                    }
+                    item {
+                        MoreAccountAction(
+                            icon = Icons.Rounded.Shield,
+                            label = "Política de Privacidade",
+                            onClick = { openWebPage("/privacidade") },
+                        )
+                    }
+                    if (!isGuest) {
+                        item {
+                            MoreAccountAction(
+                                icon = Icons.Rounded.Delete,
+                                label = "Excluir minha conta",
+                                accent = Color(0xFFE5484D),
+                                onClick = {
+                                    showSettingsDialog = false
+                                    showDeleteAccountDialog = true
+                                },
+                            )
+                        }
+                        item {
+                            MoreAccountAction(
+                                icon = Icons.Rounded.Logout,
+                                label = "Sair",
+                                accent = Color(0xFFE5484D),
+                                onClick = {
+                                    showSettingsDialog = false
+                                    onSignOut()
+                                },
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showThemeDialog = false }) { Text("Cancelar") }
+                TextButton(onClick = { showSettingsDialog = false }) { Text("Fechar") }
             },
             shape = RoundedCornerShape(26.dp),
             containerColor = PopSurface,

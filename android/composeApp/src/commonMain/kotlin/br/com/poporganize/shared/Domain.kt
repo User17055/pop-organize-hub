@@ -106,6 +106,7 @@ data class PopTask(
     val checklist: List<ChecklistItem> = emptyList(),
     val recurrence: RecurrenceKind = RecurrenceKind.None,
     val recurrenceSeriesId: String? = null,
+    val serverId: String? = null,
 )
 
 @Serializable
@@ -116,12 +117,15 @@ data class PopState(
     val theme: PopThemeMode = PopThemeMode.Dark,
     val workspace: WorkspaceKind = WorkspaceKind.Personal,
     val selectedCompanyId: String? = null,
+    val personalWorkspaceId: String? = null,
     val companies: List<CompanyWorkspace> = emptyList(),
     val tasks: List<PopTask> = emptyList(),
+    val apiToken: String? = null,
+    val pendingDeletedServerIds: List<String> = emptyList(),
 )
 
 sealed interface AuthResult {
-    data class Success(val user: UserProfile) : AuthResult
+    data class Success(val user: UserProfile, val token: String) : AuthResult
     data class Failure(val message: String) : AuthResult
     data object Cancelled : AuthResult
 }
@@ -129,13 +133,106 @@ sealed interface AuthResult {
 interface PopPlatformServices {
     val platformName: String
     val supportsAppleSignIn: Boolean
+    val supportsGoogleSignIn: Boolean
 
     fun loadState(): String?
     fun saveState(value: String)
     suspend fun signInWithGoogle(): AuthResult
     suspend fun signInWithApple(): AuthResult
+    suspend fun apiRequest(
+        path: String,
+        method: String = "GET",
+        body: String? = null,
+        token: String? = null,
+        workspaceId: String? = null,
+    ): ApiResponse
     fun updateNotifications(tasks: List<PopTask>, firstName: String)
     fun applyTheme(light: Boolean)
     fun playActionSound()
     fun openSupportEmail()
+    fun openExternalUrl(url: String)
 }
+
+data class ApiResponse(val status: Int, val body: String) {
+    val successful: Boolean get() = status in 200..299
+}
+
+@Serializable
+data class ApiUser(
+    val id: String,
+    val name: String,
+    val email: String,
+    val photoUrl: String = "",
+)
+
+@Serializable
+data class ApiSession(
+    val token: String,
+    val user: ApiUser,
+)
+
+@Serializable
+data class ApiError(val error: String = "Não foi possível concluir a operação.")
+
+@Serializable
+data class ApiWorkspaceResponse(val workspaces: List<ApiWorkspace> = emptyList())
+
+@Serializable
+data class ApiWorkspace(
+    val id: String,
+    val name: String,
+    val description: String = "",
+    val kind: String = "company",
+    val employees: List<ApiEmployee> = emptyList(),
+    val sectors: List<CompanySector> = emptyList(),
+    val groups: List<CompanyGroup> = emptyList(),
+)
+
+@Serializable
+data class ApiEmployee(
+    val id: String,
+    val name: String,
+    val email: String,
+    val role: String = "Colaborador",
+    val sectorId: String = "",
+)
+
+@Serializable
+data class ApiTasksResponse(val tasks: List<ApiTask> = emptyList())
+
+@Serializable
+data class ApiTask(
+    val id: Int,
+    val serverId: String? = null,
+    val title: String,
+    val department: String = "Pessoal",
+    val dueLabel: String = "",
+    val priority: String = "Média",
+    val dueDate: String,
+    val completed: Boolean = false,
+    val description: String = "",
+    val assignee: String = "",
+    val assignedBy: String = "",
+    val createdBy: String = "",
+    val recurrence: String = "Não repetir",
+    val reminder: String = "Sem lembrete",
+    val attachmentName: String = "",
+    val dueTime: String = "",
+    val duration: String = "Sem duração",
+    val recurrenceRule: String = "Não repetir",
+    val recurrenceDetail: String = "",
+    val recurrenceInterval: Int = 1,
+    val recurrenceEndMode: String = "Nunca",
+    val recurrenceEndValue: String = "",
+    val recurrenceOccurrence: Int = 1,
+    val assignmentType: String? = null,
+    val assignmentTargetId: String? = null,
+    val assignmentTargetLabel: String? = null,
+    val checklist: List<ChecklistItem> = emptyList(),
+)
+
+@Serializable
+data class ApiTasksPayload(
+    val tasks: List<ApiTask>,
+    val deletedServerIds: List<String> = emptyList(),
+)

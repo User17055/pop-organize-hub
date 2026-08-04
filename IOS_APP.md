@@ -23,6 +23,14 @@ npm run ios:open
 
 No Xcode, escolha seu Team em **Signing & Capabilities** e confirme **Sign in with Apple**, **Push Notifications** e **Background Modes > Remote notifications**. Use iOS 15 ou superior.
 
+Use Xcode 26 ou mais recente. O Release já aponta para
+`https://app.poporganize.com.br/api/mobile`, usa APNs de produção e envia a credencial do
+Sign in with Apple ao backend para validação. No servidor, mantenha
+`APPLE_CLIENT_ID=br.com.poporganize.app`.
+
+Antes do Archive, selecione o Team correto, confirme o App ID `br.com.poporganize.app` no portal
+Apple Developer e teste login, sincronização e exclusão de conta pelo TestFlight.
+
 O iOS não pode ser compilado no Windows. A validação deste repositório confere a ligação KMP; a compilação final e o Archive devem ser feitos em um Mac com Xcode.
 
 ## VPS

@@ -196,19 +196,12 @@ private fun OnboardingScreen(onFinish: () -> Unit) {
 
 @Composable
 private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
-    var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var codeSent by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var feedback by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-
-    fun consume(result: AuthResult) {
-        when (result) {
-            is AuthResult.Success -> store.signIn(result.user)
-            is AuthResult.Failure -> store.updateMessage(result.message)
-            AuthResult.Cancelled -> store.updateMessage("Login cancelado")
-        }
-    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding(),
@@ -222,38 +215,66 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
             Text("Use a mesma conta no Android, iPhone e painel web.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
         item {
-            OutlinedTextField(name, { name = it }, label = { Text("Seu nome") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        }
-        item {
-            OutlinedTextField(email, { email = it }, label = { Text("E-mail") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        }
-        item {
             OutlinedTextField(
-                password,
-                { password = it },
-                label = { Text("Senha") },
-                visualTransformation = PasswordVisualTransformation(),
+                email,
+                { email = it; feedback = null },
+                enabled = !busy && !codeSent,
+                label = { Text("E-mail") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (codeSent) item {
+            OutlinedTextField(
+                code,
+                { value -> code = value.filter(Char::isDigit).take(6); feedback = null },
+                enabled = !busy,
+                label = { Text("Código de 6 dígitos") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
         item {
             Button(
+                enabled = !busy && email.contains("@") && (!codeSent || code.length == 6),
                 onClick = {
-                    if (name.isNotBlank() && email.isNotBlank()) {
-                        store.signIn(UserProfile(newId("user"), name.trim(), email.trim()))
-                    } else store.updateMessage("Preencha seu nome e e-mail")
+                    busy = true
+                    feedback = null
+                    scope.launch {
+                        val error = if (codeSent) {
+                            store.verifyEmailCode(email, code)
+                        } else {
+                            store.requestEmailCode(email).also { if (it == null) codeSent = true }
+                        }
+                        feedback = error ?: if (codeSent && code.isBlank()) "Código enviado para seu e-mail." else null
+                        busy = false
+                    }
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) { Text("Entrar", fontWeight = FontWeight.Bold) }
+            ) {
+                Text(
+                    when {
+                        busy -> "Aguarde..."
+                        codeSent -> "Confirmar código"
+                        else -> "Enviar código"
+                    },
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
-        item {
+        if (codeSent) item {
+            TextButton(
+                enabled = !busy,
+                onClick = { codeSent = false; code = ""; feedback = null },
+            ) { Text("Usar outro e-mail") }
+        }
+        if (platform.supportsGoogleSignIn) item {
             OutlinedButton(
                 enabled = !busy,
                 onClick = {
                     busy = true
                     scope.launch {
-                        consume(platform.signInWithGoogle())
+                        feedback = store.completeSignIn(platform.signInWithGoogle())
                         busy = false
                     }
                 },
@@ -265,10 +286,10 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
                 FilledTonalButton(
                     enabled = !busy,
                     onClick = {
-                        busy = true
-                        scope.launch {
-                            consume(platform.signInWithApple())
-                            busy = false
+                    busy = true
+                    scope.launch {
+                        feedback = store.completeSignIn(platform.signInWithApple())
+                        busy = false
                         }
                     },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -277,7 +298,9 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
         }
         item {
             TextButton(onClick = store::continueAsGuest) { Text("Continuar sem conta") }
-            Text(store.message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, textAlign = TextAlign.Center)
+            feedback?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, textAlign = TextAlign.Center)
+            }
         }
     }
 }
@@ -960,6 +983,10 @@ private fun EntityListScreen(
 @Composable
 private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
     val light = store.state.theme == PopThemeMode.Light
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    var deletionError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(18.dp),
@@ -979,9 +1006,55 @@ private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
         }
         item { MoreItem(Icons.Rounded.Email, "Falar com o suporte", "contato@poporganize.com", platform::openSupportEmail) }
         item {
+            MoreItem(Icons.Rounded.ListAlt, "Termos de Uso", "Leia os termos do serviço") {
+                platform.openExternalUrl("https://app.poporganize.com.br/termos")
+            }
+        }
+        item {
+            MoreItem(Icons.Rounded.Settings, "Política de Privacidade", "Como tratamos seus dados") {
+                platform.openExternalUrl("https://app.poporganize.com.br/privacidade")
+            }
+        }
+        if (!store.state.apiToken.isNullOrBlank()) item {
+            OutlinedButton(onClick = { showDeleteConfirmation = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.DeleteOutline, null)
+                Text("Excluir minha conta", modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+        item {
             OutlinedButton(onClick = store::signOut, modifier = Modifier.fillMaxWidth()) { Text("Sair da conta") }
         }
         item { Text(store.message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+    }
+
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { if (!deleting) showDeleteConfirmation = false },
+            title = { Text("Excluir conta permanentemente?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Seu espaço pessoal, sessões e dados associados serão removidos. Esta ação não pode ser desfeita.")
+                    deletionError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !deleting, onClick = { showDeleteConfirmation = false }) { Text("Cancelar") }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !deleting,
+                    onClick = {
+                        deleting = true
+                        deletionError = null
+                        scope.launch {
+                            deletionError = store.deleteAccount()
+                            deleting = false
+                            if (deletionError == null) showDeleteConfirmation = false
+                        }
+                    },
+                ) { Text(if (deleting) "Excluindo..." else "Excluir conta") }
+            },
+        )
     }
 }
 

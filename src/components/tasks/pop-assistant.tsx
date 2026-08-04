@@ -11,6 +11,8 @@ import {
   AudioLines,
   Bot,
   Check,
+  ChevronLeft,
+  History,
   ImagePlus,
   Loader2,
   Mic,
@@ -20,6 +22,7 @@ import {
   Send,
   Sparkles,
   Square,
+  MessageSquarePlus,
   Trash2,
   X,
 } from "lucide-react";
@@ -35,6 +38,14 @@ type ChatMessage = {
   content: string;
 };
 
+type StoredConversation = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  messages: ChatMessage[];
+  answer: PopAnswer | null;
+};
+
 type RecordedAudio = { dataUrl: string; name: string };
 type CallState = "idle" | "connecting" | "listening" | "speaking";
 
@@ -44,6 +55,30 @@ const greeting: ChatMessage = {
   content:
     "Oi! Eu sou a Pop 😊 Bora deixar o dia mais organizado? Me conte o que precisa ser feito por texto, imagem, áudio ou ligação. Eu preparo o resumo e você confirma antes de criar.",
 };
+
+function createConversationId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `conversation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function conversationTitle(messages: ChatMessage[]) {
+  const firstRequest =
+    messages.find((message) => message.role === "user")?.content || "Nova tarefa";
+  return firstRequest
+    .replace(/[\n\r]+/g, " ")
+    .replace(/^[^\p{L}\p{N}]+/u, "")
+    .slice(0, 58);
+}
+
+function formatConversationDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
 
 function fileToDataUrl(file: Blob) {
   return new Promise<string>((resolve, reject) => {
@@ -80,10 +115,12 @@ export function PopAssistant({
   open,
   onOpenChange,
   onCreate,
+  historyKey,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreate: (draft: PopTaskDraft) => Promise<void>;
+  historyKey: string;
 }) {
   const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([greeting]);
@@ -98,6 +135,10 @@ export function PopAssistant({
   const [callSeconds, setCallSeconds] = useState(0);
   const [isCallMuted, setIsCallMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState(createConversationId);
+  const [conversations, setConversations] = useState<StoredConversation[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
@@ -108,12 +149,76 @@ export function PopAssistant({
   const callAudioRef = useRef<HTMLAudioElement | null>(null);
   const handledCallItemsRef = useRef(new Set<string>());
   const handledCallAssistantItemsRef = useRef(new Set<string>());
+  const lastSpokenDraftRef = useRef("");
+  const pendingCallSummaryRef = useRef<string | null>(null);
+  const callResponseActiveRef = useRef(false);
   const callTaskQueueRef = useRef(Promise.resolve());
   const messagesRef = useRef(messages);
   const answerRef = useRef(answer);
   const submitRecordedAudioRef = useRef<(recording: RecordedAudio) => void>(() => undefined);
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    setHistoryLoaded(false);
+    try {
+      const parsed = JSON.parse(
+        localStorage.getItem(`pop-organize:pop-history:${historyKey}`) || "[]",
+      ) as unknown;
+      const valid = Array.isArray(parsed)
+        ? parsed
+            .filter((item): item is StoredConversation =>
+              Boolean(
+                item &&
+                typeof item === "object" &&
+                "id" in item &&
+                typeof item.id === "string" &&
+                "title" in item &&
+                typeof item.title === "string" &&
+                "updatedAt" in item &&
+                typeof item.updatedAt === "string" &&
+                "messages" in item &&
+                Array.isArray(item.messages),
+              ),
+            )
+            .slice(0, 20)
+        : [];
+      setConversations(valid);
+    } catch {
+      setConversations([]);
+    }
+    setHistoryLoaded(true);
+  }, [historyKey, mounted]);
+
+  useEffect(() => {
+    if (!historyLoaded) return;
+    try {
+      localStorage.setItem(
+        `pop-organize:pop-history:${historyKey}`,
+        JSON.stringify(conversations.slice(0, 20)),
+      );
+    } catch {
+      // A conversa continua funcionando mesmo se o aparelho estiver sem espaço local.
+    }
+  }, [conversations, historyKey, historyLoaded]);
+
+  useEffect(() => {
+    if (!historyLoaded || !messages.some((message) => message.role === "user")) return;
+    const record: StoredConversation = {
+      id: conversationId,
+      title: conversationTitle(messages),
+      updatedAt: new Date().toISOString(),
+      messages: messages.slice(-80),
+      answer,
+    };
+    setConversations((current) =>
+      [record, ...current.filter((conversation) => conversation.id !== conversationId)].slice(
+        0,
+        20,
+      ),
+    );
+  }, [answer, conversationId, historyLoaded, messages]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -183,6 +288,7 @@ export function PopAssistant({
   }, [callState]);
 
   function resetConversation() {
+    setConversationId(createConversationId());
     messagesRef.current = [greeting];
     answerRef.current = null;
     setMessages([greeting]);
@@ -192,7 +298,27 @@ export function PopAssistant({
     setAnswer(null);
     setIsCreating(false);
     setError(null);
+    setHistoryOpen(false);
     endCall();
+  }
+
+  function resumeConversation(conversation: StoredConversation) {
+    endCall();
+    setConversationId(conversation.id);
+    messagesRef.current = conversation.messages;
+    answerRef.current = conversation.answer;
+    setMessages(conversation.messages);
+    setAnswer(conversation.answer);
+    setInput("");
+    setImage(null);
+    setAudio(null);
+    setError(null);
+    setHistoryOpen(false);
+  }
+
+  function deleteConversation(id: string) {
+    setConversations((current) => current.filter((conversation) => conversation.id !== id));
+    if (id === conversationId) resetConversation();
   }
 
   async function handleImage(event: ChangeEvent<HTMLInputElement>) {
@@ -269,7 +395,7 @@ export function PopAssistant({
     const optimisticContent = [text, attachmentLabel].filter(Boolean).join("\n");
     const history = messages
       .filter((message) => message.id !== "greeting")
-      .slice(-10)
+      .slice(-24)
       .map(({ role, content }) => ({ role, content }));
     setMessages((current) => [
       ...current,
@@ -305,7 +431,10 @@ export function PopAssistant({
         ),
         { id: assistantId, role: "assistant", content: result.reply },
       ]);
-      setAnswer(result);
+      const nextAnswer =
+        result.intent !== "create_task" && answer?.status === "ready" ? answer : result;
+      answerRef.current = nextAnswer;
+      setAnswer(nextAnswer);
     } catch (requestError) {
       setError(
         requestError instanceof Error ? requestError.message : "Não foi possível falar com a Pop.",
@@ -331,7 +460,7 @@ export function PopAssistant({
     };
     const history = messagesRef.current
       .filter((message) => message.id !== "greeting")
-      .slice(-10)
+      .slice(-24)
       .map(({ role, content }) => ({ role, content }));
     messagesRef.current = [...messagesRef.current, userMessage];
     setMessages(messagesRef.current);
@@ -354,6 +483,12 @@ export function PopAssistant({
         };
         messagesRef.current = [...messagesRef.current, summary];
         setMessages(messagesRef.current);
+        const draftSignature = JSON.stringify(result.draft);
+        if (draftSignature !== lastSpokenDraftRef.current) {
+          lastSpokenDraftRef.current = draftSignature;
+          pendingCallSummaryRef.current = result.reply;
+          flushPendingCallSummary();
+        }
       } else if (answerRef.current?.status !== "ready") {
         answerRef.current = result;
         setAnswer(result);
@@ -380,6 +515,29 @@ export function PopAssistant({
     setMessages(messagesRef.current);
   }
 
+  function flushPendingCallSummary() {
+    const summary = pendingCallSummaryRef.current;
+    const channel = callChannelRef.current;
+    if (!summary || callResponseActiveRef.current || channel?.readyState !== "open") return;
+    pendingCallSummaryRef.current = null;
+    channel.send(
+      JSON.stringify({
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: `[Resumo estruturado pelo aplicativo — esta é a versão correta da tarefa. Fale como ela ficou sem inventar ou alterar dados:]\n${summary}`,
+            },
+          ],
+        },
+      }),
+    );
+    channel.send(JSON.stringify({ type: "response.create" }));
+  }
+
   function handleCallEvent(rawEvent: string) {
     try {
       const event = JSON.parse(rawEvent) as {
@@ -388,10 +546,15 @@ export function PopAssistant({
         transcript?: string;
       };
       if (event.type === "input_audio_buffer.speech_started") setCallState("listening");
+      if (event.type === "response.created") callResponseActiveRef.current = true;
       if (event.type === "response.created" || event.type === "response.output_audio.delta") {
         setCallState("speaking");
       }
-      if (event.type === "response.done") setCallState("listening");
+      if (event.type === "response.done") {
+        callResponseActiveRef.current = false;
+        setCallState("listening");
+        flushPendingCallSummary();
+      }
       if (
         event.type === "conversation.item.input_audio_transcription.completed" &&
         event.item_id &&
@@ -421,6 +584,9 @@ export function PopAssistant({
     setCallState("connecting");
     handledCallItemsRef.current.clear();
     handledCallAssistantItemsRef.current.clear();
+    lastSpokenDraftRef.current = "";
+    pendingCallSummaryRef.current = null;
+    callResponseActiveRef.current = false;
 
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") {
@@ -507,7 +673,8 @@ export function PopAssistant({
     try {
       await onCreate(answer.draft);
       const messageId = `created-${Date.now()}`;
-      const content = `Pronto! A atividade "${answer.draft.title}" foi criada com sucesso.`;
+      const finalSummary = answer.reply.split("\n\nEla ainda não foi criada.")[0];
+      const content = `Pronto! A atividade foi criada com sucesso.\n\n${finalSummary}`;
       const createdMessage: ChatMessage = { id: messageId, role: "assistant", content };
       messagesRef.current = [...messagesRef.current, createdMessage];
       setMessages(messagesRef.current);
@@ -523,7 +690,7 @@ export function PopAssistant({
               content: [
                 {
                   type: "input_text",
-                  text: `[Evento do aplicativo: a atividade "${answer.draft.title}" foi criada com sucesso após a confirmação na tela. Informe o resultado em uma frase curta e continue disponível para conversar.]`,
+                  text: `[Evento do aplicativo: a atividade foi criada com sucesso após a confirmação na tela. Informe claramente que ela foi criada e fale o resumo final abaixo sem alterar nenhum dado.]\n${finalSummary}`,
                 },
               ],
             },
@@ -591,12 +758,24 @@ export function PopAssistant({
             </button>
             <button
               type="button"
+              onClick={() => setHistoryOpen((current) => !current)}
+              className={cn(
+                "glass-icon-button flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground",
+                historyOpen && "text-primary",
+              )}
+              aria-label="Histórico de conversas"
+              title="Histórico"
+            >
+              <History className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
               onClick={resetConversation}
               className="glass-icon-button flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground"
               aria-label="Nova conversa"
               title="Nova conversa"
             >
-              <Trash2 className="h-4 w-4" />
+              <MessageSquarePlus className="h-4 w-4" />
             </button>
             <button
               type="button"
@@ -608,6 +787,66 @@ export function PopAssistant({
             </button>
           </div>
         </header>
+
+        {historyOpen && (
+          <section className="absolute inset-x-0 bottom-0 top-[77px] z-10 flex min-h-0 flex-col bg-background">
+            <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3 sm:px-5">
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(false)}
+                className="glass-icon-button flex h-9 w-9 items-center justify-center rounded-xl"
+                aria-label="Voltar para a conversa"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <div>
+                <h3 className="text-sm font-bold">Histórico da Pop</h3>
+                <p className="text-xs text-muted-foreground">
+                  Retome uma tarefa sem perder o contexto.
+                </p>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-muted/20 p-4 sm:p-5">
+              {conversations.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border bg-card px-5 py-10 text-center">
+                  <History className="mx-auto h-6 w-6 text-muted-foreground" />
+                  <p className="mt-3 text-sm font-semibold">Nenhuma conversa salva</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    As conversas aparecem aqui depois do primeiro pedido.
+                  </p>
+                </div>
+              ) : (
+                conversations.map((conversation) => (
+                  <div
+                    key={conversation.id}
+                    className="flex items-center gap-2 rounded-2xl border border-border/70 bg-card p-2 shadow-sm"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => resumeConversation(conversation)}
+                      className="min-w-0 flex-1 rounded-xl px-2 py-2 text-left transition hover:bg-muted/60"
+                    >
+                      <span className="block truncate text-sm font-semibold">
+                        {conversation.title || "Nova tarefa"}
+                      </span>
+                      <span className="mt-1 block text-[11px] text-muted-foreground">
+                        {formatConversationDate(conversation.updatedAt)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteConversation(conversation.id)}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+                      aria-label={`Excluir conversa ${conversation.title}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        )}
 
         <div className="min-h-0 space-y-4 overflow-y-auto bg-muted/20 px-4 py-5 sm:px-5">
           {messages.map((message) => (

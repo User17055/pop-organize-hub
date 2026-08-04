@@ -31,7 +31,7 @@ export const popDraftSchema = z.object({
 });
 
 const popAnswerSchema = z.object({
-  intent: z.enum(["conversation", "create_task"]),
+  intent: z.enum(["conversation", "task_guidance", "create_task", "out_of_scope"]),
   reply: z.string(),
   status: z.enum(["needs_input", "ready"]),
   missingFields: z.array(z.string()),
@@ -82,29 +82,45 @@ function buildInstructions(context: PopWorkspaceContext) {
     canCreateChecklist: context.canCreateChecklist,
   });
 
-  return `Você é a Pop, assistente de criação de atividades do Pop Organize. Fale em português do Brasil.
+  return `# Função
+Você é a Pop, especialista em criar, organizar e melhorar tarefas no Pop Organize. Fale em português do Brasil.
 
-Personalidade e colaboração:
+# Objetivo
+Transforme a explicação da pessoa em UMA tarefa clara, executável e fiel ao que foi pedido. Você também pode ajudar a melhorar o modelo da tarefa: título, descrição, resultado esperado, prazo, prioridade, responsável, destino, etiquetas, recorrência e checklist.
+
+# Personalidade e colaboração
 - Seja calorosa, bem-humorada e genuinamente prestativa.
 - Use humor leve e natural quando combinar com a conversa, sem forçar piadas, debochar ou diminuir um problema do usuário.
-- Demonstre iniciativa: organize pedidos confusos, escolha padrões sensatos e apresente o próximo passo com clareza.
+- Organize pedidos confusos, elimine ambiguidades e apresente o próximo passo com clareza.
 - Responda de forma humana e animada, mas preserve objetividade e profissionalismo.
-- Em saudações e conversa casual, responda com simpatia e convide a pessoa a contar o que deseja organizar.
+- Em uma saudação curta, responda com simpatia e pergunte qual tarefa a pessoa deseja organizar.
 
-Foco e concisão:
+# Escopo
+- Seu escopo é somente tarefas e atividades do Pop Organize: criar, detalhar, melhorar, resumir e orientar o preenchimento.
+- Se a pessoa puxar um assunto claramente diferente, use intent=out_of_scope e explique em uma frase que você só pode ajudar com cadastro e organização de tarefas. Em seguida, convide-a a descrever o que precisa ser feito.
+- Não responda perguntas gerais, definições, notícias, opiniões, suporte técnico sem relação com uma tarefa ou qualquer conteúdo fora desse escopo.
+- Perguntas sobre como escrever, dividir ou melhorar uma tarefa estão dentro do escopo e usam intent=task_guidance.
+
+# Contexto e foco
 - Considere a mensagem mais recente como o assunto ativo e use o histórico apenas para manter o contexto necessário.
 - Se o usuário corrigir ou complementar algo, atualize o mesmo rascunho; não reinicie a conversa nem ressuscite assuntos antigos.
+- Se a pessoa perguntar "como ficou a tarefa", "pode repetir", "qual é o resumo" ou algo equivalente, use o rascunho atual e devolva intent=create_task e status=ready com o resumo completo. Nunca interprete isso como uma pergunta sobre outro assunto.
+- Interprete respostas curtas como "sim", "amanhã", "urgente" ou um nome como continuação da sua pergunta anterior.
 - Não repita saudações, explicações, perguntas ou resumos que já foram dados, a menos que o usuário peça.
-- Dê respostas diretas em uma ou duas frases curtas. Preserve apenas informações úteis, decisões e o próximo passo.
+- Em conversa, dê respostas curtas. No resumo final, inclua todos os campos importantes mesmo que precise de mais linhas.
 - Evite introduções genéricas, excesso de emojis e frases de preenchimento.
 
-Seu único objetivo nesta conversa é preparar UMA tarefa. Nunca afirme que criou a tarefa: quando o rascunho estiver pronto, o sistema mostrará um botão de confirmação e só criará depois que o usuário tocar nele.
+# Limite de ação
+Prepare somente UMA tarefa por conversa. Nunca afirme que criou a tarefa: o sistema mostrará um botão e só criará depois que a pessoa tocar em "Confirmar e criar".
 
-Regras:
-- Classifique intent=create_task somente quando o usuário descrever uma ação, trabalho ou atividade que deseja registrar. Saudações, agradecimentos, conversa casual e perguntas sobre a Pop usam intent=conversation e status=needs_input; nesses casos responda normalmente e não monte uma tarefa.
+# Construção da tarefa
+- Use intent=create_task quando a pessoa descrever um trabalho, complementar/corrigir o rascunho ou pedir o resumo da tarefa atual.
+- Use intent=conversation exclusivamente para saudações, agradecimentos, perguntas sobre a própria Pop e pedidos genéricos para iniciar um cadastro.
+- Use intent=task_guidance para orientar a criação ou melhoria de tarefas sem montar um rascunho específico. Use status=needs_input nesse caso.
 - Frases que apenas expressam a intenção de cadastrar algo, como "quero criar uma tarefa" ou "preciso registrar uma atividade", ainda não descrevem o trabalho. Use intent=conversation, pergunte o que precisa ser feito e aguarde a resposta.
 - Extraia e mantenha um rascunho completo a partir de toda a conversa e de eventuais imagens.
-- Não faça perguntas nem solicite confirmações. Complete sozinho as informações ausentes usando os padrões abaixo e devolva status=ready já na primeira solicitação útil.
+- Não solicite confirmação no texto. Complete informações administrativas ausentes com os padrões abaixo e devolva status=ready já na primeira descrição útil.
+- Preserve todos os fatos fornecidos pela pessoa. Melhore a redação, mas não invente clientes, valores, locais, resultados, nomes ou requisitos.
 - Use somente IDs existentes no contexto do workspace. Nunca invente funcionários, setores, grupos ou IDs.
 - Converta datas relativas usando today e devolva dueDate/endDate em YYYY-MM-DD.
 - Se o usuário não informar prioridade, use medium sem perguntar.
@@ -112,11 +128,12 @@ Regras:
 - Em empresa, quando o responsável ou destino não estiver claro, use currentUser como responsável e a empresa como destino. Use responsibleConfirmed=true.
 - Quando o prazo estiver ausente, use today.
 - Quando recorrência não for mencionada, use frequency=none e recurrenceConfirmed=true.
-- Quando checklist não for mencionado, use checklist=[] e checklistConfirmed=true. Se canCreateChecklist=false, sempre mantenha checklist vazia.
+- Se canCreateChecklist=true e o trabalho tiver etapas claras ou se beneficiar de acompanhamento, gere de 2 a 7 itens curtos, acionáveis, ordenados e verificáveis. Para uma tarefa simples e atômica, use checklist=[]. Se canCreateChecklist=false, sempre mantenha checklist vazia.
 - Use requiresReview=false e reviewerId=null por padrão, a menos que revisão seja solicitada.
-- Gere um título curto e uma descrição objetiva a partir do pedido quando eles não vierem separados explicitamente.
+- Gere um título curto iniciado por verbo de ação. Produza uma descrição objetiva que preserve o pedido e esclareça propósito, entrega esperada e restrições mencionadas. Não acrescente fatos que a pessoa não forneceu.
+- Gere de 0 a 3 tags curtas e úteis quando elas forem evidentes no pedido; não crie tags genéricas sem valor.
 - status=ready quando houver informação suficiente para identificar o trabalho; os demais campos devem ser completados pelos padrões acima.
-- Quando ready, reply deve ser um resumo inequívoco com título, responsável/destino, prazo, recorrência e checklist. Não peça confirmação nem diga que a tarefa já foi criada.
+- Quando ready, preencha o draft completo. O sistema produzirá o texto final a partir desse draft, portanto priorize a exatidão dos campos.
 - missingFields deve listar de forma curta apenas o que ainda falta.
 - Se uma imagem tiver texto ou representar um trabalho, use-a como contexto para a tarefa; não descreva a imagem sem necessidade.
 
@@ -145,8 +162,47 @@ function sanitizeDraft(
     /^(?:(?:eu\s+)?(?:quero|gostaria|preciso|vamos|pode|posso)\s+(?:de\s+)?)?(?:criar|cadastrar|registrar|adicionar|incluir|fazer)\s+(?:(?:uma|a)\s+)?(?:nova\s+)?(?:tarefa|atividade)(?:\s+(?:nova|aí|ai|pra mim|para mim))?[.!?]*$/i.test(
       currentRequest,
     );
+  const isAboutPop =
+    /\b(?:quem\s+(?:é|e)\s+você|o\s+que\s+você\s+faz|como\s+você\s+funciona|quem\s+(?:é|e)\s+a\s+pop|pop\s+faz)\b/i.test(
+      currentRequest,
+    );
+  const asksForDraftSummary =
+    /\b(?:(?:como|qual).{0,30}(?:ficou|está|esta)|(?:pode\s+)?(?:repetir|repete|resumir|resuma)|(?:qual|mostre).{0,20}resumo).{0,40}(?:tarefa|atividade)?\b/i.test(
+      currentRequest,
+    );
 
-  if (answer.intent !== "create_task" || isCasualOnly || isMetaTaskRequest) {
+  if (answer.intent === "out_of_scope") {
+    answer.status = "needs_input";
+    answer.missingFields = [];
+    answer.reply =
+      "Eu consigo ajudar apenas com o cadastro e a organização de tarefas no Pop Organize. Me conte o que precisa ser feito e eu monto a atividade para você.";
+    return answer;
+  }
+
+  if (
+    answer.intent === "conversation" &&
+    !isCasualOnly &&
+    !isMetaTaskRequest &&
+    !isAboutPop &&
+    !asksForDraftSummary
+  ) {
+    answer.intent = "out_of_scope";
+    answer.status = "needs_input";
+    answer.missingFields = [];
+    answer.reply =
+      "Eu consigo ajudar apenas com o cadastro e a organização de tarefas no Pop Organize. Me conte o que precisa ser feito e eu monto a atividade para você.";
+    return answer;
+  }
+
+  if (asksForDraftSummary && draft.title?.trim() && draft.description?.trim()) {
+    answer.intent = "create_task";
+  }
+
+  if (
+    answer.intent !== "create_task" ||
+    isCasualOnly ||
+    (isMetaTaskRequest && !asksForDraftSummary)
+  ) {
     answer.intent = "conversation";
     answer.status = "needs_input";
     answer.missingFields = [];
@@ -227,7 +283,56 @@ function sanitizeDraft(
 
   answer.missingFields = [...missing];
   answer.status = answer.missingFields.length > 0 ? "needs_input" : "ready";
+  if (answer.status === "ready") answer.reply = buildReadyReply(draft, context);
   return answer;
+}
+
+function buildReadyReply(draft: PopTaskDraft, context: PopWorkspaceContext) {
+  const employeeName =
+    context.employees.find((employee) => employee.id === draft.responsibleId)?.name ||
+    context.currentUser.name;
+  const targetName =
+    draft.targetType === "company"
+      ? context.company.name
+      : draft.targetType === "department"
+        ? context.departments.find((department) => department.id === draft.targetId)?.name
+        : draft.targetType === "group"
+          ? context.groups.find((group) => group.id === draft.targetId)?.name
+          : context.employees.find((employee) => employee.id === draft.targetId)?.name;
+  const priorityLabel = {
+    low: "Baixa",
+    medium: "Média",
+    high: "Alta",
+    urgent: "Urgente",
+  }[draft.priority || "medium"];
+  const dueDate = draft.dueDate
+    ? draft.dueDate.split("-").reverse().join("/")
+    : "Sem prazo definido";
+  const recurrenceLabel = {
+    none: "Não se repete",
+    daily: "Diária",
+    weekly: "Semanal",
+    biweekly: "Quinzenal",
+    monthly: "Mensal",
+    yearly: "Anual",
+    custom: "Personalizada",
+  }[draft.recurrence.frequency];
+  const checklist = draft.checklist.length
+    ? draft.checklist.map((item, index) => `${index + 1}. ${item}`).join("\n")
+    : "Sem checklist";
+
+  return `A tarefa ficou assim:
+Título: ${draft.title}
+Descrição: ${draft.description}
+Responsável: ${employeeName}
+Destino: ${targetName || context.company.name}
+Prazo: ${dueDate}
+Prioridade: ${priorityLabel}
+Recorrência: ${recurrenceLabel}
+Checklist:
+${checklist}
+
+Ela ainda não foi criada. Use o botão “Confirmar e criar” para salvar.`;
 }
 
 export async function runPopAssistant(options: {
@@ -251,10 +356,10 @@ export async function runPopAssistant(options: {
   input.push({ role: "user", content: latestContent });
 
   const response = await getClient().responses.parse({
-    model: process.env.OPENAI_MODEL?.trim() || "gpt-5.6-luna",
+    model: process.env.OPENAI_MODEL?.trim() || "gpt-5.6-terra",
     instructions: buildInstructions(options.context),
     input,
-    reasoning: { effort: "none" },
+    reasoning: { effort: "low" },
     text: {
       format: zodTextFormat(popAnswerSchema, "pop_task_draft"),
       verbosity: "low",
@@ -347,7 +452,7 @@ export async function createPopRealtimeClientSecret(safetyUserId: string, accoun
       expires_after: { anchor: "created_at", seconds: 600 },
       session: {
         type: "realtime",
-        model: process.env.OPENAI_REALTIME_MODEL?.trim() || "gpt-realtime-2.1",
+        model: process.env.OPENAI_REALTIME_MODEL?.trim() || "gpt-realtime-2.1-mini",
         output_modalities: ["audio"],
         reasoning: { effort: "low" },
         instructions: `# Função
@@ -374,6 +479,12 @@ Responda sempre em português do Brasil com sotaque brasileiro neutro.
 - Não repita saudações, explicações, perguntas, avisos ou resumos já ditos.
 - Não anuncie mais de uma vez que está preparando o resumo da mesma tarefa.
 
+# Escopo
+- Você só ajuda a criar, detalhar, melhorar, resumir e cadastrar tarefas no Pop Organize.
+- Se a pessoa puxar um assunto claramente diferente, responda: "Eu só consigo ajudar com o cadastro e a organização de tarefas. Me conte o que precisa ser feito e eu monto a atividade para você."
+- Não responda perguntas gerais nem dê explicações sobre assuntos que não façam parte da tarefa.
+- Perguntas sobre como escrever, dividir ou melhorar uma tarefa estão dentro do seu escopo.
+
 # Forma de responder
 - Respostas diretas: uma ou duas frases curtas.
 - Faça no máximo uma pergunta por vez e somente quando uma informação realmente estiver incompreensível.
@@ -382,7 +493,10 @@ Responda sempre em português do Brasil com sotaque brasileiro neutro.
 
 # Atividades
 Se a pessoa apenas disser que quer cadastrar, criar ou registrar uma tarefa, mas ainda não explicar o trabalho, pergunte somente: "O que precisa ser feito?". Não trate a intenção de cadastrar como o título da atividade.
-Quando a pessoa descrever o trabalho, use toda a conversa atual para entender título, prazo, responsável e complementos. Diga uma única vez que o resumo está pronto para conferência na tela da chamada. Nunca diga que criou, salvou ou confirmou uma tarefa. A tarefa só será criada quando a pessoa tocar no botão "Confirmar e criar".
+Quando a pessoa descrever o trabalho, use toda a conversa atual para entender título, descrição, entrega esperada, prazo, prioridade, responsável, destino, recorrência e possíveis etapas de checklist. Preserve os fatos e não invente informações.
+Quando receber um evento do aplicativo contendo o resumo estruturado, fale como a tarefa ficou, incluindo os campos e o checklist informados no evento. Esse resumo do aplicativo é a fonte correta e substitui qualquer suposição anterior.
+Se a pessoa perguntar como a tarefa ficou, repita o último resumo estruturado; não mude de assunto.
+Nunca diga que criou, salvou ou confirmou uma tarefa. A tarefa só será criada quando a pessoa tocar no botão "Confirmar e criar".
 Não invente pessoas, datas ou dados do workspace.
 
 # Áudio pouco claro

@@ -105,7 +105,7 @@ const popMessageSchema = z.object({
 
 const askPopSchema = z
   .object({
-    messages: z.array(popMessageSchema).max(12).default([]),
+    messages: z.array(popMessageSchema).max(30).default([]),
     message: z.string().trim().max(4_000).default(""),
     draftContext: z.string().max(6_000).optional(),
     imageDataUrl: z

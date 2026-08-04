@@ -3,6 +3,7 @@ import { Sparkles } from "lucide-react";
 import { PopAssistant, type PopTaskDraft } from "@/components/tasks/pop-assistant";
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
 import type { RecurrenceInput } from "@/components/tasks/task-form-types";
+import { useWorkspaceData } from "@/lib/api/use-workspace";
 import { cn } from "@/lib/utils";
 
 // Estado global mínimo para abrir a Pop de qualquer página (sidebar, FAB, botões).
@@ -37,6 +38,7 @@ export function PopDock() {
     () => false,
   );
   const { createTaskMutation } = useTaskMutations();
+  const { data } = useWorkspaceData();
 
   async function handleCreate(draft: PopTaskDraft) {
     if (
@@ -97,7 +99,12 @@ export function PopDock() {
       >
         <Sparkles className="h-6 w-6" />
       </button>
-      <PopAssistant open={open} onOpenChange={setPopOpen} onCreate={handleCreate} />
+      <PopAssistant
+        open={open}
+        onOpenChange={setPopOpen}
+        onCreate={handleCreate}
+        historyKey={data ? `${data.company.id}:${data.currentUser.id}` : "workspace-loading"}
+      />
     </>
   );
 }

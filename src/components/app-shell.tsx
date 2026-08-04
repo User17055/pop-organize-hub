@@ -208,71 +208,6 @@ function ScrollBoundaryEffect() {
   );
 }
 
-function PageHeaderMobile({
-  title,
-  subtitle,
-  actions,
-  topLeft,
-  topCenter,
-  topRight,
-}: {
-  title: string;
-  subtitle?: string;
-  actions?: ReactNode;
-  topLeft?: ReactNode;
-  topCenter?: ReactNode;
-  topRight?: ReactNode;
-}) {
-  return (
-    <header className="mobile-fixed-header app-blue-header safe-top relative z-[70] shrink-0 rounded-b-[26px] lg:hidden">
-      <div className="relative mx-auto w-full max-w-[1600px] px-4 pb-4 pt-2.5">
-        <div className="relative flex h-10 items-center justify-between">
-          {topLeft}
-          {topCenter && (
-            <div className="absolute left-1/2 top-1/2 max-w-[60vw] -translate-x-1/2 -translate-y-1/2">
-              {topCenter}
-            </div>
-          )}
-          <div className="ml-auto flex shrink-0 items-center gap-1.5">{topRight}</div>
-        </div>
-        <div className="app-page-heading mt-2.5 flex min-h-[46px] min-w-0 items-end gap-2">
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate font-display text-xl font-bold leading-tight tracking-tight text-white">
-              {title}
-            </h1>
-            {subtitle && <p className="mt-0.5 truncate text-xs text-white/70">{subtitle}</p>}
-          </div>
-          {actions}
-        </div>
-      </div>
-    </header>
-  );
-}
-
-function PageHeaderDesktop({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <header className="glass-header safe-top sticky top-0 z-30 hidden lg:block">
-      <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-4 px-8 py-4 xl:px-12">
-        <div className="app-page-heading min-w-0 flex-1">
-          <h1 className="truncate font-display text-2xl font-semibold leading-tight tracking-tight text-foreground">
-            {title}
-          </h1>
-          {subtitle && <p className="mt-1 truncate text-sm text-muted-foreground">{subtitle}</p>}
-        </div>
-        {children}
-      </div>
-    </header>
-  );
-}
-
 export function AppShell({
   children,
   title,
@@ -550,26 +485,20 @@ export function AppShell({
           <button
             type="button"
             className={cn(
-              "flex items-center text-left transition focus:outline-none",
-              mobile
-                ? "h-9 max-w-[60vw] gap-1.5 rounded-full px-3 hover:bg-white/10"
-                : "rounded-xl hover:bg-sidebar-accent",
-              compact ? "h-9 w-9 justify-center" : !mobile && "w-full gap-2 px-3 py-2",
+              "flex items-center rounded-xl text-left transition hover:bg-sidebar-accent focus:outline-none",
+              compact
+                ? "h-9 w-9 justify-center"
+                : mobile
+                  ? "h-9 max-w-[60vw] gap-1.5 px-2.5"
+                  : "w-full gap-2 px-3 py-2",
             )}
             aria-label="Trocar espaço"
           >
-            <Building2
-              className={cn("h-4 w-4 shrink-0", mobile ? "text-white" : "text-primary")}
-            />
+            <Building2 className="h-4 w-4 shrink-0 text-primary" />
             {!compact && (
               <>
                 <span className="min-w-0 flex-1">
-                  <span
-                    className={cn(
-                      "block truncate text-sm font-semibold",
-                      mobile ? "text-white" : "text-sidebar-foreground",
-                    )}
-                  >
+                  <span className="block truncate text-sm font-semibold text-sidebar-foreground">
                     {workspaceData.company.name}
                   </span>
                   {!mobile &&
@@ -580,12 +509,7 @@ export function AppShell({
                       </span>
                     )}
                 </span>
-                <ChevronDown
-                  className={cn(
-                    "h-4 w-4 shrink-0",
-                    mobile ? "text-white/60" : "text-sidebar-foreground/45",
-                  )}
-                />
+                <ChevronDown className="h-4 w-4 shrink-0 text-sidebar-foreground/45" />
               </>
             )}
           </button>
@@ -660,22 +584,22 @@ export function AppShell({
     return (
       <div className="native-viewport flex w-full bg-background">
         <main className="app-main-shell flex min-w-0 flex-1 flex-col">
-          <PageHeaderMobile
-            title={title}
-            subtitle={subtitle}
-            actions={actions}
-            topLeft={
-              <span className="header-icon-button flex h-9 w-9 shrink-0 items-center justify-center rounded-full opacity-60">
-                <Menu className="h-[19px] w-[19px]" />
-              </span>
-            }
-          />
-          <PageHeaderDesktop title={title} subtitle={subtitle}>
-            {actions}
-          </PageHeaderDesktop>
-          <div
-            className={cn("app-scroll-content flex-1 px-4 py-7 md:px-10 lg:px-12", contentClassName)}
-          >
+          <header className="glass-header safe-top sticky top-0 z-30">
+            <div className="relative flex items-center gap-3 px-4 py-3 md:px-10 md:py-3.5 lg:px-12">
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate font-display text-[22px] font-bold leading-tight text-foreground md:text-xl md:font-semibold">
+                  {title}
+                </h1>
+                {subtitle && (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground md:text-sm">
+                    {subtitle}
+                  </p>
+                )}
+              </div>
+              {actions}
+            </div>
+          </header>
+          <div className={cn("flex-1 px-4 py-7 md:px-10 lg:px-12", contentClassName)}>
             {children}
           </div>
         </main>
@@ -1121,45 +1045,70 @@ export function AppShell({
 
       <main className="app-main-shell flex min-w-0 flex-1 flex-col">
         {/* Mobile header */}
-        <PageHeaderMobile
-          title={title}
-          subtitle={subtitle}
-          actions={actions}
-          topLeft={
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(true)}
-              className="header-icon-button flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-              aria-label="Abrir menu"
-              title="Menu"
-            >
-              <Menu className="h-[19px] w-[19px]" />
-            </button>
-          }
-          topCenter={<WorkspaceSwitcher mobile />}
-          topRight={
-            data.accessMode === "personal" ? (
-              <Link
-                to="/login"
-                className="header-icon-button flex h-9 w-9 items-center justify-center rounded-full"
-                aria-label="Entrar"
-                title="Entrar"
+        <header className="mobile-fixed-header glass-header safe-top relative z-[70] shrink-0 lg:hidden">
+          <div className="relative mx-auto w-full max-w-[1600px] px-3 py-2.5 sm:px-5 sm:py-3 md:px-6">
+            <div className="relative flex h-10 items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(true)}
+                className="glass-icon-button flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-foreground/70 transition hover:text-primary"
+                aria-label="Abrir menu"
+                title="Menu"
               >
-                <UserRound className="h-[18px] w-[18px]" />
-              </Link>
-            ) : (
-              <NotificationsMenu
-                tasks={data?.tasks ?? []}
-                employees={data?.employees ?? []}
-                currentUserId={data?.currentUser.id}
-                inverted
-              />
-            )
-          }
-        />
+                <Menu className="h-[19px] w-[19px]" />
+              </button>
+
+              <div className="absolute left-1/2 top-1/2 max-w-[60vw] -translate-x-1/2 -translate-y-1/2">
+                <WorkspaceSwitcher mobile />
+              </div>
+
+              <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+                {data.accessMode === "personal" ? (
+                  <Link
+                    to="/login"
+                    className="glass-icon-button flex h-9 w-9 items-center justify-center rounded-xl text-foreground/70"
+                    aria-label="Entrar"
+                    title="Entrar"
+                  >
+                    <UserRound className="h-[18px] w-[18px]" />
+                  </Link>
+                ) : (
+                  <NotificationsMenu
+                    tasks={data?.tasks ?? []}
+                    employees={data?.employees ?? []}
+                    currentUserId={data?.currentUser.id}
+                  />
+                )}
+              </div>
+            </div>
+
+            <div className="app-page-heading mt-2 flex min-w-0 items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate font-display text-[19px] font-bold leading-tight text-foreground sm:text-[22px]">
+                  {title}
+                </h1>
+                {subtitle && (
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground sm:text-xs">
+                    {subtitle}
+                  </p>
+                )}
+              </div>
+              {actions}
+            </div>
+          </div>
+        </header>
 
         {/* Main content */}
-        <PageHeaderDesktop title={title} subtitle={subtitle}>
+        <header className="glass-header safe-top sticky top-0 z-30 hidden lg:block">
+          <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-4 px-8 py-4 xl:px-12">
+            <div className="app-page-heading min-w-0 flex-1">
+              <h1 className="truncate font-display text-[22px] font-semibold leading-tight text-foreground xl:text-2xl">
+                {title}
+              </h1>
+              {subtitle && (
+                <p className="mt-1 truncate text-sm text-muted-foreground">{subtitle}</p>
+              )}
+            </div>
             <div className="hidden h-9 w-64 items-center gap-2 rounded-xl border border-border bg-card px-3 shadow-[var(--shadow-xs)] soft-transition transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 lg:flex">
               <Search className="h-4 w-4 text-muted-foreground" />
               <input
@@ -1214,7 +1163,8 @@ export function AppShell({
                 </button>
               )}
             </div>
-        </PageHeaderDesktop>
+          </div>
+        </header>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={pathname}

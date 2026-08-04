@@ -301,7 +301,7 @@ export function TaskList({
                     aria-label="Ajustar largura da coluna de atividade"
                     title="Arraste para aumentar ou diminuir a atividade"
                   >
-                    <span className="h-6 w-1 rounded-full bg-primary/35 shadow-[0_0_0_1px_var(--background)] transition group-hover/resize:h-8 group-hover/resize:bg-primary" />
+                    <span className="h-6 w-1 rounded-full bg-primary/35 shadow-[0_0_0_1px_hsl(var(--background))] transition group-hover/resize:h-8 group-hover/resize:bg-primary" />
                   </button>
                 )}
               </TableHead>
@@ -578,12 +578,12 @@ export function TaskList({
                   overdue && "border-destructive/20 bg-destructive/[0.055]",
                   selectedTaskId === task.id && "border-primary/25 bg-primary/[0.075]",
                   isMobileDragging &&
-                    "z-50 cursor-grabbing border-primary/45 bg-card shadow-[0_18px_50px_-18px_color-mix(in_oklab,var(--primary)_48%,transparent)]",
+                    "z-50 cursor-grabbing border-primary/45 bg-card shadow-[0_18px_50px_-18px_hsl(var(--primary)/0.48)]",
                 )}
               >
                 {isMobileDropTarget && (
                   <span
-                    className="pointer-events-none absolute -top-2.5 left-3 right-3 h-1 rounded-full bg-primary shadow-[0_0_0_3px_color-mix(in_oklab,var(--primary)_12%,transparent)]"
+                    className="pointer-events-none absolute -top-2.5 left-3 right-3 h-1 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
                     aria-hidden="true"
                   />
                 )}
@@ -686,7 +686,7 @@ export function TaskList({
         </AnimatePresence>
         {mobileDrag?.hasMoved && mobileDrag.beforeTaskId === null && (
           <div
-            className="mx-3 -mt-1 h-1 rounded-full bg-primary shadow-[0_0_0_3px_color-mix(in_oklab,var(--primary)_12%,transparent)]"
+            className="mx-3 -mt-1 h-1 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
             aria-hidden="true"
           />
         )}

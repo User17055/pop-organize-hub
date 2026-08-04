@@ -42,7 +42,7 @@ function addSecurityHeaders(request: Request, response: Response) {
   headers.set("x-content-type-options", "nosniff");
   headers.set("x-frame-options", "DENY");
   headers.set("referrer-policy", "strict-origin-when-cross-origin");
-  headers.set("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  headers.set("permissions-policy", "camera=(), microphone=(self), geolocation=()");
   headers.set("cross-origin-opener-policy", "same-origin-allow-popups");
 
   const forwardedProtocol = request.headers.get("x-forwarded-proto");

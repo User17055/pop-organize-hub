@@ -60,6 +60,22 @@ function formatCallDuration(seconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
+function getCallErrorMessage(error: unknown) {
+  if (
+    error instanceof DOMException &&
+    (error.name === "NotAllowedError" || error.name === "SecurityError")
+  ) {
+    return "O microfone está bloqueado. Permita o acesso ao microfone nas configurações do navegador ou aplicativo e tente novamente.";
+  }
+  if (error instanceof DOMException && error.name === "NotFoundError") {
+    return "Nenhum microfone foi encontrado neste aparelho.";
+  }
+  if (error instanceof Error && /permission denied|not allowed/i.test(error.message)) {
+    return "O microfone está bloqueado. Permita o acesso ao microfone nas configurações do navegador ou aplicativo e tente novamente.";
+  }
+  return error instanceof Error ? error.message : "Não foi possível iniciar a ligação com a Pop.";
+}
+
 export function PopAssistant({
   open,
   onOpenChange,
@@ -438,11 +454,7 @@ export function PopAssistant({
     } catch (callError) {
       stopCallResources();
       setCallState("idle");
-      setError(
-        callError instanceof Error
-          ? callError.message
-          : "Não foi possível iniciar a ligação com a Pop.",
-      );
+      setError(getCallErrorMessage(callError));
     }
   }
 

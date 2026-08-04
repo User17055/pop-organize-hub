@@ -73,7 +73,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "Pop Organize — Gestão de Tarefas Empresarial" },
-      { name: "theme-color", content: "#4f46e5" },
+      { name: "theme-color", content: "#1687f8" },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-title", content: "Pop Organize" },
@@ -119,7 +119,7 @@ function RootShell({ children }: { children: ReactNode }) {
         <script
           dangerouslySetInnerHTML={{
             __html:
-              'try{var t=localStorage.getItem("pop-organize:theme");if(t==="dark"){document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark"}}catch(e){}',
+              'try{var t=localStorage.getItem("pop-organize:theme-blue");if(t==="dark"){document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark"}}catch(e){}',
           }}
         />
         <HeadContent />

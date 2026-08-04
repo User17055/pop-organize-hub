@@ -38,6 +38,10 @@ type ChatMessage = {
   content: string;
 };
 
+function withoutLegacyCallDuplicates(messages: ChatMessage[]) {
+  return messages.filter((message) => !message.id.startsWith("call-assistant-"));
+}
+
 type StoredConversation = {
   id: string;
   title: string;
@@ -148,7 +152,6 @@ export function PopAssistant({
   const callStreamRef = useRef<MediaStream | null>(null);
   const callAudioRef = useRef<HTMLAudioElement | null>(null);
   const handledCallItemsRef = useRef(new Set<string>());
-  const handledCallAssistantItemsRef = useRef(new Set<string>());
   const lastSpokenDraftRef = useRef("");
   const pendingCallSummaryRef = useRef<string | null>(null);
   const callResponseActiveRef = useRef(false);
@@ -183,6 +186,10 @@ export function PopAssistant({
               ),
             )
             .slice(0, 20)
+            .map((conversation) => ({
+              ...conversation,
+              messages: withoutLegacyCallDuplicates(conversation.messages),
+            }))
         : [];
       setConversations(valid);
     } catch {
@@ -304,10 +311,11 @@ export function PopAssistant({
 
   function resumeConversation(conversation: StoredConversation) {
     endCall();
+    const cleanMessages = withoutLegacyCallDuplicates(conversation.messages);
     setConversationId(conversation.id);
-    messagesRef.current = conversation.messages;
+    messagesRef.current = cleanMessages;
     answerRef.current = conversation.answer;
-    setMessages(conversation.messages);
+    setMessages(cleanMessages);
     setAnswer(conversation.answer);
     setInput("");
     setImage(null);
@@ -502,19 +510,6 @@ export function PopAssistant({
     }
   }
 
-  function appendCallAssistantTranscript(itemId: string, transcript: string) {
-    const cleanTranscript = transcript.trim();
-    if (!cleanTranscript || handledCallAssistantItemsRef.current.has(itemId)) return;
-    handledCallAssistantItemsRef.current.add(itemId);
-    const assistantMessage: ChatMessage = {
-      id: `call-assistant-${itemId}`,
-      role: "assistant",
-      content: cleanTranscript,
-    };
-    messagesRef.current = [...messagesRef.current, assistantMessage];
-    setMessages(messagesRef.current);
-  }
-
   function flushPendingCallSummary() {
     const summary = pendingCallSummaryRef.current;
     const channel = callChannelRef.current;
@@ -564,13 +559,6 @@ export function PopAssistant({
           processCallTranscript(event.item_id!, event.transcript!),
         );
       }
-      if (
-        event.type === "response.output_audio_transcript.done" &&
-        event.item_id &&
-        event.transcript
-      ) {
-        appendCallAssistantTranscript(event.item_id, event.transcript);
-      }
     } catch {
       // Ignore malformed transport events and keep the call alive.
     }
@@ -583,7 +571,6 @@ export function PopAssistant({
     setIsCallMuted(false);
     setCallState("connecting");
     handledCallItemsRef.current.clear();
-    handledCallAssistantItemsRef.current.clear();
     lastSpokenDraftRef.current = "";
     pendingCallSummaryRef.current = null;
     callResponseActiveRef.current = false;
@@ -734,7 +721,7 @@ export function PopAssistant({
         )}
         aria-label="Conversa com a Pop"
       >
-        <header className="flex items-center justify-between gap-3 border-b border-border/60 bg-gradient-to-r from-primary/10 via-background to-violet-500/10 px-4 py-4 sm:px-5">
+        <header className="flex items-center justify-between gap-3 border-b border-sky-200/70 bg-gradient-to-r from-sky-100/90 via-white to-blue-50 px-4 py-4 sm:px-5">
           <div className="flex min-w-0 items-center gap-3">
             <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
               <Sparkles className="h-5 w-5" />
@@ -1033,7 +1020,7 @@ export function PopAssistant({
                     callState !== "connecting" && "animate-pulse",
                   )}
                 />
-                <span className="relative flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-primary to-violet-500 text-primary-foreground shadow-2xl shadow-primary/30">
+                <span className="relative flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 via-primary to-blue-700 text-primary-foreground shadow-2xl shadow-primary/30">
                   {callState === "connecting" ? (
                     <Loader2 className="h-10 w-10 animate-spin" />
                   ) : (

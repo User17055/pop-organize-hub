@@ -192,7 +192,7 @@
   min-height: 7rem;
   font-size: 0.9375rem;
   line-height: 1.65;
-  color: hsl(var(--foreground));
+  color: var(--foreground);
 }
 
 .task-detail-readable [class~="text-xs"],

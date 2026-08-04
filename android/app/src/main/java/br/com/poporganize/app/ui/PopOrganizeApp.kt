@@ -154,6 +154,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
@@ -189,6 +190,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -5287,7 +5289,10 @@ private fun TasksScreen(
                         Modifier.zIndex(10f)
                     } else {
                         Modifier.animateItem(
-                            placementSpec = tween(240, easing = FastOutSlowInEasing),
+                            placementSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium,
+                            ),
                         )
                     }
                 Column(placementModifier) {
@@ -5375,7 +5380,7 @@ private fun TasksScreen(
                                             onReorderStep = { false },
                                             onReorderEnd = {},
                                             onReorderCancel = {},
-                                            onAutoScroll = {},
+                                            onAutoScroll = { 0f },
                                             reorderEnabled = false,
                                         )
                                     }
@@ -7208,12 +7213,13 @@ private fun TaskCard(
     onReorderStep: (direction: Int) -> Boolean,
     onReorderEnd: () -> Unit,
     onReorderCancel: () -> Unit,
-    onAutoScroll: suspend (amount: Float) -> Unit,
+    onAutoScroll: suspend (amount: Float) -> Float,
     autoScrollViewportTopPx: Float = 0f,
     autoScrollViewportBottomPx: Float = Float.MAX_VALUE,
     reorderEnabled: Boolean = true,
 ) {
     val hapticFeedback = LocalHapticFeedback.current
+    val density = LocalDensity.current.density
     val currentOnReorderStep by rememberUpdatedState(onReorderStep)
     val currentOnReorderEnd by rememberUpdatedState(onReorderEnd)
     val currentOnReorderCancel by rememberUpdatedState(onReorderCancel)
@@ -7229,17 +7235,23 @@ private fun TaskCard(
     var reorderStepPending by remember(task.id) { mutableStateOf(false) }
     var draggingCard by remember(task.id) { mutableStateOf(false) }
     var autoScrollDirection by remember(task.id) { mutableIntStateOf(0) }
+    var autoScrollSpeedPx by remember(task.id) { mutableFloatStateOf(0f) }
     var dropOutsideViewport by remember(task.id) { mutableStateOf(false) }
 
     LaunchedEffect(draggingCard, autoScrollDirection) {
-        var reorderElapsedMs = 0L
+        var scrolledSinceReorder = 0f
         while (draggingCard && autoScrollDirection != 0) {
-            currentOnAutoScroll(14f * autoScrollDirection)
-            delay(16)
-            reorderElapsedMs += 16
-            if (reorderElapsedMs >= 96 && !reorderStepPending) {
-                reorderStepPending = currentOnReorderStep(autoScrollDirection)
-                reorderElapsedMs = 0
+            withFrameNanos { }
+            val consumed = currentOnAutoScroll(autoScrollSpeedPx * autoScrollDirection)
+            scrolledSinceReorder += kotlin.math.abs(consumed)
+            val slotDistance = (cardHeightPx + 12.dp.value * density).coerceAtLeast(1f)
+            if (scrolledSinceReorder >= slotDistance && !reorderStepPending) {
+                if (currentOnReorderStep(autoScrollDirection)) {
+                    reorderStepPending = true
+                    scrolledSinceReorder -= slotDistance
+                } else {
+                    scrolledSinceReorder = 0f
+                }
             }
         }
     }
@@ -7330,6 +7342,7 @@ private fun TaskCard(
                         reorderStepPending = false
                         draggingCard = true
                         autoScrollDirection = 0
+                        autoScrollSpeedPx = 0f
                         dropOutsideViewport = false
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         onReorderStart()
@@ -7345,6 +7358,7 @@ private fun TaskCard(
                         reorderStepPending = false
                         draggingCard = false
                         autoScrollDirection = 0
+                        autoScrollSpeedPx = 0f
                         dropOutsideViewport = false
                         suppressTap = false
                         ignoreTapUntil = System.currentTimeMillis() + 500L
@@ -7357,6 +7371,7 @@ private fun TaskCard(
                         reorderStepPending = false
                         draggingCard = false
                         autoScrollDirection = 0
+                        autoScrollSpeedPx = 0f
                         dropOutsideViewport = false
                         suppressTap = false
                         ignoreTapUntil = System.currentTimeMillis() + 500L
@@ -7382,11 +7397,26 @@ private fun TaskCard(
                         dropOutsideViewport =
                             visualCardCenter > autoScrollViewportBottomPx ||
                                 visualCardCenter < autoScrollViewportTopPx
-                        autoScrollDirection = when {
-                            dropOutsideViewport -> 0
-                            visualCardTop <= autoScrollViewportTopPx + edgeZone -> -1
-                            visualCardBottom >= autoScrollViewportBottomPx - edgeZone -> 1
-                            else -> 0
+                        when {
+                            visualCardTop <= autoScrollViewportTopPx + edgeZone -> {
+                                val depth = (
+                                    (autoScrollViewportTopPx + edgeZone - visualCardTop) / edgeZone
+                                    ).coerceIn(0f, 1.6f)
+                                autoScrollDirection = -1
+                                autoScrollSpeedPx = 4f + 12f * depth
+                            }
+                            visualCardBottom >= autoScrollViewportBottomPx - edgeZone -> {
+                                val depth = (
+                                    (visualCardBottom - (autoScrollViewportBottomPx - edgeZone)) /
+                                        edgeZone
+                                    ).coerceIn(0f, 1.6f)
+                                autoScrollDirection = 1
+                                autoScrollSpeedPx = 4f + 12f * depth
+                            }
+                            else -> {
+                                autoScrollDirection = 0
+                                autoScrollSpeedPx = 0f
+                            }
                         }
                     },
                 )

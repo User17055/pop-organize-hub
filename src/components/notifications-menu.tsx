@@ -122,10 +122,12 @@ export function NotificationsMenu({
   tasks,
   employees,
   currentUserId,
+  inverted = false,
 }: {
   tasks: Task[];
   employees: Employee[];
   currentUserId?: string;
+  inverted?: boolean;
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -145,10 +147,14 @@ export function NotificationsMenu({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="relative h-9 w-9 rounded-xl hover:bg-muted flex items-center justify-center transition-colors"
+          className={
+            inverted
+              ? "header-icon-button relative flex h-9 w-9 items-center justify-center rounded-full"
+              : "relative h-9 w-9 rounded-xl hover:bg-muted flex items-center justify-center transition-colors"
+          }
           aria-label="Notificações"
         >
-          <Bell className="h-4.5 w-4.5 text-foreground/70" />
+          <Bell className={inverted ? "h-4.5 w-4.5 text-white" : "h-4.5 w-4.5 text-foreground/70"} />
           {notifications.length > 0 && (
             <span className="absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground ring-2 ring-background animate-pulse">
               {notifications.length > 9 ? "9+" : notifications.length}

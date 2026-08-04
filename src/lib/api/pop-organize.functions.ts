@@ -1160,7 +1160,10 @@ export const createPopRealtimeSession = createServerFn({ method: "POST" }).handl
   assertPopRateLimit(account.id);
   try {
     const { createPopRealtimeClientSecret } = await import("../pop-ai.server");
-    return await createPopRealtimeClientSecret(`${workspace.company.id}:${account.id}`);
+    return await createPopRealtimeClientSecret(
+      `${workspace.company.id}:${account.id}`,
+      account.name,
+    );
   } catch (error) {
     const typed = error as Error & { status?: number; statusCode?: number };
     if (typed.statusCode === 503) throw error;

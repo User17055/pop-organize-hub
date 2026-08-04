@@ -107,6 +107,7 @@ export function PopAssistant({
   const callStreamRef = useRef<MediaStream | null>(null);
   const callAudioRef = useRef<HTMLAudioElement | null>(null);
   const handledCallItemsRef = useRef(new Set<string>());
+  const handledCallAssistantItemsRef = useRef(new Set<string>());
   const callTaskQueueRef = useRef(Promise.resolve());
   const messagesRef = useRef(messages);
   const answerRef = useRef(answer);
@@ -366,6 +367,19 @@ export function PopAssistant({
     }
   }
 
+  function appendCallAssistantTranscript(itemId: string, transcript: string) {
+    const cleanTranscript = transcript.trim();
+    if (!cleanTranscript || handledCallAssistantItemsRef.current.has(itemId)) return;
+    handledCallAssistantItemsRef.current.add(itemId);
+    const assistantMessage: ChatMessage = {
+      id: `call-assistant-${itemId}`,
+      role: "assistant",
+      content: cleanTranscript,
+    };
+    messagesRef.current = [...messagesRef.current, assistantMessage];
+    setMessages(messagesRef.current);
+  }
+
   function handleCallEvent(rawEvent: string) {
     try {
       const event = JSON.parse(rawEvent) as {
@@ -387,6 +401,13 @@ export function PopAssistant({
           processCallTranscript(event.item_id!, event.transcript!),
         );
       }
+      if (
+        event.type === "response.output_audio_transcript.done" &&
+        event.item_id &&
+        event.transcript
+      ) {
+        appendCallAssistantTranscript(event.item_id, event.transcript);
+      }
     } catch {
       // Ignore malformed transport events and keep the call alive.
     }
@@ -399,6 +420,7 @@ export function PopAssistant({
     setIsCallMuted(false);
     setCallState("connecting");
     handledCallItemsRef.current.clear();
+    handledCallAssistantItemsRef.current.clear();
 
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") {
@@ -426,7 +448,19 @@ export function PopAssistant({
 
       const channel = peer.createDataChannel("oai-events");
       callChannelRef.current = channel;
-      channel.addEventListener("open", () => setCallState("listening"));
+      channel.addEventListener("open", () => {
+        setCallState("listening");
+        channel.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              input: [],
+              output_modalities: ["audio"],
+              instructions: `Fale com sotaque brasileiro neutro. Diga exatamente esta saudação, sem acrescentar outra frase: ${JSON.stringify(session.greeting)}`,
+            },
+          }),
+        );
+      });
       channel.addEventListener("message", (event) => handleCallEvent(String(event.data)));
       channel.addEventListener("close", () => {
         if (callPeerRef.current === peer) endCall();
@@ -479,6 +513,24 @@ export function PopAssistant({
       setMessages(messagesRef.current);
       answerRef.current = null;
       setAnswer(null);
+      if (callState !== "idle" && callChannelRef.current?.readyState === "open") {
+        callChannelRef.current.send(
+          JSON.stringify({
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "user",
+              content: [
+                {
+                  type: "input_text",
+                  text: `[Evento do aplicativo: a atividade "${answer.draft.title}" foi criada com sucesso após a confirmação na tela. Informe o resultado em uma frase curta e continue disponível para conversar.]`,
+                },
+              ],
+            },
+          }),
+        );
+        callChannelRef.current.send(JSON.stringify({ type: "response.create" }));
+      }
     } catch (createError) {
       setError(
         createError instanceof Error ? createError.message : "Não foi possível criar a atividade.",
@@ -715,7 +767,7 @@ export function PopAssistant({
         </footer>
 
         {callState !== "idle" && (
-          <section className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[radial-gradient(circle_at_top,_hsl(var(--primary)/0.22),_hsl(var(--background))_52%)] px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(28px,env(safe-area-inset-top))]">
+          <section className="absolute inset-0 z-20 flex min-h-0 flex-col bg-background bg-[radial-gradient(circle_at_top,color-mix(in_oklab,var(--primary)_22%,var(--background)),var(--background)_52%)] px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(28px,env(safe-area-inset-top))]">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -763,19 +815,33 @@ export function PopAssistant({
                       : "Pode falar"}
               </p>
               <p className="mt-2 max-w-xs text-sm leading-relaxed text-muted-foreground">
-                Converse naturalmente. A Pop prepara a atividade, mas só salva depois da sua
-                confirmação no chat.
+                Converse naturalmente. A Pop entende o pedido, prepara a atividade e mostra a
+                confirmação nesta tela.
               </p>
 
               {answer?.status === "ready" && (
-                <button
-                  type="button"
-                  onClick={endCall}
-                  className="mt-6 inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-bold text-emerald-700 dark:text-emerald-300"
-                >
-                  <Check className="h-4 w-4" />
-                  Ver e confirmar no chat
-                </button>
+                <div className="mt-6 w-full max-w-sm rounded-2xl border border-emerald-500/25 bg-card p-4 text-left shadow-lg">
+                  <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                    <Check className="h-4 w-4" />
+                    Atividade pronta
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-sm font-semibold text-foreground">
+                    {answer.draft.title}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void confirmTask()}
+                    disabled={isCreating}
+                    className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+                  >
+                    {isCreating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="h-4 w-4" />
+                    )}
+                    Confirmar e criar
+                  </button>
+                </div>
               )}
             </div>
 

@@ -102,6 +102,7 @@ Seu único objetivo nesta conversa é preparar UMA tarefa. Nunca afirme que crio
 
 Regras:
 - Classifique intent=create_task somente quando o usuário descrever uma ação, trabalho ou atividade que deseja registrar. Saudações, agradecimentos, conversa casual e perguntas sobre a Pop usam intent=conversation e status=needs_input; nesses casos responda normalmente e não monte uma tarefa.
+- Frases que apenas expressam a intenção de cadastrar algo, como "quero criar uma tarefa" ou "preciso registrar uma atividade", ainda não descrevem o trabalho. Use intent=conversation, pergunte o que precisa ser feito e aguarde a resposta.
 - Extraia e mantenha um rascunho completo a partir de toda a conversa e de eventuais imagens.
 - Não faça perguntas nem solicite confirmações. Complete sozinho as informações ausentes usando os padrões abaixo e devolva status=ready já na primeira solicitação útil.
 - Use somente IDs existentes no contexto do workspace. Nunca invente funcionários, setores, grupos ou IDs.
@@ -140,11 +141,19 @@ function sanitizeDraft(
     /^(?:(?:oi|olá|ola|eae|e aí|hey|hello|bom dia|boa tarde|boa noite)(?:[,!?.\s]*(?:tudo bem|como vai|beleza|blz))?|tudo bem|como vai|obrigad[oa])[,!?.\s]*$/i.test(
       currentRequest,
     );
+  const isMetaTaskRequest =
+    /^(?:(?:eu\s+)?(?:quero|gostaria|preciso|vamos|pode|posso)\s+(?:de\s+)?)?(?:criar|cadastrar|registrar|adicionar|incluir|fazer)\s+(?:(?:uma|a)\s+)?(?:nova\s+)?(?:tarefa|atividade)(?:\s+(?:nova|aí|ai|pra mim|para mim))?[.!?]*$/i.test(
+      currentRequest,
+    );
 
-  if (answer.intent !== "create_task" || isCasualOnly) {
+  if (answer.intent !== "create_task" || isCasualOnly || isMetaTaskRequest) {
     answer.intent = "conversation";
     answer.status = "needs_input";
     answer.missingFields = [];
+    if (isMetaTaskRequest) {
+      answer.reply =
+        "Claro! Me diga o que precisa ser feito e, se quiser, informe também o prazo ou o responsável.";
+    }
     return answer;
   }
 
@@ -293,13 +302,36 @@ export async function transcribePopAudio(audioDataUrl: string) {
   return text;
 }
 
-export async function createPopRealtimeClientSecret(safetyUserId: string) {
+export async function createPopRealtimeClientSecret(safetyUserId: string, accountName: string) {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     throw Object.assign(new Error("A Pop ainda não foi configurada pelo administrador."), {
       statusCode: 503,
     });
   }
+
+  const firstName =
+    accountName
+      .trim()
+      .split(/\s+/)[0]
+      ?.replace(/[^\p{L}\p{M}'’-]/gu, "")
+      .slice(0, 40) || "";
+  const saoPauloHour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo",
+      hour: "2-digit",
+      hourCycle: "h23",
+    }).format(new Date()),
+  );
+  const nameGreeting = firstName ? `, ${firstName}` : "";
+  const greeting =
+    saoPauloHour < 5
+      ? `Oiii${nameGreeting}! Sou a Pop. O que você tá fazendo acordado a essa hora, hein? Como posso te ajudar?`
+      : saoPauloHour < 12
+        ? `Oiii${nameGreeting}! Bom dia, sou a Pop. Como posso te ajudar?`
+        : saoPauloHour < 18
+          ? `Oiii${nameGreeting}! Boa tarde, sou a Pop. Como posso te ajudar?`
+          : `Oiii${nameGreeting}! Boa noite, sou a Pop. Como posso te ajudar?`;
 
   const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
     method: "POST",
@@ -324,6 +356,9 @@ Você é a Pop, assistente do Pop Organize, em uma ligação de voz.
 # Personalidade
 Seja calorosa, bem-humorada e genuinamente prestativa. Use humor leve somente quando combinar com o momento; nunca force piadas, deboche ou minimize um problema. Soe humana, animada e atenta.
 
+# Pessoa
+A pessoa logada se chama ${firstName || "usuário"}. Use o primeiro nome com naturalidade quando for útil, sem repeti-lo em toda resposta.
+
 # Idioma e sotaque
 Responda sempre em português do Brasil com sotaque brasileiro neutro.
 - Mantenha o sotaque brasileiro estável do início ao fim, com ritmo, vogais, entonação e prosódia naturais do Brasil.
@@ -334,6 +369,7 @@ Responda sempre em português do Brasil com sotaque brasileiro neutro.
 # Foco da conversa
 - Mantenha um único assunto ativo: a intenção mais recente e clara do usuário.
 - Use falas anteriores apenas quando forem necessárias para entender o pedido atual.
+- Interprete respostas curtas, como "sim", "amanhã" ou um nome, como resposta à sua pergunta mais recente.
 - Se o usuário corrigir ou complementar algo, incorpore a correção ao mesmo assunto; não volte ao início e não ressuscite tópicos antigos.
 - Não repita saudações, explicações, perguntas, avisos ou resumos já ditos.
 - Não anuncie mais de uma vez que está preparando o resumo da mesma tarefa.
@@ -345,7 +381,8 @@ Responda sempre em português do Brasil com sotaque brasileiro neutro.
 - Varie a linguagem naturalmente; não reutilize a mesma frase em turnos consecutivos.
 
 # Atividades
-Quando a pessoa descrever uma tarefa, diga uma única vez que o resumo será preparado no chat para conferência. Nunca diga que criou, salvou ou confirmou uma tarefa. A tarefa só será criada quando a pessoa tocar no botão "Confirmar e criar" no chat.
+Se a pessoa apenas disser que quer cadastrar, criar ou registrar uma tarefa, mas ainda não explicar o trabalho, pergunte somente: "O que precisa ser feito?". Não trate a intenção de cadastrar como o título da atividade.
+Quando a pessoa descrever o trabalho, use toda a conversa atual para entender título, prazo, responsável e complementos. Diga uma única vez que o resumo está pronto para conferência na tela da chamada. Nunca diga que criou, salvou ou confirmou uma tarefa. A tarefa só será criada quando a pessoa tocar no botão "Confirmar e criar".
 Não invente pessoas, datas ou dados do workspace.
 
 # Áudio pouco claro
@@ -376,5 +413,5 @@ Se a fala estiver realmente incompreensível, peça para repetir com uma frase c
     );
   }
 
-  return { value: body.value, expiresAt: body.expires_at };
+  return { value: body.value, expiresAt: body.expires_at, greeting };
 }

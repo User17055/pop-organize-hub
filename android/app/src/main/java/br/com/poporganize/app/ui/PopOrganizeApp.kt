@@ -6263,14 +6263,14 @@ private fun TasksScreen(
                     item {
                         Surface(color = PopSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Anotação", color = PopMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("Anotação", color = PopMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 TextField(
                                     value = editDescription,
                                     onValueChange = { editDescription = it },
                                     readOnly = !detailCanEdit,
                                     placeholder = { Text("Adicionar descrição, links ou observações") },
-                                    minLines = 4,
-                                    maxLines = 8,
+                                    minLines = 7,
+                                    maxLines = 14,
                                     shape = RoundedCornerShape(14.dp),
                                     colors = taskEditorFieldColors(PopSurfaceAlt),
                                     modifier = Modifier.fillMaxWidth(),

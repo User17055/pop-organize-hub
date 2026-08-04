@@ -2877,6 +2877,46 @@ private fun PopMainContent(
                             onCompanySelect = ::selectCompany,
                             onCreateCompany = ::requestCreateCompany,
                             onOpenMenu = { showTaskOrganizer = true },
+                            onToggleTaskComplete = { task ->
+                                if (!task.canComplete) {
+                                    Toast.makeText(
+                                        context,
+                                        "Somente o responsável pode concluir esta tarefa",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                } else {
+                                    val index = tasks.indexOfFirst { it.id == task.id }
+                                    if (index >= 0) {
+                                        val markingCompleted = !task.completed
+                                        tasks[index] = task.copy(completed = markingCompleted)
+                                        if (markingCompleted) {
+                                            val nextDate = nextRecurrenceDate(task)
+                                            if (
+                                                nextDate != null &&
+                                                tasks.none {
+                                                    it.title == task.title &&
+                                                        it.dueDate == nextDate.toString() &&
+                                                        !it.completed
+                                                }
+                                            ) {
+                                                tasks.add(
+                                                    (index + 1).coerceAtMost(tasks.size),
+                                                    task.copy(
+                                                        id = (tasks.filter { it.id > 0 }
+                                                            .maxOfOrNull { it.id } ?: 0) + 1,
+                                                        serverId = "",
+                                                        dueDate = nextDate.toString(),
+                                                        dueLabel = dueLabelForDate(nextDate),
+                                                        completed = false,
+                                                        recurrenceOccurrence =
+                                                            task.recurrenceOccurrence + 1,
+                                                    ),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            },
                             onOpenTask = { task ->
                                 taskToOpenId = null
                                 destination = PopDestination.Tasks
@@ -4669,7 +4709,6 @@ private fun TasksScreen(
     var completingTaskId by remember { mutableStateOf<Int?>(null) }
     var movingTaskId by remember { mutableStateOf<Int?>(null) }
     var reorderTaskId by remember { mutableStateOf<Int?>(null) }
-    var reorderOriginalIndex by remember { mutableStateOf<Int?>(null) }
     var deletingTaskId by remember { mutableStateOf<Int?>(null) }
     var showDeleteTaskConfirmation by remember { mutableStateOf(false) }
     var expandedDetailSection by remember { mutableStateOf<String?>(null) }
@@ -4925,17 +4964,6 @@ private fun TasksScreen(
             if (direction < 0) targetSourceIndex else (targetSourceIndex + 1).coerceAtMost(tasks.size)
         tasks.add(insertionIndex, source)
         return true
-    }
-
-    fun cancelTaskReorder(taskId: Int) {
-        val originalIndex = reorderOriginalIndex ?: return
-        val currentIndex = tasks.indexOfFirst { it.id == taskId }
-        if (currentIndex >= 0 && currentIndex != originalIndex) {
-            val task = tasks.removeAt(currentIndex)
-            tasks.add(originalIndex.coerceIn(0, tasks.size), task)
-        }
-        reorderOriginalIndex = null
-        reorderTaskId = null
     }
 
     fun openTask(task: PopTask) {
@@ -5315,16 +5343,9 @@ private fun TasksScreen(
                             isReorderSelected = reorderTaskId == task.id,
                             onComplete = { toggleTask(task) },
                             onOpen = { openTask(task) },
-                            onReorderStart = {
-                                reorderOriginalIndex = tasks.indexOfFirst { it.id == task.id }
-                                reorderTaskId = task.id
-                            },
+                            onReorderStart = { reorderTaskId = task.id },
                             onReorderStep = { direction -> moveTaskOneStep(task.id, direction) },
-                            onReorderEnd = {
-                                reorderOriginalIndex = null
-                                reorderTaskId = null
-                            },
-                            onReorderCancel = { cancelTaskReorder(task.id) },
+                            onReorderEnd = { reorderTaskId = null },
                             onAutoScroll = { amount -> taskListState.scrollBy(amount) },
                             autoScrollViewportTopPx = taskViewportTopPx,
                             autoScrollViewportBottomPx = taskViewportBottomPx,
@@ -5381,7 +5402,6 @@ private fun TasksScreen(
                                             onReorderStart = {},
                                             onReorderStep = { false },
                                             onReorderEnd = {},
-                                            onReorderCancel = {},
                                             onAutoScroll = { 0f },
                                             reorderEnabled = false,
                                         )
@@ -7214,7 +7234,6 @@ private fun TaskCard(
     onReorderStart: () -> Unit,
     onReorderStep: (direction: Int) -> Boolean,
     onReorderEnd: () -> Unit,
-    onReorderCancel: () -> Unit,
     onAutoScroll: suspend (amount: Float) -> Float,
     autoScrollViewportTopPx: Float = 0f,
     autoScrollViewportBottomPx: Float = Float.MAX_VALUE,
@@ -7224,7 +7243,6 @@ private fun TaskCard(
     val density = LocalDensity.current.density
     val currentOnReorderStep by rememberUpdatedState(onReorderStep)
     val currentOnReorderEnd by rememberUpdatedState(onReorderEnd)
-    val currentOnReorderCancel by rememberUpdatedState(onReorderCancel)
     val currentOnAutoScroll by rememberUpdatedState(onAutoScroll)
     var suppressTap by remember(task.id) { mutableStateOf(false) }
     var ignoreTapUntil by remember(task.id) { mutableLongStateOf(0L) }
@@ -7238,7 +7256,6 @@ private fun TaskCard(
     var draggingCard by remember(task.id) { mutableStateOf(false) }
     var autoScrollDirection by remember(task.id) { mutableIntStateOf(0) }
     var autoScrollSpeedPx by remember(task.id) { mutableFloatStateOf(0f) }
-    var dropOutsideViewport by remember(task.id) { mutableStateOf(false) }
 
     LaunchedEffect(draggingCard, autoScrollDirection) {
         var scrolledSinceReorder = 0f
@@ -7345,15 +7362,11 @@ private fun TaskCard(
                         draggingCard = true
                         autoScrollDirection = 0
                         autoScrollSpeedPx = 0f
-                        dropOutsideViewport = false
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         onReorderStart()
                     },
                     onDragEnd = {
-                        if (suppressTap) {
-                            if (dropOutsideViewport) currentOnReorderCancel()
-                            else currentOnReorderEnd()
-                        }
+                        if (suppressTap) currentOnReorderEnd()
                         dragTranslationX = 0f
                         dragTranslationY = 0f
                         fingerDragY = 0f
@@ -7361,12 +7374,11 @@ private fun TaskCard(
                         draggingCard = false
                         autoScrollDirection = 0
                         autoScrollSpeedPx = 0f
-                        dropOutsideViewport = false
                         suppressTap = false
                         ignoreTapUntil = System.currentTimeMillis() + 500L
                     },
                     onDragCancel = {
-                        if (suppressTap) currentOnReorderCancel()
+                        if (suppressTap) currentOnReorderEnd()
                         dragTranslationX = 0f
                         dragTranslationY = 0f
                         fingerDragY = 0f
@@ -7374,7 +7386,6 @@ private fun TaskCard(
                         draggingCard = false
                         autoScrollDirection = 0
                         autoScrollSpeedPx = 0f
-                        dropOutsideViewport = false
                         suppressTap = false
                         ignoreTapUntil = System.currentTimeMillis() + 500L
                     },
@@ -7394,11 +7405,7 @@ private fun TaskCard(
                         }
                         val visualCardTop = cardTopInWindowPx + dragTranslationY
                         val visualCardBottom = visualCardTop + cardHeightPx
-                        val visualCardCenter = (visualCardTop + visualCardBottom) / 2f
                         val edgeZone = 42.dp.toPx()
-                        dropOutsideViewport =
-                            visualCardCenter > autoScrollViewportBottomPx ||
-                                visualCardCenter < autoScrollViewportTopPx
                         when {
                             visualCardTop <= autoScrollViewportTopPx + edgeZone -> {
                                 autoScrollDirection = -1
@@ -7406,7 +7413,8 @@ private fun TaskCard(
                             }
                             visualCardBottom >= autoScrollViewportBottomPx - edgeZone -> {
                                 autoScrollDirection = 1
-                                autoScrollSpeedPx = 8f
+                                autoScrollSpeedPx =
+                                    if (visualCardTop >= autoScrollViewportBottomPx) 11f else 8f
                             }
                             else -> {
                                 autoScrollDirection = 0
@@ -7549,7 +7557,11 @@ private fun TaskCard(
 }
 
 @Composable
-private fun TaskRow(task: PopTask, onClick: (() -> Unit)? = null) {
+private fun TaskRow(
+    task: PopTask,
+    onClick: (() -> Unit)? = null,
+    onToggleComplete: (() -> Unit)? = null,
+) {
     val isOverdue = isTaskOverdue(task)
     val rowModifier = if (onClick != null) {
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 13.dp)
@@ -7557,6 +7569,33 @@ private fun TaskRow(task: PopTask, onClick: (() -> Unit)? = null) {
         Modifier.fillMaxWidth().padding(vertical = 13.dp)
     }
     Row(rowModifier, verticalAlignment = Alignment.CenterVertically) {
+        if (onToggleComplete != null) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onToggleComplete),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .border(2.dp, if (task.completed) PopBlue else PopMuted, CircleShape)
+                        .background(if (task.completed) PopBlue else Color.Transparent, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (task.completed) {
+                        Icon(
+                            Icons.Rounded.Check,
+                            "Reabrir tarefa",
+                            tint = Color.White,
+                            modifier = Modifier.size(15.dp),
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+        }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (task.completed) {
@@ -7728,6 +7767,7 @@ private fun CalendarScreen(
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
     onOpenMenu: () -> Unit,
+    onToggleTaskComplete: (PopTask) -> Unit,
     onOpenTask: (PopTask) -> Unit,
     onCreateTaskForDate: (LocalDate) -> Unit,
 ) {
@@ -7814,6 +7854,9 @@ private fun CalendarScreen(
                             TaskRow(
                                 task,
                                 onClick = if (unavailableRecurrence) null else ({ onOpenTask(task) }),
+                                onToggleComplete =
+                                    if (unavailableRecurrence) null
+                                    else ({ onToggleTaskComplete(task) }),
                             )
                             if (unavailableRecurrence) {
                                 Text(

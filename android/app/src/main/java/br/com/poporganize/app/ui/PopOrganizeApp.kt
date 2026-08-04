@@ -7600,15 +7600,6 @@ private fun TaskRow(
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (task.completed) {
-                    Icon(
-                        Icons.Rounded.CheckCircle,
-                        "Concluída",
-                        tint = PopBlue,
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                }
                 Text(
                     task.title,
                     fontSize = 13.sp,
@@ -7780,7 +7771,7 @@ private fun CalendarScreen(
     val visibleCalendarTasks = calendarVisibleTasks(tasks)
     val selectedDayTasks = visibleCalendarTasks.filter { task ->
         runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == selectedDate
-    }.sortedWith(compareByDescending<PopTask> { it.completed }.thenBy {
+    }.sortedWith(compareBy<PopTask> { it.completed }.thenBy {
         when (it.priority) {
             "Urgente" -> 0
             "Alta" -> 1

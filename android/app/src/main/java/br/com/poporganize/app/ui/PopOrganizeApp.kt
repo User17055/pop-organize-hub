@@ -99,7 +99,6 @@ import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PendingActions
 import androidx.compose.material.icons.rounded.PersonOutline
-import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -180,7 +179,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -7722,6 +7720,7 @@ private fun TaskRow(
     task: PopTask,
     onClick: (() -> Unit)? = null,
     onToggleComplete: (() -> Unit)? = null,
+    leadingTime: String? = null,
 ) {
     val isOverdue = isTaskOverdue(task)
     val rowModifier = if (onClick != null) {
@@ -7730,6 +7729,22 @@ private fun TaskRow(
         Modifier.fillMaxWidth().padding(vertical = 13.dp)
     }
     Row(rowModifier, verticalAlignment = Alignment.CenterVertically) {
+        if (!leadingTime.isNullOrBlank()) {
+            Text(
+                leadingTime,
+                color = if (task.completed) PopMuted else PopText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.width(52.dp),
+            )
+            Box(
+                Modifier
+                    .width(2.dp)
+                    .height(38.dp)
+                    .background(PopBorder),
+            )
+            Spacer(Modifier.width(10.dp))
+        }
         if (onToggleComplete != null) {
             Box(
                 modifier = Modifier
@@ -8010,86 +8025,12 @@ private fun CalendarDayAgenda(
         )
         timedTasks.forEach { task ->
             val unavailable = task.calendarProjection || isFutureRecurrence(task, today)
-            val accent = if (task.completed) PopMuted else taskPriorityColor(task.priority)
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 9.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Text(
-                    task.dueTime,
-                    color = if (task.completed) PopMuted else PopText,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    modifier = Modifier.width(54.dp).padding(top = 14.dp),
-                )
-                Box(
-                    Modifier
-                        .width(2.dp)
-                        .height(72.dp)
-                        .background(accent.copy(alpha = if (task.completed) 0.35f else 0.9f)),
-                )
-                Spacer(Modifier.width(9.dp))
-                Surface(
-                    color = accent.copy(alpha = if (task.completed) 0.07f else 0.12f),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, accent.copy(alpha = 0.24f)),
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 72.dp)
-                        .clickable(enabled = !unavailable) { onOpenTask(task) },
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(start = 13.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    task.title,
-                                    color = if (task.completed) PopMuted else PopText,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    textDecoration = if (task.completed) TextDecoration.LineThrough else null,
-                                    modifier = Modifier.weight(1f, fill = false),
-                                )
-                                if (task.recurrenceRule != "Não repetir") {
-                                    Spacer(Modifier.width(5.dp))
-                                    Icon(
-                                        Icons.Rounded.Repeat,
-                                        "Tarefa recorrente",
-                                        tint = accent,
-                                        modifier = Modifier.size(14.dp),
-                                    )
-                                }
-                            }
-                            Text(
-                                listOfNotNull(
-                                    task.dueTime.takeIf { it.isNotBlank() },
-                                    task.duration.takeIf { it.isNotBlank() && it != "Sem duração" },
-                                ).joinToString(" • "),
-                                color = PopMuted,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(top = 3.dp),
-                            )
-                        }
-                        if (!unavailable) {
-                            IconButton(
-                                onClick = { onToggleTaskComplete(task) },
-                                modifier = Modifier.size(36.dp),
-                            ) {
-                                Icon(
-                                    if (task.completed) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-                                    if (task.completed) "Reabrir tarefa" else "Concluir tarefa",
-                                    tint = if (task.completed) PopBlue else accent,
-                                    modifier = Modifier.size(21.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            TaskRow(
+                task = task,
+                onClick = if (unavailable) null else ({ onOpenTask(task) }),
+                onToggleComplete = if (unavailable) null else ({ onToggleTaskComplete(task) }),
+                leadingTime = task.dueTime,
+            )
         }
     }
 

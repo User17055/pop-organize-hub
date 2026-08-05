@@ -9487,7 +9487,6 @@ private fun MobileReportsPage(
                 title = "Por setor",
                 subtitle = "Atividades organizadas por setor",
                 stats = sectorStats,
-                icon = Icons.Rounded.AccountTree,
                 emptyMessage = "Nenhum setor cadastrado nesta empresa.",
                 onItemClick = ::openSectorTaskList,
             )
@@ -9498,7 +9497,6 @@ private fun MobileReportsPage(
                 title = "Por grupo",
                 subtitle = "Atividades organizadas por grupo",
                 stats = groupStats,
-                icon = Icons.Rounded.Groups,
                 emptyMessage = "Nenhum grupo cadastrado nesta empresa.",
             )
         }
@@ -9583,101 +9581,74 @@ private fun CompactTargetReportSection(
     title: String,
     subtitle: String,
     stats: List<TargetReportStats>,
-    icon: ImageVector,
     emptyMessage: String,
     onItemClick: ((TargetReportStats) -> Unit)? = null,
 ) {
-    Surface(
-        color = PopSurface,
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, PopBorder.copy(alpha = .7f)),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(horizontal = 15.dp, vertical = 14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
-                Box(
-                    modifier = Modifier.size(36.dp).background(PopBlueSoft, RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center,
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text(title, color = PopText, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+        Text(subtitle, color = PopMuted, fontSize = 10.sp)
+        Spacer(Modifier.height(8.dp))
+        if (stats.isEmpty()) {
+            Text(emptyMessage, color = PopMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 10.dp))
+        } else {
+            stats.forEachIndexed { index, item ->
+                if (index > 0) HorizontalDivider(color = PopBorder.copy(alpha = .55f))
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = onItemClick != null) { onItemClick?.invoke(item) }
+                        .padding(vertical = 11.dp),
                 ) {
-                    Icon(icon, null, tint = PopBlue, modifier = Modifier.size(18.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(title, color = PopText, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
-                    Text(subtitle, color = PopMuted, fontSize = 10.sp)
-                }
-            }
-            if (stats.isEmpty()) {
-                Text(emptyMessage, color = PopMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 10.dp))
-            } else {
-                stats.forEach { item ->
-                    Surface(
-                        color = PopSurfaceAlt,
-                        shape = RoundedCornerShape(14.dp),
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            item.name,
+                            color = PopText,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            item.total.toString(),
+                            color = PopBlue,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                        if (onItemClick != null) {
+                            Spacer(Modifier.width(3.dp))
+                            Icon(
+                                Icons.Rounded.ChevronRight,
+                                "Ver tarefas de ${item.name}",
+                                tint = PopMuted,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        buildString {
+                            append("${item.completed} concluídas • ${item.pending} pendentes")
+                            if (item.overdue > 0) append(" • ${item.overdue} atrasadas")
+                        },
+                        color = PopMuted,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 6.dp)
-                            .clickable(enabled = onItemClick != null) { onItemClick?.invoke(item) },
+                            .padding(top = 8.dp)
+                            .height(3.dp)
+                            .background(PopBorder.copy(alpha = .55f), CircleShape),
                     ) {
-                        Column(Modifier.padding(horizontal = 12.dp, vertical = 11.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .background(PopBlue, CircleShape),
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    item.name,
-                                    color = PopText,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text(
-                                    item.total.toString(),
-                                    color = PopBlue,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                )
-                                if (onItemClick != null) {
-                                    Spacer(Modifier.width(3.dp))
-                                    Icon(
-                                        Icons.Rounded.ChevronRight,
-                                        "Ver tarefas de ${item.name}",
-                                        tint = PopMuted,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
-                            }
-                            Text(
-                                buildString {
-                                    append("${item.completed} concluídas • ${item.pending} pendentes")
-                                    if (item.overdue > 0) append(" • ${item.overdue} atrasadas")
-                                },
-                                color = PopMuted,
-                                fontSize = 10.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(start = 16.dp, top = 3.dp),
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 16.dp, top = 8.dp)
-                                    .height(4.dp)
-                                    .background(PopBorder.copy(alpha = .55f), CircleShape),
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .fillMaxWidth(item.completed.toFloat() / item.total.coerceAtLeast(1))
-                                        .background(Color(0xFF2EAF6D), CircleShape),
-                                )
-                            }
-                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(item.completed.toFloat() / item.total.coerceAtLeast(1))
+                                .background(Color(0xFF2EAF6D), CircleShape),
+                        )
                     }
                 }
             }

@@ -99,6 +99,7 @@ import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PendingActions
 import androidx.compose.material.icons.rounded.PersonOutline
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -179,6 +180,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -287,6 +289,7 @@ private data class PopTask(
     val assignmentTargetLabel: String = "",
     val assignees: List<String> = emptyList(),
     val checklist: List<TaskChecklistItem> = emptyList(),
+    val calendarProjection: Boolean = false,
 )
 
 private data class NativeTaskFolder(
@@ -399,10 +402,9 @@ private fun dueLabelForDate(date: LocalDate): String {
     }
 }
 
-private fun nextRecurrenceDate(task: PopTask): LocalDate? {
-    val currentDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return null
+private fun advanceRecurrenceDate(task: PopTask, from: LocalDate): LocalDate? {
     val interval = task.recurrenceInterval.coerceAtLeast(1)
-    fun advanceRecurrenceDate(from: LocalDate): LocalDate? = when (task.recurrenceRule) {
+    return when (task.recurrenceRule) {
         "Diária" -> from.plusDays(interval.toLong())
         "Semanal" -> {
             val dayMap = mapOf("S" to 1, "T" to 2, "Q" to 3, "Q2" to 4, "S2" to 5, "Sá" to 6, "D" to 7)
@@ -425,12 +427,16 @@ private fun nextRecurrenceDate(task: PopTask): LocalDate? {
         "Anual" -> from.plusYears(interval.toLong())
         else -> null
     }
+}
 
-    var nextDate = advanceRecurrenceDate(currentDate) ?: return null
+private fun nextRecurrenceDate(task: PopTask): LocalDate? {
+    val currentDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return null
+
+    var nextDate = advanceRecurrenceDate(task, currentDate) ?: return null
     val today = LocalDate.now()
     var skippedDates = 0
     while (!nextDate.isAfter(today) && skippedDates < 10_000) {
-        nextDate = advanceRecurrenceDate(nextDate) ?: return null
+        nextDate = advanceRecurrenceDate(task, nextDate) ?: return null
         skippedDates += 1
     }
     if (!nextDate.isAfter(today)) return null
@@ -618,6 +624,69 @@ private fun mergeRemoteTaskRouting(
             merged
         }
     }
+}
+
+private fun recurringSeriesKey(task: PopTask) = listOf(
+    task.title.trim().lowercase(Locale("pt", "BR")),
+    task.assignmentType,
+    task.assignmentTargetId,
+    task.recurrenceRule,
+    task.recurrenceDetail,
+    task.recurrenceInterval.toString(),
+).joinToString("|")
+
+private fun calendarTasksForMonth(tasks: List<PopTask>, month: YearMonth): List<PopTask> {
+    val monthEnd = month.atEndOfMonth()
+    val result = tasks.toMutableList()
+    val existingDates = tasks.mapTo(mutableSetOf()) { task ->
+        "${recurringSeriesKey(task)}:${task.dueDate}"
+    }
+
+    tasks
+        .filter { it.recurrenceRule != "Não repetir" }
+        .groupBy(::recurringSeriesKey)
+        .forEach { (seriesKey, seriesTasks) ->
+            val template = seriesTasks.maxByOrNull { task ->
+                runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: LocalDate.MIN
+            } ?: return@forEach
+            var occurrenceDate = runCatching { LocalDate.parse(template.dueDate) }.getOrNull()
+                ?: return@forEach
+            var occurrenceNumber = template.recurrenceOccurrence
+            var iterations = 0
+
+            while (!occurrenceDate.isAfter(monthEnd) && iterations < 2_000) {
+                occurrenceDate = advanceRecurrenceDate(template, occurrenceDate) ?: break
+                occurrenceNumber += 1
+                iterations += 1
+
+                val withinEnd = when (template.recurrenceEndMode) {
+                    "Após" -> occurrenceNumber <= (template.recurrenceEndValue.toIntOrNull() ?: 1)
+                    "Em uma data" -> {
+                        val endDate = runCatching {
+                            LocalDate.parse(template.recurrenceEndValue)
+                        }.getOrNull()
+                        endDate == null || !occurrenceDate.isAfter(endDate)
+                    }
+                    else -> true
+                }
+                if (!withinEnd) break
+
+                val dateKey = "$seriesKey:$occurrenceDate"
+                if (!occurrenceDate.isBefore(month.atDay(1)) && existingDates.add(dateKey)) {
+                    result += template.copy(
+                        id = -("${template.id}:$occurrenceDate".hashCode().absoluteValue + 1),
+                        serverId = template.serverId,
+                        dueDate = occurrenceDate.toString(),
+                        dueLabel = dueLabelForDate(occurrenceDate),
+                        completed = false,
+                        recurrenceOccurrence = occurrenceNumber,
+                        calendarProjection = true,
+                    )
+                }
+            }
+        }
+
+    return result
 }
 
 private fun tasksToJson(tasks: List<PopTask>): JSONArray {
@@ -7830,17 +7899,22 @@ private fun CalendarScreen(
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
-    val visibleCalendarTasks = tasks
+    val visibleCalendarTasks = calendarTasksForMonth(tasks, month)
     val selectedDayTasks = visibleCalendarTasks.filter { task ->
         runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == selectedDate
-    }.sortedWith(compareBy<PopTask> { it.completed }.thenBy {
-        when (it.priority) {
-            "Urgente" -> 0
-            "Alta" -> 1
-            "Média" -> 2
-            else -> 3
-        }
-    })
+    }.sortedWith(
+        compareBy<PopTask> { it.dueTime.isBlank() }
+            .thenBy { it.dueTime }
+            .thenBy { it.completed }
+            .thenBy {
+                when (it.priority) {
+                    "Urgente" -> 0
+                    "Alta" -> 1
+                    "Média" -> 2
+                    else -> 3
+                }
+            },
+    )
     val selectedDateLabel = if (selectedDate == today) {
         "Tarefas de hoje"
     } else {
@@ -7903,22 +7977,113 @@ private fun CalendarScreen(
                 if (selectedDayTasks.isEmpty()) {
                     Text("Nenhuma tarefa para este dia.", color = PopMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
                 } else {
-                    selectedDayTasks.forEach { task ->
-                        val unavailableRecurrence = isFutureRecurrence(task, today)
-                        Column {
-                            TaskRow(
-                                task,
-                                onClick = if (unavailableRecurrence) null else ({ onOpenTask(task) }),
-                                onToggleComplete =
-                                    if (unavailableRecurrence) null
-                                    else ({ onToggleTaskComplete(task) }),
-                            )
-                            if (unavailableRecurrence) {
+                    CalendarDayAgenda(
+                        tasks = selectedDayTasks,
+                        today = today,
+                        onOpenTask = onOpenTask,
+                        onToggleTaskComplete = onToggleTaskComplete,
+                    )
+                }
+            }
+        }
+    }
+
+}
+
+@Composable
+private fun CalendarDayAgenda(
+    tasks: List<PopTask>,
+    today: LocalDate,
+    onOpenTask: (PopTask) -> Unit,
+    onToggleTaskComplete: (PopTask) -> Unit,
+) {
+    val timedTasks = tasks.filter { it.dueTime.isNotBlank() }
+    val untimedTasks = tasks.filter { it.dueTime.isBlank() }
+
+    if (timedTasks.isNotEmpty()) {
+        Text(
+            "Agenda do dia",
+            color = PopMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 8.dp, bottom = 10.dp),
+        )
+        timedTasks.forEach { task ->
+            val unavailable = task.calendarProjection || isFutureRecurrence(task, today)
+            val accent = if (task.completed) PopMuted else taskPriorityColor(task.priority)
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 9.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    task.dueTime,
+                    color = if (task.completed) PopMuted else PopText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.width(54.dp).padding(top = 14.dp),
+                )
+                Box(
+                    Modifier
+                        .width(2.dp)
+                        .height(72.dp)
+                        .background(accent.copy(alpha = if (task.completed) 0.35f else 0.9f)),
+                )
+                Spacer(Modifier.width(9.dp))
+                Surface(
+                    color = accent.copy(alpha = if (task.completed) 0.07f else 0.12f),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, accent.copy(alpha = 0.24f)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 72.dp)
+                        .clickable(enabled = !unavailable) { onOpenTask(task) },
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 13.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    "Disponível para concluir somente nesta data.",
-                                    color = PopMuted,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.padding(bottom = 6.dp),
+                                    task.title,
+                                    color = if (task.completed) PopMuted else PopText,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textDecoration = if (task.completed) TextDecoration.LineThrough else null,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                if (task.recurrenceRule != "Não repetir") {
+                                    Spacer(Modifier.width(5.dp))
+                                    Icon(
+                                        Icons.Rounded.Repeat,
+                                        "Tarefa recorrente",
+                                        tint = accent,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                }
+                            }
+                            Text(
+                                listOfNotNull(
+                                    task.dueTime.takeIf { it.isNotBlank() },
+                                    task.duration.takeIf { it.isNotBlank() && it != "Sem duração" },
+                                ).joinToString(" • "),
+                                color = PopMuted,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(top = 3.dp),
+                            )
+                        }
+                        if (!unavailable) {
+                            IconButton(
+                                onClick = { onToggleTaskComplete(task) },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(
+                                    if (task.completed) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                                    if (task.completed) "Reabrir tarefa" else "Concluir tarefa",
+                                    tint = if (task.completed) PopBlue else accent,
+                                    modifier = Modifier.size(21.dp),
                                 )
                             }
                         }
@@ -7928,6 +8093,23 @@ private fun CalendarScreen(
         }
     }
 
+    if (untimedTasks.isNotEmpty()) {
+        Text(
+            if (timedTasks.isEmpty()) "Tarefas do dia" else "Sem horário definido",
+            color = PopMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = if (timedTasks.isEmpty()) 8.dp else 14.dp, bottom = 4.dp),
+        )
+        untimedTasks.forEach { task ->
+            val unavailable = task.calendarProjection || isFutureRecurrence(task, today)
+            TaskRow(
+                task,
+                onClick = if (unavailable) null else ({ onOpenTask(task) }),
+                onToggleComplete = if (unavailable) null else ({ onToggleTaskComplete(task) }),
+            )
+        }
+    }
 }
 
 @Composable

@@ -9699,22 +9699,29 @@ private fun UserReportCard(
                 modifier = Modifier.size(18.dp),
             )
         }
-        Text(
-            buildString {
-                append("${stats.completed} concluídas • ${stats.pending} pendentes")
-                if (stats.overdue > 0) append(" • ${stats.overdue} atrasadas")
-                if (stats.dueToday > 0) append(" • ${stats.dueToday} hoje")
-            },
-            color = PopMuted,
-            fontSize = 10.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 48.dp, top = 3.dp),
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 48.dp, top = 7.dp, end = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            UserReportValue("Concluídas", stats.completed, Color(0xFF2EAF6D))
+            UserReportValue("Pendentes", stats.pending, Color(0xFFE49A28))
+            UserReportValue("Atrasadas", stats.overdue, Color(0xFFE5484D))
+            UserReportValue("Hoje", stats.dueToday, PopBlue)
+        }
         HorizontalDivider(
             color = PopBorder.copy(alpha = .55f),
             modifier = Modifier.padding(top = 10.dp),
         )
+    }
+}
+
+@Composable
+private fun UserReportValue(label: String, value: Int, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value.toString(), color = color, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+        Text(label, color = PopMuted, fontSize = 9.sp)
     }
 }
 

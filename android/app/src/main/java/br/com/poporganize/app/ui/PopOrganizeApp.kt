@@ -9636,20 +9636,6 @@ private fun CompactTargetReportSection(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 3.dp),
                     )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                            .height(3.dp)
-                            .background(PopBorder.copy(alpha = .55f), CircleShape),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(item.completed.toFloat() / item.total.coerceAtLeast(1))
-                                .background(Color(0xFF2EAF6D), CircleShape),
-                        )
-                    }
                 }
             }
         }
@@ -9663,79 +9649,72 @@ private fun UserReportCard(
     currentUserPhotoUrl: String,
     onClick: () -> Unit,
 ) {
-    val rate = if (stats.total == 0) 0f else stats.completed.toFloat() / stats.total
-    Surface(
-        color = PopSurface,
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, PopBorder.copy(alpha = .7f)),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
     ) {
-        Column(Modifier.padding(15.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                GoogleProfileAvatar(
-                    photoUrl = stats.member.photoUrl.ifBlank {
-                        currentUserPhotoUrl.takeIf {
-                            stats.member.email.equals(currentUserEmail, ignoreCase = true)
-                        }.orEmpty()
-                    },
-                    modifier = Modifier.size(44.dp),
-                    fallbackIcon = Icons.Rounded.PersonOutline,
-                )
-                Spacer(Modifier.width(11.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        stats.member.name,
-                        color = PopText,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        listOf(stats.member.role, stats.member.sector)
-                            .filter(String::isNotBlank)
-                            .joinToString(" • "),
-                        color = PopMuted,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Text(
-                    "${stats.total} total",
-                    color = PopBlue,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                )
-            }
-
-            Spacer(Modifier.height(14.dp))
-            LinearProgressIndicator(
-                progress = { rate },
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                color = Color(0xFF2EAF6D),
-                trackColor = PopBorder.copy(alpha = .45f),
-                drawStopIndicator = {},
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            GoogleProfileAvatar(
+                photoUrl = stats.member.photoUrl.ifBlank {
+                    currentUserPhotoUrl.takeIf {
+                        stats.member.email.equals(currentUserEmail, ignoreCase = true)
+                    }.orEmpty()
+                },
+                modifier = Modifier.size(38.dp),
+                fallbackIcon = Icons.Rounded.PersonOutline,
             )
-            Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                UserReportValue("Concluídas", stats.completed, Color(0xFF2EAF6D))
-                UserReportValue("Pendentes", stats.pending, Color(0xFFE49A28))
-                UserReportValue("Atrasadas", stats.overdue, Color(0xFFE5484D))
-                UserReportValue("Hoje", stats.dueToday, PopBlue)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stats.member.name,
+                    color = PopText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    listOf(stats.member.role, stats.member.sector)
+                        .filter(String::isNotBlank)
+                        .joinToString(" • "),
+                    color = PopMuted,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
+            Text(
+                stats.total.toString(),
+                color = PopBlue,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Spacer(Modifier.width(3.dp))
+            Icon(
+                Icons.Rounded.ChevronRight,
+                "Ver tarefas de ${stats.member.name}",
+                tint = PopMuted,
+                modifier = Modifier.size(18.dp),
+            )
         }
-    }
-}
-
-@Composable
-private fun UserReportValue(label: String, value: Int, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value.toString(), color = color, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-        Text(label, color = PopMuted, fontSize = 9.sp)
+        Text(
+            buildString {
+                append("${stats.completed} concluídas • ${stats.pending} pendentes")
+                if (stats.overdue > 0) append(" • ${stats.overdue} atrasadas")
+                if (stats.dueToday > 0) append(" • ${stats.dueToday} hoje")
+            },
+            color = PopMuted,
+            fontSize = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 48.dp, top = 3.dp),
+        )
+        HorizontalDivider(
+            color = PopBorder.copy(alpha = .55f),
+            modifier = Modifier.padding(top = 10.dp),
+        )
     }
 }
 

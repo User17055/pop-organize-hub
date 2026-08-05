@@ -46,7 +46,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -181,7 +180,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -9613,22 +9611,19 @@ private fun CompactTargetReportSection(
                 Text(emptyMessage, color = PopMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 10.dp))
             } else {
                 stats.forEach { item ->
-                    val completionRate =
-                        if (item.total == 0) 0 else item.completed * 100 / item.total
                     Surface(
                         color = PopSurfaceAlt,
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(1.dp, PopBorder.copy(alpha = .58f)),
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 7.dp)
+                            .padding(top = 6.dp)
                             .clickable(enabled = onItemClick != null) { onItemClick?.invoke(item) },
                     ) {
-                        Column(Modifier.padding(horizontal = 13.dp, vertical = 12.dp)) {
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 11.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
                                     modifier = Modifier
-                                        .size(9.dp)
+                                        .size(8.dp)
                                         .background(PopBlue, CircleShape),
                                 )
                                 Spacer(Modifier.width(8.dp))
@@ -9642,9 +9637,9 @@ private fun CompactTargetReportSection(
                                     modifier = Modifier.weight(1f),
                                 )
                                 Text(
-                                    "${item.total} ${if (item.total == 1) "tarefa" else "tarefas"}",
+                                    item.total.toString(),
                                     color = PopBlue,
-                                    fontSize = 11.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                 )
                                 if (onItemClick != null) {
@@ -9657,95 +9652,36 @@ private fun CompactTargetReportSection(
                                     )
                                 }
                             }
-
-                            Spacer(Modifier.height(10.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                buildString {
+                                    append("${item.completed} concluídas • ${item.pending} pendentes")
+                                    if (item.overdue > 0) append(" • ${item.overdue} atrasadas")
+                                },
+                                color = PopMuted,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(start = 16.dp, top = 3.dp),
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp, top = 8.dp)
+                                    .height(4.dp)
+                                    .background(PopBorder.copy(alpha = .55f), CircleShape),
+                            ) {
                                 Box(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .height(6.dp)
-                                        .background(PopBorder.copy(alpha = .55f), CircleShape),
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxHeight()
-                                            .fillMaxWidth(item.completed.toFloat() / item.total.coerceAtLeast(1))
-                                            .background(Color(0xFF2EAF6D), CircleShape),
-                                    )
-                                }
-                                Spacer(Modifier.width(9.dp))
-                                Text(
-                                    "$completionRate%",
-                                    color = Color(0xFF2EAF6D),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.ExtraBold,
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(item.completed.toFloat() / item.total.coerceAtLeast(1))
+                                        .background(Color(0xFF2EAF6D), CircleShape),
                                 )
-                            }
-
-                            Spacer(Modifier.height(10.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                TargetReportBadge(
-                                    label = "${item.completed} concluídas",
-                                    color = Color(0xFF2EAF6D),
-                                )
-                                TargetReportBadge(
-                                    label = "${item.pending} pendentes",
-                                    color = Color(0xFFE49A28),
-                                )
-                            }
-                            if (item.overdue > 0 || item.dueToday > 0 || item.unassigned > 0) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    if (item.overdue > 0) {
-                                        TargetReportBadge(
-                                            label = "${item.overdue} atrasadas",
-                                            color = Color(0xFFE5484D),
-                                        )
-                                    }
-                                    if (item.dueToday > 0) {
-                                        TargetReportBadge(
-                                            label = "${item.dueToday} hoje",
-                                            color = PopBlue,
-                                        )
-                                    }
-                                    if (item.unassigned > 0) {
-                                        TargetReportBadge(
-                                            label = "${item.unassigned} sem responsável",
-                                            color = PopMuted,
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun RowScope.TargetReportBadge(label: String, color: Color) {
-    Surface(
-        color = color.copy(alpha = .1f),
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.weight(1f),
-    ) {
-        Text(
-            label,
-            color = color,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 5.dp),
-        )
     }
 }
 

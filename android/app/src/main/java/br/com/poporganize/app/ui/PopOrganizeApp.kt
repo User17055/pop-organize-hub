@@ -7810,34 +7810,6 @@ private fun taskPriorityColor(priority: String): Color = when (priority) {
     else -> Color(0xFF159B62)
 }
 
-private fun calendarVisibleTasks(tasks: List<PopTask>): List<PopTask> {
-    val today = LocalDate.now()
-    fun seriesKey(task: PopTask) = listOf(
-        task.title.trim().lowercase(Locale("pt", "BR")),
-        task.assignmentType,
-        task.assignmentTargetId,
-        task.recurrenceRule,
-        task.recurrenceDetail,
-        task.recurrenceInterval.toString(),
-    ).joinToString("|")
-
-    val firstFutureBySeries = tasks
-        .asSequence()
-        .filter { it.recurrenceRule != "Não repetir" }
-        .mapNotNull { task ->
-            val date = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
-            if (date != null && date.isAfter(today)) seriesKey(task) to date else null
-        }
-        .groupBy({ it.first }, { it.second })
-        .mapValues { (_, dates) -> dates.minOrNull() }
-
-    return tasks.filter { task ->
-        if (task.recurrenceRule == "Não repetir") return@filter true
-        val date = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return@filter true
-        !date.isAfter(today) || firstFutureBySeries[seriesKey(task)] == date
-    }
-}
-
 @Composable
 private fun CalendarScreen(
     tasks: List<PopTask>,
@@ -7858,7 +7830,7 @@ private fun CalendarScreen(
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
-    val visibleCalendarTasks = calendarVisibleTasks(tasks)
+    val visibleCalendarTasks = tasks
     val selectedDayTasks = visibleCalendarTasks.filter { task ->
         runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == selectedDate
     }.sortedWith(compareBy<PopTask> { it.completed }.thenBy {

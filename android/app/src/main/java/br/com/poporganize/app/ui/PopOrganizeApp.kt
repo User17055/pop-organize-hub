@@ -7741,7 +7741,7 @@ private fun TaskRow(
                 Modifier
                     .width(2.dp)
                     .height(38.dp)
-                    .background(PopBorder),
+                    .background(taskPriorityColor(task.priority)),
             )
             Spacer(Modifier.width(10.dp))
         }
@@ -9219,6 +9219,23 @@ private fun PopTask.isAssignedTo(memberName: String): Boolean =
     assignees.any { it.equals(memberName, ignoreCase = true) } ||
         assignee.split(",").any { it.trim().equals(memberName, ignoreCase = true) }
 
+private fun PopTask.belongsToSector(
+    sectorId: String,
+    sectorName: String,
+    members: List<CompanyMember>,
+): Boolean {
+    val directlyAssigned = assignmentType == "department" &&
+        (assignmentTargetId == sectorId || assignmentTargetLabel.equals(sectorName, ignoreCase = true))
+    if (directlyAssigned) return true
+
+    return members
+        .asSequence()
+        .filter { member ->
+            member.sectorId == sectorId || member.sector.equals(sectorName, ignoreCase = true)
+        }
+        .any { member -> isAssignedTo(member.name) }
+}
+
 @Composable
 private fun MobileReportsPage(
     companyName: String,
@@ -9236,6 +9253,7 @@ private fun MobileReportsPage(
     var taskListOpen by remember { mutableStateOf(false) }
     var selectedTaskFilter by remember { mutableStateOf("Todas") }
     var selectedReportMember by remember { mutableStateOf<CompanyMember?>(null) }
+    var selectedReportSector by remember { mutableStateOf<TargetReportStats?>(null) }
     val completed = reportTasks.count { it.completed }
     val pending = reportTasks.count { !it.completed }
     val overdue = reportTasks.count { task ->
@@ -9248,8 +9266,7 @@ private fun MobileReportsPage(
     val unassigned = reportTasks.size - assigned
     val sectorStats = companySectors.map { sector ->
         val sectorTasks = reportTasks.filter {
-            it.assignmentType == "department" &&
-                (it.assignmentTargetId == sector.id || it.assignmentTargetLabel == sector.name)
+            it.belongsToSector(sector.id, sector.name, companyMembers)
         }
         TargetReportStats(
             id = sector.id,
@@ -9298,6 +9315,14 @@ private fun MobileReportsPage(
     fun openTaskList(filter: String, member: CompanyMember? = null) {
         selectedTaskFilter = filter
         selectedReportMember = member
+        selectedReportSector = null
+        taskListOpen = true
+    }
+
+    fun openSectorTaskList(sector: TargetReportStats) {
+        selectedTaskFilter = "Todas"
+        selectedReportMember = null
+        selectedReportSector = sector
         taskListOpen = true
     }
 
@@ -9306,6 +9331,8 @@ private fun MobileReportsPage(
             companyName = companyName,
             tasks = reportTasks,
             member = selectedReportMember,
+            sector = selectedReportSector,
+            companyMembers = companyMembers,
             selectedFilter = selectedTaskFilter,
             onFilterChange = { selectedTaskFilter = it },
             onBack = { taskListOpen = false },
@@ -9443,6 +9470,7 @@ private fun MobileReportsPage(
                 stats = sectorStats,
                 icon = Icons.Rounded.AccountTree,
                 emptyMessage = "Nenhum setor cadastrado nesta empresa.",
+                onItemClick = ::openSectorTaskList,
             )
         }
 
@@ -9538,6 +9566,7 @@ private fun CompactTargetReportSection(
     stats: List<TargetReportStats>,
     icon: ImageVector,
     emptyMessage: String,
+    onItemClick: ((TargetReportStats) -> Unit)? = null,
 ) {
     Surface(
         color = PopSurface,
@@ -9565,7 +9594,10 @@ private fun CompactTargetReportSection(
                 stats.forEachIndexed { index, item ->
                     if (index > 0) HorizontalDivider(color = PopBorder.copy(alpha = .55f))
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 9.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = onItemClick != null) { onItemClick?.invoke(item) }
+                            .padding(vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
@@ -9589,6 +9621,15 @@ private fun CompactTargetReportSection(
                             fontSize = 15.sp,
                             fontWeight = FontWeight.ExtraBold,
                         )
+                        if (onItemClick != null) {
+                            Spacer(Modifier.width(5.dp))
+                            Icon(
+                                Icons.Rounded.ChevronRight,
+                                "Ver tarefas de ${item.name}",
+                                tint = PopMuted,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -9695,16 +9736,20 @@ private fun ReportTasksPage(
     companyName: String,
     tasks: List<PopTask>,
     member: CompanyMember?,
+    sector: TargetReportStats?,
+    companyMembers: List<CompanyMember>,
     selectedFilter: String,
     onFilterChange: (String) -> Unit,
     onBack: () -> Unit,
     onOpenTask: (PopTask) -> Unit,
 ) {
     val today = LocalDate.now()
-    val scopedTasks = if (member == null) {
-        tasks
-    } else {
-        tasks.filter { it.isAssignedTo(member.name) }
+    val scopedTasks = when {
+        member != null -> tasks.filter { it.isAssignedTo(member.name) }
+        sector != null -> tasks.filter {
+            it.belongsToSector(sector.id, sector.name, companyMembers)
+        }
+        else -> tasks
     }
     val filters = listOf("Todas", "Concluídas", "Pendentes", "Atrasadas", "Hoje")
     val filteredTasks = scopedTasks
@@ -9732,7 +9777,7 @@ private fun ReportTasksPage(
                 Spacer(Modifier.width(6.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        member?.name ?: "Todas as tarefas",
+                        member?.name ?: sector?.name ?: "Todas as tarefas",
                         color = PopText,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -9740,7 +9785,11 @@ private fun ReportTasksPage(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        if (member == null) companyName else "$companyName • ${member.role}",
+                        when {
+                            member != null -> "$companyName • ${member.role}"
+                            sector != null -> "$companyName • Todas as tarefas do setor"
+                            else -> companyName
+                        },
                         color = PopMuted,
                         fontSize = 11.sp,
                         maxLines = 1,

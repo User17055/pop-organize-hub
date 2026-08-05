@@ -127,27 +127,9 @@ function CalendarPage() {
     const map = new Map<string, Task[]>();
     const actualSeriesDates = new Set<string>();
     const latestRecurringTask = new Map<string, Task>();
-    const firstFutureActualBySeries = new Map<string, string>();
     const todayKey = format(new Date(), "yyyy-MM-dd");
 
     for (const task of filteredTasks) {
-      if (!task.recurrence || task.dueDate <= todayKey) continue;
-      const seriesId = task.recurrenceParentId ?? task.id;
-      const current = firstFutureActualBySeries.get(seriesId);
-      if (!current || task.dueDate < current) {
-        firstFutureActualBySeries.set(seriesId, task.dueDate);
-      }
-    }
-
-    for (const task of filteredTasks) {
-      const seriesId = task.recurrence ? (task.recurrenceParentId ?? task.id) : null;
-      if (
-        seriesId &&
-        task.dueDate > todayKey &&
-        firstFutureActualBySeries.get(seriesId) !== task.dueDate
-      ) {
-        continue;
-      }
       const bucket = map.get(task.dueDate);
       if (bucket) bucket.push(task);
       else map.set(task.dueDate, [task]);
@@ -163,14 +145,9 @@ function CalendarPage() {
 
     const rangeEnd = format(endOfWeek(endOfMonth(visibleMonth)), "yyyy-MM-dd");
     for (const [seriesId, task] of latestRecurringTask) {
-      let futureAdded = firstFutureActualBySeries.has(seriesId);
       for (const dueDate of recurringTaskDatesInRange(task, todayKey, rangeEnd)) {
         if (actualSeriesDates.has(`${seriesId}:${dueDate}`)) continue;
         if (dueDate < todayKey) continue;
-        if (dueDate > todayKey) {
-          if (futureAdded) continue;
-          futureAdded = true;
-        }
         const occurrence: Task = {
           ...task,
           dueDate,

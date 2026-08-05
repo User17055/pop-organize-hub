@@ -46,6 +46,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -180,6 +181,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -9206,6 +9208,9 @@ private data class TargetReportStats(
     val name: String,
     val total: Int,
     val completed: Int,
+    val pending: Int,
+    val overdue: Int,
+    val dueToday: Int,
     val unassigned: Int,
 )
 
@@ -9273,6 +9278,14 @@ private fun MobileReportsPage(
             name = sector.name,
             total = sectorTasks.size,
             completed = sectorTasks.count { it.completed },
+            pending = sectorTasks.count { !it.completed },
+            overdue = sectorTasks.count { task ->
+                !task.completed &&
+                    runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isBefore(today) == true
+            },
+            dueToday = sectorTasks.count { task ->
+                !task.completed && runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == today
+            },
             unassigned = sectorTasks.count { !it.hasResponsible() },
         )
     }.sortedByDescending { it.total }
@@ -9286,6 +9299,14 @@ private fun MobileReportsPage(
             name = group.name,
             total = groupTasks.size,
             completed = groupTasks.count { it.completed },
+            pending = groupTasks.count { !it.completed },
+            overdue = groupTasks.count { task ->
+                !task.completed &&
+                    runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isBefore(today) == true
+            },
+            dueToday = groupTasks.count { task ->
+                !task.completed && runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == today
+            },
             unassigned = groupTasks.count { !it.hasResponsible() },
         )
     }.sortedByDescending { it.total }
@@ -9591,49 +9612,140 @@ private fun CompactTargetReportSection(
             if (stats.isEmpty()) {
                 Text(emptyMessage, color = PopMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 10.dp))
             } else {
-                stats.forEachIndexed { index, item ->
-                    if (index > 0) HorizontalDivider(color = PopBorder.copy(alpha = .55f))
-                    Row(
+                stats.forEach { item ->
+                    val completionRate =
+                        if (item.total == 0) 0 else item.completed * 100 / item.total
+                    Surface(
+                        color = PopSurfaceAlt,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, PopBorder.copy(alpha = .58f)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = onItemClick != null) { onItemClick?.invoke(item) }
-                            .padding(vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .padding(top = 7.dp)
+                            .clickable(enabled = onItemClick != null) { onItemClick?.invoke(item) },
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                item.name,
-                                color = PopText,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                "${item.completed} concluídas • ${item.unassigned} sem responsável",
-                                color = PopMuted,
-                                fontSize = 9.sp,
-                            )
-                        }
-                        Text(
-                            item.total.toString(),
-                            color = PopBlue,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                        )
-                        if (onItemClick != null) {
-                            Spacer(Modifier.width(5.dp))
-                            Icon(
-                                Icons.Rounded.ChevronRight,
-                                "Ver tarefas de ${item.name}",
-                                tint = PopMuted,
-                                modifier = Modifier.size(18.dp),
-                            )
+                        Column(Modifier.padding(horizontal = 13.dp, vertical = 12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(9.dp)
+                                        .background(PopBlue, CircleShape),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    item.name,
+                                    color = PopText,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    "${item.total} ${if (item.total == 1) "tarefa" else "tarefas"}",
+                                    color = PopBlue,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                                if (onItemClick != null) {
+                                    Spacer(Modifier.width(3.dp))
+                                    Icon(
+                                        Icons.Rounded.ChevronRight,
+                                        "Ver tarefas de ${item.name}",
+                                        tint = PopMuted,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+
+                            Spacer(Modifier.height(10.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(6.dp)
+                                        .background(PopBorder.copy(alpha = .55f), CircleShape),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(item.completed.toFloat() / item.total.coerceAtLeast(1))
+                                            .background(Color(0xFF2EAF6D), CircleShape),
+                                    )
+                                }
+                                Spacer(Modifier.width(9.dp))
+                                Text(
+                                    "$completionRate%",
+                                    color = Color(0xFF2EAF6D),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                            }
+
+                            Spacer(Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                TargetReportBadge(
+                                    label = "${item.completed} concluídas",
+                                    color = Color(0xFF2EAF6D),
+                                )
+                                TargetReportBadge(
+                                    label = "${item.pending} pendentes",
+                                    color = Color(0xFFE49A28),
+                                )
+                            }
+                            if (item.overdue > 0 || item.dueToday > 0 || item.unassigned > 0) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    if (item.overdue > 0) {
+                                        TargetReportBadge(
+                                            label = "${item.overdue} atrasadas",
+                                            color = Color(0xFFE5484D),
+                                        )
+                                    }
+                                    if (item.dueToday > 0) {
+                                        TargetReportBadge(
+                                            label = "${item.dueToday} hoje",
+                                            color = PopBlue,
+                                        )
+                                    }
+                                    if (item.unassigned > 0) {
+                                        TargetReportBadge(
+                                            label = "${item.unassigned} sem responsável",
+                                            color = PopMuted,
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RowScope.TargetReportBadge(label: String, color: Color) {
+    Surface(
+        color = color.copy(alpha = .1f),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.weight(1f),
+    ) {
+        Text(
+            label,
+            color = color,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 5.dp),
+        )
     }
 }
 

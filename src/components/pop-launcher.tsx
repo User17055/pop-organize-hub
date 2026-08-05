@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 
 // Estado global mínimo para abrir a Pop de qualquer página (sidebar, FAB, botões).
 let popOpen = false;
+let popSessionId = 0;
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -22,6 +23,7 @@ function subscribe(listener: () => void) {
 }
 
 export function openPopAssistant() {
+  if (!popOpen) popSessionId += 1;
   popOpen = true;
   notify();
 }
@@ -36,6 +38,11 @@ export function PopDock() {
     subscribe,
     () => popOpen,
     () => false,
+  );
+  const sessionId = useSyncExternalStore(
+    subscribe,
+    () => popSessionId,
+    () => 0,
   );
   const { createTaskMutation } = useTaskMutations();
   const { data } = useWorkspaceData();
@@ -100,6 +107,7 @@ export function PopDock() {
         <Sparkles className="h-6 w-6" />
       </button>
       <PopAssistant
+        key={sessionId}
         open={open}
         onOpenChange={setPopOpen}
         onCreate={handleCreate}

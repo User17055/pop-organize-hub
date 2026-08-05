@@ -42,6 +42,26 @@ function withoutLegacyCallDuplicates(messages: ChatMessage[]) {
   return messages.filter((message) => !message.id.startsWith("call-assistant-"));
 }
 
+function isMeaningfulCallTranscript(transcript: string) {
+  const normalized = transcript
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\b(?:ruido|barulho|musica|inaudivel|incompreensivel)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  if (["oi", "sim", "nao", "ok", "ta", "pode"].includes(normalized)) return true;
+
+  const compact = normalized.replace(/\s+/g, "");
+  const fillerOnly = /^(?:a+h*|e+h*|h+m+|u+m+|ahn*|uhn*|s+a*s*|x+|sh+|psi+u*)$/i;
+  const tokens = normalized.split(/\s+/);
+  if (tokens.every((token) => token.length <= 7 && fillerOnly.test(token))) return false;
+  if (/^(.)\1+$/.test(compact)) return false;
+
+  return normalized.replace(/[^a-z0-9]/g, "").length >= 3;
+}
+
 type StoredConversation = {
   id: string;
   title: string;
@@ -151,9 +171,14 @@ export function PopAssistant({
   const callChannelRef = useRef<RTCDataChannel | null>(null);
   const callStreamRef = useRef<MediaStream | null>(null);
   const callAudioRef = useRef<HTMLAudioElement | null>(null);
+  const callAudioFadeTimerRef = useRef<number | null>(null);
+  const callAudioNeedsFadeInRef = useRef(false);
+  const callSpeechActiveRef = useRef(false);
+  const callBargeInTimerRef = useRef<number | null>(null);
+  const callProvisionalInterruptPromiseRef = useRef<Promise<boolean> | null>(null);
   const handledCallItemsRef = useRef(new Set<string>());
-  const lastSpokenDraftRef = useRef("");
-  const pendingCallSummaryRef = useRef<string | null>(null);
+  const pendingCallReplyRef = useRef<string | null>(null);
+  const pendingCallContinuationRef = useRef(false);
   const callResponseActiveRef = useRef(false);
   const callTaskQueueRef = useRef(Promise.resolve());
   const messagesRef = useRef(messages);
@@ -249,7 +274,54 @@ export function PopAssistant({
     };
   }, [mounted, open]);
 
+  function fadeCallAudio(targetVolume: number, durationMs: number) {
+    const audioElement = callAudioRef.current;
+    if (!audioElement) return;
+    if (callAudioFadeTimerRef.current !== null) {
+      window.clearInterval(callAudioFadeTimerRef.current);
+    }
+    const startVolume = audioElement.volume;
+    const startedAt = performance.now();
+    callAudioFadeTimerRef.current = window.setInterval(() => {
+      const progress = Math.min(1, (performance.now() - startedAt) / durationMs);
+      audioElement.volume = startVolume + (targetVolume - startVolume) * progress;
+      if (progress < 1) return;
+      if (callAudioFadeTimerRef.current !== null) {
+        window.clearInterval(callAudioFadeTimerRef.current);
+        callAudioFadeTimerRef.current = null;
+      }
+    }, 20);
+  }
+
+  async function gentlyInterruptActiveCallResponse() {
+    if (!callResponseActiveRef.current) return false;
+    callAudioNeedsFadeInRef.current = true;
+    fadeCallAudio(0, 120);
+    await new Promise((resolve) => window.setTimeout(resolve, 130));
+    const channel = callChannelRef.current;
+    if (!callResponseActiveRef.current || channel?.readyState !== "open") {
+      callAudioNeedsFadeInRef.current = false;
+      fadeCallAudio(1, 120);
+      return false;
+    }
+    channel.send(JSON.stringify({ type: "response.cancel" }));
+    channel.send(JSON.stringify({ type: "output_audio_buffer.clear" }));
+    return true;
+  }
+
   const stopCallResources = useCallback(() => {
+    if (callAudioFadeTimerRef.current !== null) {
+      window.clearInterval(callAudioFadeTimerRef.current);
+      callAudioFadeTimerRef.current = null;
+    }
+    callAudioNeedsFadeInRef.current = false;
+    callSpeechActiveRef.current = false;
+    if (callBargeInTimerRef.current !== null) {
+      window.clearTimeout(callBargeInTimerRef.current);
+      callBargeInTimerRef.current = null;
+    }
+    callProvisionalInterruptPromiseRef.current = null;
+    pendingCallContinuationRef.current = false;
     callChannelRef.current?.close();
     callChannelRef.current = null;
     callPeerRef.current?.close();
@@ -403,7 +475,7 @@ export function PopAssistant({
     const optimisticContent = [text, attachmentLabel].filter(Boolean).join("\n");
     const history = messages
       .filter((message) => message.id !== "greeting")
-      .slice(-24)
+      .slice(-12)
       .map(({ role, content }) => ({ role, content }));
     setMessages((current) => [
       ...current,
@@ -460,6 +532,27 @@ export function PopAssistant({
     const cleanTranscript = transcript.trim();
     if (!cleanTranscript || handledCallItemsRef.current.has(itemId)) return;
     handledCallItemsRef.current.add(itemId);
+    const provisionalInterruption = callProvisionalInterruptPromiseRef.current;
+    callProvisionalInterruptPromiseRef.current = null;
+    if (!isMeaningfulCallTranscript(cleanTranscript)) {
+      const wasInterrupted = provisionalInterruption ? await provisionalInterruption : false;
+      const channel = callChannelRef.current;
+      if (channel?.readyState === "open") {
+        channel.send(JSON.stringify({ type: "conversation.item.delete", item_id: itemId }));
+      }
+      if (wasInterrupted) {
+        pendingCallContinuationRef.current = true;
+        flushPendingCallReply();
+      }
+      return;
+    }
+
+    pendingCallContinuationRef.current = false;
+    if (provisionalInterruption) {
+      await provisionalInterruption;
+    } else {
+      await gentlyInterruptActiveCallResponse();
+    }
 
     const userMessage: ChatMessage = {
       id: `call-user-${itemId}`,
@@ -468,7 +561,7 @@ export function PopAssistant({
     };
     const history = messagesRef.current
       .filter((message) => message.id !== "greeting")
-      .slice(-24)
+      .slice(-12)
       .map(({ role, content }) => ({ role, content }));
     messagesRef.current = [...messagesRef.current, userMessage];
     setMessages(messagesRef.current);
@@ -481,27 +574,24 @@ export function PopAssistant({
           draftContext: answerRef.current ? JSON.stringify(answerRef.current.draft) : undefined,
         },
       });
-      if (result.status === "ready") {
-        answerRef.current = result;
-        setAnswer(result);
-        const summary: ChatMessage = {
-          id: `call-summary-${itemId}`,
-          role: "assistant",
-          content: result.reply,
-        };
-        messagesRef.current = [...messagesRef.current, summary];
-        setMessages(messagesRef.current);
-        const draftSignature = JSON.stringify(result.draft);
-        if (draftSignature !== lastSpokenDraftRef.current) {
-          lastSpokenDraftRef.current = draftSignature;
-          pendingCallSummaryRef.current = result.reply;
-          flushPendingCallSummary();
-        }
-      } else if (answerRef.current?.status !== "ready") {
-        answerRef.current = result;
-        setAnswer(result);
-      }
+      const nextAnswer =
+        result.intent !== "create_task" && answerRef.current?.status === "ready"
+          ? answerRef.current
+          : result;
+      answerRef.current = nextAnswer;
+      setAnswer(nextAnswer);
+      const reply: ChatMessage = {
+        id: `call-reply-${itemId}`,
+        role: "assistant",
+        content: result.reply,
+      };
+      messagesRef.current = [...messagesRef.current, reply];
+      setMessages(messagesRef.current);
+      pendingCallReplyRef.current = result.reply;
+      flushPendingCallReply();
     } catch (requestError) {
+      callAudioNeedsFadeInRef.current = false;
+      fadeCallAudio(1, 160);
       setError(
         requestError instanceof Error
           ? requestError.message
@@ -510,11 +600,33 @@ export function PopAssistant({
     }
   }
 
-  function flushPendingCallSummary() {
-    const summary = pendingCallSummaryRef.current;
+  function flushPendingCallReply() {
+    const reply = pendingCallReplyRef.current;
+    const shouldContinue = pendingCallContinuationRef.current;
     const channel = callChannelRef.current;
-    if (!summary || callResponseActiveRef.current || channel?.readyState !== "open") return;
-    pendingCallSummaryRef.current = null;
+    if (
+      (!reply && !shouldContinue) ||
+      callResponseActiveRef.current ||
+      channel?.readyState !== "open"
+    ) {
+      return;
+    }
+    if (shouldContinue && !reply) {
+      pendingCallContinuationRef.current = false;
+      channel.send(
+        JSON.stringify({
+          type: "response.create",
+          response: {
+            output_modalities: ["audio"],
+            instructions:
+              "Continue com naturalidade exatamente do ponto em que sua fala anterior foi interrompida. Não recomece, não repita e não mencione a interrupção.",
+          },
+        }),
+      );
+      return;
+    }
+    pendingCallReplyRef.current = null;
+    pendingCallContinuationRef.current = false;
     channel.send(
       JSON.stringify({
         type: "conversation.item.create",
@@ -524,13 +636,22 @@ export function PopAssistant({
           content: [
             {
               type: "input_text",
-              text: `[Resumo estruturado pelo aplicativo — esta é a versão correta da tarefa. Fale como ela ficou sem inventar ou alterar dados:]\n${summary}`,
+              text: `[Resposta estruturada pelo aplicativo. Fale o conteúdo abaixo em português do Brasil, com naturalidade, sem acrescentar informações, introduções ou repetições:]\n${reply}`,
             },
           ],
         },
       }),
     );
-    channel.send(JSON.stringify({ type: "response.create" }));
+    channel.send(
+      JSON.stringify({
+        type: "response.create",
+        response: {
+          output_modalities: ["audio"],
+          instructions:
+            "Fale somente a resposta estruturada mais recente, em ritmo natural e com sotaque brasileiro neutro.",
+        },
+      }),
+    );
   }
 
   function handleCallEvent(rawEvent: string) {
@@ -540,15 +661,37 @@ export function PopAssistant({
         item_id?: string;
         transcript?: string;
       };
-      if (event.type === "input_audio_buffer.speech_started") setCallState("listening");
+      if (event.type === "input_audio_buffer.speech_started") {
+        callSpeechActiveRef.current = true;
+        if (!callResponseActiveRef.current) {
+          setCallState("listening");
+        } else if (callBargeInTimerRef.current === null) {
+          callBargeInTimerRef.current = window.setTimeout(() => {
+            callBargeInTimerRef.current = null;
+            if (!callSpeechActiveRef.current || !callResponseActiveRef.current) return;
+            callProvisionalInterruptPromiseRef.current = gentlyInterruptActiveCallResponse();
+          }, 360);
+        }
+      }
+      if (event.type === "input_audio_buffer.speech_stopped") {
+        callSpeechActiveRef.current = false;
+        if (callBargeInTimerRef.current !== null) {
+          window.clearTimeout(callBargeInTimerRef.current);
+          callBargeInTimerRef.current = null;
+        }
+      }
       if (event.type === "response.created") callResponseActiveRef.current = true;
       if (event.type === "response.created" || event.type === "response.output_audio.delta") {
         setCallState("speaking");
       }
+      if (event.type === "response.output_audio.delta" && callAudioNeedsFadeInRef.current) {
+        callAudioNeedsFadeInRef.current = false;
+        fadeCallAudio(1, 220);
+      }
       if (event.type === "response.done") {
         callResponseActiveRef.current = false;
         setCallState("listening");
-        flushPendingCallSummary();
+        flushPendingCallReply();
       }
       if (
         event.type === "conversation.item.input_audio_transcription.completed" &&
@@ -571,9 +714,12 @@ export function PopAssistant({
     setIsCallMuted(false);
     setCallState("connecting");
     handledCallItemsRef.current.clear();
-    lastSpokenDraftRef.current = "";
-    pendingCallSummaryRef.current = null;
+    pendingCallReplyRef.current = null;
+    pendingCallContinuationRef.current = false;
     callResponseActiveRef.current = false;
+    callAudioNeedsFadeInRef.current = false;
+    callSpeechActiveRef.current = false;
+    callProvisionalInterruptPromiseRef.current = null;
 
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") {
@@ -668,22 +814,9 @@ export function PopAssistant({
       answerRef.current = null;
       setAnswer(null);
       if (callState !== "idle" && callChannelRef.current?.readyState === "open") {
-        callChannelRef.current.send(
-          JSON.stringify({
-            type: "conversation.item.create",
-            item: {
-              type: "message",
-              role: "user",
-              content: [
-                {
-                  type: "input_text",
-                  text: `[Evento do aplicativo: a atividade foi criada com sucesso após a confirmação na tela. Informe claramente que ela foi criada e fale o resumo final abaixo sem alterar nenhum dado.]\n${finalSummary}`,
-                },
-              ],
-            },
-          }),
-        );
-        callChannelRef.current.send(JSON.stringify({ type: "response.create" }));
+        pendingCallReplyRef.current = content;
+        await gentlyInterruptActiveCallResponse();
+        flushPendingCallReply();
       }
     } catch (createError) {
       setError(

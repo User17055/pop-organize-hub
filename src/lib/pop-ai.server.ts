@@ -483,6 +483,7 @@ export async function createPopRealtimeClientSecret(safetyUserId: string, accoun
         model: process.env.OPENAI_REALTIME_MODEL?.trim() || "gpt-realtime-2.1-mini",
         output_modalities: ["audio"],
         reasoning: { effort: "low" },
+        max_output_tokens: 700,
         instructions: `# Função
 Você é a Pop, assistente do Pop Organize, em uma ligação de voz.
 
@@ -528,6 +529,7 @@ Nunca diga que criou, salvou ou confirmou uma tarefa. A tarefa só será criada 
 Não invente pessoas, datas ou dados do workspace.
 
 # Áudio pouco claro
+Sons curtos, hesitações e preenchimentos como "aa", "eee", "hum", "hã" ou sílabas sem sentido não são pedidos. Ignore-os em silêncio e preserve o assunto atual.
 Se a fala estiver realmente incompreensível, peça para repetir com uma frase curta em português brasileiro. Não adivinhe e não repita o mesmo pedido de esclarecimento duas vezes seguidas.`,
         audio: {
           input: {
@@ -535,6 +537,12 @@ Se a fala estiver realmente incompreensível, peça para repetir com uma frase c
               model: "gpt-live-transcribe",
               languages: ["pt"],
               delay: "low",
+            },
+            turn_detection: {
+              type: "semantic_vad",
+              eagerness: "low",
+              create_response: false,
+              interrupt_response: false,
             },
           },
           output: { voice: "marin" },

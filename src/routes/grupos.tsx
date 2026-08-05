@@ -6,18 +6,19 @@ import { ErrorState, LoadingState } from "@/components/data-state";
 import { AccessRestricted } from "@/components/access-restricted";
 import { Field } from "@/components/form-field";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { GlassSelect } from "@/components/tasks/recurrence-fields";
 import { createGroup, deleteGroup, updateGroup } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import type { PermissionKey } from "@/lib/domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
-import { Plus, Crown, Pencil, Trash2 } from "lucide-react";
+import { Check, Crown, Pencil, Plus, Trash2, Users } from "lucide-react";
 
 export const Route = createFileRoute("/grupos")({
   head: () => ({ meta: [{ title: "Grupos - Pop Organize" }] }),
@@ -264,21 +265,30 @@ function GruposPage() {
         })}
       </div>
 
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
-          <form onSubmit={handleSubmit}>
-            <DialogHeader>
-              <DialogTitle>{editingGroupId ? "Editar grupo" : "Novo grupo"}</DialogTitle>
-              <DialogDescription>
+      <Sheet open={showForm} onOpenChange={setShowForm}>
+        <SheetContent
+          side="left"
+          className="w-full gap-0 overflow-hidden border-r border-primary/15 bg-card p-0 shadow-[24px_0_60px_-32px_rgba(15,92,190,0.45)] sm:max-w-[460px]"
+        >
+          <form onSubmit={handleSubmit} className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto]">
+            <SheetHeader className="border-b border-border/70 bg-primary/[0.035] px-5 pb-5 pt-6 text-left sm:px-6">
+              <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Users className="h-5 w-5" />
+              </div>
+              <SheetTitle className="font-display text-2xl font-bold">
+                {editingGroupId ? "Editar grupo" : "Criar novo grupo"}
+              </SheetTitle>
+              <SheetDescription className="max-w-sm leading-relaxed">
                 Monte uma equipe flexível para campanhas, projetos ou plantões.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3.5 mt-4">
+              </SheetDescription>
+            </SheetHeader>
+            <div className="space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
               <Field label="Nome">
                 <input
                   value={form.name}
                   onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
-                  className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                  className="task-create-input h-11 w-full rounded-xl border px-3.5 text-sm outline-none transition"
+                  placeholder="Ex: Equipe de marketing"
                   required
                 />
               </Field>
@@ -289,15 +299,22 @@ function GruposPage() {
                     setForm((current) => ({ ...current, description: e.target.value }))
                   }
                   rows={3}
-                  className="w-full px-3 py-2 rounded-md bg-background border border-input outline-none focus:border-primary text-sm resize-none"
+                  className="task-create-input min-h-28 w-full resize-none rounded-xl border px-3.5 py-3 text-sm leading-relaxed outline-none transition"
+                  placeholder="Qual é o objetivo deste grupo?"
                   required
                 />
               </Field>
               <Field label="Líder">
-                <select
+                <GlassSelect
                   value={form.leaderId}
-                  onChange={(e) => {
-                    const leaderId = e.target.value;
+                  options={[
+                    { value: "", label: "Sem líder definido" },
+                    ...employees.map((employee) => ({
+                      value: employee.id,
+                      label: employee.name,
+                    })),
+                  ]}
+                  onChange={(leaderId) => {
                     setForm((current) => ({
                       ...current,
                       leaderId,
@@ -309,41 +326,54 @@ function GruposPage() {
                             : current.memberIds,
                     }));
                   }}
-                  className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
-                >
-                  <option value="">Sem líder</option>
-                  {employees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.name}
-                    </option>
-                  ))}
-                </select>
+                />
               </Field>
               <Field label="Membros">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="space-y-2">
                   {employees.map((employee) => (
-                    <label
+                    <button
+                      type="button"
                       key={employee.id}
-                      className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      onClick={() => toggleMember(employee.id)}
+                      className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                        form.memberIds.includes(employee.id)
+                          ? "border-primary/35 bg-primary/[0.065]"
+                          : "border-border bg-background hover:border-primary/25 hover:bg-muted/50"
+                      }`}
                     >
-                      <input
-                        type="checkbox"
-                        checked={form.memberIds.includes(employee.id)}
-                        onChange={() => toggleMember(employee.id)}
-                        className="rounded border-input accent-primary"
-                      />
-                      <span>{employee.name}</span>
-                    </label>
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                        {employee.name
+                          .split(" ")
+                          .map((part) => part[0])
+                          .slice(0, 2)
+                          .join("")}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{employee.name}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {employee.role}
+                        </span>
+                      </span>
+                      <span
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition ${
+                          form.memberIds.includes(employee.id)
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-input bg-background"
+                        }`}
+                      >
+                        {form.memberIds.includes(employee.id) && <Check className="h-3.5 w-3.5" />}
+                      </span>
+                    </button>
                   ))}
                 </div>
               </Field>
               {mutationError && <div className="text-sm text-destructive">{mutationError}</div>}
             </div>
-            <DialogFooter className="mt-6">
+            <SheetFooter className="border-t border-border/70 bg-card/95 px-5 py-4 backdrop-blur sm:px-6">
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="h-9 px-4 rounded-md border border-border text-sm font-medium hover:bg-muted transition"
+                className="h-11 rounded-xl border border-border px-5 text-sm font-semibold transition hover:bg-muted"
               >
                 Cancelar
               </button>
@@ -351,7 +381,7 @@ function GruposPage() {
                 type="submit"
                 disabled={createMutation.isPending || updateMutation.isPending}
                 style={{ background: "var(--gradient-primary)" }}
-                className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
+                className="h-11 flex-1 rounded-xl px-5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-elegant)] transition hover:opacity-90 disabled:opacity-60 sm:flex-none"
               >
                 {updateMutation.isPending
                   ? "Salvando..."
@@ -361,10 +391,10 @@ function GruposPage() {
                       ? "Criando..."
                       : "Criar grupo"}
               </button>
-            </DialogFooter>
+            </SheetFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </AppShell>
   );
 }

@@ -1,10 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { AccessRestricted } from "@/components/access-restricted";
 import { ErrorState, LoadingState } from "@/components/data-state";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
+import { priorityLabels, statusLabels } from "@/lib/domain";
 import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
-import { TrendingUp, Users, UserCheck, UserX, Clock } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarDays,
+  ChevronRight,
+  Clock,
+  TrendingUp,
+  UserCheck,
+  Users,
+  UserX,
+} from "lucide-react";
 
 export const Route = createFileRoute("/relatorios")({
   head: () => ({ meta: [{ title: "Relatórios - Pop Organize" }] }),
@@ -13,6 +31,7 @@ export const Route = createFileRoute("/relatorios")({
 
 function RelatoriosPage() {
   const { data, isLoading, error } = useWorkspaceData();
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -94,6 +113,16 @@ function RelatoriosPage() {
       }, 0) / completedTasks.length
     : 0;
 
+  const selectedDepartment = byDept.find((department) => department.id === selectedDepartmentId);
+  const selectedDepartmentTasks = selectedDepartment
+    ? tasks.filter(
+        (task) => task.target.type === "department" && task.target.id === selectedDepartment.id,
+      )
+    : [];
+  const selectedDepartmentMembers = selectedDepartment
+    ? employees.filter((employee) => employee.departmentId === selectedDepartment.id)
+    : [];
+
   return (
     <AppShell title="Relatórios" subtitle="Indicadores de produtividade da empresa">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-5">
@@ -106,10 +135,23 @@ function RelatoriosPage() {
             {byDept.map((d) => {
               const pct = d.total ? (d.done / d.total) * 100 : 0;
               return (
-                <div key={d.id}>
+                <button
+                  type="button"
+                  key={d.id}
+                  onClick={() => setSelectedDepartmentId(d.id)}
+                  className="group w-full rounded-xl border border-transparent px-3 py-2.5 text-left transition hover:border-primary/15 hover:bg-primary/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                  aria-label={`Ver relatório do setor ${d.name}`}
+                >
                   <div className="mb-2 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                    <span className="truncate text-sm font-medium">{d.name}</span>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs">
+                    <span className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: d.color }}
+                      />
+                      <span className="truncate">{d.name}</span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                    </span>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-[18px] text-[11px] sm:pl-0 sm:text-xs">
                       <span className="text-success">{d.done} concluídas</span>
                       {d.late > 0 && <span className="text-destructive">{d.late} atrasadas</span>}
                       <span className="text-muted-foreground">{d.total} total</span>
@@ -121,7 +163,7 @@ function RelatoriosPage() {
                       style={{ width: `${pct}%`, background: d.color }}
                     />
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -237,6 +279,153 @@ function RelatoriosPage() {
           </div>
         </div>
       </div>
+
+      <Sheet
+        open={Boolean(selectedDepartment)}
+        onOpenChange={(open) => !open && setSelectedDepartmentId(null)}
+      >
+        <SheetContent className="w-full gap-0 overflow-hidden border-l border-primary/15 bg-card p-0 sm:max-w-[520px]">
+          {selectedDepartment && (
+            <div className="grid h-full grid-rows-[auto_minmax(0,1fr)]">
+              <SheetHeader className="border-b border-border/70 bg-primary/[0.035] px-5 pb-5 pt-6 text-left sm:px-6">
+                <div className="mb-3 flex items-center gap-3">
+                  <span
+                    className="h-4 w-4 rounded-full ring-4 ring-background"
+                    style={{ backgroundColor: selectedDepartment.color }}
+                  />
+                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-primary">
+                    Relatório do setor
+                  </span>
+                </div>
+                <SheetTitle className="pr-8 font-display text-2xl font-bold">
+                  {selectedDepartment.name}
+                </SheetTitle>
+                <SheetDescription className="leading-relaxed">
+                  {selectedDepartment.description ||
+                    "Acompanhe as atividades e a equipe deste setor."}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="overflow-y-auto px-5 py-5 sm:px-6">
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div className="rounded-xl border border-border bg-background p-3">
+                    <div className="text-2xl font-bold">{selectedDepartment.total}</div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">Tarefas</div>
+                  </div>
+                  <div className="rounded-xl border border-success/20 bg-success/[0.06] p-3">
+                    <div className="text-2xl font-bold text-success">{selectedDepartment.done}</div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">Concluídas</div>
+                  </div>
+                  <div className="rounded-xl border border-destructive/20 bg-destructive/[0.06] p-3">
+                    <div className="text-2xl font-bold text-destructive">
+                      {selectedDepartment.late}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">Atrasadas</div>
+                  </div>
+                </div>
+
+                <section className="mt-6">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="flex items-center gap-2 text-sm font-bold">
+                      <Users className="h-4 w-4 text-primary" /> Equipe
+                    </h3>
+                    <span className="text-xs text-muted-foreground">
+                      {selectedDepartmentMembers.length} pessoas
+                    </span>
+                  </div>
+                  {selectedDepartmentMembers.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {selectedDepartmentMembers.map((employee) => (
+                        <div
+                          key={employee.id}
+                          className="inline-flex items-center gap-2 rounded-full border border-border bg-background py-1 pl-1 pr-3"
+                        >
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                            {employee.name
+                              .split(" ")
+                              .map((part) => part[0])
+                              .slice(0, 2)
+                              .join("")}
+                          </span>
+                          <span className="max-w-36 truncate text-xs font-medium">
+                            {employee.name}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                      Nenhum funcionário vinculado a este setor.
+                    </p>
+                  )}
+                </section>
+
+                <section className="mt-6">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="flex items-center gap-2 text-sm font-bold">
+                      <CalendarDays className="h-4 w-4 text-primary" /> Atividades
+                    </h3>
+                    <span className="text-xs text-muted-foreground">
+                      {selectedDepartmentTasks.length} no total
+                    </span>
+                  </div>
+                  <div className="space-y-2.5">
+                    {selectedDepartmentTasks.length === 0 && (
+                      <p className="rounded-xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
+                        Este setor ainda não possui tarefas.
+                      </p>
+                    )}
+                    {selectedDepartmentTasks.map((task) => {
+                      const isLate =
+                        new Date(`${task.dueDate}T00:00:00`) < today && task.status !== "completed";
+                      const responsibleIds = taskResponsibleIds(task);
+                      const responsibleNames = responsibleIds
+                        .map((id) => employees.find((employee) => employee.id === id)?.name)
+                        .filter(Boolean)
+                        .join(", ");
+                      return (
+                        <article
+                          key={task.id}
+                          className="rounded-xl border border-border bg-background p-3.5"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <h4 className="truncate text-sm font-semibold">{task.title}</h4>
+                              <p className="mt-1 truncate text-xs text-muted-foreground">
+                                {responsibleNames || "Setor inteiro"}
+                              </p>
+                            </div>
+                            <span className="shrink-0 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-bold text-primary">
+                              {priorityLabels[task.priority]}
+                            </span>
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                            <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
+                              {statusLabels[task.status]}
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 ${
+                                isLate
+                                  ? "bg-destructive/10 text-destructive"
+                                  : "bg-muted text-muted-foreground"
+                              }`}
+                            >
+                              {isLate && <AlertTriangle className="h-3 w-3" />}
+                              {new Intl.DateTimeFormat("pt-BR").format(
+                                new Date(`${task.dueDate}T12:00:00`),
+                              )}
+                            </span>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </AppShell>
   );
 }

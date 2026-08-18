@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 const requiredFiles = [
   "android/composeApp/build.gradle",
@@ -13,6 +13,7 @@ const requiredFiles = [
   "ios/App/App/PrivacyInfo.xcprivacy",
   "ios/App/App/pop_notification.mp3",
   "ios/App/App.xcodeproj/project.pbxproj",
+  "ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme",
 ];
 
 function fail(message) {
@@ -48,12 +49,61 @@ if (
 ) {
   fail("AppDelegate is not launching the shared Compose UI.");
 }
-if (!entitlements.includes("com.apple.developer.applesignin"))
+if (!entitlements.includes("com.apple.developer.applesignin")) {
   fail("Sign in with Apple entitlement is missing.");
-if (!entitlements.includes("aps-environment")) fail("APNs push entitlement is missing.");
-if (!project.includes("pop_notification.mp3 in Resources"))
+}
+if (!project.includes("pop_notification.mp3 in Resources")) {
   fail("notification audio is not bundled.");
-if (!project.includes("PrivacyInfo.xcprivacy in Resources"))
+}
+if (!project.includes("PrivacyInfo.xcprivacy in Resources")) {
   fail("the iOS privacy manifest is not bundled.");
+}
+
+// O projeto precisa abrir no Xcode instalado no Mac. objectVersion 60 exige Xcode 15+ e
+// impede que o Xcode 14.x sequer abra o .xcodeproj.
+const objectVersion = Number(/objectVersion = (\d+);/.exec(project)?.[1] ?? 0);
+if (!objectVersion) fail("objectVersion is missing from the Xcode project.");
+if (objectVersion > 56) {
+  fail(`objectVersion ${objectVersion} requires Xcode 15 or newer; use 56 to stay compatible.`);
+}
+
+// APNs remoto so pode voltar quando existir servidor de push; declarar o background mode sem
+// implementacao e motivo de rejeicao (App Store Review 2.5.4).
+const declaresRemotePush =
+  entitlements.includes("aps-environment") || project.includes("APS_ENVIRONMENT");
+const declaresBackgroundMode = info.includes("remote-notification");
+if (declaresRemotePush !== declaresBackgroundMode) {
+  fail("APNs entitlement and the remote-notification background mode must be declared together.");
+}
+if (declaresRemotePush && !appDelegate.includes("didRegisterForRemoteNotificationsWithDeviceToken")) {
+  fail("remote push is declared but AppDelegate never handles the APNs device token.");
+}
+
+// Todo arquivo citado nos Contents.json do catalogo precisa existir, senao o actool falha o build.
+function checkAssetCatalog(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      checkAssetCatalog(path);
+      continue;
+    }
+    if (entry.name !== "Contents.json") continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(readFileSync(path, "utf8"));
+    } catch {
+      fail(`${path} is not valid JSON.`);
+    }
+    for (const group of ["images", "colors", "layers"]) {
+      for (const item of parsed[group] ?? []) {
+        if (!item.filename) continue;
+        if (!existsSync(join(dirname(path), item.filename))) {
+          fail(`${path} references ${item.filename}, which does not exist.`);
+        }
+      }
+    }
+  }
+}
+checkAssetCatalog(resolve("ios/App/App/Assets.xcassets"));
 
 console.log("KMP iOS project validation passed.");

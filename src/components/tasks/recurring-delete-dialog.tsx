@@ -1,5 +1,6 @@
 import { Repeat, Trash2, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { createPortal } from "react-dom";
 import type { Task } from "@/lib/domain";
 
 export function RecurringDeleteDialog({
@@ -21,8 +22,13 @@ export function RecurringDeleteDialog({
   const isRecurring = Boolean(task.recurrence);
   const date = occurrenceDate ?? task.dueDate;
 
-  return (
-    <div className="fixed inset-0 z-[260] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !pending) onClose();
+      }}
+    >
       <motion.section
         initial={{ opacity: 0, scale: 0.94, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -113,6 +119,7 @@ export function RecurringDeleteDialog({
           </button>
         </div>
       </motion.section>
-    </div>
+    </div>,
+    document.body,
   );
 }

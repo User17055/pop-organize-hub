@@ -498,9 +498,11 @@ private fun TasksScreen(store: PopStore) {
             add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
         }
     }
+    // toSortedMap() vem de java.util e nao existe no commonMain; a lista de pares ordenada
+    // preserva a mesma ordenacao natural por nome de setor.
     val groupedTasks = tasks.groupBy {
         if (it.assignment.kind == AssignmentKind.Sector) it.assignment.label else "Sem setor"
-    }.toSortedMap()
+    }.toList().sortedBy { it.first }
 
     fun deleteWithAnimation(task: PopTask, action: () -> Unit) {
         pendingDeleteTask = null

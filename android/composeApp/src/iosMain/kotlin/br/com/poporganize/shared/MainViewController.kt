@@ -26,12 +26,14 @@ import platform.AuthenticationServices.ASAuthorizationScopeEmail
 import platform.AuthenticationServices.ASAuthorizationScopeFullName
 import platform.AuthenticationServices.ASPresentationAnchor
 import platform.Foundation.NSBundle
+import platform.Foundation.NSData
 import platform.Foundation.NSDateComponents
 import platform.Foundation.NSError
 import platform.Foundation.NSHTTPURLResponse
 import platform.Foundation.NSMutableURLRequest
 import platform.Foundation.NSString
 import platform.Foundation.NSURL
+import platform.Foundation.NSURLResponse
 import platform.Foundation.NSURLSession
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSUserDefaults
@@ -154,24 +156,33 @@ private object IosPlatformServices : PopPlatformServices {
             continuation.resume(ApiResponse(0, "{\"error\":\"URL da API não configurada.\"}"))
             return@suspendCancellableCoroutine
         }
-        val request = NSMutableURLRequest.requestWithURL(url).apply {
-            HTTPMethod = method
+        // requestWithURL: e declarado em NSURLRequest, entao o binding devolve o tipo imutavel;
+        // sem o cast os setters de NSMutableURLRequest nao existem para o compilador.
+        val request = (NSMutableURLRequest.requestWithURL(url) as NSMutableURLRequest).apply {
+            setHTTPMethod(method)
             setValue("application/json", forHTTPHeaderField = "Accept")
             if (!token.isNullOrBlank()) setValue("Bearer $token", forHTTPHeaderField = "Authorization")
             if (!workspaceId.isNullOrBlank()) setValue(workspaceId, forHTTPHeaderField = "X-Workspace-Id")
             if (body != null) {
                 setValue("application/json; charset=utf-8", forHTTPHeaderField = "Content-Type")
-                HTTPBody = (body as NSString).dataUsingEncoding(NSUTF8StringEncoding)
+                setHTTPBody((body as NSString).dataUsingEncoding(NSUTF8StringEncoding))
             }
         }
-        val task = NSURLSession.sharedSession.dataTaskWithRequest(request) { data, response, error ->
-            if (!continuation.isActive) return@dataTaskWithRequest
-            val status = (response as? NSHTTPURLResponse)?.statusCode?.toInt() ?: 0
-            val responseBody = data?.let {
-                NSString.create(data = it, encoding = NSUTF8StringEncoding)?.toString()
-            }.orEmpty()
-            val fallback = error?.localizedDescription?.let { "{\"error\":${json.encodeToString(it)}}" }.orEmpty()
-            continuation.resume(ApiResponse(status, responseBody.ifBlank { fallback }))
+        // Os tipos dos parametros sao explicitos porque dataTaskWithRequest tem sobrecarga com e
+        // sem completion handler; sem eles a resolucao falha e a lambda inteira fica sem tipo.
+        val task = NSURLSession.sharedSession.dataTaskWithRequest(
+            request,
+        ) { data: NSData?, response: NSURLResponse?, error: NSError? ->
+            if (continuation.isActive) {
+                val status = (response as? NSHTTPURLResponse)?.statusCode?.toInt() ?: 0
+                val responseBody = data
+                    ?.let { NSString.create(data = it, encoding = NSUTF8StringEncoding)?.toString() }
+                    .orEmpty()
+                val fallback = error?.localizedDescription
+                    ?.let { message -> "{\"error\":${json.encodeToString(message)}}" }
+                    .orEmpty()
+                continuation.resume(ApiResponse(status, responseBody.ifBlank { fallback }))
+            }
         }
         continuation.invokeOnCancellation { task.cancel() }
         task.resume()

@@ -30,6 +30,10 @@ class PopStore(private val platform: PopPlatformServices) {
     var message by mutableStateOf("Dados salvos neste ${platform.platformName}")
         private set
 
+    /** Verdadeiro enquanto refreshNow() esta buscando dados; alimenta o puxar-para-atualizar. */
+    var syncing by mutableStateOf(false)
+        private set
+
     val selectedCompany: CompanyWorkspace?
         get() = state.companies.firstOrNull { it.id == state.selectedCompanyId }
 
@@ -49,6 +53,20 @@ class PopStore(private val platform: PopPlatformServices) {
                 ?.firstOrNull { it.email.equals(email, ignoreCase = true) }
                 ?.role
                 ?.contains("admin", ignoreCase = true) == true
+        }
+
+    /**
+     * Permissoes do espaco ativo, como o servidor as resolveu. A interface deve consultar isto
+     * antes de oferecer qualquer acao de escrita: sem sessao nao ha permissao nenhuma, e no modo
+     * convidado so existe o espaco pessoal local.
+     */
+    val permissions: WorkspacePermissions
+        get() = when {
+            state.guestMode -> WorkspacePermissions(canCreateTasks = true)
+            state.apiToken.isNullOrBlank() -> WorkspacePermissions()
+            state.workspace == WorkspaceKind.Company -> selectedCompany?.permissions
+                ?: WorkspacePermissions()
+            else -> state.personalPermissions
         }
 
     init {
@@ -341,6 +359,23 @@ class PopStore(private val platform: PopPlatformServices) {
         return null
     }
 
+    /**
+     * Recarrega espacos e tarefas sem exigir um escopo de corrotina de quem chama. Usado ao voltar
+     * do segundo plano e no puxar-para-atualizar: ate agora o unico refresh acontecia no login, e
+     * quem editasse pelo painel web nao via a mudanca no iPhone ate sair e entrar de novo.
+     */
+    fun refreshNow() {
+        if (state.apiToken.isNullOrBlank() || syncing) return
+        syncing = true
+        scope.launch {
+            try {
+                refreshFromServer()
+            } finally {
+                syncing = false
+            }
+        }
+    }
+
     suspend fun refreshFromServer() {
         val token = state.apiToken ?: return
         val response = platform.apiRequest(path = "workspaces", token = token)
@@ -368,10 +403,14 @@ class PopStore(private val platform: PopPlatformServices) {
                 },
                 sectors = workspace.sectors,
                 groups = workspace.groups,
+                permissions = workspace.toPermissions(),
             )
         }
         state = state.copy(
             personalWorkspaceId = personalId,
+            personalPermissions = remote.workspaces.firstOrNull { it.kind == "personal" }
+                ?.toPermissions()
+                ?: state.personalPermissions,
             companies = companies,
             selectedCompanyId = state.selectedCompanyId?.takeIf { id -> companies.any { it.id == id } },
             workspace = if (state.workspace == WorkspaceKind.Company && companies.isEmpty()) WorkspaceKind.Personal else state.workspace,
@@ -432,6 +471,15 @@ class PopStore(private val platform: PopPlatformServices) {
     private fun apiError(response: ApiResponse, fallback: String): String =
         runCatching { json.decodeFromString<ApiError>(response.body).error }.getOrNull() ?: fallback
 }
+
+private fun ApiWorkspace.toPermissions() = WorkspacePermissions(
+    isOwner = isOwner,
+    canCreateTasks = canCreateTasks,
+    canManageEmployees = canManageEmployees,
+    canManageDepartments = canManageDepartments,
+    canManageGroups = canManageGroups,
+    canManagePermissions = canManagePermissions,
+)
 
 private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask(
     id = id.toString(),

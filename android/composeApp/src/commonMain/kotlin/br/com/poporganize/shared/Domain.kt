@@ -80,6 +80,21 @@ data class CompanyGroup(
     val memberIds: List<String> = emptyList(),
 )
 
+/**
+ * Quem pode o que dentro de um espaco. O servidor resolve isso a partir dos grupos de permissao
+ * e ja mandava os campos em /workspaces; o aplicativo e que os descartava e decidia sozinho por
+ * heuristica no cargo. A fonte da verdade e o servidor.
+ */
+@Serializable
+data class WorkspacePermissions(
+    val isOwner: Boolean = false,
+    val canCreateTasks: Boolean = false,
+    val canManageEmployees: Boolean = false,
+    val canManageDepartments: Boolean = false,
+    val canManageGroups: Boolean = false,
+    val canManagePermissions: Boolean = false,
+)
+
 @Serializable
 data class CompanyWorkspace(
     val id: String,
@@ -88,6 +103,7 @@ data class CompanyWorkspace(
     val members: List<CompanyMember> = emptyList(),
     val sectors: List<CompanySector> = emptyList(),
     val groups: List<CompanyGroup> = emptyList(),
+    val permissions: WorkspacePermissions = WorkspacePermissions(),
 )
 
 @Serializable
@@ -118,6 +134,7 @@ data class PopState(
     val workspace: WorkspaceKind = WorkspaceKind.Personal,
     val selectedCompanyId: String? = null,
     val personalWorkspaceId: String? = null,
+    val personalPermissions: WorkspacePermissions = WorkspacePermissions(canCreateTasks = true),
     val companies: List<CompanyWorkspace> = emptyList(),
     val tasks: List<PopTask> = emptyList(),
     val apiToken: String? = null,
@@ -147,6 +164,14 @@ interface PopPlatformServices {
         workspaceId: String? = null,
     ): ApiResponse
     fun updateNotifications(tasks: List<PopTask>, firstName: String)
+
+    /**
+     * Avisa quando o aplicativo volta do segundo plano, para recarregar os dados do servidor.
+     * Tem corpo vazio de proposito: o Android nao consome este modulo e nao pode ser obrigado a
+     * implementar o metodo so para continuar compilando.
+     */
+    fun observeForeground(onForeground: () -> Unit) {}
+
     fun applyTheme(light: Boolean)
     fun playActionSound()
     fun openSupportEmail()
@@ -183,6 +208,12 @@ data class ApiWorkspace(
     val name: String,
     val description: String = "",
     val kind: String = "company",
+    val isOwner: Boolean = false,
+    val canCreateTasks: Boolean = false,
+    val canManageEmployees: Boolean = false,
+    val canManageDepartments: Boolean = false,
+    val canManageGroups: Boolean = false,
+    val canManagePermissions: Boolean = false,
     val employees: List<ApiEmployee> = emptyList(),
     val sectors: List<CompanySector> = emptyList(),
     val groups: List<CompanyGroup> = emptyList(),

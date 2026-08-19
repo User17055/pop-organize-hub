@@ -74,6 +74,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -109,6 +110,8 @@ fun PopOrganizeApp(platform: PopPlatformServices) {
     val state = store.state
 
     SideEffect { platform.applyTheme(state.theme == PopThemeMode.Light) }
+
+    LaunchedEffect(platform) { platform.observeForeground { store.refreshNow() } }
 
     PopTheme(light = state.theme == PopThemeMode.Light) {
         Surface(
@@ -368,16 +371,16 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
             }
         },
         floatingActionButton = {
-            if (tab == MainTab.Tasks) {
+            if (tab == MainTab.Tasks && store.permissions.canCreateTasks) {
                 FloatingActionButton(onClick = { showTaskEditor = true }) { Icon(Icons.Rounded.Add, "Nova tarefa") }
             }
         },
     ) { padding ->
         AnimatedContent(targetState = tab to morePage, modifier = Modifier.padding(padding)) { (selected, page) ->
             when (selected) {
-                MainTab.Dashboard -> DashboardScreen(store)
-                MainTab.Tasks -> TasksScreen(store)
-                MainTab.Calendar -> CalendarScreen(store)
+                MainTab.Dashboard -> Refreshable(store) { DashboardScreen(store) }
+                MainTab.Tasks -> Refreshable(store) { TasksScreen(store) }
+                MainTab.Calendar -> Refreshable(store) { CalendarScreen(store) }
                 MainTab.More -> when (page) {
                     MorePage.Menu -> MoreScreen(
                         store = store,
@@ -393,6 +396,24 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
     }
 
     if (showTaskEditor) TaskEditorDialog(store = store, onDismiss = { showTaskEditor = false })
+}
+
+/**
+ * Puxar-para-atualizar. So faz sentido com sessao: no modo convidado nao ha servidor de onde
+ * buscar, entao o gesto e desligado em vez de girar sem efeito.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun Refreshable(store: PopStore, content: @Composable () -> Unit) {
+    if (store.state.apiToken.isNullOrBlank()) {
+        content()
+        return
+    }
+    PullToRefreshBox(
+        isRefreshing = store.syncing,
+        onRefresh = store::refreshNow,
+        modifier = Modifier.fillMaxSize(),
+    ) { content() }
 }
 
 @Composable
@@ -1011,11 +1032,19 @@ private fun MoreItem(icon: ImageVector, title: String, detail: String, onClick: 
 private fun TeamScreen(store: PopStore) {
     val company = store.selectedCompany
     var showEditor by remember { mutableStateOf(false) }
+    // Convidar alguem exige um setor: addMember() usa o primeiro setor da empresa como destino.
+    val hasSector = company?.sectors?.isNotEmpty() == true
+    val canAdd = store.permissions.canManageEmployees && hasSector
     EntityListScreen(
         title = "Pessoas cadastradas",
         emptyTitle = "Nenhum colaborador",
+        emptyDetail = when {
+            !store.permissions.canManageEmployees -> "Somente quem administra a equipe pode convidar."
+            !hasSector -> "Cadastre um setor antes de convidar alguém."
+            else -> null
+        },
         items = company?.members.orEmpty().map { it.name to "${it.role} • ${it.email}" },
-        onAdd = { showEditor = true },
+        onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) MemberEditorDialog(store) { showEditor = false }
 }
@@ -1024,12 +1053,17 @@ private fun TeamScreen(store: PopStore) {
 private fun SectorsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     var showEditor by remember { mutableStateOf(false) }
+    val canAdd = store.permissions.canManageDepartments
     EntityListScreen(
         title = "Estrutura por setores",
         emptyTitle = "Nenhum setor",
-        emptyDetail = "Cadastre o primeiro setor para poder convidar pessoas.",
+        emptyDetail = if (canAdd) {
+            "Cadastre o primeiro setor para poder convidar pessoas."
+        } else {
+            "Somente quem administra a empresa pode criar setores."
+        },
         items = company?.sectors.orEmpty().map { it.name to it.description },
-        onAdd = { showEditor = true },
+        onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) {
         SimpleEntityEditorDialog(
@@ -1044,11 +1078,13 @@ private fun SectorsScreen(store: PopStore) {
 private fun GroupsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     var showEditor by remember { mutableStateOf(false) }
+    val canAdd = store.permissions.canManageGroups
     EntityListScreen(
         title = "Grupos de trabalho",
         emptyTitle = "Nenhum grupo",
+        emptyDetail = if (canAdd) null else "Somente quem administra a empresa pode criar grupos.",
         items = company?.groups.orEmpty().map { it.name to it.description },
-        onAdd = { showEditor = true },
+        onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) {
         SimpleEntityEditorDialog(

@@ -41,6 +41,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
@@ -158,7 +159,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -1375,6 +1378,13 @@ fun PopOrganizeApp(
                         }
                         stage = AppStage.Login
                     },
+                    onAccountPhotoChanged = { photoUrl ->
+                        googleAccount = googleAccount?.copy(photoUrl = photoUrl)
+                        context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+                            .edit()
+                            .putString(GOOGLE_ACCOUNT_PHOTO_STORAGE, photoUrl)
+                            .apply()
+                    },
                 )
             }
         }
@@ -2479,6 +2489,7 @@ private fun PopMainContent(
     onLightThemeChange: (Boolean) -> Unit,
     onRequireLogin: () -> Unit,
     onSignOut: () -> Unit,
+    onAccountPhotoChanged: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val navigationScope = rememberCoroutineScope()
@@ -2699,14 +2710,6 @@ private fun PopMainContent(
                 }
             }
         }
-    }
-
-    fun updateAccountPhoto(photoUrl: String) {
-        googleAccount = googleAccount?.copy(photoUrl = photoUrl)
-        context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
-            .edit()
-            .putString(GOOGLE_ACCOUNT_PHOTO_STORAGE, photoUrl)
-            .apply()
     }
 
     fun requestCreateCompany() {
@@ -3240,7 +3243,7 @@ private fun PopMainContent(
                         },
                         onRequireLogin = onRequireLogin,
                         onSignOut = onSignOut,
-                        onAccountPhotoChanged = ::updateAccountPhoto,
+                        onAccountPhotoChanged = onAccountPhotoChanged,
                         onDismiss = { destination = PopDestination.Dashboard },
                     )
                 }
@@ -3288,7 +3291,7 @@ private fun PopMainContent(
                 },
                 onRequireLogin = onRequireLogin,
                 onSignOut = onSignOut,
-                onAccountPhotoChanged = ::updateAccountPhoto,
+                onAccountPhotoChanged = onAccountPhotoChanged,
                 onDismiss = { showMoreSheet = false },
             )
         }
@@ -8040,7 +8043,16 @@ private fun CalendarScreen(
     onOpenTask: (PopTask) -> Unit,
     onCreateTaskForDate: (LocalDate) -> Unit,
 ) {
-    var month by remember { mutableStateOf(YearMonth.now()) }
+    val anchorMonth = remember { YearMonth.now() }
+    val pagerCenter = 6000
+    val pagerPageCount = 12001
+    val pagerState = rememberPagerState(initialPage = pagerCenter) { pagerPageCount }
+    val pagerScope = rememberCoroutineScope()
+    var month by remember { mutableStateOf(anchorMonth) }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }
+            .collect { page -> month = anchorMonth.plusMonths((page - pagerCenter).toLong()) }
+    }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
@@ -8068,9 +8080,10 @@ private fun CalendarScreen(
     }
     val selectedCountLabel = if (selectedDayTasks.size == 1) "1 tarefa" else "${selectedDayTasks.size} tarefas"
 
-    fun selectMonth(newMonth: YearMonth) {
-        month = newMonth
-        selectedDate = newMonth.atDay(minOf(selectedDate.dayOfMonth, newMonth.lengthOfMonth()))
+    LaunchedEffect(month) {
+        if (YearMonth.from(selectedDate) != month) {
+            selectedDate = month.atDay(minOf(selectedDate.dayOfMonth, month.lengthOfMonth()))
+        }
     }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -8089,31 +8102,38 @@ private fun CalendarScreen(
         }
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { selectMonth(month.minusMonths(1)) }) { Icon(Icons.Rounded.ChevronLeft, "Mês anterior") }
+                IconButton(onClick = { pagerScope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } }) { Icon(Icons.Rounded.ChevronLeft, "Mês anterior") }
                 Text(
                     "${month.month.getDisplayName(TextStyle.FULL, locale).replaceFirstChar { it.uppercase() }} ${month.year}",
                     fontWeight = FontWeight.ExtraBold,
                     modifier = Modifier.weight(1f),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
-                IconButton(onClick = { selectMonth(month.plusMonths(1)) }) { Icon(Icons.Rounded.ChevronRight, "Próximo mês") }
+                IconButton(onClick = { pagerScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } }) { Icon(Icons.Rounded.ChevronRight, "Próximo mês") }
             }
         }
         item {
-            CalendarGrid(
-                month = month,
-                tasks = visibleCalendarTasks,
-                selectedDate = selectedDate,
-                onDateSelected = { selectedDate = it },
-                onDateDoubleSelected = if (canCreateTask) {
-                    { date ->
-                        selectedDate = date
-                        onCreateTaskForDate(date)
-                    }
-                } else {
-                    null
-                },
-            )
+            HorizontalPager(
+                state = pagerState,
+                beyondViewportPageCount = 1,
+                modifier = Modifier.fillMaxWidth().wrapContentHeight(),
+            ) { page ->
+                val pageMonth = anchorMonth.plusMonths((page - pagerCenter).toLong())
+                CalendarGrid(
+                    month = pageMonth,
+                    tasks = calendarTasksForMonth(tasks, pageMonth),
+                    selectedDate = selectedDate,
+                    onDateSelected = { selectedDate = it },
+                    onDateDoubleSelected = if (canCreateTask) {
+                        { date ->
+                            selectedDate = date
+                            onCreateTaskForDate(date)
+                        }
+                    } else {
+                        null
+                    },
+                )
+            }
         }
         item {
             Column(Modifier.padding(20.dp)) {
@@ -8307,7 +8327,12 @@ private fun CalendarGrid(
     val monthCells = List(firstOffset) { null } + (1..month.lengthOfMonth()).map { it }
     val cells = monthCells + List(42 - monthCells.size) { null }
     val today = LocalDate.now()
-    Column(Modifier.padding(horizontal = 20.dp).border(1.dp, PopBorder, RoundedCornerShape(24.dp)).padding(12.dp)) {
+    Column(
+        Modifier
+            .padding(horizontal = 20.dp)
+            .border(1.dp, PopBorder, RoundedCornerShape(24.dp))
+            .padding(12.dp),
+    ) {
         Row(Modifier.fillMaxWidth()) {
             listOf("S", "T", "Q", "Q", "S", "S", "D").forEach { day ->
                 Text(day, color = PopMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
@@ -9426,11 +9451,16 @@ private fun MoreScreen(
                             )
                         }
                         item {
-                            Surface(color = PopSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                            Surface(
+                                color = PopSurfaceAlt,
+                                shape = RoundedCornerShape(18.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
                                 Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                                     MoreAccountAction(
                                         icon = Icons.Rounded.Logout,
                                         label = "Sair",
+                                        accent = Color(0xFFE5484D),
                                         onClick = {
                                             showSettingsDialog = false
                                             onSignOut()
@@ -11429,10 +11459,11 @@ private fun MoreShortcut(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(icon, null, tint = PopMuted, modifier = Modifier.size(20.dp))
+            Icon(icon, null, tint = PopText, modifier = Modifier.size(20.dp))
             Spacer(Modifier.height(5.dp))
             Text(
                 title,
+                color = PopText,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -11447,7 +11478,7 @@ private fun MoreAccountAction(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
-    accent: Color = PopBlue,
+    accent: Color = PopText,
 ) {
     Row(
         modifier = Modifier
@@ -11457,7 +11488,7 @@ private fun MoreAccountAction(
             .padding(horizontal = 8.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = accent, modifier = Modifier.size(19.dp))
+        Icon(icon, null, tint = if (accent == PopText) PopMuted else accent, modifier = Modifier.size(19.dp))
         Spacer(Modifier.width(10.dp))
         Text(label, color = accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }

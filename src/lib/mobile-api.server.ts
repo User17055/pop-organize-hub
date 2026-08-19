@@ -11,7 +11,7 @@ import {
   readDatabase,
   verifyGoogleCredential,
 } from "./database.server";
-import { departmentColors, type Task } from "./domain";
+import { allPermissionKeys, departmentColors, type PermissionKey, type Task } from "./domain";
 import { hasPermission, resolvePermissionSet } from "./permission-groups";
 import { canViewTask, getTaskPermissions } from "./permissions";
 import { materializeRecurringTasks } from "./recurrence.server";
@@ -116,6 +116,7 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         canManageEmployees: isCompany && hasPermission(permissionSet, "manage.employees"),
         canManageDepartments: isCompany && hasPermission(permissionSet, "manage.departments"),
         canManageGroups: isCompany && hasPermission(permissionSet, "manage.groups"),
+        canManagePermissions: isCompany && hasPermission(permissionSet, "manage.permissions"),
         employees: [
           ...(isCompany
             ? workspace.employees
@@ -143,6 +144,7 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
               groupIds: workspace.groups
                 .filter((group) => group.memberIds.includes(employee.id))
                 .map((group) => group.id),
+              permissionGroupId: employee.permissionGroupId ?? "",
               pending: false,
             };
           }),
@@ -171,6 +173,13 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
           name: group.name,
           description: group.description ?? "",
           memberIds: group.memberIds,
+        })),
+        permissionGroups: workspace.permissionGroups.map((group) => ({
+          id: group.id,
+          name: group.name,
+          description: group.description ?? "",
+          permissions: group.permissions,
+          isSystem: group.isSystem ?? false,
         })),
       };
     });
@@ -679,6 +688,90 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
         description,
         memberIds: [],
       });
+    });
+  } else if (action === "createPermissionGroup" || action === "updatePermissionGroup") {
+    const name = requiredText(input.name, "O nome");
+    const description =
+      typeof input.description === "string" ? input.description.trim().slice(0, 200) : "";
+    const permissions = Array.isArray(input.permissions)
+      ? input.permissions.filter((value): value is PermissionKey =>
+          allPermissionKeys.includes(value as PermissionKey),
+        )
+      : [];
+    const memberIds = Array.isArray(input.memberIds)
+      ? input.memberIds.filter((value): value is string => typeof value === "string")
+      : [];
+    const groupId = action === "updatePermissionGroup" ? requiredText(input.id, "O grupo", 1) : "";
+
+    await mutateDatabase((platform) => {
+      const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+      const currentUser = workspace?.employees.find(
+        (employee) => employee.id === account.id && employee.status === "active",
+      );
+      if (!workspace || !currentUser) throw mobileHttpError("Empresa não encontrada.", 404);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!hasPermission(permissionSet, "manage.permissions")) {
+        throw mobileHttpError("Seu grupo de permissão não pode gerenciar permissões.", 403);
+      }
+      const invalidMember = memberIds.find(
+        (memberId) => !workspace.employees.some((employee) => employee.id === memberId),
+      );
+      if (invalidMember) throw mobileHttpError("Um dos membros não foi encontrado.", 404);
+
+      let group: (typeof workspace.permissionGroups)[number];
+      if (action === "updatePermissionGroup") {
+        const existing = workspace.permissionGroups.find((item) => item.id === groupId);
+        if (!existing) throw mobileHttpError("Grupo de permissão não encontrado.", 404);
+        existing.name = name;
+        existing.description = description;
+        if (!existing.isSystem) existing.permissions = permissions;
+        group = existing;
+      } else {
+        group = {
+          id: nextId("pg", workspace.permissionGroups),
+          name,
+          description,
+          permissions,
+        };
+        workspace.permissionGroups.push(group);
+      }
+      for (const employee of workspace.employees) {
+        if (memberIds.includes(employee.id)) {
+          employee.permissionGroupId = group.id;
+        } else if (employee.permissionGroupId === group.id) {
+          employee.permissionGroupId = undefined;
+        }
+      }
+    });
+  } else if (action === "deletePermissionGroup") {
+    const groupId = requiredText(input.id, "O grupo", 1);
+    await mutateDatabase((platform) => {
+      const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+      const currentUser = workspace?.employees.find(
+        (employee) => employee.id === account.id && employee.status === "active",
+      );
+      if (!workspace || !currentUser) throw mobileHttpError("Empresa não encontrada.", 404);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!hasPermission(permissionSet, "manage.permissions")) {
+        throw mobileHttpError("Seu grupo de permissão não pode gerenciar permissões.", 403);
+      }
+      const groupIndex = workspace.permissionGroups.findIndex((item) => item.id === groupId);
+      if (groupIndex === -1) throw mobileHttpError("Grupo de permissão não encontrado.", 404);
+      if (workspace.permissionGroups[groupIndex].isSystem) {
+        throw mobileHttpError("Este grupo não pode ser excluído.", 400);
+      }
+      for (const employee of workspace.employees) {
+        if (employee.permissionGroupId === groupId) employee.permissionGroupId = undefined;
+      }
+      workspace.permissionGroups.splice(groupIndex, 1);
     });
   } else if (action === "inviteEmployee") {
     const name = requiredText(input.name, "O nome");

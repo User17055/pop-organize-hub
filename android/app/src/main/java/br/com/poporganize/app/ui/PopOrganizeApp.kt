@@ -115,6 +115,8 @@ import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -329,6 +331,7 @@ private data class CompanyMember(
     val photoUrl: String = "",
     val sectorId: String = "",
     val groupIds: List<String> = emptyList(),
+    val permissionGroupId: String = "",
 )
 private data class CompanySector(val name: String, val description: String, val id: String = "")
 private data class CompanyGroup(
@@ -336,6 +339,13 @@ private data class CompanyGroup(
     val description: String,
     val id: String = "",
     val memberIds: List<String> = emptyList(),
+)
+private data class PermissionGroup(
+    val id: String,
+    val name: String,
+    val description: String,
+    val permissions: List<String> = emptyList(),
+    val isSystem: Boolean = false,
 )
 private enum class WorkSpace { Personal, Company }
 
@@ -800,9 +810,11 @@ private data class ApiWorkspaceSummary(
     val canManageEmployees: Boolean,
     val canManageDepartments: Boolean,
     val canManageGroups: Boolean,
+    val canManagePermissions: Boolean,
     val employees: List<CompanyMember>,
     val sectors: List<CompanySector>,
     val groups: List<CompanyGroup>,
+    val permissionGroups: List<PermissionGroup>,
 )
 private data class ApiInvitation(
     val id: String,
@@ -832,6 +844,7 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                 val sectorsJson = item.optJSONArray("sectors") ?: JSONArray()
                 val groupsJson = item.optJSONArray("groups") ?: JSONArray()
                 val employeesJson = item.optJSONArray("employees") ?: JSONArray()
+                val permissionGroupsJson = item.optJSONArray("permissionGroups") ?: JSONArray()
                 val sectors = List(sectorsJson.length()) { sectorIndex ->
                     val sector = sectorsJson.optJSONObject(sectorIndex) ?: JSONObject()
                     CompanySector(
@@ -864,6 +877,20 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         photoUrl = employee.optString("photoUrl"),
                         sectorId = employee.optString("sectorId"),
                         groupIds = List(groupIdsJson.length()) { groupIndex -> groupIdsJson.optString(groupIndex) },
+                        permissionGroupId = employee.optString("permissionGroupId"),
+                    )
+                }
+                val permissionGroups = List(permissionGroupsJson.length()) { permissionGroupIndex ->
+                    val permissionGroup = permissionGroupsJson.optJSONObject(permissionGroupIndex) ?: JSONObject()
+                    val permissionsJson = permissionGroup.optJSONArray("permissions") ?: JSONArray()
+                    PermissionGroup(
+                        id = permissionGroup.optString("id"),
+                        name = permissionGroup.optString("name"),
+                        description = permissionGroup.optString("description"),
+                        permissions = List(permissionsJson.length()) { permissionIndex ->
+                            permissionsJson.optString(permissionIndex)
+                        },
+                        isSystem = permissionGroup.optBoolean("isSystem", false),
                     )
                 }
                 add(
@@ -877,9 +904,11 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         canManageEmployees = item.optBoolean("canManageEmployees", false),
                         canManageDepartments = item.optBoolean("canManageDepartments", false),
                         canManageGroups = item.optBoolean("canManageGroups", false),
+                        canManagePermissions = item.optBoolean("canManagePermissions", false),
                         employees = employees,
                         sectors = sectors,
                         groups = groups,
+                        permissionGroups = permissionGroups,
                     ),
                 )
             }
@@ -2414,12 +2443,15 @@ private fun PopMainContent(
     val companyCanManageEmployees = remember { mutableStateListOf<Boolean>() }
     val companyCanManageDepartments = remember { mutableStateListOf<Boolean>() }
     val companyCanManageGroups = remember { mutableStateListOf<Boolean>() }
+    val companyCanManagePermissions = remember { mutableStateListOf<Boolean>() }
     val companyMembers = remember { mutableStateListOf<CompanyMember>() }
     val companySectors = remember { mutableStateListOf<CompanySector>() }
     val companyGroups = remember { mutableStateListOf<CompanyGroup>() }
+    val companyPermissionGroups = remember { mutableStateListOf<PermissionGroup>() }
     val companyMemberLists = remember { mutableStateListOf<List<CompanyMember>>() }
     val companySectorLists = remember { mutableStateListOf<List<CompanySector>>() }
     val companyGroupLists = remember { mutableStateListOf<List<CompanyGroup>>() }
+    val companyPermissionGroupLists = remember { mutableStateListOf<List<PermissionGroup>>() }
     val pendingInvitations = remember { mutableStateListOf<ApiInvitation>() }
     var invitationActionPending by remember { mutableStateOf(false) }
     val personalTasks = remember(sessionMode, googleAccount?.id) {
@@ -2572,6 +2604,8 @@ private fun PopMainContent(
             companySectors.addAll(companySectorLists.getOrElse(index) { emptyList() })
             companyGroups.clear()
             companyGroups.addAll(companyGroupLists.getOrElse(index) { emptyList() })
+            companyPermissionGroups.clear()
+            companyPermissionGroups.addAll(companyPermissionGroupLists.getOrElse(index) { emptyList() })
             val token = googleAccount?.apiToken.orEmpty()
             val workspaceId = companyIds.getOrNull(index).orEmpty()
             if (token.isNotBlank() && workspaceId.isNotBlank()) {
@@ -2637,6 +2671,8 @@ private fun PopMainContent(
         companyCanManageDepartments.addAll(companies.map { it.canManageDepartments })
         companyCanManageGroups.clear()
         companyCanManageGroups.addAll(companies.map { it.canManageGroups })
+        companyCanManagePermissions.clear()
+        companyCanManagePermissions.addAll(companies.map { it.canManagePermissions })
         val currentAccountEmail = googleAccount?.email.orEmpty()
         val currentAccountPhoto = googleAccount?.photoUrl.orEmpty()
         companyMemberLists.clear()
@@ -2659,6 +2695,8 @@ private fun PopMainContent(
         companySectorLists.addAll(companies.map { it.sectors })
         companyGroupLists.clear()
         companyGroupLists.addAll(companies.map { it.groups })
+        companyPermissionGroupLists.clear()
+        companyPermissionGroupLists.addAll(companies.map { it.permissionGroups })
         while (companyTaskGroups.size < companies.size) {
             val companyIndex = companyTaskGroups.size
             val cachedTasks = googleAccount?.id?.let { accountId ->
@@ -2690,6 +2728,8 @@ private fun PopMainContent(
         companySectors.addAll(companySectorLists.getOrElse(selectedCompanyIndex) { emptyList() })
         companyGroups.clear()
         companyGroups.addAll(companyGroupLists.getOrElse(selectedCompanyIndex) { emptyList() })
+        companyPermissionGroups.clear()
+        companyPermissionGroups.addAll(companyPermissionGroupLists.getOrElse(selectedCompanyIndex) { emptyList() })
     }
 
     fun rememberAssignedTasks(remoteTasks: List<PopTask>, notify: Boolean) {
@@ -3114,11 +3154,13 @@ private fun PopMainContent(
                         companyMembers = companyMembers,
                         companySectors = companySectors,
                         companyGroups = companyGroups,
+                        companyPermissionGroups = companyPermissionGroups,
                         tasks = tasks,
                         workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
                         canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                         canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
                         canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
+                        canManagePermissions = companyCanManagePermissions.getOrElse(selectedCompanyIndex) { false },
                         onWorkspacesReloaded = ::applyCompanyWorkspaces,
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
@@ -3158,11 +3200,13 @@ private fun PopMainContent(
                 companyMembers = companyMembers,
                 companySectors = companySectors,
                 companyGroups = companyGroups,
+                companyPermissionGroups = companyPermissionGroups,
                 tasks = tasks,
                 workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
                 canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                 canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
                 canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
+                canManagePermissions = companyCanManagePermissions.getOrElse(selectedCompanyIndex) { false },
                 onWorkspacesReloaded = ::applyCompanyWorkspaces,
                 selectedCompanyIndex = selectedCompanyIndex,
                 onCompanySelect = ::selectCompany,
@@ -8292,11 +8336,13 @@ private fun MoreScreen(
     companyMembers: MutableList<CompanyMember>,
     companySectors: MutableList<CompanySector>,
     companyGroups: MutableList<CompanyGroup>,
+    companyPermissionGroups: MutableList<PermissionGroup>,
     tasks: List<PopTask>,
     workspaceId: String,
     canManageEmployees: Boolean,
     canManageDepartments: Boolean,
     canManageGroups: Boolean,
+    canManagePermissions: Boolean,
     onWorkspacesReloaded: (List<ApiWorkspaceSummary>) -> Unit,
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
@@ -8328,6 +8374,9 @@ private fun MoreScreen(
     var sectorDescription by remember { mutableStateOf("") }
     var groupName by remember { mutableStateOf("") }
     var groupDescription by remember { mutableStateOf("") }
+    var editingPermissionGroup by remember { mutableStateOf<PermissionGroup?>(null) }
+    var showPermissionGroupEditor by remember { mutableStateOf(false) }
+    var permissionGroupPendingDeletion by remember { mutableStateOf<PermissionGroup?>(null) }
     var savingManagementAction by remember { mutableStateOf<String?>(null) }
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var deletingAccount by remember { mutableStateOf(false) }
@@ -8483,6 +8532,115 @@ private fun MoreScreen(
                 )
             }
         }
+    } else if (activeManagementPage == "permissions") {
+        Dialog(
+            onDismissRequest = { activeManagementPage = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
+                ManagementOverviewPage(
+                    title = "Permissões",
+                    subtitle = "${companyNames.getOrElse(selectedCompanyIndex) { "Empresa" }} • ${companyPermissionGroups.size} grupos",
+                    emptyMessage = "Nenhum grupo de permissão cadastrado nesta empresa.",
+                    items = companyPermissionGroups.map { group ->
+                        ManagementOverviewEntry(
+                            id = group.id,
+                            title = group.name + if (group.isSystem) " • Sistema" else "",
+                            description = group.description,
+                            detail = "${group.permissions.size} permissões",
+                        )
+                    },
+                    icon = Icons.Rounded.Shield,
+                    canAdd = canManagePermissions,
+                    addDescription = "Criar grupo de permissão",
+                    onAdd = {
+                        editingPermissionGroup = null
+                        showPermissionGroupEditor = true
+                    },
+                    onItemClick = if (canManagePermissions) {
+                        { id ->
+                            editingPermissionGroup = companyPermissionGroups.find { it.id == id }
+                            showPermissionGroupEditor = true
+                        }
+                    } else {
+                        null
+                    },
+                    onBack = { activeManagementPage = null },
+                )
+            }
+        }
+        if (showPermissionGroupEditor) {
+            PermissionGroupEditorDialog(
+                group = editingPermissionGroup,
+                companyMembers = companyMembers,
+                saving = savingManagementAction == "createPermissionGroup" ||
+                    savingManagementAction == "updatePermissionGroup",
+                onDismiss = { showPermissionGroupEditor = false },
+                onDelete = if (editingPermissionGroup != null && editingPermissionGroup?.isSystem != true) {
+                    { permissionGroupPendingDeletion = editingPermissionGroup }
+                } else {
+                    null
+                },
+                onSave = { name, description, permissions, memberIds ->
+                    val action = if (editingPermissionGroup == null) "createPermissionGroup" else "updatePermissionGroup"
+                    val payload = JSONObject()
+                        .put("action", action)
+                        .put("name", name)
+                        .put("description", description)
+                        .put("permissions", JSONArray(permissions))
+                        .put("memberIds", JSONArray(memberIds))
+                    if (editingPermissionGroup != null) payload.put("id", editingPermissionGroup?.id)
+                    submitManagementAction(
+                        action = action,
+                        payload = payload,
+                        successMessage = if (editingPermissionGroup == null) "Grupo de permissão criado." else "Grupo de permissão atualizado.",
+                        afterSuccess = { showPermissionGroupEditor = false },
+                    )
+                },
+            )
+        }
+        if (permissionGroupPendingDeletion != null) {
+            AlertDialog(
+                onDismissRequest = { if (savingManagementAction == null) permissionGroupPendingDeletion = null },
+                title = { Text("Excluir grupo de permissão?", fontWeight = FontWeight.ExtraBold) },
+                text = {
+                    Text(
+                        "As pessoas vinculadas a \"${permissionGroupPendingDeletion?.name}\" ficarão sem grupo de permissão.",
+                        color = PopMuted,
+                        fontSize = 12.sp,
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = savingManagementAction == null,
+                        onClick = {
+                            val id = permissionGroupPendingDeletion?.id ?: return@TextButton
+                            submitManagementAction(
+                                action = "deletePermissionGroup",
+                                payload = JSONObject().put("action", "deletePermissionGroup").put("id", id),
+                                successMessage = "Grupo de permissão excluído.",
+                                afterSuccess = {
+                                    permissionGroupPendingDeletion = null
+                                    showPermissionGroupEditor = false
+                                },
+                            )
+                        },
+                    ) {
+                        if (savingManagementAction == "deletePermissionGroup") {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = PopBlue)
+                        } else {
+                            Text("Excluir", color = Color(0xFFE5484D), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        enabled = savingManagementAction == null,
+                        onClick = { permissionGroupPendingDeletion = null },
+                    ) { Text("Cancelar", color = PopMuted) }
+                },
+            )
+        }
     } else {
         LazyColumn(
             modifier = Modifier
@@ -8567,7 +8725,7 @@ private fun MoreScreen(
                             MoreShortcut(
                                 icon = Icons.Rounded.Shield,
                                 title = "Permissões",
-                                onClick = { openWebPage("/permissoes") },
+                                onClick = { activeManagementPage = "permissions" },
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -10048,6 +10206,7 @@ private fun ManagementOverviewPage(
     addDescription: String,
     onAdd: () -> Unit,
     onBack: () -> Unit,
+    onItemClick: ((String) -> Unit)? = null,
 ) {
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -10095,6 +10254,8 @@ private fun ManagementOverviewPage(
             } else {
                 items(items, key = { it.id }) { item ->
                     Surface(
+                        onClick = { onItemClick?.invoke(item.id) },
+                        enabled = onItemClick != null,
                         color = PopSurfaceAlt,
                         shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.fillMaxWidth(),
@@ -10135,6 +10296,15 @@ private fun ManagementOverviewPage(
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
+                            if (onItemClick != null) {
+                                Spacer(Modifier.width(6.dp))
+                                Icon(
+                                    Icons.Rounded.ChevronRight,
+                                    null,
+                                    tint = PopMuted,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -10164,6 +10334,259 @@ private fun ManagementOverviewPage(
                     .size(66.dp),
             ) {
                 Icon(Icons.Rounded.Add, addDescription, modifier = Modifier.size(30.dp))
+            }
+        }
+    }
+}
+
+private data class PermissionCatalogItem(val key: String, val label: String)
+private data class PermissionCatalogCategory(val name: String, val items: List<PermissionCatalogItem>)
+
+private val permissionCatalog = listOf(
+    PermissionCatalogCategory(
+        "Tarefas",
+        listOf(
+            PermissionCatalogItem("tasks.create", "Criar tarefas"),
+            PermissionCatalogItem("tasks.edit", "Editar tarefas"),
+            PermissionCatalogItem("tasks.changeStatus", "Alterar status"),
+            PermissionCatalogItem("tasks.complete", "Concluir tarefas"),
+            PermissionCatalogItem("tasks.reopen", "Reabrir tarefas"),
+            PermissionCatalogItem("tasks.delete", "Excluir tarefas"),
+            PermissionCatalogItem("tasks.comment", "Comentar"),
+            PermissionCatalogItem("tasks.attach", "Anexar arquivos"),
+            PermissionCatalogItem("tasks.checklist", "Gerenciar checklist"),
+            PermissionCatalogItem("tasks.move", "Reorganizar tarefas"),
+            PermissionCatalogItem("tasks.assign", "Alterar destino e responsável"),
+            PermissionCatalogItem("tasks.recurrence", "Gerenciar recorrência"),
+            PermissionCatalogItem("tasks.viewAll", "Ver todas as tarefas"),
+        ),
+    ),
+    PermissionCatalogCategory(
+        "Visualização de páginas",
+        listOf(
+            PermissionCatalogItem("pages.calendar", "Ver Calendário"),
+            PermissionCatalogItem("pages.groups", "Ver Grupos"),
+            PermissionCatalogItem("pages.departments", "Ver Setores"),
+            PermissionCatalogItem("pages.reports", "Ver Relatórios"),
+            PermissionCatalogItem("pages.employees", "Ver Funcionários"),
+            PermissionCatalogItem("pages.company", "Ver Empresas"),
+        ),
+    ),
+    PermissionCatalogCategory(
+        "Gestão",
+        listOf(
+            PermissionCatalogItem("manage.departments", "Criar/editar setores"),
+            PermissionCatalogItem("manage.groups", "Criar grupos"),
+            PermissionCatalogItem("manage.groups.edit", "Editar grupos"),
+            PermissionCatalogItem("manage.groups.delete", "Excluir grupos"),
+            PermissionCatalogItem("manage.employees", "Cadastrar funcionários"),
+            PermissionCatalogItem("manage.employees.edit", "Editar funcionários"),
+            PermissionCatalogItem("manage.employees.delete", "Excluir funcionários"),
+            PermissionCatalogItem("manage.company", "Editar empresa"),
+            PermissionCatalogItem("manage.permissions", "Gerenciar permissões"),
+            PermissionCatalogItem("manage.invitations", "Gerenciar convites"),
+        ),
+    ),
+)
+
+@Composable
+private fun PermissionGroupEditorDialog(
+    group: PermissionGroup?,
+    companyMembers: List<CompanyMember>,
+    saving: Boolean,
+    onDismiss: () -> Unit,
+    onDelete: (() -> Unit)?,
+    onSave: (name: String, description: String, permissions: List<String>, memberIds: List<String>) -> Unit,
+) {
+    var name by remember(group?.id) { mutableStateOf(group?.name.orEmpty()) }
+    var description by remember(group?.id) { mutableStateOf(group?.description.orEmpty()) }
+    var selectedPermissions by remember(group?.id) {
+        mutableStateOf(group?.permissions?.toSet().orEmpty())
+    }
+    var selectedMemberIds by remember(group?.id) {
+        mutableStateOf(
+            companyMembers.filter { it.permissionGroupId == group?.id && group != null }
+                .map { it.id }
+                .toSet(),
+        )
+    }
+    val isSystem = group?.isSystem == true
+    val valid = name.trim().length >= 2
+
+    Dialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 110.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(onClick = onDismiss, modifier = Modifier.size(42.dp), enabled = !saving) {
+                                Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText)
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    if (group == null) "Criar grupo de permissão" else "Editar grupo de permissão",
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                                if (isSystem) {
+                                    Text(
+                                        "Grupo do sistema • permissões fixas",
+                                        color = PopMuted,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item { ManagementField(name, { name = it }, "Nome") }
+                    item { ManagementField(description, { description = it }, "Descrição") }
+                    for (category in permissionCatalog) {
+                        item {
+                            Text(
+                                category.name,
+                                color = PopText,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        items(category.items, key = { it.key }) { permission ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !isSystem) {
+                                        selectedPermissions = if (permission.key in selectedPermissions) {
+                                            selectedPermissions - permission.key
+                                        } else {
+                                            selectedPermissions + permission.key
+                                        }
+                                    }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = permission.key in selectedPermissions,
+                                    onCheckedChange = { checked ->
+                                        selectedPermissions = if (checked) {
+                                            selectedPermissions + permission.key
+                                        } else {
+                                            selectedPermissions - permission.key
+                                        }
+                                    },
+                                    enabled = !isSystem,
+                                )
+                                Text(permission.label, color = PopText, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    item {
+                        Text(
+                            "Pessoas neste grupo",
+                            color = PopText,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
+                    if (companyMembers.isEmpty()) {
+                        item {
+                            Text(
+                                "Nenhum colaborador cadastrado nesta empresa.",
+                                color = PopMuted,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    } else {
+                        items(companyMembers, key = { it.id }) { member ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedMemberIds = if (member.id in selectedMemberIds) {
+                                            selectedMemberIds - member.id
+                                        } else {
+                                            selectedMemberIds + member.id
+                                        }
+                                    }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = member.id in selectedMemberIds,
+                                    onCheckedChange = { checked ->
+                                        selectedMemberIds = if (checked) {
+                                            selectedMemberIds + member.id
+                                        } else {
+                                            selectedMemberIds - member.id
+                                        }
+                                    },
+                                )
+                                Column {
+                                    Text(member.name, color = PopText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(member.email, color = PopMuted, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+                    if (onDelete != null) {
+                        item {
+                            TextButton(
+                                onClick = onDelete,
+                                enabled = !saving,
+                                modifier = Modifier.padding(top = 12.dp),
+                            ) {
+                                Text("Excluir grupo", color = Color(0xFFE5484D), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                Surface(
+                    color = PopSurface,
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(20.dp)
+                        .fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        TextButton(onClick = onDismiss, enabled = !saving, modifier = Modifier.weight(1f)) {
+                            Text("Cancelar", color = PopMuted)
+                        }
+                        Button(
+                            onClick = {
+                                onSave(
+                                    name.trim(),
+                                    description.trim(),
+                                    selectedPermissions.toList(),
+                                    selectedMemberIds.toList(),
+                                )
+                            },
+                            enabled = valid && !saving,
+                            colors = ButtonDefaults.buttonColors(containerColor = PopBlue),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            if (saving) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                            } else {
+                                Text("Salvar", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
             }
         }
     }

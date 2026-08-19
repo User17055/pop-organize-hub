@@ -60,15 +60,15 @@ export function MonthGrid({
   return (
     <div
       className={cn(
-        "task-glass-panel overflow-hidden rounded-[22px] p-2 md:rounded-[24px] md:p-3",
+        "task-glass-panel overflow-hidden rounded-[22px] p-2 md:rounded-[24px]",
         fullHeight && "md:flex md:h-full md:min-h-0 md:flex-col",
       )}
     >
-      <div className="grid grid-cols-7 px-1 pb-2">
+      <div className="grid shrink-0 grid-cols-7 px-1 pb-1">
         {weekdayLabels.map((label) => (
           <div
             key={label}
-            className="px-1 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-muted-foreground/75 md:px-2 md:text-[11px]"
+            className="px-1 py-1.5 text-center text-[10px] font-bold uppercase tracking-wide text-muted-foreground/75 md:px-2 md:py-1 md:text-[11px]"
           >
             {label}
           </div>
@@ -76,7 +76,7 @@ export function MonthGrid({
       </div>
       <div
         className={cn(
-          "grid grid-cols-7 gap-1.5 md:gap-2",
+          "grid min-h-0 grid-cols-7 gap-1.5",
           fullHeight && "md:flex-1 md:auto-rows-fr",
         )}
       >
@@ -97,8 +97,8 @@ export function MonthGrid({
               type="button"
               onClick={() => onSelectDay(day)}
               className={cn(
-                "pressable flex min-h-[66px] flex-col rounded-[15px] border border-border/45 bg-background/62 p-1.5 text-left align-top outline-none hover:border-primary/24 hover:bg-background/90 focus-visible:ring-2 focus-visible:ring-primary/20 sm:min-h-[112px] sm:rounded-[18px] sm:p-2.5",
-                fullHeight && "sm:min-h-0",
+                "pressable flex min-h-[66px] flex-col overflow-hidden rounded-[15px] border border-border/45 bg-background/62 p-1.5 text-left align-top outline-none hover:border-primary/24 hover:bg-background/90 focus-visible:ring-2 focus-visible:ring-primary/20 sm:min-h-[112px] sm:rounded-[18px] sm:p-2",
+                fullHeight && "sm:min-h-0 md:p-1.5 xl:p-2",
                 !inMonth && "bg-muted/24 text-muted-foreground/55",
                 selected && "border-primary/30 bg-primary/8 ring-2 ring-inset ring-primary/18",
               )}
@@ -133,11 +133,11 @@ export function MonthGrid({
               )}
 
               {/* Desktop/tablet: dot + truncated title */}
-              <div className="mt-2 hidden min-h-0 flex-1 space-y-1.5 sm:block">
+              <div className="mt-1 hidden min-h-0 flex-1 space-y-1 overflow-hidden sm:block xl:mt-1.5">
                 {visibleTasks.map((task) => (
                   <div
                     key={task.id}
-                    className="rounded-full border border-border/50 bg-white/68 px-2 py-1 text-[11px] font-medium text-foreground/72"
+                    className="rounded-full border border-border/50 bg-white/68 px-2 py-0.5 text-[10px] font-medium leading-4 text-foreground/72 xl:text-[11px]"
                     title={task.title}
                   >
                     <span className="flex min-w-0 items-center gap-1.5">
@@ -154,7 +154,7 @@ export function MonthGrid({
                   </div>
                 ))}
                 {overflow > 0 && (
-                  <div className="text-[11px] font-medium text-muted-foreground">
+                  <div className="text-[10px] font-medium leading-3 text-muted-foreground xl:text-[11px]">
                     +{overflow} mais
                   </div>
                 )}

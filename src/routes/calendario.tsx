@@ -417,10 +417,10 @@ function CalendarPage() {
     <AppShell
       title="Calendário"
       subtitle="Visualize as tarefas organizadas por data de vencimento"
-      contentClassName="flex min-h-0 flex-col md:min-h-[calc(100dvh-96px)]"
+      contentClassName="flex min-h-0 flex-col"
     >
-      <div className="mb-4 flex justify-center md:mb-5 md:justify-between">
-        <div className="task-glass-control flex w-full items-center justify-between gap-2 rounded-[22px] px-2 py-2 md:w-auto md:rounded-full">
+      <div className="mb-4 flex shrink-0 justify-center md:mb-3 md:justify-between">
+        <div className="task-glass-control flex w-full items-center justify-between gap-2 rounded-[22px] px-2 py-2 md:w-auto md:rounded-full md:py-1.5">
           <button
             type="button"
             onClick={() => setVisibleMonth((current) => startOfMonth(subMonths(current, 1)))}

@@ -4200,6 +4200,7 @@ private fun MetricCard(
     tint: Color,
     showProgress: Boolean,
     modifier: Modifier = Modifier,
+    showPercentage: Boolean = true,
 ) {
     val percentage = if (total == 0) 0 else ((value.toFloat() / total) * 100).toInt()
     val isLightTheme = MaterialTheme.colorScheme.background.luminance() > .5f
@@ -4218,8 +4219,10 @@ private fun MetricCard(
             Spacer(Modifier.weight(1f))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(value.toString(), color = tint, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
-                Spacer(Modifier.weight(1f))
-                Text("$percentage%", color = PopMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                if (showPercentage) {
+                    Spacer(Modifier.weight(1f))
+                    Text("$percentage%", color = PopMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
             }
             if (showProgress) {
                 Spacer(Modifier.height(11.dp))
@@ -8562,15 +8565,6 @@ private fun MoreScreen(
                                 modifier = Modifier.weight(1f),
                             )
                             MoreShortcut(
-                                icon = Icons.Rounded.Business,
-                                title = "Empresas",
-                                onClick = {
-                                    onCompanySelect(selectedCompanyIndex)
-                                    onWorkSpaceChange(WorkSpace.Company)
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                            MoreShortcut(
                                 icon = Icons.Rounded.Shield,
                                 title = "Permissões",
                                 onClick = { openWebPage("/permissoes") },
@@ -9257,6 +9251,7 @@ private fun MobileReportsPage(
     var selectedTaskFilter by remember { mutableStateOf("Todas") }
     var selectedReportMember by remember { mutableStateOf<CompanyMember?>(null) }
     var selectedReportSector by remember { mutableStateOf<TargetReportStats?>(null) }
+    var reportTab by remember { mutableStateOf(ReportTab.Sectors) }
     val completed = reportTasks.count { it.completed }
     val pending = reportTasks.count { !it.completed }
     val overdue = reportTasks.count { task ->
@@ -9402,6 +9397,7 @@ private fun MobileReportsPage(
                     total = reportTasks.size,
                     tint = PopBlue,
                     showProgress = false,
+                    showPercentage = false,
                     modifier = Modifier.weight(1f).clickable { openTaskList("Todas") },
                 )
                 MetricCard(
@@ -9449,15 +9445,6 @@ private fun MobileReportsPage(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .background(PopBlueSoft, RoundedCornerShape(14.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Rounded.AccessTime, null, tint = PopBlue)
-                    }
-                    Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Para hoje", color = PopMuted, fontSize = 11.sp)
                         Text(
@@ -9483,22 +9470,95 @@ private fun MobileReportsPage(
         }
 
         item {
-            CompactTargetReportSection(
-                title = "Por setor",
-                subtitle = "Atividades organizadas por setor",
-                stats = sectorStats,
-                emptyMessage = "Nenhum setor cadastrado nesta empresa.",
-                onItemClick = ::openSectorTaskList,
-            )
+            Column(Modifier.padding(top = 10.dp, bottom = 2.dp)) {
+                Text("Detalhamento", color = PopText, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Selecione o que você quer analisar", color = PopMuted, fontSize = 11.sp)
+            }
         }
 
         item {
-            CompactTargetReportSection(
-                title = "Por grupo",
-                subtitle = "Atividades organizadas por grupo",
-                stats = groupStats,
-                emptyMessage = "Nenhum grupo cadastrado nesta empresa.",
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ReportFilterChip(
+                    label = "Setores",
+                    count = sectorStats.size,
+                    selected = reportTab == ReportTab.Sectors,
+                    onClick = { reportTab = ReportTab.Sectors },
+                )
+                ReportFilterChip(
+                    label = "Grupos",
+                    count = groupStats.size,
+                    selected = reportTab == ReportTab.Groups,
+                    onClick = { reportTab = ReportTab.Groups },
+                )
+                ReportFilterChip(
+                    label = "Pessoas",
+                    count = userStats.size,
+                    selected = reportTab == ReportTab.People,
+                    onClick = { reportTab = ReportTab.People },
+                )
+            }
+        }
+
+        when (reportTab) {
+            ReportTab.Sectors -> item {
+                CompactTargetReportSection(
+                    title = "Por setor",
+                    subtitle = "Atividades organizadas por setor",
+                    stats = sectorStats,
+                    emptyMessage = "Nenhum setor cadastrado nesta empresa.",
+                    onItemClick = ::openSectorTaskList,
+                )
+            }
+            ReportTab.Groups -> item {
+                CompactTargetReportSection(
+                    title = "Por grupo",
+                    subtitle = "Atividades organizadas por grupo",
+                    stats = groupStats,
+                    emptyMessage = "Nenhum grupo cadastrado nesta empresa.",
+                )
+            }
+            ReportTab.People -> {
+                item {
+                    Column(Modifier.padding(top = 2.dp, bottom = 2.dp)) {
+                        Text(
+                            "Por usuário",
+                            color = PopText,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                        Text(
+                            "Totais e situação das tarefas de cada pessoa",
+                            color = PopMuted,
+                            fontSize = 10.sp,
+                        )
+                    }
+                }
+                if (userStats.isEmpty()) {
+                    item {
+                        Surface(
+                            color = PopSurfaceAlt,
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "Nenhum usuário ativo nesta empresa.",
+                                color = PopMuted,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(16.dp),
+                            )
+                        }
+                    }
+                } else {
+                    items(userStats, key = { it.member.id }) { stats ->
+                        UserReportCard(
+                            stats = stats,
+                            currentUserEmail = currentUserEmail,
+                            currentUserPhotoUrl = currentUserPhotoUrl,
+                            onClick = { openTaskList("Todas", stats.member) },
+                        )
+                    }
+                }
+            }
         }
 
         item {
@@ -9531,50 +9591,10 @@ private fun MobileReportsPage(
                 )
             }
         }
-
-        item {
-            Column(Modifier.padding(top = 10.dp, bottom = 2.dp)) {
-                Text(
-                    "Por usuário",
-                    color = PopText,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                )
-                Text(
-                    "Totais e situação das tarefas de cada pessoa",
-                    color = PopMuted,
-                    fontSize = 11.sp,
-                )
-            }
-        }
-
-        if (userStats.isEmpty()) {
-            item {
-                Surface(
-                    color = PopSurfaceAlt,
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        "Nenhum usuário ativo nesta empresa.",
-                        color = PopMuted,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(16.dp),
-                    )
-                }
-            }
-        } else {
-            items(userStats, key = { it.member.id }) { stats ->
-                UserReportCard(
-                    stats = stats,
-                    currentUserEmail = currentUserEmail,
-                    currentUserPhotoUrl = currentUserPhotoUrl,
-                    onClick = { openTaskList("Todas", stats.member) },
-                )
-            }
-        }
     }
 }
+
+private enum class ReportTab { Sectors, Groups, People }
 
 @Composable
 private fun CompactTargetReportSection(
@@ -9587,36 +9607,73 @@ private fun CompactTargetReportSection(
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         Text(title, color = PopText, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
         Text(subtitle, color = PopMuted, fontSize = 10.sp)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         if (stats.isEmpty()) {
-            Text(emptyMessage, color = PopMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 10.dp))
+            Surface(
+                color = PopSurfaceAlt,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    emptyMessage,
+                    color = PopMuted,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
         } else {
-            stats.forEachIndexed { index, item ->
-                if (index > 0) HorizontalDivider(color = PopBorder.copy(alpha = .55f))
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = onItemClick != null) { onItemClick?.invoke(item) }
-                        .padding(vertical = 11.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            item.name,
-                            color = PopText,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                stats.forEach { item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = onItemClick != null) { onItemClick?.invoke(item) }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                item.name,
+                                color = PopText,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                buildAnnotatedString {
+                                    withStyle(SpanStyle(color = Color(0xFF2EAF6D), fontWeight = FontWeight.Bold)) {
+                                        append(item.completed.toString())
+                                    }
+                                    append(" concluídas • ")
+                                    withStyle(SpanStyle(color = Color(0xFFE49A28), fontWeight = FontWeight.Bold)) {
+                                        append(item.pending.toString())
+                                    }
+                                    append(" pendentes")
+                                    if (item.overdue > 0) {
+                                        append(" • ")
+                                        withStyle(SpanStyle(color = Color(0xFFE5484D), fontWeight = FontWeight.Bold)) {
+                                            append(item.overdue.toString())
+                                        }
+                                        append(" atrasadas")
+                                    }
+                                },
+                                color = PopMuted,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
                         Text(
                             item.total.toString(),
-                            color = PopBlue,
-                            fontSize = 13.sp,
+                            color = PopText,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.ExtraBold,
                         )
                         if (onItemClick != null) {
-                            Spacer(Modifier.width(3.dp))
+                            Spacer(Modifier.width(2.dp))
                             Icon(
                                 Icons.Rounded.ChevronRight,
                                 "Ver tarefas de ${item.name}",
@@ -9625,17 +9682,6 @@ private fun CompactTargetReportSection(
                             )
                         }
                     }
-                    Text(
-                        buildString {
-                            append("${item.completed} concluídas • ${item.pending} pendentes")
-                            if (item.overdue > 0) append(" • ${item.overdue} atrasadas")
-                        },
-                        color = PopMuted,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 3.dp),
-                    )
                 }
             }
         }
@@ -9749,6 +9795,7 @@ private fun ReportTasksPage(
     onOpenTask: (PopTask) -> Unit,
 ) {
     val today = LocalDate.now()
+    var query by remember { mutableStateOf("") }
     val scopedTasks = when {
         member != null -> tasks.filter { it.isAssignedTo(member.name) }
         sector != null -> tasks.filter {
@@ -9759,6 +9806,11 @@ private fun ReportTasksPage(
     val filters = listOf("Todas", "Concluídas", "Pendentes", "Atrasadas", "Hoje")
     val filteredTasks = scopedTasks
         .filter { reportTaskMatchesFilter(it, selectedFilter, today) }
+        .filter {
+            query.isBlank() ||
+                it.title.contains(query, ignoreCase = true) ||
+                it.description.contains(query, ignoreCase = true)
+        }
         .sortedWith(
             compareBy<PopTask> { it.completed }
                 .thenBy { runCatching { LocalDate.parse(it.dueDate) }.getOrNull() },
@@ -9802,6 +9854,31 @@ private fun ReportTasksPage(
                     )
                 }
             }
+        }
+
+        item {
+            TextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Buscar tarefa...") },
+                leadingIcon = { Icon(Icons.Rounded.Search, null, tint = PopBlue) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Rounded.Close, "Limpar busca", tint = PopMuted)
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = PopBlueSoft,
+                    unfocusedContainerColor = PopSurfaceAlt,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            )
         }
 
         item {
@@ -9901,130 +9978,54 @@ private fun ReportTaskCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val today = LocalDate.now()
-    val dueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
-    val isOverdue = !task.completed && dueDate?.isBefore(today) == true
-    val isToday = !task.completed && dueDate == today
-    val statusLabel = when {
-        task.completed -> "Concluída"
-        isOverdue -> "Atrasada"
-        isToday -> "Hoje"
-        else -> "Pendente"
-    }
-    val statusColor = when {
-        task.completed -> Color(0xFF2EAF6D)
-        isOverdue -> Color(0xFFE5484D)
-        isToday -> PopBlue
-        else -> Color(0xFFE49A28)
-    }
-
+    val isOverdue = isTaskOverdue(task)
     Surface(
         onClick = onClick,
         color = PopSurface,
-        shape = RoundedCornerShape(19.dp),
-        border = BorderStroke(1.dp, PopBorder.copy(alpha = .65f)),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, PopBorder.copy(alpha = .55f)),
         modifier = modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(statusColor.copy(alpha = .14f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (task.completed) Icons.Rounded.CheckCircle else Icons.Rounded.PendingActions,
-                        null,
-                        tint = statusColor,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                Spacer(Modifier.width(11.dp))
-                Column(Modifier.weight(1f)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    task.title,
+                    color = PopText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        task.title,
-                        color = PopText,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        task.department.ifBlank { "Sem setor" },
-                        color = PopMuted,
-                        fontSize = 10.sp,
+                        displayDueLabel(task),
+                        fontSize = 11.sp,
+                        color = if (isOverdue) Color(0xFFE5484D) else PopMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (showAssignee) {
+                        Text(" • ", color = PopMuted, fontSize = 10.sp)
                         Text(
-                            "Responsável: ${task.assignee.ifBlank { "Sem responsável" }}",
+                            task.assignee.ifBlank { "Sem responsável" },
+                            fontSize = 11.sp,
                             color = PopMuted,
-                            fontSize = 10.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                     }
-                }
-                Surface(
-                    color = statusColor.copy(alpha = .14f),
-                    shape = RoundedCornerShape(9.dp),
-                ) {
-                    Text(
-                        statusLabel,
-                        color = statusColor,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                    )
+                    if (task.completed) {
+                        Text(" • Concluída", color = PopBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
-            if (task.description.isNotBlank()) {
-                Spacer(Modifier.height(9.dp))
-                Text(
-                    task.description,
-                    color = PopMuted,
-                    fontSize = 10.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.height(11.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Rounded.CalendarMonth,
-                    null,
-                    tint = PopMuted,
-                    modifier = Modifier.size(14.dp),
-                )
-                Spacer(Modifier.width(5.dp))
-                Text(displayDueLabel(task), color = PopMuted, fontSize = 10.sp)
-                Spacer(Modifier.weight(1f))
-                PriorityPill(task.priority)
-            }
-            HorizontalDivider(
-                color = PopBorder.copy(alpha = .55f),
-                modifier = Modifier.padding(top = 12.dp, bottom = 9.dp),
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Ver detalhes e ações",
-                    color = PopBlue,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                Icon(
-                    Icons.Rounded.ArrowForward,
-                    null,
-                    tint = PopBlue,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
+            Spacer(Modifier.width(10.dp))
+            PriorityPill(task.priority)
         }
     }
 }

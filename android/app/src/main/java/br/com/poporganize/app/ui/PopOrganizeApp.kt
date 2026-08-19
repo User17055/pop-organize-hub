@@ -9749,6 +9749,7 @@ private fun ReportTasksPage(
     onOpenTask: (PopTask) -> Unit,
 ) {
     val today = LocalDate.now()
+    var query by remember { mutableStateOf("") }
     val scopedTasks = when {
         member != null -> tasks.filter { it.isAssignedTo(member.name) }
         sector != null -> tasks.filter {
@@ -9759,6 +9760,11 @@ private fun ReportTasksPage(
     val filters = listOf("Todas", "Concluídas", "Pendentes", "Atrasadas", "Hoje")
     val filteredTasks = scopedTasks
         .filter { reportTaskMatchesFilter(it, selectedFilter, today) }
+        .filter {
+            query.isBlank() ||
+                it.title.contains(query, ignoreCase = true) ||
+                it.description.contains(query, ignoreCase = true)
+        }
         .sortedWith(
             compareBy<PopTask> { it.completed }
                 .thenBy { runCatching { LocalDate.parse(it.dueDate) }.getOrNull() },
@@ -9802,6 +9808,31 @@ private fun ReportTasksPage(
                     )
                 }
             }
+        }
+
+        item {
+            TextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Buscar tarefa...") },
+                leadingIcon = { Icon(Icons.Rounded.Search, null, tint = PopBlue) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Rounded.Close, "Limpar busca", tint = PopMuted)
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = PopBlueSoft,
+                    unfocusedContainerColor = PopSurfaceAlt,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            )
         }
 
         item {
@@ -9901,130 +9932,54 @@ private fun ReportTaskCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val today = LocalDate.now()
-    val dueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
-    val isOverdue = !task.completed && dueDate?.isBefore(today) == true
-    val isToday = !task.completed && dueDate == today
-    val statusLabel = when {
-        task.completed -> "Concluída"
-        isOverdue -> "Atrasada"
-        isToday -> "Hoje"
-        else -> "Pendente"
-    }
-    val statusColor = when {
-        task.completed -> Color(0xFF2EAF6D)
-        isOverdue -> Color(0xFFE5484D)
-        isToday -> PopBlue
-        else -> Color(0xFFE49A28)
-    }
-
+    val isOverdue = isTaskOverdue(task)
     Surface(
         onClick = onClick,
         color = PopSurface,
-        shape = RoundedCornerShape(19.dp),
-        border = BorderStroke(1.dp, PopBorder.copy(alpha = .65f)),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, PopBorder.copy(alpha = .55f)),
         modifier = modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(statusColor.copy(alpha = .14f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (task.completed) Icons.Rounded.CheckCircle else Icons.Rounded.PendingActions,
-                        null,
-                        tint = statusColor,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                Spacer(Modifier.width(11.dp))
-                Column(Modifier.weight(1f)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    task.title,
+                    color = PopText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        task.title,
-                        color = PopText,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        task.department.ifBlank { "Sem setor" },
-                        color = PopMuted,
-                        fontSize = 10.sp,
+                        displayDueLabel(task),
+                        fontSize = 11.sp,
+                        color = if (isOverdue) Color(0xFFE5484D) else PopMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (showAssignee) {
+                        Text(" • ", color = PopMuted, fontSize = 10.sp)
                         Text(
-                            "Responsável: ${task.assignee.ifBlank { "Sem responsável" }}",
+                            task.assignee.ifBlank { "Sem responsável" },
+                            fontSize = 11.sp,
                             color = PopMuted,
-                            fontSize = 10.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                     }
-                }
-                Surface(
-                    color = statusColor.copy(alpha = .14f),
-                    shape = RoundedCornerShape(9.dp),
-                ) {
-                    Text(
-                        statusLabel,
-                        color = statusColor,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                    )
+                    if (task.completed) {
+                        Text(" • Concluída", color = PopBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
-            if (task.description.isNotBlank()) {
-                Spacer(Modifier.height(9.dp))
-                Text(
-                    task.description,
-                    color = PopMuted,
-                    fontSize = 10.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.height(11.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Rounded.CalendarMonth,
-                    null,
-                    tint = PopMuted,
-                    modifier = Modifier.size(14.dp),
-                )
-                Spacer(Modifier.width(5.dp))
-                Text(displayDueLabel(task), color = PopMuted, fontSize = 10.sp)
-                Spacer(Modifier.weight(1f))
-                PriorityPill(task.priority)
-            }
-            HorizontalDivider(
-                color = PopBorder.copy(alpha = .55f),
-                modifier = Modifier.padding(top = 12.dp, bottom = 9.dp),
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Ver detalhes e ações",
-                    color = PopBlue,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                Icon(
-                    Icons.Rounded.ArrowForward,
-                    null,
-                    tint = PopBlue,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
+            Spacer(Modifier.width(10.dp))
+            PriorityPill(task.priority)
         }
     }
 }

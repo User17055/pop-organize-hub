@@ -25,20 +25,11 @@ import platform.AuthenticationServices.ASAuthorizationControllerPresentationCont
 import platform.AuthenticationServices.ASAuthorizationScopeEmail
 import platform.AuthenticationServices.ASAuthorizationScopeFullName
 import platform.AuthenticationServices.ASPresentationAnchor
-import platform.Foundation.NSBundle
-import platform.Foundation.NSData
-import platform.Foundation.NSDateComponents
-import platform.Foundation.NSError
-import platform.Foundation.NSHTTPURLResponse
-import platform.Foundation.NSMutableURLRequest
-import platform.Foundation.NSString
-import platform.Foundation.NSURL
-import platform.Foundation.NSURLResponse
-import platform.Foundation.NSURLSession
-import platform.Foundation.NSUTF8StringEncoding
-import platform.Foundation.NSUserDefaults
-import platform.Foundation.create
-import platform.Foundation.dataUsingEncoding
+// Membros de categoria do Objective-C viram extensoes em Kotlin/Native e so entram no escopo
+// com import explicito. HTTPMethod, HTTPBody, setValue:forHTTPHeaderField: e
+// dataTaskWithRequest:completionHandler: sao todos de categoria; importar Foundation inteiro
+// evita ter que acertar cada nome um a um.
+import platform.Foundation.*
 import platform.UIKit.UIApplication
 import platform.UIKit.UIUserInterfaceStyle
 import platform.UIKit.UIViewController

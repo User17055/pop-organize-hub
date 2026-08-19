@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.ColorDrawable
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -12,6 +13,7 @@ import android.os.Build
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -92,6 +94,7 @@ import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
@@ -99,6 +102,7 @@ import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PendingActions
 import androidx.compose.material.icons.rounded.PersonOutline
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -115,6 +119,8 @@ import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -329,6 +335,7 @@ private data class CompanyMember(
     val photoUrl: String = "",
     val sectorId: String = "",
     val groupIds: List<String> = emptyList(),
+    val permissionGroupId: String = "",
 )
 private data class CompanySector(val name: String, val description: String, val id: String = "")
 private data class CompanyGroup(
@@ -336,6 +343,13 @@ private data class CompanyGroup(
     val description: String,
     val id: String = "",
     val memberIds: List<String> = emptyList(),
+)
+private data class PermissionGroup(
+    val id: String,
+    val name: String,
+    val description: String,
+    val permissions: List<String> = emptyList(),
+    val isSystem: Boolean = false,
 )
 private enum class WorkSpace { Personal, Company }
 
@@ -800,9 +814,11 @@ private data class ApiWorkspaceSummary(
     val canManageEmployees: Boolean,
     val canManageDepartments: Boolean,
     val canManageGroups: Boolean,
+    val canManagePermissions: Boolean,
     val employees: List<CompanyMember>,
     val sectors: List<CompanySector>,
     val groups: List<CompanyGroup>,
+    val permissionGroups: List<PermissionGroup>,
 )
 private data class ApiInvitation(
     val id: String,
@@ -832,6 +848,7 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                 val sectorsJson = item.optJSONArray("sectors") ?: JSONArray()
                 val groupsJson = item.optJSONArray("groups") ?: JSONArray()
                 val employeesJson = item.optJSONArray("employees") ?: JSONArray()
+                val permissionGroupsJson = item.optJSONArray("permissionGroups") ?: JSONArray()
                 val sectors = List(sectorsJson.length()) { sectorIndex ->
                     val sector = sectorsJson.optJSONObject(sectorIndex) ?: JSONObject()
                     CompanySector(
@@ -864,6 +881,20 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         photoUrl = employee.optString("photoUrl"),
                         sectorId = employee.optString("sectorId"),
                         groupIds = List(groupIdsJson.length()) { groupIndex -> groupIdsJson.optString(groupIndex) },
+                        permissionGroupId = employee.optString("permissionGroupId"),
+                    )
+                }
+                val permissionGroups = List(permissionGroupsJson.length()) { permissionGroupIndex ->
+                    val permissionGroup = permissionGroupsJson.optJSONObject(permissionGroupIndex) ?: JSONObject()
+                    val permissionsJson = permissionGroup.optJSONArray("permissions") ?: JSONArray()
+                    PermissionGroup(
+                        id = permissionGroup.optString("id"),
+                        name = permissionGroup.optString("name"),
+                        description = permissionGroup.optString("description"),
+                        permissions = List(permissionsJson.length()) { permissionIndex ->
+                            permissionsJson.optString(permissionIndex)
+                        },
+                        isSystem = permissionGroup.optBoolean("isSystem", false),
                     )
                 }
                 add(
@@ -877,9 +908,11 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         canManageEmployees = item.optBoolean("canManageEmployees", false),
                         canManageDepartments = item.optBoolean("canManageDepartments", false),
                         canManageGroups = item.optBoolean("canManageGroups", false),
+                        canManagePermissions = item.optBoolean("canManagePermissions", false),
                         employees = employees,
                         sectors = sectors,
                         groups = groups,
+                        permissionGroups = permissionGroups,
                     ),
                 )
             }
@@ -1524,6 +1557,63 @@ private suspend fun mutateMobileWorkspace(
     } finally {
         connection.disconnect()
     }
+}
+
+private suspend fun updateMobileAccountPhoto(apiToken: String, dataUrl: String): String = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/account").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "PUT"
+        connectTimeout = 15_000
+        readTimeout = 30_000
+        doOutput = true
+        setRequestProperty("Authorization", "Bearer $apiToken")
+        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+            writer.write(JSONObject().put("avatar", dataUrl).toString())
+        }
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) {
+            throw IllegalStateException(response.optString("error", "Não foi possível atualizar a foto."))
+        }
+        response.optJSONObject("user")?.optString("photoUrl").orEmpty()
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private fun encodeImageForUpload(context: Context, uri: Uri): String? {
+    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input, null, options)
+    } ?: return null
+    val maxDimension = 512
+    var sampleSize = 1
+    while (options.outWidth / (sampleSize * 2) >= maxDimension || options.outHeight / (sampleSize * 2) >= maxDimension) {
+        sampleSize *= 2
+    }
+    val sampledBitmap = context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply { inSampleSize = sampleSize })
+    } ?: return null
+    val scale = maxDimension.toFloat() / maxOf(sampledBitmap.width, sampledBitmap.height)
+    val finalBitmap = if (scale < 1f) {
+        Bitmap.createScaledBitmap(
+            sampledBitmap,
+            (sampledBitmap.width * scale).toInt().coerceAtLeast(1),
+            (sampledBitmap.height * scale).toInt().coerceAtLeast(1),
+            true,
+        )
+    } else {
+        sampledBitmap
+    }
+    val output = java.io.ByteArrayOutputStream()
+    finalBitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)
+    val encoded = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+    return "data:image/jpeg;base64,$encoded"
 }
 
 private suspend fun deleteMobileAccount(apiToken: String) = withContext(Dispatchers.IO) {
@@ -2414,12 +2504,15 @@ private fun PopMainContent(
     val companyCanManageEmployees = remember { mutableStateListOf<Boolean>() }
     val companyCanManageDepartments = remember { mutableStateListOf<Boolean>() }
     val companyCanManageGroups = remember { mutableStateListOf<Boolean>() }
+    val companyCanManagePermissions = remember { mutableStateListOf<Boolean>() }
     val companyMembers = remember { mutableStateListOf<CompanyMember>() }
     val companySectors = remember { mutableStateListOf<CompanySector>() }
     val companyGroups = remember { mutableStateListOf<CompanyGroup>() }
+    val companyPermissionGroups = remember { mutableStateListOf<PermissionGroup>() }
     val companyMemberLists = remember { mutableStateListOf<List<CompanyMember>>() }
     val companySectorLists = remember { mutableStateListOf<List<CompanySector>>() }
     val companyGroupLists = remember { mutableStateListOf<List<CompanyGroup>>() }
+    val companyPermissionGroupLists = remember { mutableStateListOf<List<PermissionGroup>>() }
     val pendingInvitations = remember { mutableStateListOf<ApiInvitation>() }
     var invitationActionPending by remember { mutableStateOf(false) }
     val personalTasks = remember(sessionMode, googleAccount?.id) {
@@ -2572,6 +2665,8 @@ private fun PopMainContent(
             companySectors.addAll(companySectorLists.getOrElse(index) { emptyList() })
             companyGroups.clear()
             companyGroups.addAll(companyGroupLists.getOrElse(index) { emptyList() })
+            companyPermissionGroups.clear()
+            companyPermissionGroups.addAll(companyPermissionGroupLists.getOrElse(index) { emptyList() })
             val token = googleAccount?.apiToken.orEmpty()
             val workspaceId = companyIds.getOrNull(index).orEmpty()
             if (token.isNotBlank() && workspaceId.isNotBlank()) {
@@ -2606,6 +2701,14 @@ private fun PopMainContent(
         }
     }
 
+    fun updateAccountPhoto(photoUrl: String) {
+        googleAccount = googleAccount?.copy(photoUrl = photoUrl)
+        context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(GOOGLE_ACCOUNT_PHOTO_STORAGE, photoUrl)
+            .apply()
+    }
+
     fun requestCreateCompany() {
         if (sessionMode == SessionMode.Guest || googleAccount?.apiToken.isNullOrBlank()) {
             Toast.makeText(context, "Entre na sua conta para criar um novo espaço.", Toast.LENGTH_LONG).show()
@@ -2637,6 +2740,8 @@ private fun PopMainContent(
         companyCanManageDepartments.addAll(companies.map { it.canManageDepartments })
         companyCanManageGroups.clear()
         companyCanManageGroups.addAll(companies.map { it.canManageGroups })
+        companyCanManagePermissions.clear()
+        companyCanManagePermissions.addAll(companies.map { it.canManagePermissions })
         val currentAccountEmail = googleAccount?.email.orEmpty()
         val currentAccountPhoto = googleAccount?.photoUrl.orEmpty()
         companyMemberLists.clear()
@@ -2659,6 +2764,8 @@ private fun PopMainContent(
         companySectorLists.addAll(companies.map { it.sectors })
         companyGroupLists.clear()
         companyGroupLists.addAll(companies.map { it.groups })
+        companyPermissionGroupLists.clear()
+        companyPermissionGroupLists.addAll(companies.map { it.permissionGroups })
         while (companyTaskGroups.size < companies.size) {
             val companyIndex = companyTaskGroups.size
             val cachedTasks = googleAccount?.id?.let { accountId ->
@@ -2690,6 +2797,8 @@ private fun PopMainContent(
         companySectors.addAll(companySectorLists.getOrElse(selectedCompanyIndex) { emptyList() })
         companyGroups.clear()
         companyGroups.addAll(companyGroupLists.getOrElse(selectedCompanyIndex) { emptyList() })
+        companyPermissionGroups.clear()
+        companyPermissionGroups.addAll(companyPermissionGroupLists.getOrElse(selectedCompanyIndex) { emptyList() })
     }
 
     fun rememberAssignedTasks(remoteTasks: List<PopTask>, notify: Boolean) {
@@ -3114,11 +3223,13 @@ private fun PopMainContent(
                         companyMembers = companyMembers,
                         companySectors = companySectors,
                         companyGroups = companyGroups,
+                        companyPermissionGroups = companyPermissionGroups,
                         tasks = tasks,
                         workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
                         canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                         canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
                         canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
+                        canManagePermissions = companyCanManagePermissions.getOrElse(selectedCompanyIndex) { false },
                         onWorkspacesReloaded = ::applyCompanyWorkspaces,
                         selectedCompanyIndex = selectedCompanyIndex,
                         onCompanySelect = ::selectCompany,
@@ -3129,6 +3240,7 @@ private fun PopMainContent(
                         },
                         onRequireLogin = onRequireLogin,
                         onSignOut = onSignOut,
+                        onAccountPhotoChanged = ::updateAccountPhoto,
                         onDismiss = { destination = PopDestination.Dashboard },
                     )
                 }
@@ -3158,11 +3270,13 @@ private fun PopMainContent(
                 companyMembers = companyMembers,
                 companySectors = companySectors,
                 companyGroups = companyGroups,
+                companyPermissionGroups = companyPermissionGroups,
                 tasks = tasks,
                 workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
                 canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                 canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
                 canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
+                canManagePermissions = companyCanManagePermissions.getOrElse(selectedCompanyIndex) { false },
                 onWorkspacesReloaded = ::applyCompanyWorkspaces,
                 selectedCompanyIndex = selectedCompanyIndex,
                 onCompanySelect = ::selectCompany,
@@ -3174,6 +3288,7 @@ private fun PopMainContent(
                 },
                 onRequireLogin = onRequireLogin,
                 onSignOut = onSignOut,
+                onAccountPhotoChanged = ::updateAccountPhoto,
                 onDismiss = { showMoreSheet = false },
             )
         }
@@ -3559,8 +3674,20 @@ private fun GoogleProfileAvatar(
         photoUrl?.let { url -> synchronized(googleProfileImageCache) { googleProfileImageCache[url] } }
     }
     val profileImage by produceState<ImageBitmap?>(initialValue = cachedImage, key1 = photoUrl) {
-        val url = photoUrl?.takeIf { it.startsWith("https://") } ?: return@produceState
         if (value != null) return@produceState
+        if (photoUrl?.startsWith("data:image") == true) {
+            value = withContext(Dispatchers.IO) {
+                runCatching {
+                    val base64 = photoUrl.substringAfter(",", "")
+                    val bytes = Base64.decode(base64, Base64.DEFAULT)
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                }.getOrNull()?.also { image ->
+                    synchronized(googleProfileImageCache) { googleProfileImageCache[photoUrl] = image }
+                }
+            }
+            return@produceState
+        }
+        val url = photoUrl?.takeIf { it.startsWith("https://") } ?: return@produceState
         value = withContext(Dispatchers.IO) {
             runCatching {
                 val connection = URL(url).openConnection().apply {
@@ -8292,11 +8419,13 @@ private fun MoreScreen(
     companyMembers: MutableList<CompanyMember>,
     companySectors: MutableList<CompanySector>,
     companyGroups: MutableList<CompanyGroup>,
+    companyPermissionGroups: MutableList<PermissionGroup>,
     tasks: List<PopTask>,
     workspaceId: String,
     canManageEmployees: Boolean,
     canManageDepartments: Boolean,
     canManageGroups: Boolean,
+    canManagePermissions: Boolean,
     onWorkspacesReloaded: (List<ApiWorkspaceSummary>) -> Unit,
     selectedCompanyIndex: Int,
     onCompanySelect: (Int) -> Unit,
@@ -8304,12 +8433,14 @@ private fun MoreScreen(
     onOpenTask: (PopTask) -> Unit,
     onRequireLogin: () -> Unit,
     onSignOut: () -> Unit,
+    onAccountPhotoChanged: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val isGuest = sessionMode == SessionMode.Guest
     val context = LocalContext.current
     val managementScope = rememberCoroutineScope()
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var uploadingPhoto by remember { mutableStateOf(false) }
     var activeManagementPage by remember { mutableStateOf<String?>(null) }
     var showSectorsDialog by remember { mutableStateOf(false) }
     var showGroupsDialog by remember { mutableStateOf(false) }
@@ -8328,6 +8459,9 @@ private fun MoreScreen(
     var sectorDescription by remember { mutableStateOf("") }
     var groupName by remember { mutableStateOf("") }
     var groupDescription by remember { mutableStateOf("") }
+    var editingPermissionGroup by remember { mutableStateOf<PermissionGroup?>(null) }
+    var showPermissionGroupEditor by remember { mutableStateOf(false) }
+    var permissionGroupPendingDeletion by remember { mutableStateOf<PermissionGroup?>(null) }
     var savingManagementAction by remember { mutableStateOf<String?>(null) }
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var deletingAccount by remember { mutableStateOf(false) }
@@ -8373,6 +8507,38 @@ private fun MoreScreen(
                 Uri.parse("https://app.poporganize.com.br$path"),
             ),
         )
+    }
+
+    fun openSupportEmail() {
+        context.startActivity(
+            Intent(
+                Intent.ACTION_SENDTO,
+                Uri.parse("mailto:contato@poporganize.com?subject=" + Uri.encode("Ajuda com o Pop Organize")),
+            ),
+        )
+    }
+
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val token = googleAccount?.apiToken.orEmpty()
+        if (uri == null || token.isBlank() || uploadingPhoto) return@rememberLauncherForActivityResult
+        uploadingPhoto = true
+        managementScope.launch {
+            runCatching {
+                val dataUrl = withContext(Dispatchers.IO) { encodeImageForUpload(context, uri) }
+                    ?: throw IllegalStateException("Não foi possível ler a imagem selecionada.")
+                updateMobileAccountPhoto(token, dataUrl)
+            }.onSuccess { photoUrl ->
+                onAccountPhotoChanged(photoUrl.ifBlank { "" })
+                Toast.makeText(context, "Foto atualizada.", Toast.LENGTH_LONG).show()
+            }.onFailure { error ->
+                Toast.makeText(
+                    context,
+                    error.message ?: "Não foi possível atualizar a foto.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            uploadingPhoto = false
+        }
     }
 
     if (activeManagementPage == "reports") {
@@ -8483,6 +8649,115 @@ private fun MoreScreen(
                 )
             }
         }
+    } else if (activeManagementPage == "permissions") {
+        Dialog(
+            onDismissRequest = { activeManagementPage = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
+                ManagementOverviewPage(
+                    title = "Permissões",
+                    subtitle = "${companyNames.getOrElse(selectedCompanyIndex) { "Empresa" }} • ${companyPermissionGroups.size} grupos",
+                    emptyMessage = "Nenhum grupo de permissão cadastrado nesta empresa.",
+                    items = companyPermissionGroups.map { group ->
+                        ManagementOverviewEntry(
+                            id = group.id,
+                            title = group.name + if (group.isSystem) " • Sistema" else "",
+                            description = group.description,
+                            detail = "${group.permissions.size} permissões",
+                        )
+                    },
+                    icon = Icons.Rounded.Shield,
+                    canAdd = canManagePermissions,
+                    addDescription = "Criar grupo de permissão",
+                    onAdd = {
+                        editingPermissionGroup = null
+                        showPermissionGroupEditor = true
+                    },
+                    onItemClick = if (canManagePermissions) {
+                        { id ->
+                            editingPermissionGroup = companyPermissionGroups.find { it.id == id }
+                            showPermissionGroupEditor = true
+                        }
+                    } else {
+                        null
+                    },
+                    onBack = { activeManagementPage = null },
+                )
+            }
+        }
+        if (showPermissionGroupEditor) {
+            PermissionGroupEditorDialog(
+                group = editingPermissionGroup,
+                companyMembers = companyMembers,
+                saving = savingManagementAction == "createPermissionGroup" ||
+                    savingManagementAction == "updatePermissionGroup",
+                onDismiss = { showPermissionGroupEditor = false },
+                onDelete = if (editingPermissionGroup != null && editingPermissionGroup?.isSystem != true) {
+                    { permissionGroupPendingDeletion = editingPermissionGroup }
+                } else {
+                    null
+                },
+                onSave = { name, description, permissions, memberIds ->
+                    val action = if (editingPermissionGroup == null) "createPermissionGroup" else "updatePermissionGroup"
+                    val payload = JSONObject()
+                        .put("action", action)
+                        .put("name", name)
+                        .put("description", description)
+                        .put("permissions", JSONArray(permissions))
+                        .put("memberIds", JSONArray(memberIds))
+                    if (editingPermissionGroup != null) payload.put("id", editingPermissionGroup?.id)
+                    submitManagementAction(
+                        action = action,
+                        payload = payload,
+                        successMessage = if (editingPermissionGroup == null) "Grupo de permissão criado." else "Grupo de permissão atualizado.",
+                        afterSuccess = { showPermissionGroupEditor = false },
+                    )
+                },
+            )
+        }
+        if (permissionGroupPendingDeletion != null) {
+            AlertDialog(
+                onDismissRequest = { if (savingManagementAction == null) permissionGroupPendingDeletion = null },
+                title = { Text("Excluir grupo de permissão?", fontWeight = FontWeight.ExtraBold) },
+                text = {
+                    Text(
+                        "As pessoas vinculadas a \"${permissionGroupPendingDeletion?.name}\" ficarão sem grupo de permissão.",
+                        color = PopMuted,
+                        fontSize = 12.sp,
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = savingManagementAction == null,
+                        onClick = {
+                            val id = permissionGroupPendingDeletion?.id ?: return@TextButton
+                            submitManagementAction(
+                                action = "deletePermissionGroup",
+                                payload = JSONObject().put("action", "deletePermissionGroup").put("id", id),
+                                successMessage = "Grupo de permissão excluído.",
+                                afterSuccess = {
+                                    permissionGroupPendingDeletion = null
+                                    showPermissionGroupEditor = false
+                                },
+                            )
+                        },
+                    ) {
+                        if (savingManagementAction == "deletePermissionGroup") {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = PopBlue)
+                        } else {
+                            Text("Excluir", color = Color(0xFFE5484D), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        enabled = savingManagementAction == null,
+                        onClick = { permissionGroupPendingDeletion = null },
+                    ) { Text("Cancelar", color = PopMuted) }
+                },
+            )
+        }
     } else {
         LazyColumn(
             modifier = Modifier
@@ -8567,7 +8842,7 @@ private fun MoreScreen(
                             MoreShortcut(
                                 icon = Icons.Rounded.Shield,
                                 title = "Permissões",
-                                onClick = { openWebPage("/permissoes") },
+                                onClick = { activeManagementPage = "permissions" },
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -8994,16 +9269,103 @@ private fun MoreScreen(
     }
 
     if (showSettingsDialog) {
-        AlertDialog(
+        Dialog(
             onDismissRequest = { showSettingsDialog = false },
-            title = { Text("Configurações", fontWeight = FontWeight.ExtraBold) },
-            text = {
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 40.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     item {
-                        Text("Aparência", color = PopMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(onClick = { showSettingsDialog = false }, modifier = Modifier.size(42.dp)) {
+                                Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText)
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            Text("Configurações", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                    if (!isGuest) {
+                        item {
+                            Surface(
+                                color = PopSurface,
+                                shape = RoundedCornerShape(20.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(contentAlignment = Alignment.BottomEnd) {
+                                        GoogleProfileAvatar(
+                                            photoUrl = googleAccount?.photoUrl,
+                                            modifier = Modifier
+                                                .size(64.dp)
+                                                .clickable(enabled = !uploadingPhoto) {
+                                                    photoPicker.launch(
+                                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                                    )
+                                                },
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .clip(CircleShape)
+                                                .background(PopBlue)
+                                                .border(2.dp, PopSurface, CircleShape),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            if (uploadingPhoto) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(13.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = Color.White,
+                                                )
+                                            } else {
+                                                Icon(
+                                                    Icons.Rounded.PhotoCamera,
+                                                    "Alterar foto",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(13.dp),
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Spacer(Modifier.width(14.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            googleAccount?.name?.ifBlank { "Conta conectada" } ?: "Conta conectada",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            googleAccount?.email.orEmpty(),
+                                            color = PopMuted,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Text(
+                            "Aparência",
+                            color = PopMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
                     }
                     item {
                         ThemeChoice(
@@ -9023,54 +9385,79 @@ private fun MoreScreen(
                             onClick = { onLightThemeChange(false) },
                         )
                     }
-                    item { HorizontalDivider(color = PopMuted.copy(alpha = .16f)) }
                     item {
-                        MoreAccountAction(
-                            icon = Icons.Rounded.Description,
-                            label = "Termos de Uso",
-                            onClick = { openWebPage("/termos") },
+                        Text(
+                            "Suporte",
+                            color = PopMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 10.dp),
                         )
                     }
                     item {
-                        MoreAccountAction(
-                            icon = Icons.Rounded.Shield,
-                            label = "Política de Privacidade",
-                            onClick = { openWebPage("/privacidade") },
-                        )
+                        Surface(color = PopSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                MoreAccountAction(
+                                    icon = Icons.Rounded.HelpOutline,
+                                    label = "Central de Ajuda",
+                                    onClick = ::openSupportEmail,
+                                )
+                                MoreAccountAction(
+                                    icon = Icons.Rounded.Description,
+                                    label = "Termos de Uso",
+                                    onClick = { openWebPage("/termos") },
+                                )
+                                MoreAccountAction(
+                                    icon = Icons.Rounded.Shield,
+                                    label = "Política de Privacidade",
+                                    onClick = { openWebPage("/privacidade") },
+                                )
+                            }
+                        }
                     }
                     if (!isGuest) {
                         item {
-                            MoreAccountAction(
-                                icon = Icons.Rounded.Delete,
-                                label = "Excluir minha conta",
-                                accent = Color(0xFFE5484D),
-                                onClick = {
-                                    showSettingsDialog = false
-                                    showDeleteAccountDialog = true
-                                },
+                            Text(
+                                "Conta",
+                                color = PopMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 10.dp),
                             )
                         }
                         item {
-                            MoreAccountAction(
-                                icon = Icons.Rounded.Logout,
-                                label = "Sair",
-                                accent = Color(0xFFE5484D),
-                                onClick = {
-                                    showSettingsDialog = false
-                                    onSignOut()
-                                },
+                            Surface(color = PopSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                    MoreAccountAction(
+                                        icon = Icons.Rounded.Logout,
+                                        label = "Sair",
+                                        onClick = {
+                                            showSettingsDialog = false
+                                            onSignOut()
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        item {
+                            Text(
+                                "Excluir minha conta",
+                                color = PopMuted,
+                                fontSize = 11.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 22.dp)
+                                    .clickable {
+                                        showSettingsDialog = false
+                                        showDeleteAccountDialog = true
+                                    },
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             )
                         }
                     }
                 }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showSettingsDialog = false }) { Text("Fechar") }
-            },
-            shape = RoundedCornerShape(26.dp),
-            containerColor = PopSurface,
-        )
+            }
+        }
     }
 
     if (showSectorsDialog && workSpace == WorkSpace.Company) {
@@ -10048,6 +10435,7 @@ private fun ManagementOverviewPage(
     addDescription: String,
     onAdd: () -> Unit,
     onBack: () -> Unit,
+    onItemClick: ((String) -> Unit)? = null,
 ) {
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -10095,6 +10483,8 @@ private fun ManagementOverviewPage(
             } else {
                 items(items, key = { it.id }) { item ->
                     Surface(
+                        onClick = { onItemClick?.invoke(item.id) },
+                        enabled = onItemClick != null,
                         color = PopSurfaceAlt,
                         shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.fillMaxWidth(),
@@ -10135,6 +10525,15 @@ private fun ManagementOverviewPage(
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
+                            if (onItemClick != null) {
+                                Spacer(Modifier.width(6.dp))
+                                Icon(
+                                    Icons.Rounded.ChevronRight,
+                                    null,
+                                    tint = PopMuted,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -10164,6 +10563,259 @@ private fun ManagementOverviewPage(
                     .size(66.dp),
             ) {
                 Icon(Icons.Rounded.Add, addDescription, modifier = Modifier.size(30.dp))
+            }
+        }
+    }
+}
+
+private data class PermissionCatalogItem(val key: String, val label: String)
+private data class PermissionCatalogCategory(val name: String, val items: List<PermissionCatalogItem>)
+
+private val permissionCatalog = listOf(
+    PermissionCatalogCategory(
+        "Tarefas",
+        listOf(
+            PermissionCatalogItem("tasks.create", "Criar tarefas"),
+            PermissionCatalogItem("tasks.edit", "Editar tarefas"),
+            PermissionCatalogItem("tasks.changeStatus", "Alterar status"),
+            PermissionCatalogItem("tasks.complete", "Concluir tarefas"),
+            PermissionCatalogItem("tasks.reopen", "Reabrir tarefas"),
+            PermissionCatalogItem("tasks.delete", "Excluir tarefas"),
+            PermissionCatalogItem("tasks.comment", "Comentar"),
+            PermissionCatalogItem("tasks.attach", "Anexar arquivos"),
+            PermissionCatalogItem("tasks.checklist", "Gerenciar checklist"),
+            PermissionCatalogItem("tasks.move", "Reorganizar tarefas"),
+            PermissionCatalogItem("tasks.assign", "Alterar destino e responsável"),
+            PermissionCatalogItem("tasks.recurrence", "Gerenciar recorrência"),
+            PermissionCatalogItem("tasks.viewAll", "Ver todas as tarefas"),
+        ),
+    ),
+    PermissionCatalogCategory(
+        "Visualização de páginas",
+        listOf(
+            PermissionCatalogItem("pages.calendar", "Ver Calendário"),
+            PermissionCatalogItem("pages.groups", "Ver Grupos"),
+            PermissionCatalogItem("pages.departments", "Ver Setores"),
+            PermissionCatalogItem("pages.reports", "Ver Relatórios"),
+            PermissionCatalogItem("pages.employees", "Ver Funcionários"),
+            PermissionCatalogItem("pages.company", "Ver Empresas"),
+        ),
+    ),
+    PermissionCatalogCategory(
+        "Gestão",
+        listOf(
+            PermissionCatalogItem("manage.departments", "Criar/editar setores"),
+            PermissionCatalogItem("manage.groups", "Criar grupos"),
+            PermissionCatalogItem("manage.groups.edit", "Editar grupos"),
+            PermissionCatalogItem("manage.groups.delete", "Excluir grupos"),
+            PermissionCatalogItem("manage.employees", "Cadastrar funcionários"),
+            PermissionCatalogItem("manage.employees.edit", "Editar funcionários"),
+            PermissionCatalogItem("manage.employees.delete", "Excluir funcionários"),
+            PermissionCatalogItem("manage.company", "Editar empresa"),
+            PermissionCatalogItem("manage.permissions", "Gerenciar permissões"),
+            PermissionCatalogItem("manage.invitations", "Gerenciar convites"),
+        ),
+    ),
+)
+
+@Composable
+private fun PermissionGroupEditorDialog(
+    group: PermissionGroup?,
+    companyMembers: List<CompanyMember>,
+    saving: Boolean,
+    onDismiss: () -> Unit,
+    onDelete: (() -> Unit)?,
+    onSave: (name: String, description: String, permissions: List<String>, memberIds: List<String>) -> Unit,
+) {
+    var name by remember(group?.id) { mutableStateOf(group?.name.orEmpty()) }
+    var description by remember(group?.id) { mutableStateOf(group?.description.orEmpty()) }
+    var selectedPermissions by remember(group?.id) {
+        mutableStateOf(group?.permissions?.toSet().orEmpty())
+    }
+    var selectedMemberIds by remember(group?.id) {
+        mutableStateOf(
+            companyMembers.filter { it.permissionGroupId == group?.id && group != null }
+                .map { it.id }
+                .toSet(),
+        )
+    }
+    val isSystem = group?.isSystem == true
+    val valid = name.trim().length >= 2
+
+    Dialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 110.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(onClick = onDismiss, modifier = Modifier.size(42.dp), enabled = !saving) {
+                                Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText)
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    if (group == null) "Criar grupo de permissão" else "Editar grupo de permissão",
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                                if (isSystem) {
+                                    Text(
+                                        "Grupo do sistema • permissões fixas",
+                                        color = PopMuted,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item { ManagementField(name, { name = it }, "Nome") }
+                    item { ManagementField(description, { description = it }, "Descrição") }
+                    for (category in permissionCatalog) {
+                        item {
+                            Text(
+                                category.name,
+                                color = PopText,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        items(category.items, key = { it.key }) { permission ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !isSystem) {
+                                        selectedPermissions = if (permission.key in selectedPermissions) {
+                                            selectedPermissions - permission.key
+                                        } else {
+                                            selectedPermissions + permission.key
+                                        }
+                                    }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = permission.key in selectedPermissions,
+                                    onCheckedChange = { checked ->
+                                        selectedPermissions = if (checked) {
+                                            selectedPermissions + permission.key
+                                        } else {
+                                            selectedPermissions - permission.key
+                                        }
+                                    },
+                                    enabled = !isSystem,
+                                )
+                                Text(permission.label, color = PopText, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    item {
+                        Text(
+                            "Pessoas neste grupo",
+                            color = PopText,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
+                    if (companyMembers.isEmpty()) {
+                        item {
+                            Text(
+                                "Nenhum colaborador cadastrado nesta empresa.",
+                                color = PopMuted,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    } else {
+                        items(companyMembers, key = { it.id }) { member ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedMemberIds = if (member.id in selectedMemberIds) {
+                                            selectedMemberIds - member.id
+                                        } else {
+                                            selectedMemberIds + member.id
+                                        }
+                                    }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = member.id in selectedMemberIds,
+                                    onCheckedChange = { checked ->
+                                        selectedMemberIds = if (checked) {
+                                            selectedMemberIds + member.id
+                                        } else {
+                                            selectedMemberIds - member.id
+                                        }
+                                    },
+                                )
+                                Column {
+                                    Text(member.name, color = PopText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(member.email, color = PopMuted, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+                    if (onDelete != null) {
+                        item {
+                            TextButton(
+                                onClick = onDelete,
+                                enabled = !saving,
+                                modifier = Modifier.padding(top = 12.dp),
+                            ) {
+                                Text("Excluir grupo", color = Color(0xFFE5484D), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                Surface(
+                    color = PopSurface,
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(20.dp)
+                        .fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        TextButton(onClick = onDismiss, enabled = !saving, modifier = Modifier.weight(1f)) {
+                            Text("Cancelar", color = PopMuted)
+                        }
+                        Button(
+                            onClick = {
+                                onSave(
+                                    name.trim(),
+                                    description.trim(),
+                                    selectedPermissions.toList(),
+                                    selectedMemberIds.toList(),
+                                )
+                            },
+                            enabled = valid && !saving,
+                            colors = ButtonDefaults.buttonColors(containerColor = PopBlue),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            if (saving) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                            } else {
+                                Text("Salvar", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
             }
         }
     }

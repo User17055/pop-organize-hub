@@ -495,6 +495,30 @@ export async function readMobileWorkspaces(request: Request) {
   };
 }
 
+export async function updateMobileAccount(request: Request, rawInput: unknown) {
+  const { account } = await requireMobileWorkspace(request);
+  const input =
+    typeof rawInput === "object" && rawInput !== null ? (rawInput as Record<string, unknown>) : {};
+  const avatar = typeof input.avatar === "string" ? input.avatar.trim() : undefined;
+  if (avatar !== undefined && avatar.length > 200_000) {
+    throw mobileHttpError("A foto é muito grande.", 413);
+  }
+  const name = typeof input.name === "string" ? input.name.trim() : undefined;
+  if (name !== undefined && name.length < 2) {
+    throw mobileHttpError("Informe um nome válido.");
+  }
+
+  const updated = await mutateDatabase((platform) => {
+    const target = platform.accounts.find((item) => item.id === account.id);
+    if (!target) throw mobileHttpError("Conta não encontrada.", 404);
+    if (avatar !== undefined) target.avatar = avatar || undefined;
+    if (name !== undefined) target.name = name;
+    return target;
+  });
+
+  return { ok: true, user: publicUser(updated) };
+}
+
 export async function deleteMobileAccount(request: Request) {
   const { account } = await requireMobileWorkspace(request);
   await mutateDatabase((platform) => {

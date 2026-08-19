@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.ColorDrawable
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -12,6 +13,7 @@ import android.os.Build
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -92,6 +94,7 @@ import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
@@ -99,6 +102,7 @@ import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PendingActions
 import androidx.compose.material.icons.rounded.PersonOutline
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -1555,6 +1559,63 @@ private suspend fun mutateMobileWorkspace(
     }
 }
 
+private suspend fun updateMobileAccountPhoto(apiToken: String, dataUrl: String): String = withContext(Dispatchers.IO) {
+    val connection = (URL("$MOBILE_API_BASE_URL/account").openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "PUT"
+        connectTimeout = 15_000
+        readTimeout = 30_000
+        doOutput = true
+        setRequestProperty("Authorization", "Bearer $apiToken")
+        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+            writer.write(JSONObject().put("avatar", dataUrl).toString())
+        }
+        val responseCode = connection.responseCode
+        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
+        if (responseCode !in 200..299) {
+            throw IllegalStateException(response.optString("error", "Não foi possível atualizar a foto."))
+        }
+        response.optJSONObject("user")?.optString("photoUrl").orEmpty()
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private fun encodeImageForUpload(context: Context, uri: Uri): String? {
+    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input, null, options)
+    } ?: return null
+    val maxDimension = 512
+    var sampleSize = 1
+    while (options.outWidth / (sampleSize * 2) >= maxDimension || options.outHeight / (sampleSize * 2) >= maxDimension) {
+        sampleSize *= 2
+    }
+    val sampledBitmap = context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply { inSampleSize = sampleSize })
+    } ?: return null
+    val scale = maxDimension.toFloat() / maxOf(sampledBitmap.width, sampledBitmap.height)
+    val finalBitmap = if (scale < 1f) {
+        Bitmap.createScaledBitmap(
+            sampledBitmap,
+            (sampledBitmap.width * scale).toInt().coerceAtLeast(1),
+            (sampledBitmap.height * scale).toInt().coerceAtLeast(1),
+            true,
+        )
+    } else {
+        sampledBitmap
+    }
+    val output = java.io.ByteArrayOutputStream()
+    finalBitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)
+    val encoded = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+    return "data:image/jpeg;base64,$encoded"
+}
+
 private suspend fun deleteMobileAccount(apiToken: String) = withContext(Dispatchers.IO) {
     val connection = (URL("$MOBILE_API_BASE_URL/account").openConnection() as java.net.HttpURLConnection).apply {
         requestMethod = "DELETE"
@@ -2640,6 +2701,14 @@ private fun PopMainContent(
         }
     }
 
+    fun updateAccountPhoto(photoUrl: String) {
+        googleAccount = googleAccount?.copy(photoUrl = photoUrl)
+        context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(GOOGLE_ACCOUNT_PHOTO_STORAGE, photoUrl)
+            .apply()
+    }
+
     fun requestCreateCompany() {
         if (sessionMode == SessionMode.Guest || googleAccount?.apiToken.isNullOrBlank()) {
             Toast.makeText(context, "Entre na sua conta para criar um novo espaço.", Toast.LENGTH_LONG).show()
@@ -3171,6 +3240,7 @@ private fun PopMainContent(
                         },
                         onRequireLogin = onRequireLogin,
                         onSignOut = onSignOut,
+                        onAccountPhotoChanged = ::updateAccountPhoto,
                         onDismiss = { destination = PopDestination.Dashboard },
                     )
                 }
@@ -3218,6 +3288,7 @@ private fun PopMainContent(
                 },
                 onRequireLogin = onRequireLogin,
                 onSignOut = onSignOut,
+                onAccountPhotoChanged = ::updateAccountPhoto,
                 onDismiss = { showMoreSheet = false },
             )
         }
@@ -3603,8 +3674,20 @@ private fun GoogleProfileAvatar(
         photoUrl?.let { url -> synchronized(googleProfileImageCache) { googleProfileImageCache[url] } }
     }
     val profileImage by produceState<ImageBitmap?>(initialValue = cachedImage, key1 = photoUrl) {
-        val url = photoUrl?.takeIf { it.startsWith("https://") } ?: return@produceState
         if (value != null) return@produceState
+        if (photoUrl?.startsWith("data:image") == true) {
+            value = withContext(Dispatchers.IO) {
+                runCatching {
+                    val base64 = photoUrl.substringAfter(",", "")
+                    val bytes = Base64.decode(base64, Base64.DEFAULT)
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                }.getOrNull()?.also { image ->
+                    synchronized(googleProfileImageCache) { googleProfileImageCache[photoUrl] = image }
+                }
+            }
+            return@produceState
+        }
+        val url = photoUrl?.takeIf { it.startsWith("https://") } ?: return@produceState
         value = withContext(Dispatchers.IO) {
             runCatching {
                 val connection = URL(url).openConnection().apply {
@@ -8350,12 +8433,14 @@ private fun MoreScreen(
     onOpenTask: (PopTask) -> Unit,
     onRequireLogin: () -> Unit,
     onSignOut: () -> Unit,
+    onAccountPhotoChanged: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val isGuest = sessionMode == SessionMode.Guest
     val context = LocalContext.current
     val managementScope = rememberCoroutineScope()
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var uploadingPhoto by remember { mutableStateOf(false) }
     var activeManagementPage by remember { mutableStateOf<String?>(null) }
     var showSectorsDialog by remember { mutableStateOf(false) }
     var showGroupsDialog by remember { mutableStateOf(false) }
@@ -8422,6 +8507,38 @@ private fun MoreScreen(
                 Uri.parse("https://app.poporganize.com.br$path"),
             ),
         )
+    }
+
+    fun openSupportEmail() {
+        context.startActivity(
+            Intent(
+                Intent.ACTION_SENDTO,
+                Uri.parse("mailto:contato@poporganize.com?subject=" + Uri.encode("Ajuda com o Pop Organize")),
+            ),
+        )
+    }
+
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val token = googleAccount?.apiToken.orEmpty()
+        if (uri == null || token.isBlank() || uploadingPhoto) return@rememberLauncherForActivityResult
+        uploadingPhoto = true
+        managementScope.launch {
+            runCatching {
+                val dataUrl = withContext(Dispatchers.IO) { encodeImageForUpload(context, uri) }
+                    ?: throw IllegalStateException("Não foi possível ler a imagem selecionada.")
+                updateMobileAccountPhoto(token, dataUrl)
+            }.onSuccess { photoUrl ->
+                onAccountPhotoChanged(photoUrl.ifBlank { "" })
+                Toast.makeText(context, "Foto atualizada.", Toast.LENGTH_LONG).show()
+            }.onFailure { error ->
+                Toast.makeText(
+                    context,
+                    error.message ?: "Não foi possível atualizar a foto.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            uploadingPhoto = false
+        }
     }
 
     if (activeManagementPage == "reports") {
@@ -9152,16 +9269,103 @@ private fun MoreScreen(
     }
 
     if (showSettingsDialog) {
-        AlertDialog(
+        Dialog(
             onDismissRequest = { showSettingsDialog = false },
-            title = { Text("Configurações", fontWeight = FontWeight.ExtraBold) },
-            text = {
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 40.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     item {
-                        Text("Aparência", color = PopMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(onClick = { showSettingsDialog = false }, modifier = Modifier.size(42.dp)) {
+                                Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText)
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            Text("Configurações", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                    if (!isGuest) {
+                        item {
+                            Surface(
+                                color = PopSurface,
+                                shape = RoundedCornerShape(20.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(contentAlignment = Alignment.BottomEnd) {
+                                        GoogleProfileAvatar(
+                                            photoUrl = googleAccount?.photoUrl,
+                                            modifier = Modifier
+                                                .size(64.dp)
+                                                .clickable(enabled = !uploadingPhoto) {
+                                                    photoPicker.launch(
+                                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                                    )
+                                                },
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .clip(CircleShape)
+                                                .background(PopBlue)
+                                                .border(2.dp, PopSurface, CircleShape),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            if (uploadingPhoto) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(13.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = Color.White,
+                                                )
+                                            } else {
+                                                Icon(
+                                                    Icons.Rounded.PhotoCamera,
+                                                    "Alterar foto",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(13.dp),
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Spacer(Modifier.width(14.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            googleAccount?.name?.ifBlank { "Conta conectada" } ?: "Conta conectada",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            googleAccount?.email.orEmpty(),
+                                            color = PopMuted,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Text(
+                            "Aparência",
+                            color = PopMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
                     }
                     item {
                         ThemeChoice(
@@ -9181,54 +9385,79 @@ private fun MoreScreen(
                             onClick = { onLightThemeChange(false) },
                         )
                     }
-                    item { HorizontalDivider(color = PopMuted.copy(alpha = .16f)) }
                     item {
-                        MoreAccountAction(
-                            icon = Icons.Rounded.Description,
-                            label = "Termos de Uso",
-                            onClick = { openWebPage("/termos") },
+                        Text(
+                            "Suporte",
+                            color = PopMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 10.dp),
                         )
                     }
                     item {
-                        MoreAccountAction(
-                            icon = Icons.Rounded.Shield,
-                            label = "Política de Privacidade",
-                            onClick = { openWebPage("/privacidade") },
-                        )
+                        Surface(color = PopSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                MoreAccountAction(
+                                    icon = Icons.Rounded.HelpOutline,
+                                    label = "Central de Ajuda",
+                                    onClick = ::openSupportEmail,
+                                )
+                                MoreAccountAction(
+                                    icon = Icons.Rounded.Description,
+                                    label = "Termos de Uso",
+                                    onClick = { openWebPage("/termos") },
+                                )
+                                MoreAccountAction(
+                                    icon = Icons.Rounded.Shield,
+                                    label = "Política de Privacidade",
+                                    onClick = { openWebPage("/privacidade") },
+                                )
+                            }
+                        }
                     }
                     if (!isGuest) {
                         item {
-                            MoreAccountAction(
-                                icon = Icons.Rounded.Delete,
-                                label = "Excluir minha conta",
-                                accent = Color(0xFFE5484D),
-                                onClick = {
-                                    showSettingsDialog = false
-                                    showDeleteAccountDialog = true
-                                },
+                            Text(
+                                "Conta",
+                                color = PopMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 10.dp),
                             )
                         }
                         item {
-                            MoreAccountAction(
-                                icon = Icons.Rounded.Logout,
-                                label = "Sair",
-                                accent = Color(0xFFE5484D),
-                                onClick = {
-                                    showSettingsDialog = false
-                                    onSignOut()
-                                },
+                            Surface(color = PopSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                    MoreAccountAction(
+                                        icon = Icons.Rounded.Logout,
+                                        label = "Sair",
+                                        onClick = {
+                                            showSettingsDialog = false
+                                            onSignOut()
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        item {
+                            Text(
+                                "Excluir minha conta",
+                                color = PopMuted,
+                                fontSize = 11.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 22.dp)
+                                    .clickable {
+                                        showSettingsDialog = false
+                                        showDeleteAccountDialog = true
+                                    },
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             )
                         }
                     }
                 }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showSettingsDialog = false }) { Text("Fechar") }
-            },
-            shape = RoundedCornerShape(26.dp),
-            containerColor = PopSurface,
-        )
+            }
+        }
     }
 
     if (showSectorsDialog && workSpace == WorkSpace.Company) {

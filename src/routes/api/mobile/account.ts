@@ -3,6 +3,24 @@ import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/api/mobile/account")({
   server: {
     handlers: {
+      PUT: async ({ request }) => {
+        try {
+          const { updateMobileAccount } = await import("@/lib/mobile-api.server");
+          const body = await request.json().catch(() => ({}));
+          return Response.json(await updateMobileAccount(request, body), {
+            headers: { "cache-control": "no-store" },
+          });
+        } catch (error) {
+          const status =
+            typeof error === "object" && error && "statusCode" in error
+              ? Number((error as { statusCode?: number }).statusCode) || 500
+              : 500;
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Falha ao atualizar a conta." },
+            { status },
+          );
+        }
+      },
       DELETE: async ({ request }) => {
         try {
           const { deleteMobileAccount } = await import("@/lib/mobile-api.server");

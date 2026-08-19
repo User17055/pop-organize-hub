@@ -1,0 +1,156 @@
+name: iOS release (TestFlight)
+
+# Gera o Archive assinado e envia para o App Store Connect.
+# Este e o caminho de publicacao quando o Mac local nao roda o Xcode exigido pela Apple.
+#
+# Secrets necessarios no repositorio (Settings > Secrets and variables > Actions):
+#   APPSTORE_TEAM_ID          Team ID de 10 caracteres (Apple Developer > Membership)
+#   APPSTORE_API_KEY_ID       Key ID da chave da App Store Connect API
+#   APPSTORE_API_ISSUER_ID    Issuer ID da App Store Connect API
+#   APPSTORE_API_PRIVATE_KEY  conteudo do arquivo AuthKey_XXXX.p8 em base64
+#
+# A chave da API precisa ter papel "App Manager" ou "Admin" para que o Xcode possa
+# criar/baixar o certificado de distribuicao e o provisioning profile sozinho.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "Numero do build (CURRENT_PROJECT_VERSION). Deixe vazio para usar o valor do projeto."
+        required: false
+        type: string
+      upload:
+        description: "Enviar o .ipa para o App Store Connect"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Selecionar o Xcode mais recente disponivel
+        run: |
+          set -e
+          selected="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$selected" ]; then selected=/Applications/Xcode.app; fi
+          sudo xcode-select -s "$selected"
+          xcodebuild -version
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validar projeto e ambiente de release
+        env:
+          POP_API_BASE_URL: https://app.poporganize.com.br/api/mobile
+        run: |
+          node scripts/validate-ios-native.mjs
+          node scripts/validate-native-release.mjs store-env
+
+      - name: Cache do Gradle e do Kotlin/Native
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.konan
+          key: ${{ runner.os }}-kmp-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-kmp-
+
+      - name: Preparar a chave da App Store Connect API
+        env:
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          set -e
+          if [ -z "$APPSTORE_API_KEY_ID" ] || [ -z "$APPSTORE_API_PRIVATE_KEY" ]; then
+            echo "::error::Configure os secrets APPSTORE_API_KEY_ID e APPSTORE_API_PRIVATE_KEY."
+            exit 1
+          fi
+          mkdir -p ~/private_keys ~/.appstoreconnect/private_keys
+          echo "$APPSTORE_API_PRIVATE_KEY" | base64 --decode > ~/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
+          cp ~/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8 ~/.appstoreconnect/private_keys/
+          chmod 600 ~/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
+
+      - name: Gerar o Archive assinado
+        env:
+          TEAM_ID: ${{ secrets.APPSTORE_TEAM_ID }}
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -e
+          extra=""
+          if [ -n "$BUILD_NUMBER" ]; then extra="CURRENT_PROJECT_VERSION=$BUILD_NUMBER"; fi
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            $extra \
+            archive
+
+      - name: Exportar o .ipa para App Store
+        env:
+          TEAM_ID: ${{ secrets.APPSTORE_TEAM_ID }}
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -e
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>export</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
+
+      - name: Publicar o artefato do build
+        uses: actions/upload-artifact@v4
+        with:
+          name: pop-organize-ios
+          path: ${{ runner.temp }}/export/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enviar para o App Store Connect
+        if: ${{ inputs.upload }}
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -e
+          ipa="$(ls "$RUNNER_TEMP"/export/*.ipa | head -1)"
+          xcrun altool --upload-app -f "$ipa" -t ios \
+            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID"

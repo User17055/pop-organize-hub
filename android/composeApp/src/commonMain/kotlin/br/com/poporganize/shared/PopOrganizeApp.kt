@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LightMode
@@ -74,11 +75,14 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -320,8 +324,21 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
     var morePage by remember { mutableStateOf(MorePage.Menu) }
     var showTaskEditor by remember { mutableStateOf(false) }
 
+    // store.message carrega o retorno das acoes de servidor (criar empresa, criar setor,
+    // convidar pessoa, sincronizar). Ate agora ela so aparecia dentro de Configuracoes, entao
+    // uma falha na tela de Equipe nao dava sinal nenhum ao usuario.
+    val snackbarHostState = remember { SnackbarHostState() }
+    var lastMessage by remember { mutableStateOf(store.message) }
+    LaunchedEffect(store.message) {
+        if (store.message != lastMessage) {
+            lastMessage = store.message
+            snackbarHostState.showSnackbar(store.message)
+        }
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             if (tab == MainTab.More && morePage != MorePage.Menu) {
                 PageHeader(
@@ -335,7 +352,7 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
                     onBack = { morePage = MorePage.Menu },
                 )
             } else {
-                WorkspaceHeader()
+                WorkspaceHeader(store)
             }
         },
         bottomBar = {
@@ -379,40 +396,99 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
 }
 
 @Composable
-private fun WorkspaceHeader() {
-    var showComingSoon by remember { mutableStateOf(false) }
+private fun WorkspaceHeader(store: PopStore) {
+    var showMenu by remember { mutableStateOf(false) }
+    var showCompanyEditor by remember { mutableStateOf(false) }
+
+    val company = store.selectedCompany
+    val inCompany = store.state.workspace == WorkspaceKind.Company && company != null
+    // createCompany() ignora a chamada sem sessão ou a partir da terceira empresa; não oferecer
+    // a opção nesses casos evita um item de menu que não faz nada.
+    val canCreateCompany = !store.state.apiToken.isNullOrBlank() && store.state.companies.size < 3
+    val canSwitch = store.state.companies.isNotEmpty() || canCreateCompany
 
     Surface(color = MaterialTheme.colorScheme.background) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(
-                modifier = Modifier.weight(1f).clickable { showComingSoon = true },
-            ) {
-                Text("Meu espaço", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "Organização pessoal",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            Box(Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.clickable(enabled = canSwitch) { showMenu = true },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f, fill = false)) {
+                        Text(
+                            if (inCompany) company!!.name else "Meu espaço",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            if (inCompany) {
+                                company!!.description.ifBlank { "Espaço da empresa" }
+                            } else {
+                                "Organização pessoal"
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (canSwitch) {
+                        Icon(
+                            Icons.Rounded.ExpandMore,
+                            "Trocar de espaço",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Meu espaço") },
+                        leadingIcon = { Icon(Icons.Rounded.Person, null) },
+                        trailingIcon = {
+                            if (!inCompany) Icon(Icons.Rounded.Check, null, tint = PopBlue)
+                        },
+                        onClick = {
+                            showMenu = false
+                            store.selectPersonal()
+                        },
+                    )
+                    store.state.companies.forEach { item ->
+                        DropdownMenuItem(
+                            text = { Text(item.name) },
+                            leadingIcon = { Icon(Icons.Rounded.Business, null) },
+                            trailingIcon = {
+                                if (inCompany && company!!.id == item.id) {
+                                    Icon(Icons.Rounded.Check, null, tint = PopBlue)
+                                }
+                            },
+                            onClick = {
+                                showMenu = false
+                                store.selectCompany(item.id)
+                            },
+                        )
+                    }
+                    if (canCreateCompany) {
+                        DropdownMenuItem(
+                            text = { Text("Criar empresa") },
+                            leadingIcon = { Icon(Icons.Rounded.Add, null, tint = PopBlue) },
+                            onClick = {
+                                showMenu = false
+                                showCompanyEditor = true
+                            },
+                        )
+                    }
+                }
             }
             PopLogo()
         }
     }
 
-    if (showComingSoon) {
-        AlertDialog(
-            onDismissRequest = { showComingSoon = false },
-            title = { Text("Meu espaço") },
-            text = { Text("Em breve, mais funcionalidades para o seu espaço pessoal.") },
-            confirmButton = {
-                TextButton(onClick = { showComingSoon = false }) { Text("Entendi") }
-            },
-        )
-    }
+    if (showCompanyEditor) CompanyEditorDialog(store) { showCompanyEditor = false }
 }
 
 @Composable
@@ -498,9 +574,11 @@ private fun TasksScreen(store: PopStore) {
             add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
         }
     }
+    // toSortedMap() vem de java.util e nao existe no commonMain; a lista de pares ordenada
+    // preserva a mesma ordenacao natural por nome de setor.
     val groupedTasks = tasks.groupBy {
         if (it.assignment.kind == AssignmentKind.Sector) it.assignment.label else "Sem setor"
-    }.toSortedMap()
+    }.toList().sortedBy { it.first }
 
     fun deleteWithAnimation(task: PopTask, action: () -> Unit) {
         pendingDeleteTask = null
@@ -868,10 +946,13 @@ private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
             Text("Conta e preferências", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
+            val company = store.selectedCompany
+            val inCompany = store.state.workspace == WorkspaceKind.Company && company != null
+            val pending = store.visibleTasks.count { !it.completed }
             PopCard {
-                Text("Meu espaço", fontWeight = FontWeight.Bold)
+                Text(if (inCompany) company!!.name else "Meu espaço", fontWeight = FontWeight.Bold)
                 Text(
-                    "Em breve, mais funcionalidades para sua organização pessoal.",
+                    if (pending == 1) "1 atividade pendente" else "$pending atividades pendentes",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                 )
@@ -883,19 +964,27 @@ private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
             store.state.workspace == WorkspaceKind.Company &&
             store.selectedCompany != null
         ) {
+            val company = store.selectedCompany!!
             item { SectionTitle("Empresa") }
+            item {
+                MoreItem(
+                    Icons.Rounded.Person,
+                    "Equipe",
+                    "${company.members.size} pessoas cadastradas",
+                ) { onPage(MorePage.Team) }
+            }
             item {
                 MoreItem(
                     Icons.Rounded.Apartment,
                     "Setores",
-                    "Visualizar os setores da empresa",
+                    "${company.sectors.size} setores",
                 ) { onPage(MorePage.Sectors) }
             }
             item {
                 MoreItem(
                     Icons.Rounded.Groups,
                     "Grupos",
-                    "Visualizar os grupos da empresa",
+                    "${company.groups.size} grupos",
                 ) { onPage(MorePage.Groups) }
             }
         }
@@ -934,21 +1023,40 @@ private fun TeamScreen(store: PopStore) {
 @Composable
 private fun SectorsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
+    var showEditor by remember { mutableStateOf(false) }
     EntityListScreen(
         title = "Estrutura por setores",
         emptyTitle = "Nenhum setor",
+        emptyDetail = "Cadastre o primeiro setor para poder convidar pessoas.",
         items = company?.sectors.orEmpty().map { it.name to it.description },
+        onAdd = { showEditor = true },
     )
+    if (showEditor) {
+        SimpleEntityEditorDialog(
+            title = "Novo setor",
+            onSave = { name, description -> store.addSector(name, description) },
+            onDismiss = { showEditor = false },
+        )
+    }
 }
 
 @Composable
 private fun GroupsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
+    var showEditor by remember { mutableStateOf(false) }
     EntityListScreen(
         title = "Grupos de trabalho",
         emptyTitle = "Nenhum grupo",
         items = company?.groups.orEmpty().map { it.name to it.description },
+        onAdd = { showEditor = true },
     )
+    if (showEditor) {
+        SimpleEntityEditorDialog(
+            title = "Novo grupo",
+            onSave = { name, description -> store.addGroup(name, description) },
+            onDismiss = { showEditor = false },
+        )
+    }
 }
 
 @Composable
@@ -957,14 +1065,18 @@ private fun EntityListScreen(
     emptyTitle: String,
     items: List<Pair<String, String>>,
     onAdd: (() -> Unit)? = null,
+    emptyDetail: String? = null,
 ) {
+    // Sem onAdd a tela e somente leitura e o vazio precisa mandar o usuario para o painel web.
+    val detail = emptyDetail
+        ?: if (onAdd != null) "Toque em + para cadastrar." else "Cadastre pela versão web."
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             contentPadding = PaddingValues(18.dp, 14.dp, 18.dp, 88.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item { Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            if (items.isEmpty()) item { EmptyState(emptyTitle, "Cadastre pela versão web.") }
+            if (items.isEmpty()) item { EmptyState(emptyTitle, detail) }
             items(items) { item ->
                 PopCard {
                     Text(item.first, fontWeight = FontWeight.Bold)

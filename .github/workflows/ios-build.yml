@@ -1,0 +1,77 @@
+name: iOS build check
+
+# Compila o framework Kotlin/Native e o alvo do Xcode sem assinatura.
+# Serve para validar, a partir do Windows, que o codigo iOS realmente compila.
+
+on:
+  push:
+    paths:
+      - "android/composeApp/**"
+      - "android/*.gradle"
+      - "android/gradle/**"
+      - "ios/**"
+      - "scripts/validate-ios-native.mjs"
+      - ".github/workflows/ios-build.yml"
+  pull_request:
+    paths:
+      - "android/composeApp/**"
+      - "ios/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Selecionar o Xcode mais recente disponivel
+        run: |
+          set -e
+          selected="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$selected" ]; then selected=/Applications/Xcode.app; fi
+          sudo xcode-select -s "$selected"
+          xcodebuild -version
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validar a ligacao KMP <-> Xcode
+        run: node scripts/validate-ios-native.mjs
+
+      - name: Cache do Gradle e do Kotlin/Native
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.konan
+          key: ${{ runner.os }}-kmp-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-kmp-
+
+      - name: Compilar o framework compartilhado (device)
+        working-directory: android
+        run: ./gradlew :composeApp:linkDebugFrameworkIosArm64 --no-daemon
+
+      - name: Compilar o aplicativo no simulador (sem assinatura)
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build

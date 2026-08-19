@@ -67,11 +67,30 @@ if (mode === "store") {
   if (!xcodeProject.includes("https://app.poporganize.com.br/api/mobile")) {
     fail("the iOS Release API URL is not configured.");
   }
-  if (
-    !xcodeProject.includes("APS_ENVIRONMENT = production") ||
-    !entitlements.includes("$(APS_ENVIRONMENT)")
-  ) {
-    fail("the iOS release APNs environment is not configured for production.");
+  if (!entitlements.includes("com.apple.developer.applesignin")) {
+    fail("the iOS Sign in with Apple entitlement is missing.");
+  }
+
+  // Android e iOS precisam sair com a mesma versao publica e o mesmo numero de build.
+  const marketingVersion = /MARKETING_VERSION = ([^;]+);/.exec(xcodeProject)?.[1]?.trim();
+  const projectVersion = /CURRENT_PROJECT_VERSION = ([^;]+);/.exec(xcodeProject)?.[1]?.trim();
+  const versionName = /versionName\s+"([^"]+)"/.exec(androidGradle)?.[1]?.trim();
+  const versionCode = /versionCode\s+(\d+)/.exec(androidGradle)?.[1]?.trim();
+  if (!marketingVersion || !projectVersion) {
+    fail("the iOS version numbers are missing from the Xcode project.");
+  }
+  if (!versionName || !versionCode) {
+    fail("the Android version numbers are missing from android/app/build.gradle.");
+  }
+  if (marketingVersion !== versionName) {
+    fail(
+      `iOS MARKETING_VERSION (${marketingVersion}) differs from Android versionName (${versionName}).`,
+    );
+  }
+  if (projectVersion !== versionCode) {
+    fail(
+      `iOS CURRENT_PROJECT_VERSION (${projectVersion}) differs from Android versionCode (${versionCode}).`,
+    );
   }
 }
 

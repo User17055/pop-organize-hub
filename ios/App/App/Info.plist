@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>pt_BR</string>
+	<string>pt-BR</string>
 	<key>CFBundleDisplayName</key>
         <string>Pop Organize</string>
 	<key>CFBundleExecutable</key>
@@ -28,10 +28,6 @@
 	<string>$(POP_API_BASE_URL)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

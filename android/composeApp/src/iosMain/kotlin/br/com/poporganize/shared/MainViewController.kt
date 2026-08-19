@@ -3,10 +3,19 @@
 package br.com.poporganize.shared
 
 import androidx.compose.ui.window.ComposeUIViewController
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.datetime.Clock
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import platform.AudioToolbox.AudioServicesPlaySystemSound
 import platform.AuthenticationServices.ASAuthorization
 import platform.AuthenticationServices.ASAuthorizationAppleIDCredential
 import platform.AuthenticationServices.ASAuthorizationAppleIDProvider
@@ -16,26 +25,25 @@ import platform.AuthenticationServices.ASAuthorizationControllerPresentationCont
 import platform.AuthenticationServices.ASAuthorizationScopeEmail
 import platform.AuthenticationServices.ASAuthorizationScopeFullName
 import platform.AuthenticationServices.ASPresentationAnchor
-import platform.Foundation.NSError
-import platform.Foundation.NSString
-import platform.Foundation.NSURL
-import platform.Foundation.NSBundle
-import platform.Foundation.NSHTTPURLResponse
-import platform.Foundation.NSMutableURLRequest
-import platform.Foundation.NSUTF8StringEncoding
-import platform.Foundation.NSURLSession
-import platform.Foundation.NSUserDefaults
-import platform.Foundation.create
-import platform.Foundation.dataUsingEncoding
+// Membros de categoria do Objective-C viram extensoes em Kotlin/Native e so entram no escopo
+// com import explicito. HTTPMethod, HTTPBody, setValue:forHTTPHeaderField: e
+// dataTaskWithRequest:completionHandler: sao todos de categoria; importar Foundation inteiro
+// evita ter que acertar cada nome um a um.
+import platform.Foundation.*
 import platform.UIKit.UIApplication
+import platform.UIKit.UIUserInterfaceStyle
 import platform.UIKit.UIViewController
+import platform.UIKit.UIWindow
 import platform.UserNotifications.UNAuthorizationOptionAlert
 import platform.UserNotifications.UNAuthorizationOptionBadge
 import platform.UserNotifications.UNAuthorizationOptionSound
+import platform.UserNotifications.UNCalendarNotificationTrigger
+import platform.UserNotifications.UNMutableNotificationContent
+import platform.UserNotifications.UNNotificationRequest
+import platform.UserNotifications.UNNotificationSound
 import platform.UserNotifications.UNUserNotificationCenter
-import kotlin.coroutines.resume
-import kotlin.experimental.ExperimentalNativeApi
 import platform.darwin.NSObject
+import kotlin.coroutines.resume
 
 fun MainViewController(): UIViewController = ComposeUIViewController {
     PopOrganizeApp(IosPlatformServices)
@@ -43,6 +51,14 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
 
 private object IosPlatformServices : PopPlatformServices {
     private const val STATE_KEY = "pop_organize_kmp_state_v1"
+
+    // O iOS mantem no maximo 64 notificacoes locais pendentes por aplicativo.
+    private const val MAX_SCHEDULED_REMINDERS = 60
+
+    // Toque curto do sistema ao concluir uma atividade (equivalente ao som padrao do Android).
+    private const val ACTION_SOUND_ID = 1007u
+
+    private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var appleDelegate: AppleAuthorizationDelegate? = null
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -77,7 +93,7 @@ private object IosPlatformServices : PopPlatformServices {
             val email = credential.email.orEmpty()
             val name = listOfNotNull(credential.fullName?.givenName, credential.fullName?.familyName)
                 .joinToString(" ").trim()
-            kotlinx.coroutines.MainScope().launch {
+            mainScope.launch {
                 val response = apiRequest(
                     path = "auth/apple",
                     method = "POST",
@@ -131,42 +147,113 @@ private object IosPlatformServices : PopPlatformServices {
             continuation.resume(ApiResponse(0, "{\"error\":\"URL da API não configurada.\"}"))
             return@suspendCancellableCoroutine
         }
-        val request = NSMutableURLRequest.requestWithURL(url).apply {
-            HTTPMethod = method
+        // requestWithURL: e declarado em NSURLRequest, entao o binding devolve o tipo imutavel;
+        // sem o cast os setters de NSMutableURLRequest nao existem para o compilador.
+        val request = (NSMutableURLRequest.requestWithURL(url) as NSMutableURLRequest).apply {
+            setHTTPMethod(method)
             setValue("application/json", forHTTPHeaderField = "Accept")
             if (!token.isNullOrBlank()) setValue("Bearer $token", forHTTPHeaderField = "Authorization")
             if (!workspaceId.isNullOrBlank()) setValue(workspaceId, forHTTPHeaderField = "X-Workspace-Id")
             if (body != null) {
                 setValue("application/json; charset=utf-8", forHTTPHeaderField = "Content-Type")
-                HTTPBody = (body as NSString).dataUsingEncoding(NSUTF8StringEncoding)
+                setHTTPBody((body as NSString).dataUsingEncoding(NSUTF8StringEncoding))
             }
         }
-        val task = NSURLSession.sharedSession.dataTaskWithRequest(request) { data, response, error ->
-            if (!continuation.isActive) return@dataTaskWithRequest
-            val status = (response as? NSHTTPURLResponse)?.statusCode?.toInt() ?: 0
-            val responseBody = data?.let {
-                NSString.create(data = it, encoding = NSUTF8StringEncoding)?.toString()
-            }.orEmpty()
-            val fallback = error?.localizedDescription?.let { "{\"error\":${json.encodeToString(it)}}" }.orEmpty()
-            continuation.resume(ApiResponse(status, responseBody.ifBlank { fallback }))
+        // Os tipos dos parametros sao explicitos porque dataTaskWithRequest tem sobrecarga com e
+        // sem completion handler; sem eles a resolucao falha e a lambda inteira fica sem tipo.
+        val task = NSURLSession.sharedSession.dataTaskWithRequest(
+            request,
+        ) { data: NSData?, response: NSURLResponse?, error: NSError? ->
+            if (continuation.isActive) {
+                val status = (response as? NSHTTPURLResponse)?.statusCode?.toInt() ?: 0
+                val responseBody = data
+                    ?.let { NSString.create(data = it, encoding = NSUTF8StringEncoding)?.toString() }
+                    .orEmpty()
+                val fallback = error?.localizedDescription
+                    ?.let { message -> "{\"error\":${json.encodeToString(message)}}" }
+                    .orEmpty()
+                continuation.resume(ApiResponse(status, responseBody.ifBlank { fallback }))
+            }
         }
         continuation.invokeOnCancellation { task.cancel() }
         task.resume()
     }
 
+    /**
+     * Espelha os lembretes locais do Android: distintivo com o total pendente e uma notificacao
+     * local para cada atividade com data e hora ainda no futuro.
+     */
     override fun updateNotifications(tasks: List<PopTask>, firstName: String) {
         val pending = tasks.count { !it.completed }
-        UIApplication.sharedApplication.applicationIconBadgeNumber = pending.toLong()
-        UNUserNotificationCenter.currentNotificationCenter().requestAuthorizationWithOptions(
-            UNAuthorizationOptionAlert or UNAuthorizationOptionSound or UNAuthorizationOptionBadge,
-        ) { granted, _ ->
-            if (granted) UIApplication.sharedApplication.registerForRemoteNotifications()
+        val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+        val reminders = tasks
+            .asSequence()
+            .filter { !it.completed && it.dueTime.isNotBlank() }
+            .mapNotNull { task -> scheduledAt(task)?.let { moment -> task to moment } }
+            .filter { pair -> pair.second > now }
+            .sortedBy { pair -> pair.second }
+            .take(MAX_SCHEDULED_REMINDERS)
+            .toList()
+
+        mainScope.launch {
+            UIApplication.sharedApplication.applicationIconBadgeNumber = pending.toLong()
+            UNUserNotificationCenter.currentNotificationCenter().requestAuthorizationWithOptions(
+                UNAuthorizationOptionAlert or UNAuthorizationOptionSound or UNAuthorizationOptionBadge,
+            ) { granted, _ ->
+                if (granted) mainScope.launch { scheduleReminders(reminders, firstName) }
+            }
         }
     }
 
-    override fun applyTheme(light: Boolean) = Unit
+    private fun scheduleReminders(reminders: List<Pair<PopTask, LocalDateTime>>, firstName: String) {
+        val center = UNUserNotificationCenter.currentNotificationCenter()
+        // O aplicativo nao cria outras notificacoes locais, entao recriar a lista mantem tudo em dia.
+        center.removeAllPendingNotificationRequests()
+        val owner = firstName.trim()
+        reminders.forEach { pair ->
+            val task = pair.first
+            val moment = pair.second
+            val content = UNMutableNotificationContent().apply {
+                setTitle(if (owner.isBlank()) "Pop Organize" else "$owner, chegou a hora")
+                setBody(task.title.ifBlank { "Você tem uma atividade agendada." })
+                // O som personalizado exige CAF/AIFF/WAV; pop_notification.mp3 nao serve aqui.
+                setSound(UNNotificationSound.defaultSound)
+            }
+            val components = NSDateComponents().apply {
+                year = moment.year.toLong()
+                month = moment.monthNumber.toLong()
+                day = moment.dayOfMonth.toLong()
+                hour = moment.hour.toLong()
+                minute = moment.minute.toLong()
+            }
+            val trigger = UNCalendarNotificationTrigger.triggerWithDateMatchingComponents(components, repeats = false)
+            center.addNotificationRequest(
+                UNNotificationRequest.requestWithIdentifier("pop-task-" + task.id, content, trigger),
+                null,
+            )
+        }
+    }
 
-    override fun playActionSound() = Unit
+    private fun scheduledAt(task: PopTask): LocalDateTime? {
+        val date = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return null
+        val parts = task.dueTime.trim().split(":")
+        val hour = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        if (hour !in 0..23 || minute !in 0..59) return null
+        return LocalDateTime(date.year, date.monthNumber, date.dayOfMonth, hour, minute)
+    }
+
+    override fun applyTheme(light: Boolean) {
+        mainScope.launch {
+            keyWindow()?.overrideUserInterfaceStyle =
+                if (light) UIUserInterfaceStyle.UIUserInterfaceStyleLight
+                else UIUserInterfaceStyle.UIUserInterfaceStyleDark
+        }
+    }
+
+    override fun playActionSound() {
+        AudioServicesPlaySystemSound(ACTION_SOUND_ID)
+    }
 
     override fun openSupportEmail() {
         NSURL.URLWithString("mailto:contato@poporganize.com")?.let { UIApplication.sharedApplication.openURL(it) }
@@ -174,6 +261,12 @@ private object IosPlatformServices : PopPlatformServices {
 
     override fun openExternalUrl(url: String) {
         NSURL.URLWithString(url)?.let { UIApplication.sharedApplication.openURL(it) }
+    }
+
+    internal fun keyWindow(): UIWindow? {
+        val application = UIApplication.sharedApplication
+        return application.keyWindow
+            ?: application.windows.filterIsInstance<UIWindow>().firstOrNull()
     }
 }
 
@@ -192,7 +285,7 @@ private class AppleAuthorizationDelegate(
         didCompleteWithAuthorization: ASAuthorization,
     ) {
         val credential = didCompleteWithAuthorization.credential as? ASAuthorizationAppleIDCredential
-        complete(credential, credential?.let { null } ?: "Não foi possível ler a conta Apple.")
+        complete(credential, if (credential == null) "Não foi possível ler a conta Apple." else null)
     }
 
     override fun authorizationController(
@@ -203,5 +296,5 @@ private class AppleAuthorizationDelegate(
     }
 
     override fun presentationAnchorForAuthorizationController(controller: ASAuthorizationController): ASPresentationAnchor =
-        UIApplication.sharedApplication.keyWindow ?: error("Janela principal indisponível")
+        IosPlatformServices.keyWindow() ?: error("Janela principal indisponível")
 }

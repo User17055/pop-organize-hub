@@ -829,7 +829,9 @@ private fun TasksScreen(store: PopStore) {
     val groupedTasks = remember(tasks) {
         tasks.groupBy {
             if (it.assignment.kind == AssignmentKind.Sector) it.assignment.label else "Sem setor"
-        }.toList().sortedBy { it.first }
+        }.toList()
+            .sortedBy { it.first }
+            .map { (sector, sectorTasks) -> sector to sectorTasks.sortedWith(taskListOrder) }
     }
 
     fun deleteWithAnimation(task: PopTask, action: () -> Unit) {
@@ -1317,8 +1319,23 @@ private fun calendarRowKey(row: CalendarRow): String = when (row) {
 }
 
 /**
- * Dentro de um dia: pendentes antes de concluidas, com horario antes de sem horario, e a
- * prioridade decide o resto. E a mesma cascata que o Android usa.
+ * Ordem da lista de tarefas dentro de um setor: pendentes antes de concluidas, depois o prazo mais
+ * proximo, e a prioridade desempata. A tela nao ordenava nada -- as tarefas sairam na ordem em que
+ * chegaram, com urgente e concluida embaralhadas -- enquanto o Android ja poe pendente antes de
+ * concluida e ordena por data.
+ *
+ * O `ifBlank` nao e detalhe: dueDate e String, e a string vazia ordena ANTES de "2026-...", entao
+ * sem ele a tarefa sem data pularia para o topo em vez de ir para o fim.
+ */
+private val taskListOrder = compareBy<PopTask>(
+    { it.completed },
+    { it.dueDate.ifBlank { "9999-12-31" } },
+    { -it.priority.ordinal },
+)
+
+/**
+ * Dentro de um dia do calendario a cascata e outra, de proposito: a data ja e a mesma para todos,
+ * entao quem manda e o horario, e a prioridade so desempata quem nao tem hora marcada.
  */
 private val dayTaskOrder = compareBy<PopTask>(
     { it.completed },

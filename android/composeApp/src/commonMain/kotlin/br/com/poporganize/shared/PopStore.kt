@@ -45,9 +45,25 @@ class PopStore(private val platform: PopPlatformServices) {
             }
         }
 
+    /**
+     * Quem pode mexer em checklist.
+     *
+     * Parece adivinhacao por texto de cargo, mas nao e: **esta e a regra que o servidor enforca**.
+     * Nao existe permissao de checklist no conjunto que ele calcula -- os dois pontos que gravam
+     * subtarefa em mobile-api.server.ts conferem `currentUser.role.includes("admin")` na mao.
+     * Trocar isto por `permissions` faria a interface decidir por um criterio e o servidor por
+     * outro, que e como nascem as recusas silenciosas.
+     *
+     * O `isOwner` existe porque o servidor **reescreve o cargo antes de enviar**: o proprietario
+     * sai como "Proprietário" na lista de membros, enquanto o cargo cru, que ele mesmo confere na
+     * escrita, continua "Administrador". Sem esta linha o dono da empresa -- o unico que nao pode
+     * ter o acesso reduzido -- era justamente quem ficava sem editar checklist, e o addTask ainda
+     * descartava a checklist dele localmente antes de tentar enviar.
+     */
     val isCurrentUserAdmin: Boolean
         get() {
             if (state.workspace == WorkspaceKind.Personal) return true
+            if (permissions.isOwner) return true
             val email = state.currentUser?.email ?: return false
             return selectedCompany?.members
                 ?.firstOrNull { it.email.equals(email, ignoreCase = true) }

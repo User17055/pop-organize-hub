@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apartment
@@ -97,6 +98,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -593,27 +596,36 @@ private fun TasksScreen(store: PopStore) {
     // Reatribuir exige a permissao tasks.assign, resolvida pelo servidor. Pessoas entram junto de
     // setores e grupos: AssignmentKind.Person ja existia e ja e convertido nos dois sentidos
     // (toApiTask/toPopTask), mas nunca tinha sido oferecido na interface.
-    val moveTargets = if (!store.permissions.canAssignTasks) {
-        emptyList()
-    } else {
-        buildList {
-            store.selectedCompany?.members.orEmpty().forEach {
-                add(AssignmentTarget(AssignmentKind.Person, it.id, it.name))
+    //
+    // Esta lista e passada para cada TaskRow, entao reconstrui-la a cada recomposicao custa caro
+    // com equipe e lista grandes. So muda quando a empresa ou a permissao mudam.
+    val company = store.selectedCompany
+    val canAssign = store.permissions.canAssignTasks
+    val moveTargets = remember(company, canAssign) {
+        if (!canAssign) {
+            emptyList()
+        } else {
+            buildList {
+                company?.members.orEmpty().forEach {
+                    add(AssignmentTarget(AssignmentKind.Person, it.id, it.name))
+                }
+                company?.sectors.orEmpty().forEach {
+                    add(AssignmentTarget(AssignmentKind.Sector, it.id, it.name))
+                }
+                company?.groups.orEmpty().forEach {
+                    add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
+                }
+                add(AssignmentTarget(AssignmentKind.None, null, "Sem responsável"))
             }
-            store.selectedCompany?.sectors.orEmpty().forEach {
-                add(AssignmentTarget(AssignmentKind.Sector, it.id, it.name))
-            }
-            store.selectedCompany?.groups.orEmpty().forEach {
-                add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
-            }
-            add(AssignmentTarget(AssignmentKind.None, null, "Sem responsável"))
         }
     }
     // toSortedMap() vem de java.util e nao existe no commonMain; a lista de pares ordenada
     // preserva a mesma ordenacao natural por nome de setor.
-    val groupedTasks = tasks.groupBy {
-        if (it.assignment.kind == AssignmentKind.Sector) it.assignment.label else "Sem setor"
-    }.toList().sortedBy { it.first }
+    val groupedTasks = remember(tasks) {
+        tasks.groupBy {
+            if (it.assignment.kind == AssignmentKind.Sector) it.assignment.label else "Sem setor"
+        }.toList().sortedBy { it.first }
+    }
 
     fun deleteWithAnimation(task: PopTask, action: () -> Unit) {
         pendingDeleteTask = null
@@ -1348,7 +1360,10 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
         },
         confirmButton = {
             Button(
-                enabled = title.isNotBlank(),
+                // O painel web exige 3 caracteres no titulo (pop-organize.functions.ts:88). O
+                // endpoint movel nao valida, entao sem isto o iPhone criaria uma tarefa que o
+                // site recusaria — e que quebraria ao ser editada por la.
+                enabled = title.hasAtLeast(3),
                 onClick = {
                     store.addTask(
                         title = title,
@@ -1377,14 +1392,33 @@ private fun CompanyEditorDialog(store: PopStore, onDismiss: () -> Unit) {
         title = { Text("Criar minha empresa") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nome da empresa") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(description, { description = it }, label = { Text("Pequena descrição") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text("Nome da empresa") },
+                    singleLine = true,
+                    // createCompany nao exige descricao, so o nome com 2 caracteres.
+                    isError = name.isNotEmpty() && !name.hasAtLeast(2),
+                    supportingText = if (name.isNotEmpty() && !name.hasAtLeast(2)) {
+                        ({ Text("Pelo menos 2 caracteres.") })
+                    } else {
+                        null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    description,
+                    { description = it },
+                    label = { Text("Pequena descrição (opcional)") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Text("${store.state.companies.size}/3 empresas criadas", style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = {
             Button(
-                enabled = name.isNotBlank() && store.state.companies.size < 3,
+                enabled = name.hasAtLeast(2) && store.state.companies.size < 3,
                 onClick = { store.createCompany(name, description); onDismiss() },
             ) { Text("Criar") }
         },
@@ -1397,37 +1431,117 @@ private fun MemberEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("Colaborador") }
+    var touched by remember { mutableStateOf(false) }
+    val nameOk = name.hasAtLeast(2)
+    val emailOk = isValidEmail(email)
+    val roleOk = role.hasAtLeast(2)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Cadastrar pessoa") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nome") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(email, { email = it }, label = { Text("E-mail") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(role, { role = it }, label = { Text("Função") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text("Nome") },
+                    singleLine = true,
+                    isError = touched && !nameOk,
+                    supportingText = if (touched && !nameOk) ({ Text("Pelo menos 2 caracteres.") }) else null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    email,
+                    { email = it },
+                    label = { Text("E-mail") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                    isError = touched && !emailOk,
+                    supportingText = if (touched && !emailOk) ({ Text("Informe um e-mail válido.") }) else null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    role,
+                    { role = it },
+                    label = { Text("Função") },
+                    singleLine = true,
+                    isError = touched && !roleOk,
+                    supportingText = if (touched && !roleOk) ({ Text("Pelo menos 2 caracteres.") }) else null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
         confirmButton = {
-            Button(enabled = name.isNotBlank() && email.isNotBlank(), onClick = { store.addMember(name, email, role); onDismiss() }) { Text("Cadastrar") }
+            Button(
+                onClick = {
+                    touched = true
+                    if (nameOk && emailOk && roleOk) {
+                        store.addMember(name, email, role)
+                        onDismiss()
+                    }
+                },
+            ) { Text("Cadastrar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }
 
 @Composable
-private fun SimpleEntityEditorDialog(title: String, onSave: (String, String) -> Unit, onDismiss: () -> Unit) {
+private fun SimpleEntityEditorDialog(
+    title: String,
+    onSave: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+    // Setor e grupo exigem descricao com 3 caracteres no servidor; deixar explicito evita que um
+    // reuso futuro herde a regra sem perceber.
+    descriptionMinLength: Int = 3,
+) {
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
+    var touched by remember { mutableStateOf(false) }
+    val nameOk = name.hasAtLeast(2)
+    val descriptionOk = description.hasAtLeast(descriptionMinLength)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nome") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(description, { description = it }, label = { Text("Descrição") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text("Nome") },
+                    singleLine = true,
+                    isError = touched && !nameOk,
+                    supportingText = if (touched && !nameOk) ({ Text("Pelo menos 2 caracteres.") }) else null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    description,
+                    { description = it },
+                    label = { Text("Descrição") },
+                    isError = touched && !descriptionOk,
+                    supportingText = {
+                        Text(
+                            if (touched && !descriptionOk) {
+                                "Pelo menos $descriptionMinLength caracteres."
+                            } else {
+                                "Obrigatória, mínimo de $descriptionMinLength caracteres."
+                            },
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
-        confirmButton = { Button(enabled = name.isNotBlank(), onClick = { onSave(name, description); onDismiss() }) { Text("Salvar") } },
+        confirmButton = {
+            Button(
+                onClick = {
+                    touched = true
+                    if (nameOk && descriptionOk) {
+                        onSave(name, description)
+                        onDismiss()
+                    }
+                },
+            ) { Text("Salvar") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }
@@ -1459,6 +1573,17 @@ private fun EmptyState(title: String, detail: String) {
         Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
     }
 }
+
+/**
+ * Espelham a validacao do servidor para que a interface recuse antes de gastar uma ida a rede.
+ * requiredText() em mobile-api.server.ts:596 compara depois de trim, e o minimo padrao e 2;
+ * descricao de setor e de grupo exige 3. A expressao e a mesma de mobile-api.server.ts:809.
+ */
+internal fun String.hasAtLeast(minimum: Int) = trim().length >= minimum
+
+private val emailPattern = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
+
+internal fun isValidEmail(value: String) = emailPattern.matches(value.trim())
 
 private fun priorityColor(priority: Priority): Color = when (priority) {
     Priority.Low -> PopGreen

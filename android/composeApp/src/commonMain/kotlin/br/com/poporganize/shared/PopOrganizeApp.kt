@@ -62,10 +62,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -211,8 +211,37 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
     var code by remember { mutableStateOf("") }
     var codeSent by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    var feedback by remember { mutableStateOf<String?>(null) }
+    // Erro e aviso eram a mesma variavel, sempre pintada com a cor de erro: "Código enviado para
+    // seu e-mail" aparecia em vermelho e era lida como falha.
+    var feedbackError by remember { mutableStateOf<String?>(null) }
+    var feedbackInfo by remember { mutableStateOf<String?>(null) }
+    var resendIn by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(resendIn) {
+        if (resendIn > 0) {
+            delay(1000)
+            resendIn -= 1
+        }
+    }
+
+    fun requestCode(resending: Boolean) {
+        busy = true
+        feedbackError = null
+        feedbackInfo = null
+        scope.launch {
+            val error = store.requestEmailCode(email)
+            if (error != null) {
+                feedbackError = error
+            } else {
+                codeSent = true
+                code = ""
+                resendIn = 30
+                feedbackInfo = if (resending) "Novo código enviado." else "Código enviado para ${email.trim()}."
+            }
+            busy = false
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding(),
@@ -228,56 +257,87 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
         item {
             OutlinedTextField(
                 email,
-                { email = it; feedback = null },
+                { email = it; feedbackError = null },
                 enabled = !busy && !codeSent,
                 label = { Text("E-mail") },
                 singleLine = true,
+                // Sem isto o iPhone abre o teclado alfabetico padrao, sem @ nem ponto a mao.
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
         if (codeSent) item {
             OutlinedTextField(
                 code,
-                { value -> code = value.filter(Char::isDigit).take(6); feedback = null },
+                { value -> code = value.filter(Char::isDigit).take(6); feedbackError = null },
                 enabled = !busy,
                 label = { Text("Código de 6 dígitos") },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.NumberPassword,
+                    imeAction = ImeAction.Done,
+                ),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
         item {
             Button(
-                enabled = !busy && email.contains("@") && (!codeSent || code.length == 6),
+                // contains("@") aceitava o proprio "@" sozinho; a expressao e a mesma que o
+                // servidor aplica, entao a recusa acontece antes de gastar uma ida a rede.
+                enabled = !busy && isValidEmail(email) && (!codeSent || code.length == 6),
                 onClick = {
-                    busy = true
-                    feedback = null
-                    scope.launch {
-                        val error = if (codeSent) {
-                            store.verifyEmailCode(email, code)
-                        } else {
-                            store.requestEmailCode(email).also { if (it == null) codeSent = true }
+                    if (codeSent) {
+                        busy = true
+                        feedbackError = null
+                        feedbackInfo = null
+                        scope.launch {
+                            val error = store.verifyEmailCode(email, code)
+                            if (error != null) feedbackError = error
+                            busy = false
                         }
-                        feedback = error ?: if (codeSent && code.isBlank()) "Código enviado para seu e-mail." else null
-                        busy = false
+                    } else {
+                        requestCode(resending = false)
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
-                Text(
-                    when {
-                        busy -> "Aguarde..."
-                        codeSent -> "Confirmar código"
-                        else -> "Enviar código"
-                    },
-                    fontWeight = FontWeight.Bold,
-                )
+                if (busy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                } else {
+                    Text(if (codeSent) "Confirmar código" else "Enviar código", fontWeight = FontWeight.Bold)
+                }
             }
         }
+        // O aviso ficava no ultimo item da lista, abaixo de tudo: com o teclado aberto num iPhone
+        // pequeno, a mensagem de erro nascia fora da tela e o toque parecia nao ter feito nada.
+        if (feedbackError != null || feedbackInfo != null) item {
+            Text(
+                feedbackError ?: feedbackInfo.orEmpty(),
+                color = if (feedbackError != null) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         if (codeSent) item {
-            TextButton(
-                enabled = !busy,
-                onClick = { codeSent = false; code = ""; feedback = null },
-            ) { Text("Usar outro e-mail") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    enabled = !busy && resendIn == 0,
+                    onClick = { requestCode(resending = true) },
+                ) { Text(if (resendIn > 0) "Reenviar em ${resendIn}s" else "Reenviar código") }
+                TextButton(
+                    enabled = !busy,
+                    onClick = { codeSent = false; code = ""; feedbackError = null; feedbackInfo = null; resendIn = 0 },
+                ) { Text("Usar outro e-mail") }
+            }
         }
         if (platform.supportsGoogleSignIn) item {
             OutlinedButton(
@@ -285,7 +345,7 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
                 onClick = {
                     busy = true
                     scope.launch {
-                        feedback = store.completeSignIn(platform.signInWithGoogle())
+                        feedbackError = store.completeSignIn(platform.signInWithGoogle())
                         busy = false
                     }
                 },
@@ -294,24 +354,22 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
         }
         if (platform.supportsAppleSignIn) {
             item {
-                FilledTonalButton(
+                AppleSignInButton(
                     enabled = !busy,
+                    lightBackground = store.state.theme == PopThemeMode.Light,
                     onClick = {
-                    busy = true
-                    scope.launch {
-                        feedback = store.completeSignIn(platform.signInWithApple())
-                        busy = false
+                        busy = true
+                        scope.launch {
+                            feedbackError = store.completeSignIn(platform.signInWithApple())
+                            busy = false
                         }
                     },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
-                ) { Text("Continuar com Apple") }
+                )
             }
         }
         item {
             TextButton(onClick = store::continueAsGuest) { Text("Continuar sem conta") }
-            feedback?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, textAlign = TextAlign.Center)
-            }
         }
     }
 }

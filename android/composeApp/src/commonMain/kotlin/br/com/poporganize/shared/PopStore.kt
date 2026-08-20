@@ -526,9 +526,9 @@ private fun PopTask.toApiTask() = ApiTask(
     description = description,
     assignee = assignment.label,
     createdBy = createdBy,
-    recurrence = recurrence.label,
+    recurrence = recurrence.toServerRule(),
     dueTime = dueTime,
-    recurrenceRule = recurrence.label,
+    recurrenceRule = recurrence.toServerRule(),
     assignmentType = when (assignment.kind) {
         AssignmentKind.Person -> "user"
         AssignmentKind.Sector -> "department"
@@ -539,6 +539,22 @@ private fun PopTask.toApiTask() = ApiTask(
     assignmentTargetLabel = assignment.label,
     checklist = checklist,
 )
+
+/**
+ * "Nao repetir" e a palavra que o servidor entende para ausencia de recorrencia -- "Sem
+ * recorrencia", o label do enum, nao aparece em lugar nenhum do mobile-api.server.ts.
+ *
+ * A diferenca nao era cosmetica. Em mobileTaskRecurrence() a guarda testa exatamente
+ * `item.recurrenceRule === "Nao repetir"`; recebendo "Sem recorrencia" ela nao dispara, nenhum dos
+ * ramos (Diaria/Semanal/Mensal/Anual) casa, e a funcao cai no return final, que devolve uma
+ * recorrencia *custom diaria*. Como o PUT de tarefas faz `existing.recurrence =
+ * mobileTaskRecurrence(item)` sem condicao, toda tarefa comum sincronizada pelo iPhone viraria uma
+ * tarefa que se repete todo dia -- inclusive para quem abre pelo Android ou pelo painel.
+ */
+private fun RecurrenceKind.toServerRule(): String = when (this) {
+    RecurrenceKind.None -> "Não repetir"
+    else -> label
+}
 
 internal fun todayIso(): String = Clock.System.now()
     .toLocalDateTime(TimeZone.currentSystemDefault())

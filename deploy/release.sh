@@ -24,6 +24,10 @@ source "$ENV_FILE"
 set +a
 
 npm ci --include=dev --include=optional
+
+# V8 sizes its default heap off physical RAM, ignoring swap, and OOMs on
+# small VPS instances during typecheck/build. Raise the cap explicitly.
+export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=2048"
 npm run typecheck
 npm run build
 

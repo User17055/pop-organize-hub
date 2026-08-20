@@ -30,6 +30,12 @@ enum class RecurrenceKind(val label: String) {
     Daily("Diária"),
     Weekly("Semanal"),
     Monthly("Mensal"),
+
+    // O servidor manda "Anual" e o Android sempre soube ler. Sem esta entrada, toPopTask() caia no
+    // else e uma tarefa anual virava "sem recorrência" no iPhone, calada: sumia o selo, o menu de
+    // exclusão perdia a opção "toda a recorrência" e o app devolvia a tarefa ao servidor com a
+    // recorrência apagada.
+    Yearly("Anual"),
 }
 
 @Serializable

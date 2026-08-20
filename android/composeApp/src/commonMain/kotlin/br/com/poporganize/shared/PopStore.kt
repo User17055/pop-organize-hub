@@ -509,6 +509,7 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
         "Diária" -> RecurrenceKind.Daily
         "Semanal" -> RecurrenceKind.Weekly
         "Mensal" -> RecurrenceKind.Monthly
+        "Anual" -> RecurrenceKind.Yearly
         else -> RecurrenceKind.None
     },
 )
@@ -551,6 +552,7 @@ private fun nextRecurrenceDate(value: String, recurrence: RecurrenceKind): Strin
         RecurrenceKind.Daily -> DatePeriod(days = 1)
         RecurrenceKind.Weekly -> DatePeriod(days = 7)
         RecurrenceKind.Monthly -> DatePeriod(months = 1)
+        RecurrenceKind.Yearly -> DatePeriod(years = 1)
         RecurrenceKind.None -> return null
     }
     return date.plus(period).toString()

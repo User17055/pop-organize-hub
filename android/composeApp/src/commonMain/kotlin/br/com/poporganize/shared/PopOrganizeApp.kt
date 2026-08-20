@@ -8,6 +8,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,6 +32,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -68,6 +71,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -95,8 +99,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -207,9 +215,9 @@ private fun OnboardingScreen(onFinish: () -> Unit) {
 
 @Composable
 private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
+    var stage by remember { mutableStateOf(LoginStage.Choose) }
     var email by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
-    var codeSent by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     // Erro e aviso eram a mesma variavel, sempre pintada com a cor de erro: "Código enviado para
     // seu e-mail" aparecia em vermelho e era lida como falha.
@@ -234,145 +242,301 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
             if (error != null) {
                 feedbackError = error
             } else {
-                codeSent = true
+                stage = LoginStage.Code
                 code = ""
                 resendIn = 30
-                feedbackInfo = if (resending) "Novo código enviado." else "Código enviado para ${email.trim()}."
+                feedbackInfo = if (resending) "Novo código enviado." else "Enviamos um código para ${email.trim()}."
             }
             busy = false
         }
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding(),
-        contentPadding = PaddingValues(24.dp),
+    fun confirmCode() {
+        if (busy || code.length != 6) return
+        busy = true
+        feedbackError = null
+        feedbackInfo = null
+        scope.launch {
+            val error = store.verifyEmailCode(email, code)
+            if (error != null) {
+                feedbackError = error
+                code = ""
+            }
+            busy = false
+        }
+    }
+
+    // O Android esconde o teclado ao completar os 6 digitos mas nao envia, o que deixa um toque
+    // sobrando no fim de todo login. Aqui o codigo completo ja confirma sozinho.
+    LaunchedEffect(code) {
+        if (code.length == 6) confirmCode()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .imePadding()
+            .padding(horizontal = 24.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item {
-            PopLogo(Modifier.padding(top = 12.dp, bottom = 18.dp))
-            Text("Entre na sua conta", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-            Text("Use a mesma conta no Android, iPhone e painel web.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        }
-        item {
-            OutlinedTextField(
-                email,
-                { email = it; feedbackError = null },
-                enabled = !busy && !codeSent,
-                label = { Text("E-mail") },
-                singleLine = true,
-                // Sem isto o iPhone abre o teclado alfabetico padrao, sem @ nem ponto a mao.
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (codeSent) item {
-            OutlinedTextField(
-                code,
-                { value -> code = value.filter(Char::isDigit).take(6); feedbackError = null },
-                enabled = !busy,
-                label = { Text("Código de 6 dígitos") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.NumberPassword,
-                    imeAction = ImeAction.Done,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        item {
-            Button(
-                // contains("@") aceitava o proprio "@" sozinho; a expressao e a mesma que o
-                // servidor aplica, entao a recusa acontece antes de gastar uma ida a rede.
-                enabled = !busy && isValidEmail(email) && (!codeSent || code.length == 6),
-                onClick = {
-                    if (codeSent) {
-                        busy = true
-                        feedbackError = null
-                        feedbackInfo = null
-                        scope.launch {
-                            val error = store.verifyEmailCode(email, code)
-                            if (error != null) feedbackError = error
-                            busy = false
-                        }
-                    } else {
-                        requestCode(resending = false)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
+        PopLogo()
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            AnimatedContent(targetState = stage, label = "loginTitle") { current ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        when (current) {
+                            LoginStage.Choose -> "Comece por aqui"
+                            LoginStage.Email -> "Entre com seu e-mail"
+                            LoginStage.Code -> "Verifique seu e-mail"
+                        },
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center,
                     )
-                } else {
-                    Text(if (codeSent) "Confirmar código" else "Enviar código", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        when (current) {
+                            LoginStage.Choose -> "Escolha como você quer continuar."
+                            LoginStage.Email -> "Use a mesma conta no Android, iPhone e painel web."
+                            LoginStage.Code -> "Digite o código de 6 números que enviamos para você."
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
         }
-        // O aviso ficava no ultimo item da lista, abaixo de tudo: com o teclado aberto num iPhone
-        // pequeno, a mensagem de erro nascia fora da tela e o toque parecia nao ter feito nada.
-        if (feedbackError != null || feedbackInfo != null) item {
-            Text(
-                feedbackError ?: feedbackInfo.orEmpty(),
-                color = if (feedbackError != null) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (codeSent) item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(
-                    enabled = !busy && resendIn == 0,
-                    onClick = { requestCode(resending = true) },
-                ) { Text(if (resendIn > 0) "Reenviar em ${resendIn}s" else "Reenviar código") }
-                TextButton(
-                    enabled = !busy,
-                    onClick = { codeSent = false; code = ""; feedbackError = null; feedbackInfo = null; resendIn = 0 },
-                ) { Text("Usar outro e-mail") }
-            }
-        }
-        if (platform.supportsGoogleSignIn) item {
-            OutlinedButton(
-                enabled = !busy,
-                onClick = {
-                    busy = true
-                    scope.launch {
-                        feedbackError = store.completeSignIn(platform.signInWithGoogle())
-                        busy = false
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) { Text(if (busy) "Conectando..." else "Continuar com Google") }
-        }
-        if (platform.supportsAppleSignIn) {
-            item {
-                AppleSignInButton(
-                    enabled = !busy,
-                    lightBackground = store.state.theme == PopThemeMode.Light,
-                    onClick = {
-                        busy = true
-                        scope.launch {
-                            feedbackError = store.completeSignIn(platform.signInWithApple())
-                            busy = false
+
+        AnimatedContent(targetState = stage, label = "loginActions") { current ->
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                when (current) {
+                    LoginStage.Choose -> {
+                        if (platform.supportsAppleSignIn) {
+                            AppleSignInButton(
+                                enabled = !busy,
+                                lightBackground = store.state.theme == PopThemeMode.Light,
+                                onClick = {
+                                    busy = true
+                                    feedbackError = null
+                                    scope.launch {
+                                        feedbackError = store.completeSignIn(platform.signInWithApple())
+                                        busy = false
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                            )
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                )
+                        if (platform.supportsGoogleSignIn) {
+                            OutlinedButton(
+                                enabled = !busy,
+                                onClick = {
+                                    busy = true
+                                    feedbackError = null
+                                    scope.launch {
+                                        feedbackError = store.completeSignIn(platform.signInWithGoogle())
+                                        busy = false
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                            ) { Text(if (busy) "Conectando..." else "Continuar com Google") }
+                        }
+                        Button(
+                            enabled = !busy,
+                            onClick = { stage = LoginStage.Email; feedbackError = null; feedbackInfo = null },
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                        ) {
+                            Icon(Icons.Rounded.Email, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Entrar com e-mail", fontWeight = FontWeight.Bold)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                            HorizontalDivider(Modifier.weight(1f))
+                            Text(
+                                "ou",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                            )
+                            HorizontalDivider(Modifier.weight(1f))
+                        }
+                        OutlinedButton(
+                            onClick = store::continueAsGuest,
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                        ) { Text("Continuar sem uma conta") }
+                    }
+
+                    LoginStage.Email -> {
+                        OutlinedTextField(
+                            email,
+                            { email = it; feedbackError = null },
+                            enabled = !busy,
+                            label = { Text("E-mail") },
+                            singleLine = true,
+                            // Sem isto o iPhone abre o teclado alfabetico padrao, sem @ nem ponto.
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Done,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Button(
+                            // contains("@") aceitava o proprio "@" sozinho; a expressao e a mesma
+                            // do servidor, entao a recusa vem antes de gastar uma ida a rede.
+                            enabled = !busy && isValidEmail(email),
+                            onClick = { requestCode(resending = false) },
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                        ) {
+                            if (busy) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                )
+                            } else {
+                                Text("Enviar código", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        TextButton(
+                            enabled = !busy,
+                            onClick = { stage = LoginStage.Choose; feedbackError = null; feedbackInfo = null },
+                        ) { Text("Voltar para outras opções") }
+                    }
+
+                    LoginStage.Code -> {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Rounded.Email, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(9.dp))
+                                Text(
+                                    email.trim(),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        EmailOtpField(
+                            value = code,
+                            onValueChange = { code = it; feedbackError = null },
+                            enabled = !busy,
+                        )
+                        if (busy) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
+                        TextButton(
+                            enabled = !busy && resendIn == 0,
+                            onClick = { requestCode(resending = true) },
+                        ) { Text(if (resendIn > 0) "Reenviar em ${resendIn}s" else "Reenviar código") }
+                        TextButton(
+                            enabled = !busy,
+                            onClick = {
+                                stage = LoginStage.Email
+                                code = ""
+                                resendIn = 0
+                                feedbackError = null
+                                feedbackInfo = null
+                            },
+                        ) { Text("Usar outro e-mail") }
+                    }
+                }
             }
         }
-        item {
-            TextButton(onClick = store::continueAsGuest) { Text("Continuar sem conta") }
-        }
+
+        // O aviso ficava no fim de uma lista rolavel: com o teclado aberto num iPhone pequeno ele
+        // nascia fora da tela e o toque parecia nao ter feito nada.
+        Spacer(Modifier.height(10.dp))
+        Text(
+            feedbackError ?: feedbackInfo.orEmpty(),
+            color = if (feedbackError != null) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
+
+private enum class LoginStage { Choose, Email, Code }
+
+/**
+ * Seis caixas desenhadas sobre um campo invisivel. Um OutlinedTextField comum nao mostra quantos
+ * digitos faltam, e e o ponto de maior desistencia de qualquer login por codigo.
+ */
+@Composable
+private fun EmailOtpField(value: String, onValueChange: (String) -> Unit, enabled: Boolean) {
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    BasicTextField(
+        value = value,
+        onValueChange = { onValueChange(it.filter(Char::isDigit).take(6)) },
+        enabled = enabled,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.NumberPassword,
+            imeAction = ImeAction.Done,
+        ),
+        // O texto real fica invisivel: quem aparece sao as caixas do decorationBox.
+        textStyle = TextStyle(color = Color.Transparent),
+        cursorBrush = SolidColor(Color.Transparent),
+        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+        decorationBox = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                repeat(6) { index ->
+                    val filled = index < value.length
+                    val isNext = index == value.length
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp)
+                            .border(
+                                width = if (isNext) 2.dp else 1.dp,
+                                color = when {
+                                    isNext -> PopBlue
+                                    filled -> MaterialTheme.colorScheme.outline
+                                    else -> MaterialTheme.colorScheme.outline.copy(alpha = .5f)
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (filled) value[index].toString() else "",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+        },
+    )
+}
+
 
 private enum class MainTab(val label: String, val icon: ImageVector) {
     Dashboard("Início", Icons.Rounded.Home),

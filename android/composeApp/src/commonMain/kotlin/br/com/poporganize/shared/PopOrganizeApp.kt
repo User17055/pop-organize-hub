@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
@@ -585,14 +586,27 @@ private fun TasksScreen(store: PopStore) {
     var removingId by remember { mutableStateOf<String?>(null) }
     var selectedTask by remember { mutableStateOf<PopTask?>(null) }
     var pendingDeleteTask by remember { mutableStateOf<PopTask?>(null) }
-    var collapsedSectors by remember { mutableStateOf(emptySet<String>()) }
+    // Guardar os expandidos, e nao os recolhidos, para que os setores comecem fechados e um setor
+    // criado depois tambem entre fechado, sem precisar ser descoberto e adicionado ao conjunto.
+    var expandedSectors by remember { mutableStateOf(emptySet<String>()) }
     val scope = rememberCoroutineScope()
-    val moveTargets = buildList {
-        store.selectedCompany?.sectors.orEmpty().forEach {
-            add(AssignmentTarget(AssignmentKind.Sector, it.id, it.name))
-        }
-        store.selectedCompany?.groups.orEmpty().forEach {
-            add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
+    // Reatribuir exige a permissao tasks.assign, resolvida pelo servidor. Pessoas entram junto de
+    // setores e grupos: AssignmentKind.Person ja existia e ja e convertido nos dois sentidos
+    // (toApiTask/toPopTask), mas nunca tinha sido oferecido na interface.
+    val moveTargets = if (!store.permissions.canAssignTasks) {
+        emptyList()
+    } else {
+        buildList {
+            store.selectedCompany?.members.orEmpty().forEach {
+                add(AssignmentTarget(AssignmentKind.Person, it.id, it.name))
+            }
+            store.selectedCompany?.sectors.orEmpty().forEach {
+                add(AssignmentTarget(AssignmentKind.Sector, it.id, it.name))
+            }
+            store.selectedCompany?.groups.orEmpty().forEach {
+                add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
+            }
+            add(AssignmentTarget(AssignmentKind.None, null, "Sem responsável"))
         }
     }
     // toSortedMap() vem de java.util e nao existe no commonMain; a lista de pares ordenada
@@ -625,32 +639,39 @@ private fun TasksScreen(store: PopStore) {
         }
         groupedTasks.forEach { (sector, sectorTasks) ->
             item(key = "sector-$sector") {
+                val expanded = sector in expandedSectors
+                val pending = sectorTasks.count { !it.completed }
                 Surface(
                     modifier = Modifier.fillMaxWidth().clickable {
-                        collapsedSectors = if (sector in collapsedSectors) {
-                            collapsedSectors - sector
+                        expandedSectors = if (expanded) {
+                            expandedSectors - sector
                         } else {
-                            collapsedSectors + sector
+                            expandedSectors + sector
                         }
                     },
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f),
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, top = 11.dp, end = 8.dp, bottom = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(sector, fontWeight = FontWeight.Bold)
+                        Text(sector, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         Text(
-                            "${sectorTasks.size} atividades",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            // Com o setor fechado o que importa e quanto falta, nao o total.
+                            if (pending == 0) "tudo concluído" else "$pending pendentes",
+                            color = if (pending == 0) PopGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
+                        )
+                        Icon(
+                            if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                            if (expanded) "Recolher $sector" else "Expandir $sector",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
-            if (sector !in collapsedSectors) {
+            if (sector in expandedSectors) {
                 items(sectorTasks, key = { it.id }) { task ->
                     AnimatedVisibility(
                         visible = removingId != task.id,
@@ -869,15 +890,44 @@ private fun TaskRow(
                     )
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    if (moveTargets.isNotEmpty()) {
+                        Text(
+                            "Responsável",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
                     moveTargets.forEach { target ->
+                        val current = target.kind == task.assignment.kind && target.id == task.assignment.id
                         DropdownMenuItem(
                             text = {
                                 Text(
-                                    "${if (target.kind == AssignmentKind.Group) "Grupo" else "Setor"}: ${target.label}",
+                                    when (target.kind) {
+                                        AssignmentKind.Person -> target.label
+                                        AssignmentKind.Group -> "Grupo: ${target.label}"
+                                        AssignmentKind.Sector -> "Setor: ${target.label}"
+                                        AssignmentKind.None -> target.label
+                                    },
                                 )
                             },
+                            leadingIcon = {
+                                Icon(
+                                    when (target.kind) {
+                                        AssignmentKind.Person -> Icons.Rounded.Person
+                                        AssignmentKind.Group -> Icons.Rounded.Groups
+                                        AssignmentKind.Sector -> Icons.Rounded.Apartment
+                                        AssignmentKind.None -> Icons.Rounded.MoreHoriz
+                                    },
+                                    null,
+                                )
+                            },
+                            trailingIcon = {
+                                if (current) Icon(Icons.Rounded.Check, null, tint = PopBlue)
+                            },
                             onClick = {
-                                onMove(target)
+                                if (!current) onMove(target)
                                 showMenu = false
                             },
                         )

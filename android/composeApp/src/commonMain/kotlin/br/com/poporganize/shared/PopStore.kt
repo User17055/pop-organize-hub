@@ -475,6 +475,7 @@ class PopStore(private val platform: PopPlatformServices) {
 private fun ApiWorkspace.toPermissions() = WorkspacePermissions(
     isOwner = isOwner,
     canCreateTasks = canCreateTasks,
+    canAssignTasks = canAssignTasks,
     canManageEmployees = canManageEmployees,
     canManageDepartments = canManageDepartments,
     canManageGroups = canManageGroups,

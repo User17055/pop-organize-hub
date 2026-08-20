@@ -89,6 +89,7 @@ data class CompanyGroup(
 data class WorkspacePermissions(
     val isOwner: Boolean = false,
     val canCreateTasks: Boolean = false,
+    val canAssignTasks: Boolean = false,
     val canManageEmployees: Boolean = false,
     val canManageDepartments: Boolean = false,
     val canManageGroups: Boolean = false,
@@ -210,6 +211,7 @@ data class ApiWorkspace(
     val kind: String = "company",
     val isOwner: Boolean = false,
     val canCreateTasks: Boolean = false,
+    val canAssignTasks: Boolean = false,
     val canManageEmployees: Boolean = false,
     val canManageDepartments: Boolean = false,
     val canManageGroups: Boolean = false,

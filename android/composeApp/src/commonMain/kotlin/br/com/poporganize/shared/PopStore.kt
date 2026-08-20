@@ -157,6 +157,9 @@ class PopStore(private val platform: PopPlatformServices) {
                 emptyList()
             },
             recurrence = recurrence,
+            // Sem preencher a regra crua aqui, a tarefa nasceria com o default "Nao repetir" e o
+            // servidor descartaria a recorrencia que o usuario acabou de escolher.
+            recurrenceRule = recurrence.toServerRule(),
             recurrenceSeriesId = taskId.takeIf { recurrence != RecurrenceKind.None },
         )
         update { copy(tasks = listOf(task) + tasks) }
@@ -505,6 +508,9 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     ),
     createdBy = createdBy,
     checklist = checklist,
+    // "Personalizada" nao tem equivalente no enum e cai aqui no else. Isso deixou de ser perda
+    // porque a regra crua segue guardada abaixo e volta intacta ao servidor; o enum agora e so
+    // o que a interface consegue desenhar.
     recurrence = when (recurrenceRule) {
         "Diária" -> RecurrenceKind.Daily
         "Semanal" -> RecurrenceKind.Weekly
@@ -512,6 +518,12 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
         "Anual" -> RecurrenceKind.Yearly
         else -> RecurrenceKind.None
     },
+    recurrenceRule = recurrenceRule,
+    recurrenceDetail = recurrenceDetail,
+    recurrenceInterval = recurrenceInterval,
+    recurrenceEndMode = recurrenceEndMode,
+    recurrenceEndValue = recurrenceEndValue,
+    recurrenceOccurrence = recurrenceOccurrence,
 )
 
 private fun PopTask.toApiTask() = ApiTask(
@@ -526,9 +538,14 @@ private fun PopTask.toApiTask() = ApiTask(
     description = description,
     assignee = assignment.label,
     createdBy = createdBy,
-    recurrence = recurrence.toServerRule(),
+    recurrence = wireRule(),
     dueTime = dueTime,
-    recurrenceRule = recurrence.toServerRule(),
+    recurrenceRule = wireRule(),
+    recurrenceDetail = recurrenceDetail,
+    recurrenceInterval = recurrenceInterval,
+    recurrenceEndMode = recurrenceEndMode,
+    recurrenceEndValue = recurrenceEndValue,
+    recurrenceOccurrence = recurrenceOccurrence,
     assignmentType = when (assignment.kind) {
         AssignmentKind.Person -> "user"
         AssignmentKind.Sector -> "department"
@@ -555,6 +572,21 @@ private fun RecurrenceKind.toServerRule(): String = when (this) {
     RecurrenceKind.None -> "Não repetir"
     else -> label
 }
+
+/**
+ * A regra que vai no PUT: a crua do servidor, guardada no cofre.
+ *
+ * O `if` cobre a tarefa que foi salva no aparelho antes do cofre existir. Nela o campo cru
+ * desserializa com o default "Nao repetir" enquanto o enum ainda diz Semanal, e mandar o default
+ * apagaria no servidor justamente a recorrencia que o cofre veio proteger. Nesse caso o enum e
+ * quem sabe mais, e e ele que decide.
+ */
+private fun PopTask.wireRule(): String =
+    if (recurrenceRule == "Não repetir" && recurrence != RecurrenceKind.None) {
+        recurrence.toServerRule()
+    } else {
+        recurrenceRule
+    }
 
 internal fun todayIso(): String = Clock.System.now()
     .toLocalDateTime(TimeZone.currentSystemDefault())

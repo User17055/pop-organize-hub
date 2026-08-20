@@ -130,6 +130,23 @@ data class PopTask(
     val recurrence: RecurrenceKind = RecurrenceKind.None,
     val recurrenceSeriesId: String? = null,
     val serverId: String? = null,
+
+    // Cofre da recorrencia: as palavras do servidor, guardadas cruas e devolvidas intactas.
+    //
+    // O RecurrenceKind acima so consegue representar quatro casos, e o servidor guarda mais: de
+    // quanto em quanto tempo repete, ate quando, em que dia do mes, e um tipo "Personalizada" que
+    // nao tem equivalente nenhum aqui. Como o PUT de tarefas reescreve a recorrencia a partir do
+    // que o aparelho manda, tudo que nao fosse transportado voltava como default e apagava o
+    // original -- "a cada 2 semanas ate 31/12" virava "toda semana, para sempre", e uma
+    // "Personalizada" perdia a repeticao por completo, tambem para quem abre no Android.
+    //
+    // O iPhone nao interpreta nem exibe estes campos. So os carrega.
+    val recurrenceRule: String = "Não repetir",
+    val recurrenceDetail: String = "",
+    val recurrenceInterval: Int = 1,
+    val recurrenceEndMode: String = "Nunca",
+    val recurrenceEndValue: String = "",
+    val recurrenceOccurrence: Int = 1,
 )
 
 @Serializable

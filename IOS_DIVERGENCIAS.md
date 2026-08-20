@@ -54,14 +54,42 @@ Se alguém descobrir o nome certo da constante, dá para simplificar.
 ### Ainda não portado
 
 **Projeção de ocorrências futuras.** O Android projeta as próximas ocorrências de uma série
-recorrente na grade (`calendarTasksForMonth`). O iPhone ainda não, porque `PopTask` no domínio
-compartilhado descarta cinco campos que o servidor já manda em `ApiTask`: `recurrenceInterval`,
-`recurrenceEndMode`, `recurrenceEndValue`, `recurrenceOccurrence` e `recurrenceDetail`. Sem eles não
-dá para saber de quanto em quanto tempo repete, quando para, nem em que dias da semana cai.
+recorrente na grade (`calendarTasksForMonth`). O iPhone ainda não: falta portar
+`advanceRecurrenceDate` e `calendarTasksForMonth`. Decisão consciente, para não arrastar o motor de
+recorrência junto com a reforma do calendário.
 
-Decisão consciente: o motor exige mexer no domínio que o app do André também compila
-(`android/app/build.gradle` faz `implementation project(':composeApp')`), então ficou para uma etapa
-própria em vez de entrar de carona no calendário.
+Os campos de que esse motor precisa **já estão no `PopTask`** desde o cofre da recorrência (abaixo),
+então quando a projeção for feita o dado já estará ali.
+
+### Cofre da recorrência
+
+`RecurrenceKind` só representa quatro casos; o servidor guarda mais — intervalo, data de término,
+dia do mês, e um tipo `"Personalizada"` sem equivalente nenhum no iPhone.
+
+Como o PUT de tarefas faz `existing.recurrence = mobileTaskRecurrence(item)` **sem condição**
+([mobile-api.server.ts:1663](src/lib/mobile-api.server.ts:1663)), e essa função reconstrói a
+recorrência só a partir do que o aparelho manda, tudo que o iPhone não transportasse voltava como
+default e apagava o original — inclusive para quem abre no Android ou no painel:
+
+- `"Personalizada"` → caía no `else` do enum → voltava `"Não repetir"` → **recorrência apagada**
+- `biweekly` → intervalo descartado → voltava 1 → **"a cada 2 semanas" virava "toda semana"**
+- `endDate` → modo de término descartado → voltava `"Nunca"` → **"até 31/12" virava "para sempre"**
+
+E o gatilho era qualquer ação: `update(sync = true)` dispara `syncTasks()`, cujo payload é
+`visibleTasks.map { it.toApiTask() }` — o espaço inteiro por vez.
+
+`PopTask` passou a carregar as seis strings cruas do servidor (`recurrenceRule`,
+`recurrenceDetail`, `recurrenceInterval`, `recurrenceEndMode`, `recurrenceEndValue`,
+`recurrenceOccurrence`). **O iPhone não as interpreta nem as exibe — só as carrega.** O
+`RecurrenceKind` continua existindo, agora como valor derivado, só para a interface desenhar.
+
+Nunca chegou a atingir ninguém: o `composeApp` não compilava antes desta semana, então nunca houve
+um iPhone sincronizando de fato.
+
+**Ainda impreciso:** `nextRecurrenceDate` (`PopStore.kt`), usado por "excluir somente esta data",
+avança por período fixo e ignora o `recurrenceInterval` que agora existe. Numa série de duas em duas
+semanas ele pula uma semana. O servidor recalcula na sincronização seguinte, então o efeito é
+local e passageiro — mas é o primeiro lugar a corrigir quando o motor for portado.
 
 ---
 

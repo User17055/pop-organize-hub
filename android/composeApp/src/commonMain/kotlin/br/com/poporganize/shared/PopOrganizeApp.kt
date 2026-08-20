@@ -1300,14 +1300,15 @@ private fun CompactTaskRow(task: PopTask) {
  * da grade nao teria como rolar a lista ate ele.
  */
 private sealed interface CalendarRow {
-    data class OverdueHeader(val count: Int) : CalendarRow
+    /** Tudo que e anterior a hoje, recolhido numa secao so. */
+    data class PastHeader(val overdueCount: Int, val total: Int) : CalendarRow
     data class DayHeader(val date: LocalDate) : CalendarRow
     data class Section(val date: LocalDate, val label: String) : CalendarRow
     data class Entry(val task: PopTask) : CalendarRow
 }
 
 private fun calendarRowKey(row: CalendarRow): String = when (row) {
-    is CalendarRow.OverdueHeader -> "atrasadas"
+    is CalendarRow.PastHeader -> "antes-de-hoje"
     is CalendarRow.DayHeader -> "dia-${row.date}"
     // A data entra na chave porque "Agenda do dia" se repete a cada dia, e chave repetida derruba
     // a LazyColumn em tempo de execucao, nao de compilacao.
@@ -1343,7 +1344,7 @@ private fun CalendarScreen(store: PopStore) {
     var selectedDate by remember { mutableStateOf(today) }
     var visibleYear by remember { mutableIntStateOf(today.year) }
     var visibleMonth by remember { mutableIntStateOf(today.monthNumber) }
-    var overdueExpanded by remember { mutableStateOf(false) }
+    var pastExpanded by remember { mutableStateOf(false) }
     var selectedTask by remember { mutableStateOf<PopTask?>(null) }
     var pendingDeleteTask by remember { mutableStateOf<PopTask?>(null) }
     var removingId by remember { mutableStateOf<String?>(null) }
@@ -1361,20 +1362,25 @@ private fun CalendarScreen(store: PopStore) {
     val undatedCount = tasks.size - dated.size
     val tasksByDate = remember(dated) { dated.groupBy({ it.first }, { it.second }) }
 
-    val overdue = remember(dated, today) {
-        dated.filter { (date, task) -> !task.completed && date < today }
-            .sortedBy { it.first }
+    // Tudo que ficou para tras entra aqui, concluido ou nao. Filtrar so as pendentes deixaria a
+    // tarefa atrasada que acabou de ser concluida num vao: fora de "Atrasadas" por estar
+    // concluida, e fora da agenda por ser anterior a hoje. Ela sumiria da lista enquanto o ponto
+    // dela seguiria aceso na grade, prometendo um dia que a agenda nao entregava.
+    val past = remember(dated, today) {
+        dated.filter { it.first < today }
+            .sortedWith(compareBy({ it.second.completed }, { it.first }))
             .map { it.second }
     }
+    val overdueCount = past.count { !it.completed }
     val upcoming = remember(tasksByDate, today) {
         tasksByDate.filterKeys { it >= today }.toList().sortedBy { it.first }
     }
 
-    val rows = remember(overdue, upcoming, overdueExpanded, today) {
+    val rows = remember(past, overdueCount, upcoming, pastExpanded, today) {
         buildList<CalendarRow> {
-            if (overdue.isNotEmpty()) {
-                add(CalendarRow.OverdueHeader(overdue.size))
-                if (overdueExpanded) overdue.forEach { add(CalendarRow.Entry(it)) }
+            if (past.isNotEmpty()) {
+                add(CalendarRow.PastHeader(overdueCount = overdueCount, total = past.size))
+                if (pastExpanded) past.forEach { add(CalendarRow.Entry(it)) }
             }
             upcoming.forEach { (date, dayTasks) ->
                 add(CalendarRow.DayHeader(date))
@@ -1397,6 +1403,14 @@ private fun CalendarScreen(store: PopStore) {
 
     fun goToDate(date: LocalDate) {
         selectedDate = date
+        if (date < today) {
+            // Dias passados nao tem cabecalho proprio: vivem todos dentro da secao recolhivel.
+            // Rolar ate um cabecalho inexistente nao levaria a lugar nenhum, entao abrir a secao
+            // e o que corresponde ao toque.
+            pastExpanded = true
+            scope.launch { listState.animateScrollToItem(1) }
+            return
+        }
         val index = rows.indexOfFirst { it is CalendarRow.DayHeader && it.date == date }
         // O +1 pula o cabecalho, que ocupa o indice 0 da lista.
         if (index >= 0) scope.launch { listState.animateScrollToItem(index + 1) }
@@ -1467,28 +1481,48 @@ private fun CalendarScreen(store: PopStore) {
 
         items(rows, key = ::calendarRowKey) { row ->
             when (row) {
-                is CalendarRow.OverdueHeader -> Surface(
-                    modifier = Modifier.fillMaxWidth().clickable { overdueExpanded = !overdueExpanded },
-                    shape = RoundedCornerShape(14.dp),
-                    color = PopRed.copy(alpha = .12f),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .padding(start = 14.dp, top = 11.dp, end = 8.dp, bottom = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                is CalendarRow.PastHeader -> {
+                    // So vira alarme quando ha o que cobrar. Um punhado de tarefas antigas ja
+                    // concluidas nao merece a mesma tarja vermelha de um prazo estourado.
+                    val hasOverdue = row.overdueCount > 0
+                    val tint = if (hasOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clickable { pastExpanded = !pastExpanded },
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (hasOverdue) {
+                            PopRed.copy(alpha = .12f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f)
+                        },
                     ) {
-                        Text(
-                            "Atrasadas",
-                            fontWeight = FontWeight.Bold,
-                            color = PopRed,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text("${row.count}", color = PopRed, fontWeight = FontWeight.ExtraBold)
-                        Icon(
-                            if (overdueExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                            if (overdueExpanded) "Recolher atrasadas" else "Expandir atrasadas",
-                            tint = PopRed,
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .padding(start = 14.dp, top = 11.dp, end = 8.dp, bottom = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (hasOverdue) "Atrasadas" else "Antes de hoje",
+                                fontWeight = FontWeight.Bold,
+                                color = tint,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                // "3 de 8" quando parte ja foi concluida: o numero sozinho nao
+                                // bateria com o tanto de linha que a secao abre.
+                                when {
+                                    !hasOverdue -> "${row.total}"
+                                    row.total == row.overdueCount -> "${row.overdueCount}"
+                                    else -> "${row.overdueCount} de ${row.total}"
+                                },
+                                color = tint,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                            Icon(
+                                if (pastExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                if (pastExpanded) "Recolher" else "Expandir",
+                                tint = tint,
+                            )
+                        }
                     }
                 }
 

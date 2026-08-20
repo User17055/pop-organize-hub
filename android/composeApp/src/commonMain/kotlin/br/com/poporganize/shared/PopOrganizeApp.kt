@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -99,6 +101,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -115,6 +118,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.datetime.DatePeriod
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.plus
 
 @Composable
 fun PopOrganizeApp(platform: PopPlatformServices) {
@@ -815,32 +821,9 @@ private fun TasksScreen(store: PopStore) {
     // criado depois tambem entre fechado, sem precisar ser descoberto e adicionado ao conjunto.
     var expandedSectors by remember { mutableStateOf(emptySet<String>()) }
     val scope = rememberCoroutineScope()
-    // Reatribuir exige a permissao tasks.assign, resolvida pelo servidor. Pessoas entram junto de
-    // setores e grupos: AssignmentKind.Person ja existia e ja e convertido nos dois sentidos
-    // (toApiTask/toPopTask), mas nunca tinha sido oferecido na interface.
-    //
-    // Esta lista e passada para cada TaskRow, entao reconstrui-la a cada recomposicao custa caro
-    // com equipe e lista grandes. So muda quando a empresa ou a permissao mudam.
-    val company = store.selectedCompany
-    val canAssign = store.permissions.canAssignTasks
-    val moveTargets = remember(company, canAssign) {
-        if (!canAssign) {
-            emptyList()
-        } else {
-            buildList {
-                company?.members.orEmpty().forEach {
-                    add(AssignmentTarget(AssignmentKind.Person, it.id, it.name))
-                }
-                company?.sectors.orEmpty().forEach {
-                    add(AssignmentTarget(AssignmentKind.Sector, it.id, it.name))
-                }
-                company?.groups.orEmpty().forEach {
-                    add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
-                }
-                add(AssignmentTarget(AssignmentKind.None, null, "Sem responsável"))
-            }
-        }
-    }
+    // Pessoas entram junto de setores e grupos: AssignmentKind.Person ja existia e ja e convertido
+    // nos dois sentidos (toApiTask/toPopTask), mas nunca tinha sido oferecido na interface.
+    val moveTargets = rememberMoveTargets(store)
     // toSortedMap() vem de java.util e nao existe no commonMain; a lista de pares ordenada
     // preserva a mesma ordenacao natural por nome de setor.
     val groupedTasks = remember(tasks) {
@@ -927,127 +910,204 @@ private fun TasksScreen(store: PopStore) {
     }
 
     selectedTask?.let { task ->
-        AlertDialog(
-            onDismissRequest = { selectedTask = null },
-            title = { Text(task.title, fontWeight = FontWeight.ExtraBold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (task.description.isNotBlank()) Text(task.description)
-                    Text("Prazo: ${task.dueDate}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (task.assignment.label != "Sem responsável") {
-                        Text(
-                            "Responsável: ${task.assignment.label}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (task.createdBy.isNotBlank()) {
-                        Text(
-                            "Criada por: ${task.createdBy}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (task.recurrence != RecurrenceKind.None) {
-                        Text(
-                            "Recorrência: ${task.recurrence.label}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (task.checklist.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text("Checklist", fontWeight = FontWeight.Bold)
-                        task.checklist.forEach { item ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth().clickable(
-                                    enabled = store.isCurrentUserAdmin,
-                                ) {
-                                    store.toggleChecklistItem(task.id, item.id)
-                                    selectedTask = store.state.tasks.firstOrNull { it.id == task.id }
-                                },
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Checkbox(
-                                    checked = item.done,
-                                    onCheckedChange = if (store.isCurrentUserAdmin) {
-                                        {
-                                            store.toggleChecklistItem(task.id, item.id)
-                                            selectedTask = store.state.tasks.firstOrNull { it.id == task.id }
-                                        }
-                                    } else {
-                                        null
-                                    },
-                                )
-                                Text(item.title, modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { selectedTask = null }) { Text("Fechar") }
-            },
+        TaskDetailsDialog(
+            task = task,
+            store = store,
+            onTaskChanged = { selectedTask = it },
+            onDismiss = { selectedTask = null },
         )
     }
 
     pendingDeleteTask?.let { task ->
-        AlertDialog(
-            onDismissRequest = { pendingDeleteTask = null },
-            title = {
-                Text(
-                    if (task.recurrence == RecurrenceKind.None) {
-                        "Excluir atividade"
-                    } else {
-                        "Excluir atividade recorrente"
-                    },
-                    fontWeight = FontWeight.ExtraBold,
-                )
+        TaskDeleteDialog(
+            task = task,
+            onDismiss = { pendingDeleteTask = null },
+            onDeleteOccurrence = {
+                deleteWithAnimation(task) { store.deleteRecurringOccurrence(task.id) }
             },
-            text = {
-                Text(
+            onDeleteAll = {
+                deleteWithAnimation(task) {
                     if (task.recurrence == RecurrenceKind.None) {
-                        "Confirma a exclusão de “${task.title}”?"
+                        store.deleteTask(task.id)
                     } else {
-                        "Deseja excluir somente esta data ou toda a recorrência?"
-                    },
-                )
-            },
-            confirmButton = {
-                Column(horizontalAlignment = Alignment.End) {
-                    if (task.recurrence != RecurrenceKind.None) {
-                        TextButton(
-                            onClick = {
-                                deleteWithAnimation(task) {
-                                    store.deleteRecurringOccurrence(task.id)
-                                }
-                            },
-                        ) { Text("Somente esta data") }
-                    }
-                    Button(
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        onClick = {
-                            deleteWithAnimation(task) {
-                                if (task.recurrence == RecurrenceKind.None) {
-                                    store.deleteTask(task.id)
-                                } else {
-                                    store.deleteTaskSeries(task.id)
-                                }
-                            }
-                        },
-                    ) {
-                        Text(
-                            if (task.recurrence == RecurrenceKind.None) {
-                                "Excluir"
-                            } else {
-                                "Toda a recorrência"
-                            },
-                        )
+                        store.deleteTaskSeries(task.id)
                     }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { pendingDeleteTask = null }) { Text("Cancelar") }
-            },
         )
     }
+}
+
+/**
+ * Para quem a tarefa pode ser reatribuida.
+ *
+ * Vive aqui, e nao dentro do TasksScreen, porque o calendario passou a oferecer a mesma acao e
+ * duas copias desta lista sairiam de sincronia na primeira vez que a regra mudasse.
+ *
+ * A lista e passada para cada TaskRow, entao reconstrui-la a cada recomposicao custa caro com
+ * equipe e lista grandes. So muda quando a empresa ou a permissao mudam.
+ */
+@Composable
+private fun rememberMoveTargets(store: PopStore): List<AssignmentTarget> {
+    val company = store.selectedCompany
+    // Reatribuir exige a permissao tasks.assign, resolvida pelo servidor.
+    val canAssign = store.permissions.canAssignTasks
+    return remember(company, canAssign) {
+        if (!canAssign) {
+            emptyList()
+        } else {
+            buildList {
+                company?.members.orEmpty().forEach {
+                    add(AssignmentTarget(AssignmentKind.Person, it.id, it.name))
+                }
+                company?.sectors.orEmpty().forEach {
+                    add(AssignmentTarget(AssignmentKind.Sector, it.id, it.name))
+                }
+                company?.groups.orEmpty().forEach {
+                    add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
+                }
+                add(AssignmentTarget(AssignmentKind.None, null, "Sem responsável"))
+            }
+        }
+    }
+}
+
+/**
+ * Detalhes da tarefa. Estava embutido no TasksScreen; virou composable proprio para o calendario
+ * poder abrir a mesma tarefa em vez de mostrar uma linha inerte.
+ *
+ * `onTaskChanged` existe porque marcar um item do checklist grava no store e devolve uma copia
+ * nova de PopTask: sem reapontar o dialogo para ela, a marca so apareceria ao fechar e reabrir.
+ */
+@Composable
+private fun TaskDetailsDialog(
+    task: PopTask,
+    store: PopStore,
+    onTaskChanged: (PopTask?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(task.title, fontWeight = FontWeight.ExtraBold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (task.description.isNotBlank()) Text(task.description)
+                Text(
+                    listOf(task.dueDate, task.dueTime).filter { it.isNotBlank() }.joinToString(" • "),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (task.assignment.label != "Sem responsável") {
+                    Text(
+                        "Responsável: ${task.assignment.label}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (task.createdBy.isNotBlank()) {
+                    Text(
+                        "Criada por: ${task.createdBy}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (task.recurrence != RecurrenceKind.None) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Rounded.Repeat,
+                            null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            task.recurrence.label,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (task.checklist.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Checklist", fontWeight = FontWeight.Bold)
+                    task.checklist.forEach { item ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable(
+                                enabled = store.isCurrentUserAdmin,
+                            ) {
+                                store.toggleChecklistItem(task.id, item.id)
+                                onTaskChanged(store.state.tasks.firstOrNull { it.id == task.id })
+                            },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = item.done,
+                                onCheckedChange = if (store.isCurrentUserAdmin) {
+                                    {
+                                        store.toggleChecklistItem(task.id, item.id)
+                                        onTaskChanged(store.state.tasks.firstOrNull { it.id == task.id })
+                                    }
+                                } else {
+                                    null
+                                },
+                            )
+                            Text(item.title, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Fechar") }
+        },
+    )
+}
+
+/**
+ * Confirmacao de exclusao. Numa tarefa recorrente oferece excluir so aquela data ou a serie
+ * inteira; numa tarefa comum, so confirma.
+ *
+ * Recebe as duas acoes prontas em vez do store porque quem chama e que sabe animar a saida da
+ * linha antes de a tarefa sumir de fato.
+ */
+@Composable
+private fun TaskDeleteDialog(
+    task: PopTask,
+    onDismiss: () -> Unit,
+    onDeleteOccurrence: () -> Unit,
+    onDeleteAll: () -> Unit,
+) {
+    val isRecurring = task.recurrence != RecurrenceKind.None
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (isRecurring) "Excluir atividade recorrente" else "Excluir atividade",
+                fontWeight = FontWeight.ExtraBold,
+            )
+        },
+        text = {
+            Text(
+                if (isRecurring) {
+                    "Deseja excluir somente esta data ou toda a recorrência?"
+                } else {
+                    "Confirma a exclusão de “${task.title}”?"
+                },
+            )
+        },
+        confirmButton = {
+            Column(horizontalAlignment = Alignment.End) {
+                if (isRecurring) {
+                    TextButton(onClick = onDeleteOccurrence) { Text("Somente esta data") }
+                }
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = onDeleteAll,
+                ) {
+                    Text(if (isRecurring) "Toda a recorrência" else "Excluir")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        },
+    )
 }
 
 @Composable
@@ -1104,16 +1164,31 @@ private fun TaskRow(
                     )
                 }
                 Spacer(Modifier.height(5.dp))
-                Text(
-                    listOf(task.dueDate, task.dueTime).filter { it.isNotBlank() }.joinToString(" • "),
-                    color = when {
-                        isUrgent -> Color.White.copy(alpha = .9f)
-                        isOverdue -> PopRed
-                        else -> priorityColor(task.priority)
-                    },
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                val dateTint = when {
+                    isUrgent -> Color.White.copy(alpha = .9f)
+                    isOverdue -> PopRed
+                    else -> priorityColor(task.priority)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        // Era a data ISO crua: "2026-08-20 • 09:00". Ninguem le uma agenda assim.
+                        taskDateLabel(task.dueDate, task.dueTime, todayDate()),
+                        color = dateTint,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    // Antes so os detalhes contavam que a tarefa se repete, e era preciso abrir
+                    // uma por uma para descobrir.
+                    if (task.recurrence != RecurrenceKind.None) {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(
+                            Icons.Rounded.Repeat,
+                            task.recurrence.label,
+                            tint = dateTint,
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
+                }
             }
             Box {
                 IconButton(onClick = { showMenu = true }) {
@@ -1200,7 +1275,7 @@ private fun CompactTaskRow(task: PopTask) {
             Column(Modifier.weight(1f)) {
                 Text(task.title, fontWeight = FontWeight.SemiBold)
                 Text(
-                    task.dueDate + task.dueTime.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty(),
+                    taskDateLabel(task.dueDate, task.dueTime, todayDate()),
                     color = when {
                         isUrgent -> Color.White.copy(alpha = .9f)
                         isOverdue -> PopRed
@@ -1219,22 +1294,416 @@ private fun CompactTaskRow(task: PopTask) {
     }
 }
 
+/**
+ * Linha da agenda. Modelar as linhas como dados, em vez de despejar item/items soltos dentro da
+ * LazyColumn, e o que torna possivel saber em que indice cada dia caiu -- sem isso o toque num dia
+ * da grade nao teria como rolar a lista ate ele.
+ */
+private sealed interface CalendarRow {
+    data class OverdueHeader(val count: Int) : CalendarRow
+    data class DayHeader(val date: LocalDate) : CalendarRow
+    data class Section(val date: LocalDate, val label: String) : CalendarRow
+    data class Entry(val task: PopTask) : CalendarRow
+}
+
+private fun calendarRowKey(row: CalendarRow): String = when (row) {
+    is CalendarRow.OverdueHeader -> "atrasadas"
+    is CalendarRow.DayHeader -> "dia-${row.date}"
+    // A data entra na chave porque "Agenda do dia" se repete a cada dia, e chave repetida derruba
+    // a LazyColumn em tempo de execucao, nao de compilacao.
+    is CalendarRow.Section -> "secao-${row.date}-${row.label}"
+    is CalendarRow.Entry -> "tarefa-${row.task.id}"
+}
+
+/**
+ * Dentro de um dia: pendentes antes de concluidas, com horario antes de sem horario, e a
+ * prioridade decide o resto. E a mesma cascata que o Android usa.
+ */
+private val dayTaskOrder = compareBy<PopTask>(
+    { it.completed },
+    { it.dueTime.isBlank() },
+    { it.dueTime },
+    { -it.priority.ordinal },
+)
+
+/**
+ * Calendario: grade mensal no topo, agenda continua embaixo.
+ *
+ * A tela anterior tinha 18 linhas e imprimia a data ISO crua ("2026-08-20") como cabecalho de
+ * grupo, com as tarefas numa linha compacta que nao respondia a toque nenhum -- nao dava para
+ * abrir, concluir nem reatribuir nada a partir daqui.
+ */
 @Composable
 private fun CalendarScreen(store: PopStore) {
-    val grouped = store.visibleTasks.sortedBy { it.dueDate }.groupBy { it.dueDate }
+    val tasks = store.visibleTasks
+    // Lido a cada recomposicao em vez de guardado num remember: e uma leitura de relogio barata, e
+    // um app deixado aberto durante a virada da meia-noite continua chamando de "Hoje" o dia certo.
+    val today = todayDate()
+
+    var selectedDate by remember { mutableStateOf(today) }
+    var visibleYear by remember { mutableIntStateOf(today.year) }
+    var visibleMonth by remember { mutableIntStateOf(today.monthNumber) }
+    var overdueExpanded by remember { mutableStateOf(false) }
+    var selectedTask by remember { mutableStateOf<PopTask?>(null) }
+    var pendingDeleteTask by remember { mutableStateOf<PopTask?>(null) }
+    var removingId by remember { mutableStateOf<String?>(null) }
+
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val moveTargets = rememberMoveTargets(store)
+
+    // Uma tarefa com dueDate vazio ou fora do ISO nao tem lugar num calendario. A tela antiga a
+    // agrupava sob um cabecalho em branco; aqui ela fica de fora da agenda, mas o rodape diz
+    // quantas sao, para que nao sumam sem aviso.
+    val dated = remember(tasks) {
+        tasks.mapNotNull { task -> parseIsoDate(task.dueDate)?.let { date -> date to task } }
+    }
+    val undatedCount = tasks.size - dated.size
+    val tasksByDate = remember(dated) { dated.groupBy({ it.first }, { it.second }) }
+
+    val overdue = remember(dated, today) {
+        dated.filter { (date, task) -> !task.completed && date < today }
+            .sortedBy { it.first }
+            .map { it.second }
+    }
+    val upcoming = remember(tasksByDate, today) {
+        tasksByDate.filterKeys { it >= today }.toList().sortedBy { it.first }
+    }
+
+    val rows = remember(overdue, upcoming, overdueExpanded, today) {
+        buildList<CalendarRow> {
+            if (overdue.isNotEmpty()) {
+                add(CalendarRow.OverdueHeader(overdue.size))
+                if (overdueExpanded) overdue.forEach { add(CalendarRow.Entry(it)) }
+            }
+            upcoming.forEach { (date, dayTasks) ->
+                add(CalendarRow.DayHeader(date))
+                val sorted = dayTasks.sortedWith(dayTaskOrder)
+                val timed = sorted.filter { it.dueTime.isNotBlank() }
+                val untimed = sorted.filter { it.dueTime.isBlank() }
+                // Os dois rotulos so aparecem quando existem os dois grupos: num dia em que tudo
+                // tem horario, "Agenda do dia" sozinho nao separa coisa nenhuma.
+                if (timed.isNotEmpty() && untimed.isNotEmpty()) {
+                    add(CalendarRow.Section(date, "Agenda do dia"))
+                    timed.forEach { add(CalendarRow.Entry(it)) }
+                    add(CalendarRow.Section(date, "Sem horário definido"))
+                    untimed.forEach { add(CalendarRow.Entry(it)) }
+                } else {
+                    sorted.forEach { add(CalendarRow.Entry(it)) }
+                }
+            }
+        }
+    }
+
+    fun goToDate(date: LocalDate) {
+        selectedDate = date
+        val index = rows.indexOfFirst { it is CalendarRow.DayHeader && it.date == date }
+        // O +1 pula o cabecalho, que ocupa o indice 0 da lista.
+        if (index >= 0) scope.launch { listState.animateScrollToItem(index + 1) }
+    }
+
+    fun shiftMonth(step: Int) {
+        val moved = LocalDate(visibleYear, visibleMonth, 1).plus(DatePeriod(months = step))
+        visibleYear = moved.year
+        visibleMonth = moved.monthNumber
+    }
+
+    fun deleteWithAnimation(task: PopTask, action: () -> Unit) {
+        pendingDeleteTask = null
+        removingId = task.id
+        scope.launch {
+            delay(230)
+            action()
+            removingId = null
+        }
+    }
+
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(18.dp),
+        contentPadding = PaddingValues(start = 18.dp, top = 18.dp, end = 18.dp, bottom = 92.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item {
-            Text("Calendário", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-            Text("Seus prazos em ordem", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        item(key = "cabecalho") {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Calendário", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            "${dated.count { !it.second.completed }} com prazo em aberto",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // Sem este botao, voltar de uma navegacao de varios meses so seria possivel
+                    // mes a mes, no toque.
+                    TextButton(
+                        onClick = {
+                            visibleYear = today.year
+                            visibleMonth = today.monthNumber
+                            goToDate(today)
+                        },
+                    ) { Text("Hoje") }
+                }
+                CalendarMonthGrid(
+                    year = visibleYear,
+                    month = visibleMonth,
+                    today = today,
+                    selectedDate = selectedDate,
+                    tasksByDate = tasksByDate,
+                    // Lambda, e nao ::goToDate: referencia a funcao local nao e garantida em
+                    // Kotlin, e aqui so se descobre no CI.
+                    onSelect = { goToDate(it) },
+                    onPreviousMonth = { shiftMonth(-1) },
+                    onNextMonth = { shiftMonth(1) },
+                )
+            }
         }
-        if (grouped.isEmpty()) item { EmptyState("Nenhum prazo", "As tarefas com data aparecerão aqui.") }
-        grouped.forEach { (date, tasks) ->
-            item { Text(date, color = PopBlue, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
-            items(tasks, key = { it.id }) { CompactTaskRow(it) }
+
+        if (rows.isEmpty()) {
+            item(key = "vazio") {
+                EmptyState("Nenhum prazo", "As tarefas com data aparecerão aqui.")
+            }
+        }
+
+        items(rows, key = ::calendarRowKey) { row ->
+            when (row) {
+                is CalendarRow.OverdueHeader -> Surface(
+                    modifier = Modifier.fillMaxWidth().clickable { overdueExpanded = !overdueExpanded },
+                    shape = RoundedCornerShape(14.dp),
+                    color = PopRed.copy(alpha = .12f),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(start = 14.dp, top = 11.dp, end = 8.dp, bottom = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Atrasadas",
+                            fontWeight = FontWeight.Bold,
+                            color = PopRed,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text("${row.count}", color = PopRed, fontWeight = FontWeight.ExtraBold)
+                        Icon(
+                            if (overdueExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                            if (overdueExpanded) "Recolher atrasadas" else "Expandir atrasadas",
+                            tint = PopRed,
+                        )
+                    }
+                }
+
+                is CalendarRow.DayHeader -> Text(
+                    dayHeaderLabel(row.date, today),
+                    color = if (row.date == today) PopBlue else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+
+                is CalendarRow.Section -> Text(
+                    row.label,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+
+                is CalendarRow.Entry -> AnimatedVisibility(
+                    visible = removingId != row.task.id,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut(tween(220)) + shrinkVertically(tween(220)),
+                ) {
+                    TaskRow(
+                        task = row.task,
+                        moveTargets = moveTargets,
+                        onOpen = { selectedTask = row.task },
+                        onToggle = { store.toggleTask(row.task.id) },
+                        onMove = { store.moveTask(row.task.id, it) },
+                        onDelete = { pendingDeleteTask = row.task },
+                    )
+                }
+            }
+        }
+
+        if (undatedCount > 0) {
+            item(key = "sem-data") {
+                Text(
+                    if (undatedCount == 1) {
+                        "1 tarefa sem data não aparece aqui."
+                    } else {
+                        "$undatedCount tarefas sem data não aparecem aqui."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        }
+    }
+
+    selectedTask?.let { task ->
+        TaskDetailsDialog(
+            task = task,
+            store = store,
+            onTaskChanged = { selectedTask = it },
+            onDismiss = { selectedTask = null },
+        )
+    }
+
+    pendingDeleteTask?.let { task ->
+        TaskDeleteDialog(
+            task = task,
+            onDismiss = { pendingDeleteTask = null },
+            onDeleteOccurrence = {
+                deleteWithAnimation(task) { store.deleteRecurringOccurrence(task.id) }
+            },
+            onDeleteAll = {
+                deleteWithAnimation(task) {
+                    if (task.recurrence == RecurrenceKind.None) {
+                        store.deleteTask(task.id)
+                    } else {
+                        store.deleteTaskSeries(task.id)
+                    }
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun CalendarMonthGrid(
+    year: Int,
+    month: Int,
+    today: LocalDate,
+    selectedDate: LocalDate,
+    tasksByDate: Map<LocalDate, List<PopTask>>,
+    onSelect: (LocalDate) -> Unit,
+    onPreviousMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+) {
+    val cells = remember(year, month) {
+        val offset = isoDayNumber(LocalDate(year, month, 1)) - 1
+        val head = List<Int?>(offset) { null } + (1..daysInMonth(year, month)).toList()
+        // Fecha so a ultima semana. O Android fixa 42 celulas, o que deixa uma sexta linha inteira
+        // vazia na maioria dos meses, gastando altura de tela a toa.
+        head + List<Int?>((7 - head.size % 7) % 7) { null }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onPreviousMonth) { Icon(Icons.Rounded.ChevronLeft, "Mês anterior") }
+            Text(
+                monthTitle(year, month),
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onNextMonth) { Icon(Icons.Rounded.ChevronRight, "Próximo mês") }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            weekdayLabels.forEach { label ->
+                Text(
+                    label,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        cells.chunked(7).forEach { week ->
+            Row(Modifier.fillMaxWidth()) {
+                week.forEach { day ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        if (day == null) {
+                            Spacer(Modifier.height(44.dp))
+                        } else {
+                            val date = LocalDate(year, month, day)
+                            CalendarDayCell(
+                                day = day,
+                                isToday = date == today,
+                                isSelected = date == selectedDate,
+                                dayTasks = tasksByDate[date].orEmpty(),
+                                onClick = { onSelect(date) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarDayCell(
+    day: Int,
+    isToday: Boolean,
+    isSelected: Boolean,
+    dayTasks: List<PopTask>,
+    onClick: () -> Unit,
+) {
+    // Pendentes primeiro: se o dia tem mais marcadores do que cabem, o que precisa aparecer e o
+    // que ainda falta fazer, nao o que ja foi feito.
+    val ordered = dayTasks.filterNot { it.completed } + dayTasks.filter { it.completed }
+    val markers = ordered.take(3)
+    val extra = ordered.size - markers.size
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Box(
+            modifier = Modifier.size(26.dp).then(
+                // O Android pinta "hoje" e "dia selecionado" exatamente igual, entao com outro dia
+                // escolhido nao da para achar hoje na grade. Aqui o selecionado e preenchido e o
+                // hoje e contornado: dois estados, duas aparencias.
+                when {
+                    isSelected -> Modifier.background(PopBlue, CircleShape)
+                    isToday -> Modifier.border(1.5.dp, PopBlue, CircleShape)
+                    else -> Modifier
+                },
+            ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                day.toString(),
+                fontSize = 12.sp,
+                color = when {
+                    isSelected -> Color.White
+                    isToday -> PopBlue
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
+                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
+            )
+        }
+        Row(
+            modifier = Modifier.height(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            markers.forEach { task ->
+                Box(
+                    Modifier.size(5.dp).background(
+                        if (task.completed) MaterialTheme.colorScheme.outline else priorityColor(task.priority),
+                        CircleShape,
+                    ),
+                )
+            }
+            // O "+N" no lugar de mais pontos: o Android chega a desenhar 20 bolinhas de 2dp em
+            // orbita num circulo de 38dp, o que vira um borrao que ninguem consegue contar. O
+            // numero tambem nao depende de distinguir matiz, ao contrario da cor sozinha.
+            if (extra > 0) {
+                Text(
+                    "+$extra",
+                    fontSize = 8.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 import { Calendar, Check, GripVertical, ListChecks, MessageSquare, Paperclip } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { cn } from "@/lib/utils";
 import { PriorityBadge, StatusBadge } from "@/components/app-shell";
 import {
@@ -53,7 +53,9 @@ function subtaskProgress(task: Task) {
   return { done: subtasks.filter((item) => item.done).length, total: subtasks.length };
 }
 
-export function TaskList({
+const MOBILE_STAGGER_TASK_LIMIT = 30;
+
+function TaskListImpl({
   tasks,
   employees,
   departments,
@@ -90,7 +92,22 @@ export function TaskList({
   };
   onTitleWidthChange?: (width: number) => void;
 }) {
-  const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
+  const employeeById = useMemo(() => {
+    const map = new Map<string, Employee>();
+    for (const employee of employees) map.set(employee.id, employee);
+    return map;
+  }, [employees]);
+  const getEmployee = (id: string) => employeeById.get(id);
+  const permissionsByTaskId = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof getTaskPermissions>>();
+    for (const task of tasks) {
+      map.set(
+        task.id,
+        getTaskPermissions({ task, currentUser, employees, departments, groups, permissionGroups }),
+      );
+    }
+    return map;
+  }, [tasks, currentUser, employees, departments, groups, permissionGroups]);
   const [celebratingTaskId, setCelebratingTaskId] = useState<string | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [mobileDrag, setMobileDrag] = useState<MobileDragState | null>(null);
@@ -317,14 +334,7 @@ export function TaskList({
             {tasks.map((task) => {
               const emp = getEmployee(task.responsibleId);
               const overdue = isOverdue(task);
-              const permissions = getTaskPermissions({
-                task,
-                currentUser,
-                employees,
-                departments,
-                groups,
-                permissionGroups,
-              });
+              const permissions = permissionsByTaskId.get(task.id)!;
               const progress = subtaskProgress(task);
               return (
                 <ContextMenu key={task.id}>
@@ -507,14 +517,7 @@ export function TaskList({
           {tasks.map((task, index) => {
             const emp = getEmployee(task.responsibleId);
             const overdue = isOverdue(task);
-            const permissions = getTaskPermissions({
-              task,
-              currentUser,
-              employees,
-              departments,
-              groups,
-              permissionGroups,
-            });
+            const permissions = permissionsByTaskId.get(task.id)!;
             const progress = subtaskProgress(task);
             const isMobileDragging = mobileDrag?.taskId === task.id;
             const isMobileDropTarget = mobileDrag?.hasMoved && mobileDrag.beforeTaskId === task.id;
@@ -540,7 +543,10 @@ export function TaskList({
                 whileTap={{ scale: 0.992 }}
                 transition={{
                   duration: isMobileDragging ? 0 : 0.34,
-                  delay: isMobileDragging ? 0 : Math.min(index * 0.018, 0.09),
+                  delay:
+                    isMobileDragging || tasks.length > MOBILE_STAGGER_TASK_LIMIT
+                      ? 0
+                      : Math.min(index * 0.018, 0.09),
                   ease: [0.22, 1, 0.36, 1],
                   layout: { type: "spring", stiffness: 280, damping: 32, mass: 0.9 },
                 }}
@@ -694,3 +700,5 @@ export function TaskList({
     </>
   );
 }
+
+export const TaskList = memo(TaskListImpl);

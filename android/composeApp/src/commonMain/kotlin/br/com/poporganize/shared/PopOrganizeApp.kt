@@ -8,6 +8,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,8 +30,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apartment
@@ -38,10 +43,12 @@ import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
@@ -60,12 +67,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -74,6 +82,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -92,9 +101,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -102,6 +118,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.datetime.DatePeriod
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.plus
 
 @Composable
 fun PopOrganizeApp(platform: PopPlatformServices) {
@@ -109,6 +128,8 @@ fun PopOrganizeApp(platform: PopPlatformServices) {
     val state = store.state
 
     SideEffect { platform.applyTheme(state.theme == PopThemeMode.Light) }
+
+    LaunchedEffect(platform) { platform.observeForeground { store.refreshNow() } }
 
     PopTheme(light = state.theme == PopThemeMode.Light) {
         Surface(
@@ -200,114 +221,328 @@ private fun OnboardingScreen(onFinish: () -> Unit) {
 
 @Composable
 private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
+    var stage by remember { mutableStateOf(LoginStage.Choose) }
     var email by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
-    var codeSent by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    var feedback by remember { mutableStateOf<String?>(null) }
+    // Erro e aviso eram a mesma variavel, sempre pintada com a cor de erro: "Código enviado para
+    // seu e-mail" aparecia em vermelho e era lida como falha.
+    var feedbackError by remember { mutableStateOf<String?>(null) }
+    var feedbackInfo by remember { mutableStateOf<String?>(null) }
+    var resendIn by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding(),
-        contentPadding = PaddingValues(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        item {
-            PopLogo(Modifier.padding(top = 12.dp, bottom = 18.dp))
-            Text("Entre na sua conta", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-            Text("Use a mesma conta no Android, iPhone e painel web.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        }
-        item {
-            OutlinedTextField(
-                email,
-                { email = it; feedback = null },
-                enabled = !busy && !codeSent,
-                label = { Text("E-mail") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (codeSent) item {
-            OutlinedTextField(
-                code,
-                { value -> code = value.filter(Char::isDigit).take(6); feedback = null },
-                enabled = !busy,
-                label = { Text("Código de 6 dígitos") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        item {
-            Button(
-                enabled = !busy && email.contains("@") && (!codeSent || code.length == 6),
-                onClick = {
-                    busy = true
-                    feedback = null
-                    scope.launch {
-                        val error = if (codeSent) {
-                            store.verifyEmailCode(email, code)
-                        } else {
-                            store.requestEmailCode(email).also { if (it == null) codeSent = true }
-                        }
-                        feedback = error ?: if (codeSent && code.isBlank()) "Código enviado para seu e-mail." else null
-                        busy = false
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) {
-                Text(
-                    when {
-                        busy -> "Aguarde..."
-                        codeSent -> "Confirmar código"
-                        else -> "Enviar código"
-                    },
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
-        if (codeSent) item {
-            TextButton(
-                enabled = !busy,
-                onClick = { codeSent = false; code = ""; feedback = null },
-            ) { Text("Usar outro e-mail") }
-        }
-        if (platform.supportsGoogleSignIn) item {
-            OutlinedButton(
-                enabled = !busy,
-                onClick = {
-                    busy = true
-                    scope.launch {
-                        feedback = store.completeSignIn(platform.signInWithGoogle())
-                        busy = false
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) { Text(if (busy) "Conectando..." else "Continuar com Google") }
-        }
-        if (platform.supportsAppleSignIn) {
-            item {
-                FilledTonalButton(
-                    enabled = !busy,
-                    onClick = {
-                    busy = true
-                    scope.launch {
-                        feedback = store.completeSignIn(platform.signInWithApple())
-                        busy = false
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                ) { Text("Continuar com Apple") }
-            }
-        }
-        item {
-            TextButton(onClick = store::continueAsGuest) { Text("Continuar sem conta") }
-            feedback?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, textAlign = TextAlign.Center)
-            }
+    LaunchedEffect(resendIn) {
+        if (resendIn > 0) {
+            delay(1000)
+            resendIn -= 1
         }
     }
+
+    fun requestCode(resending: Boolean) {
+        busy = true
+        feedbackError = null
+        feedbackInfo = null
+        scope.launch {
+            val error = store.requestEmailCode(email)
+            if (error != null) {
+                feedbackError = error
+            } else {
+                stage = LoginStage.Code
+                code = ""
+                resendIn = 30
+                feedbackInfo = if (resending) "Novo código enviado." else "Enviamos um código para ${email.trim()}."
+            }
+            busy = false
+        }
+    }
+
+    fun confirmCode() {
+        if (busy || code.length != 6) return
+        busy = true
+        feedbackError = null
+        feedbackInfo = null
+        scope.launch {
+            val error = store.verifyEmailCode(email, code)
+            if (error != null) {
+                feedbackError = error
+                code = ""
+            }
+            busy = false
+        }
+    }
+
+    // O Android esconde o teclado ao completar os 6 digitos mas nao envia, o que deixa um toque
+    // sobrando no fim de todo login. Aqui o codigo completo ja confirma sozinho.
+    LaunchedEffect(code) {
+        if (code.length == 6) confirmCode()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .imePadding()
+            .padding(horizontal = 24.dp, vertical = 18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        PopLogo()
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            AnimatedContent(targetState = stage, label = "loginTitle") { current ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        when (current) {
+                            LoginStage.Choose -> "Comece por aqui"
+                            LoginStage.Email -> "Entre com seu e-mail"
+                            LoginStage.Code -> "Verifique seu e-mail"
+                        },
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        when (current) {
+                            LoginStage.Choose -> "Escolha como você quer continuar."
+                            LoginStage.Email -> "Use a mesma conta no Android, iPhone e painel web."
+                            LoginStage.Code -> "Digite o código de 6 números que enviamos para você."
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+
+        AnimatedContent(targetState = stage, label = "loginActions") { current ->
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                when (current) {
+                    LoginStage.Choose -> {
+                        if (platform.supportsAppleSignIn) {
+                            AppleSignInButton(
+                                enabled = !busy,
+                                lightBackground = store.state.theme == PopThemeMode.Light,
+                                onClick = {
+                                    busy = true
+                                    feedbackError = null
+                                    scope.launch {
+                                        feedbackError = store.completeSignIn(platform.signInWithApple())
+                                        busy = false
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                            )
+                        }
+                        if (platform.supportsGoogleSignIn) {
+                            OutlinedButton(
+                                enabled = !busy,
+                                onClick = {
+                                    busy = true
+                                    feedbackError = null
+                                    scope.launch {
+                                        feedbackError = store.completeSignIn(platform.signInWithGoogle())
+                                        busy = false
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                            ) { Text(if (busy) "Conectando..." else "Continuar com Google") }
+                        }
+                        Button(
+                            enabled = !busy,
+                            onClick = { stage = LoginStage.Email; feedbackError = null; feedbackInfo = null },
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                        ) {
+                            Icon(Icons.Rounded.Email, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Entrar com e-mail", fontWeight = FontWeight.Bold)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                            HorizontalDivider(Modifier.weight(1f))
+                            Text(
+                                "ou",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                            )
+                            HorizontalDivider(Modifier.weight(1f))
+                        }
+                        OutlinedButton(
+                            onClick = store::continueAsGuest,
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                        ) { Text("Continuar sem uma conta") }
+                    }
+
+                    LoginStage.Email -> {
+                        OutlinedTextField(
+                            email,
+                            { email = it; feedbackError = null },
+                            enabled = !busy,
+                            label = { Text("E-mail") },
+                            singleLine = true,
+                            // Sem isto o iPhone abre o teclado alfabetico padrao, sem @ nem ponto.
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Done,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Button(
+                            // contains("@") aceitava o proprio "@" sozinho; a expressao e a mesma
+                            // do servidor, entao a recusa vem antes de gastar uma ida a rede.
+                            enabled = !busy && isValidEmail(email),
+                            onClick = { requestCode(resending = false) },
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                        ) {
+                            if (busy) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                )
+                            } else {
+                                Text("Enviar código", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        TextButton(
+                            enabled = !busy,
+                            onClick = { stage = LoginStage.Choose; feedbackError = null; feedbackInfo = null },
+                        ) { Text("Voltar para outras opções") }
+                    }
+
+                    LoginStage.Code -> {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Rounded.Email, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(9.dp))
+                                Text(
+                                    email.trim(),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        EmailOtpField(
+                            value = code,
+                            onValueChange = { code = it; feedbackError = null },
+                            enabled = !busy,
+                        )
+                        if (busy) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
+                        TextButton(
+                            enabled = !busy && resendIn == 0,
+                            onClick = { requestCode(resending = true) },
+                        ) { Text(if (resendIn > 0) "Reenviar em ${resendIn}s" else "Reenviar código") }
+                        TextButton(
+                            enabled = !busy,
+                            onClick = {
+                                stage = LoginStage.Email
+                                code = ""
+                                resendIn = 0
+                                feedbackError = null
+                                feedbackInfo = null
+                            },
+                        ) { Text("Usar outro e-mail") }
+                    }
+                }
+            }
+        }
+
+        // O aviso ficava no fim de uma lista rolavel: com o teclado aberto num iPhone pequeno ele
+        // nascia fora da tela e o toque parecia nao ter feito nada.
+        Spacer(Modifier.height(10.dp))
+        Text(
+            feedbackError ?: feedbackInfo.orEmpty(),
+            color = if (feedbackError != null) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
+
+private enum class LoginStage { Choose, Email, Code }
+
+/**
+ * Seis caixas desenhadas sobre um campo invisivel. Um OutlinedTextField comum nao mostra quantos
+ * digitos faltam, e e o ponto de maior desistencia de qualquer login por codigo.
+ */
+@Composable
+private fun EmailOtpField(value: String, onValueChange: (String) -> Unit, enabled: Boolean) {
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    BasicTextField(
+        value = value,
+        onValueChange = { onValueChange(it.filter(Char::isDigit).take(6)) },
+        enabled = enabled,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.NumberPassword,
+            imeAction = ImeAction.Done,
+        ),
+        // O texto real fica invisivel: quem aparece sao as caixas do decorationBox.
+        textStyle = TextStyle(color = Color.Transparent),
+        cursorBrush = SolidColor(Color.Transparent),
+        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+        decorationBox = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                repeat(6) { index ->
+                    val filled = index < value.length
+                    val isNext = index == value.length
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp)
+                            .border(
+                                width = if (isNext) 2.dp else 1.dp,
+                                color = when {
+                                    isNext -> PopBlue
+                                    filled -> MaterialTheme.colorScheme.outline
+                                    else -> MaterialTheme.colorScheme.outline.copy(alpha = .5f)
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (filled) value[index].toString() else "",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+        },
+    )
+}
+
 
 private enum class MainTab(val label: String, val icon: ImageVector) {
     Dashboard("Início", Icons.Rounded.Home),
@@ -368,16 +603,16 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
             }
         },
         floatingActionButton = {
-            if (tab == MainTab.Tasks) {
+            if (tab == MainTab.Tasks && store.permissions.canCreateTasks) {
                 FloatingActionButton(onClick = { showTaskEditor = true }) { Icon(Icons.Rounded.Add, "Nova tarefa") }
             }
         },
     ) { padding ->
         AnimatedContent(targetState = tab to morePage, modifier = Modifier.padding(padding)) { (selected, page) ->
             when (selected) {
-                MainTab.Dashboard -> DashboardScreen(store)
-                MainTab.Tasks -> TasksScreen(store)
-                MainTab.Calendar -> CalendarScreen(store)
+                MainTab.Dashboard -> Refreshable(store) { DashboardScreen(store) }
+                MainTab.Tasks -> Refreshable(store) { TasksScreen(store) }
+                MainTab.Calendar -> Refreshable(store) { CalendarScreen(store) }
                 MainTab.More -> when (page) {
                     MorePage.Menu -> MoreScreen(
                         store = store,
@@ -393,6 +628,24 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
     }
 
     if (showTaskEditor) TaskEditorDialog(store = store, onDismiss = { showTaskEditor = false })
+}
+
+/**
+ * Puxar-para-atualizar. So faz sentido com sessao: no modo convidado nao ha servidor de onde
+ * buscar, entao o gesto e desligado em vez de girar sem efeito.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun Refreshable(store: PopStore, content: @Composable () -> Unit) {
+    if (store.state.apiToken.isNullOrBlank()) {
+        content()
+        return
+    }
+    PullToRefreshBox(
+        isRefreshing = store.syncing,
+        onRefresh = store::refreshNow,
+        modifier = Modifier.fillMaxSize(),
+    ) { content() }
 }
 
 @Composable
@@ -564,21 +817,22 @@ private fun TasksScreen(store: PopStore) {
     var removingId by remember { mutableStateOf<String?>(null) }
     var selectedTask by remember { mutableStateOf<PopTask?>(null) }
     var pendingDeleteTask by remember { mutableStateOf<PopTask?>(null) }
-    var collapsedSectors by remember { mutableStateOf(emptySet<String>()) }
+    // Guardar os expandidos, e nao os recolhidos, para que os setores comecem fechados e um setor
+    // criado depois tambem entre fechado, sem precisar ser descoberto e adicionado ao conjunto.
+    var expandedSectors by remember { mutableStateOf(emptySet<String>()) }
     val scope = rememberCoroutineScope()
-    val moveTargets = buildList {
-        store.selectedCompany?.sectors.orEmpty().forEach {
-            add(AssignmentTarget(AssignmentKind.Sector, it.id, it.name))
-        }
-        store.selectedCompany?.groups.orEmpty().forEach {
-            add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
-        }
-    }
+    // Pessoas entram junto de setores e grupos: AssignmentKind.Person ja existia e ja e convertido
+    // nos dois sentidos (toApiTask/toPopTask), mas nunca tinha sido oferecido na interface.
+    val moveTargets = rememberMoveTargets(store)
     // toSortedMap() vem de java.util e nao existe no commonMain; a lista de pares ordenada
     // preserva a mesma ordenacao natural por nome de setor.
-    val groupedTasks = tasks.groupBy {
-        if (it.assignment.kind == AssignmentKind.Sector) it.assignment.label else "Sem setor"
-    }.toList().sortedBy { it.first }
+    val groupedTasks = remember(tasks) {
+        tasks.groupBy {
+            if (it.assignment.kind == AssignmentKind.Sector) it.assignment.label else "Sem setor"
+        }.toList()
+            .sortedBy { it.first }
+            .map { (sector, sectorTasks) -> sector to sectorTasks.sortedWith(taskListOrder) }
+    }
 
     fun deleteWithAnimation(task: PopTask, action: () -> Unit) {
         pendingDeleteTask = null
@@ -604,32 +858,39 @@ private fun TasksScreen(store: PopStore) {
         }
         groupedTasks.forEach { (sector, sectorTasks) ->
             item(key = "sector-$sector") {
+                val expanded = sector in expandedSectors
+                val pending = sectorTasks.count { !it.completed }
                 Surface(
                     modifier = Modifier.fillMaxWidth().clickable {
-                        collapsedSectors = if (sector in collapsedSectors) {
-                            collapsedSectors - sector
+                        expandedSectors = if (expanded) {
+                            expandedSectors - sector
                         } else {
-                            collapsedSectors + sector
+                            expandedSectors + sector
                         }
                     },
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f),
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, top = 11.dp, end = 8.dp, bottom = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(sector, fontWeight = FontWeight.Bold)
+                        Text(sector, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         Text(
-                            "${sectorTasks.size} atividades",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            // Com o setor fechado o que importa e quanto falta, nao o total.
+                            if (pending == 0) "tudo concluído" else "$pending pendentes",
+                            color = if (pending == 0) PopGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
+                        )
+                        Icon(
+                            if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                            if (expanded) "Recolher $sector" else "Expandir $sector",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
-            if (sector !in collapsedSectors) {
+            if (sector in expandedSectors) {
                 items(sectorTasks, key = { it.id }) { task ->
                     AnimatedVisibility(
                         visible = removingId != task.id,
@@ -651,127 +912,204 @@ private fun TasksScreen(store: PopStore) {
     }
 
     selectedTask?.let { task ->
-        AlertDialog(
-            onDismissRequest = { selectedTask = null },
-            title = { Text(task.title, fontWeight = FontWeight.ExtraBold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (task.description.isNotBlank()) Text(task.description)
-                    Text("Prazo: ${task.dueDate}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (task.assignment.label != "Sem responsável") {
-                        Text(
-                            "Responsável: ${task.assignment.label}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (task.createdBy.isNotBlank()) {
-                        Text(
-                            "Criada por: ${task.createdBy}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (task.recurrence != RecurrenceKind.None) {
-                        Text(
-                            "Recorrência: ${task.recurrence.label}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (task.checklist.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text("Checklist", fontWeight = FontWeight.Bold)
-                        task.checklist.forEach { item ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth().clickable(
-                                    enabled = store.isCurrentUserAdmin,
-                                ) {
-                                    store.toggleChecklistItem(task.id, item.id)
-                                    selectedTask = store.state.tasks.firstOrNull { it.id == task.id }
-                                },
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Checkbox(
-                                    checked = item.done,
-                                    onCheckedChange = if (store.isCurrentUserAdmin) {
-                                        {
-                                            store.toggleChecklistItem(task.id, item.id)
-                                            selectedTask = store.state.tasks.firstOrNull { it.id == task.id }
-                                        }
-                                    } else {
-                                        null
-                                    },
-                                )
-                                Text(item.title, modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { selectedTask = null }) { Text("Fechar") }
-            },
+        TaskDetailsDialog(
+            task = task,
+            store = store,
+            onTaskChanged = { selectedTask = it },
+            onDismiss = { selectedTask = null },
         )
     }
 
     pendingDeleteTask?.let { task ->
-        AlertDialog(
-            onDismissRequest = { pendingDeleteTask = null },
-            title = {
-                Text(
-                    if (task.recurrence == RecurrenceKind.None) {
-                        "Excluir atividade"
-                    } else {
-                        "Excluir atividade recorrente"
-                    },
-                    fontWeight = FontWeight.ExtraBold,
-                )
+        TaskDeleteDialog(
+            task = task,
+            onDismiss = { pendingDeleteTask = null },
+            onDeleteOccurrence = {
+                deleteWithAnimation(task) { store.deleteRecurringOccurrence(task.id) }
             },
-            text = {
-                Text(
+            onDeleteAll = {
+                deleteWithAnimation(task) {
                     if (task.recurrence == RecurrenceKind.None) {
-                        "Confirma a exclusão de “${task.title}”?"
+                        store.deleteTask(task.id)
                     } else {
-                        "Deseja excluir somente esta data ou toda a recorrência?"
-                    },
-                )
-            },
-            confirmButton = {
-                Column(horizontalAlignment = Alignment.End) {
-                    if (task.recurrence != RecurrenceKind.None) {
-                        TextButton(
-                            onClick = {
-                                deleteWithAnimation(task) {
-                                    store.deleteRecurringOccurrence(task.id)
-                                }
-                            },
-                        ) { Text("Somente esta data") }
-                    }
-                    Button(
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        onClick = {
-                            deleteWithAnimation(task) {
-                                if (task.recurrence == RecurrenceKind.None) {
-                                    store.deleteTask(task.id)
-                                } else {
-                                    store.deleteTaskSeries(task.id)
-                                }
-                            }
-                        },
-                    ) {
-                        Text(
-                            if (task.recurrence == RecurrenceKind.None) {
-                                "Excluir"
-                            } else {
-                                "Toda a recorrência"
-                            },
-                        )
+                        store.deleteTaskSeries(task.id)
                     }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { pendingDeleteTask = null }) { Text("Cancelar") }
-            },
         )
     }
+}
+
+/**
+ * Para quem a tarefa pode ser reatribuida.
+ *
+ * Vive aqui, e nao dentro do TasksScreen, porque o calendario passou a oferecer a mesma acao e
+ * duas copias desta lista sairiam de sincronia na primeira vez que a regra mudasse.
+ *
+ * A lista e passada para cada TaskRow, entao reconstrui-la a cada recomposicao custa caro com
+ * equipe e lista grandes. So muda quando a empresa ou a permissao mudam.
+ */
+@Composable
+private fun rememberMoveTargets(store: PopStore): List<AssignmentTarget> {
+    val company = store.selectedCompany
+    // Reatribuir exige a permissao tasks.assign, resolvida pelo servidor.
+    val canAssign = store.permissions.canAssignTasks
+    return remember(company, canAssign) {
+        if (!canAssign) {
+            emptyList()
+        } else {
+            buildList {
+                company?.members.orEmpty().forEach {
+                    add(AssignmentTarget(AssignmentKind.Person, it.id, it.name))
+                }
+                company?.sectors.orEmpty().forEach {
+                    add(AssignmentTarget(AssignmentKind.Sector, it.id, it.name))
+                }
+                company?.groups.orEmpty().forEach {
+                    add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
+                }
+                add(AssignmentTarget(AssignmentKind.None, null, "Sem responsável"))
+            }
+        }
+    }
+}
+
+/**
+ * Detalhes da tarefa. Estava embutido no TasksScreen; virou composable proprio para o calendario
+ * poder abrir a mesma tarefa em vez de mostrar uma linha inerte.
+ *
+ * `onTaskChanged` existe porque marcar um item do checklist grava no store e devolve uma copia
+ * nova de PopTask: sem reapontar o dialogo para ela, a marca so apareceria ao fechar e reabrir.
+ */
+@Composable
+private fun TaskDetailsDialog(
+    task: PopTask,
+    store: PopStore,
+    onTaskChanged: (PopTask?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(task.title, fontWeight = FontWeight.ExtraBold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (task.description.isNotBlank()) Text(task.description)
+                Text(
+                    listOf(task.dueDate, task.dueTime).filter { it.isNotBlank() }.joinToString(" • "),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (task.assignment.label != "Sem responsável") {
+                    Text(
+                        "Responsável: ${task.assignment.label}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (task.createdBy.isNotBlank()) {
+                    Text(
+                        "Criada por: ${task.createdBy}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (task.recurrence != RecurrenceKind.None) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Rounded.Repeat,
+                            null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            task.recurrence.label,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (task.checklist.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Checklist", fontWeight = FontWeight.Bold)
+                    task.checklist.forEach { item ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable(
+                                enabled = store.isCurrentUserAdmin,
+                            ) {
+                                store.toggleChecklistItem(task.id, item.id)
+                                onTaskChanged(store.state.tasks.firstOrNull { it.id == task.id })
+                            },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = item.done,
+                                onCheckedChange = if (store.isCurrentUserAdmin) {
+                                    {
+                                        store.toggleChecklistItem(task.id, item.id)
+                                        onTaskChanged(store.state.tasks.firstOrNull { it.id == task.id })
+                                    }
+                                } else {
+                                    null
+                                },
+                            )
+                            Text(item.title, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Fechar") }
+        },
+    )
+}
+
+/**
+ * Confirmacao de exclusao. Numa tarefa recorrente oferece excluir so aquela data ou a serie
+ * inteira; numa tarefa comum, so confirma.
+ *
+ * Recebe as duas acoes prontas em vez do store porque quem chama e que sabe animar a saida da
+ * linha antes de a tarefa sumir de fato.
+ */
+@Composable
+private fun TaskDeleteDialog(
+    task: PopTask,
+    onDismiss: () -> Unit,
+    onDeleteOccurrence: () -> Unit,
+    onDeleteAll: () -> Unit,
+) {
+    val isRecurring = task.recurrence != RecurrenceKind.None
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (isRecurring) "Excluir atividade recorrente" else "Excluir atividade",
+                fontWeight = FontWeight.ExtraBold,
+            )
+        },
+        text = {
+            Text(
+                if (isRecurring) {
+                    "Deseja excluir somente esta data ou toda a recorrência?"
+                } else {
+                    "Confirma a exclusão de “${task.title}”?"
+                },
+            )
+        },
+        confirmButton = {
+            Column(horizontalAlignment = Alignment.End) {
+                if (isRecurring) {
+                    TextButton(onClick = onDeleteOccurrence) { Text("Somente esta data") }
+                }
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = onDeleteAll,
+                ) {
+                    Text(if (isRecurring) "Toda a recorrência" else "Excluir")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        },
+    )
 }
 
 @Composable
@@ -828,16 +1166,31 @@ private fun TaskRow(
                     )
                 }
                 Spacer(Modifier.height(5.dp))
-                Text(
-                    listOf(task.dueDate, task.dueTime).filter { it.isNotBlank() }.joinToString(" • "),
-                    color = when {
-                        isUrgent -> Color.White.copy(alpha = .9f)
-                        isOverdue -> PopRed
-                        else -> priorityColor(task.priority)
-                    },
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                val dateTint = when {
+                    isUrgent -> Color.White.copy(alpha = .9f)
+                    isOverdue -> PopRed
+                    else -> priorityColor(task.priority)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        // Era a data ISO crua: "2026-08-20 • 09:00". Ninguem le uma agenda assim.
+                        taskDateLabel(task.dueDate, task.dueTime, todayDate()),
+                        color = dateTint,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    // Antes so os detalhes contavam que a tarefa se repete, e era preciso abrir
+                    // uma por uma para descobrir.
+                    if (task.recurrence != RecurrenceKind.None) {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(
+                            Icons.Rounded.Repeat,
+                            task.recurrence.label,
+                            tint = dateTint,
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
+                }
             }
             Box {
                 IconButton(onClick = { showMenu = true }) {
@@ -848,15 +1201,44 @@ private fun TaskRow(
                     )
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    if (moveTargets.isNotEmpty()) {
+                        Text(
+                            "Responsável",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
                     moveTargets.forEach { target ->
+                        val current = target.kind == task.assignment.kind && target.id == task.assignment.id
                         DropdownMenuItem(
                             text = {
                                 Text(
-                                    "${if (target.kind == AssignmentKind.Group) "Grupo" else "Setor"}: ${target.label}",
+                                    when (target.kind) {
+                                        AssignmentKind.Person -> target.label
+                                        AssignmentKind.Group -> "Grupo: ${target.label}"
+                                        AssignmentKind.Sector -> "Setor: ${target.label}"
+                                        AssignmentKind.None -> target.label
+                                    },
                                 )
                             },
+                            leadingIcon = {
+                                Icon(
+                                    when (target.kind) {
+                                        AssignmentKind.Person -> Icons.Rounded.Person
+                                        AssignmentKind.Group -> Icons.Rounded.Groups
+                                        AssignmentKind.Sector -> Icons.Rounded.Apartment
+                                        AssignmentKind.None -> Icons.Rounded.MoreHoriz
+                                    },
+                                    null,
+                                )
+                            },
+                            trailingIcon = {
+                                if (current) Icon(Icons.Rounded.Check, null, tint = PopBlue)
+                            },
                             onClick = {
-                                onMove(target)
+                                if (!current) onMove(target)
                                 showMenu = false
                             },
                         )
@@ -895,7 +1277,7 @@ private fun CompactTaskRow(task: PopTask) {
             Column(Modifier.weight(1f)) {
                 Text(task.title, fontWeight = FontWeight.SemiBold)
                 Text(
-                    task.dueDate + task.dueTime.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty(),
+                    taskDateLabel(task.dueDate, task.dueTime, todayDate()),
                     color = when {
                         isUrgent -> Color.White.copy(alpha = .9f)
                         isOverdue -> PopRed
@@ -914,22 +1296,465 @@ private fun CompactTaskRow(task: PopTask) {
     }
 }
 
+/**
+ * Linha da agenda. Modelar as linhas como dados, em vez de despejar item/items soltos dentro da
+ * LazyColumn, e o que torna possivel saber em que indice cada dia caiu -- sem isso o toque num dia
+ * da grade nao teria como rolar a lista ate ele.
+ */
+private sealed interface CalendarRow {
+    /** Tudo que e anterior a hoje, recolhido numa secao so. */
+    data class PastHeader(val overdueCount: Int, val total: Int) : CalendarRow
+    data class DayHeader(val date: LocalDate) : CalendarRow
+    data class Section(val date: LocalDate, val label: String) : CalendarRow
+    data class Entry(val task: PopTask) : CalendarRow
+}
+
+private fun calendarRowKey(row: CalendarRow): String = when (row) {
+    is CalendarRow.PastHeader -> "antes-de-hoje"
+    is CalendarRow.DayHeader -> "dia-${row.date}"
+    // A data entra na chave porque "Agenda do dia" se repete a cada dia, e chave repetida derruba
+    // a LazyColumn em tempo de execucao, nao de compilacao.
+    is CalendarRow.Section -> "secao-${row.date}-${row.label}"
+    is CalendarRow.Entry -> "tarefa-${row.task.id}"
+}
+
+/**
+ * Ordem da lista de tarefas dentro de um setor: pendentes antes de concluidas, depois o prazo mais
+ * proximo, e a prioridade desempata. A tela nao ordenava nada -- as tarefas sairam na ordem em que
+ * chegaram, com urgente e concluida embaralhadas -- enquanto o Android ja poe pendente antes de
+ * concluida e ordena por data.
+ *
+ * O `ifBlank` nao e detalhe: dueDate e String, e a string vazia ordena ANTES de "2026-...", entao
+ * sem ele a tarefa sem data pularia para o topo em vez de ir para o fim.
+ */
+private val taskListOrder = compareBy<PopTask>(
+    { it.completed },
+    { it.dueDate.ifBlank { "9999-12-31" } },
+    { -it.priority.ordinal },
+)
+
+/**
+ * Dentro de um dia do calendario a cascata e outra, de proposito: a data ja e a mesma para todos,
+ * entao quem manda e o horario, e a prioridade so desempata quem nao tem hora marcada.
+ */
+private val dayTaskOrder = compareBy<PopTask>(
+    { it.completed },
+    { it.dueTime.isBlank() },
+    { it.dueTime },
+    { -it.priority.ordinal },
+)
+
+/**
+ * Calendario: grade mensal no topo, agenda continua embaixo.
+ *
+ * A tela anterior tinha 18 linhas e imprimia a data ISO crua ("2026-08-20") como cabecalho de
+ * grupo, com as tarefas numa linha compacta que nao respondia a toque nenhum -- nao dava para
+ * abrir, concluir nem reatribuir nada a partir daqui.
+ */
 @Composable
 private fun CalendarScreen(store: PopStore) {
-    val grouped = store.visibleTasks.sortedBy { it.dueDate }.groupBy { it.dueDate }
+    val tasks = store.visibleTasks
+    // Lido a cada recomposicao em vez de guardado num remember: e uma leitura de relogio barata, e
+    // um app deixado aberto durante a virada da meia-noite continua chamando de "Hoje" o dia certo.
+    val today = todayDate()
+
+    var selectedDate by remember { mutableStateOf(today) }
+    var visibleYear by remember { mutableIntStateOf(today.year) }
+    var visibleMonth by remember { mutableIntStateOf(today.monthNumber) }
+    var pastExpanded by remember { mutableStateOf(false) }
+    var selectedTask by remember { mutableStateOf<PopTask?>(null) }
+    var pendingDeleteTask by remember { mutableStateOf<PopTask?>(null) }
+    var removingId by remember { mutableStateOf<String?>(null) }
+
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val moveTargets = rememberMoveTargets(store)
+
+    // Uma tarefa com dueDate vazio ou fora do ISO nao tem lugar num calendario. A tela antiga a
+    // agrupava sob um cabecalho em branco; aqui ela fica de fora da agenda, mas o rodape diz
+    // quantas sao, para que nao sumam sem aviso.
+    val dated = remember(tasks) {
+        tasks.mapNotNull { task -> parseIsoDate(task.dueDate)?.let { date -> date to task } }
+    }
+    val undatedCount = tasks.size - dated.size
+    val tasksByDate = remember(dated) { dated.groupBy({ it.first }, { it.second }) }
+
+    // Tudo que ficou para tras entra aqui, concluido ou nao. Filtrar so as pendentes deixaria a
+    // tarefa atrasada que acabou de ser concluida num vao: fora de "Atrasadas" por estar
+    // concluida, e fora da agenda por ser anterior a hoje. Ela sumiria da lista enquanto o ponto
+    // dela seguiria aceso na grade, prometendo um dia que a agenda nao entregava.
+    val past = remember(dated, today) {
+        dated.filter { it.first < today }
+            .sortedWith(compareBy({ it.second.completed }, { it.first }))
+            .map { it.second }
+    }
+    val overdueCount = past.count { !it.completed }
+    val upcoming = remember(tasksByDate, today) {
+        tasksByDate.filterKeys { it >= today }.toList().sortedBy { it.first }
+    }
+
+    val rows = remember(past, overdueCount, upcoming, pastExpanded, today) {
+        buildList<CalendarRow> {
+            if (past.isNotEmpty()) {
+                add(CalendarRow.PastHeader(overdueCount = overdueCount, total = past.size))
+                if (pastExpanded) past.forEach { add(CalendarRow.Entry(it)) }
+            }
+            upcoming.forEach { (date, dayTasks) ->
+                add(CalendarRow.DayHeader(date))
+                val sorted = dayTasks.sortedWith(dayTaskOrder)
+                val timed = sorted.filter { it.dueTime.isNotBlank() }
+                val untimed = sorted.filter { it.dueTime.isBlank() }
+                // Os dois rotulos so aparecem quando existem os dois grupos: num dia em que tudo
+                // tem horario, "Agenda do dia" sozinho nao separa coisa nenhuma.
+                if (timed.isNotEmpty() && untimed.isNotEmpty()) {
+                    add(CalendarRow.Section(date, "Agenda do dia"))
+                    timed.forEach { add(CalendarRow.Entry(it)) }
+                    add(CalendarRow.Section(date, "Sem horário definido"))
+                    untimed.forEach { add(CalendarRow.Entry(it)) }
+                } else {
+                    sorted.forEach { add(CalendarRow.Entry(it)) }
+                }
+            }
+        }
+    }
+
+    fun goToDate(date: LocalDate) {
+        selectedDate = date
+        if (date < today) {
+            // Dias passados nao tem cabecalho proprio: vivem todos dentro da secao recolhivel.
+            // Rolar ate um cabecalho inexistente nao levaria a lugar nenhum, entao abrir a secao
+            // e o que corresponde ao toque.
+            pastExpanded = true
+            scope.launch { listState.animateScrollToItem(1) }
+            return
+        }
+        val index = rows.indexOfFirst { it is CalendarRow.DayHeader && it.date == date }
+        // O +1 pula o cabecalho, que ocupa o indice 0 da lista.
+        if (index >= 0) scope.launch { listState.animateScrollToItem(index + 1) }
+    }
+
+    fun shiftMonth(step: Int) {
+        val moved = LocalDate(visibleYear, visibleMonth, 1).plus(DatePeriod(months = step))
+        visibleYear = moved.year
+        visibleMonth = moved.monthNumber
+    }
+
+    fun deleteWithAnimation(task: PopTask, action: () -> Unit) {
+        pendingDeleteTask = null
+        removingId = task.id
+        scope.launch {
+            delay(230)
+            action()
+            removingId = null
+        }
+    }
+
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(18.dp),
+        contentPadding = PaddingValues(start = 18.dp, top = 18.dp, end = 18.dp, bottom = 92.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item {
-            Text("Calendário", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-            Text("Seus prazos em ordem", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        item(key = "cabecalho") {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Calendário", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            "${dated.count { !it.second.completed }} com prazo em aberto",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // Sem este botao, voltar de uma navegacao de varios meses so seria possivel
+                    // mes a mes, no toque.
+                    TextButton(
+                        onClick = {
+                            visibleYear = today.year
+                            visibleMonth = today.monthNumber
+                            goToDate(today)
+                        },
+                    ) { Text("Hoje") }
+                }
+                CalendarMonthGrid(
+                    year = visibleYear,
+                    month = visibleMonth,
+                    today = today,
+                    selectedDate = selectedDate,
+                    tasksByDate = tasksByDate,
+                    // Lambda, e nao ::goToDate: referencia a funcao local nao e garantida em
+                    // Kotlin, e aqui so se descobre no CI.
+                    onSelect = { goToDate(it) },
+                    onPreviousMonth = { shiftMonth(-1) },
+                    onNextMonth = { shiftMonth(1) },
+                )
+            }
         }
-        if (grouped.isEmpty()) item { EmptyState("Nenhum prazo", "As tarefas com data aparecerão aqui.") }
-        grouped.forEach { (date, tasks) ->
-            item { Text(date, color = PopBlue, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
-            items(tasks, key = { it.id }) { CompactTaskRow(it) }
+
+        if (rows.isEmpty()) {
+            item(key = "vazio") {
+                EmptyState("Nenhum prazo", "As tarefas com data aparecerão aqui.")
+            }
+        }
+
+        items(rows, key = ::calendarRowKey) { row ->
+            when (row) {
+                is CalendarRow.PastHeader -> {
+                    // So vira alarme quando ha o que cobrar. Um punhado de tarefas antigas ja
+                    // concluidas nao merece a mesma tarja vermelha de um prazo estourado.
+                    val hasOverdue = row.overdueCount > 0
+                    val tint = if (hasOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clickable { pastExpanded = !pastExpanded },
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (hasOverdue) {
+                            PopRed.copy(alpha = .12f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f)
+                        },
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .padding(start = 14.dp, top = 11.dp, end = 8.dp, bottom = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (hasOverdue) "Atrasadas" else "Antes de hoje",
+                                fontWeight = FontWeight.Bold,
+                                color = tint,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                // "3 de 8" quando parte ja foi concluida: o numero sozinho nao
+                                // bateria com o tanto de linha que a secao abre.
+                                when {
+                                    !hasOverdue -> "${row.total}"
+                                    row.total == row.overdueCount -> "${row.overdueCount}"
+                                    else -> "${row.overdueCount} de ${row.total}"
+                                },
+                                color = tint,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                            Icon(
+                                if (pastExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                if (pastExpanded) "Recolher" else "Expandir",
+                                tint = tint,
+                            )
+                        }
+                    }
+                }
+
+                is CalendarRow.DayHeader -> Text(
+                    dayHeaderLabel(row.date, today),
+                    color = if (row.date == today) PopBlue else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+
+                is CalendarRow.Section -> Text(
+                    row.label,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+
+                is CalendarRow.Entry -> AnimatedVisibility(
+                    visible = removingId != row.task.id,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut(tween(220)) + shrinkVertically(tween(220)),
+                ) {
+                    TaskRow(
+                        task = row.task,
+                        moveTargets = moveTargets,
+                        onOpen = { selectedTask = row.task },
+                        onToggle = { store.toggleTask(row.task.id) },
+                        onMove = { store.moveTask(row.task.id, it) },
+                        onDelete = { pendingDeleteTask = row.task },
+                    )
+                }
+            }
+        }
+
+        if (undatedCount > 0) {
+            item(key = "sem-data") {
+                Text(
+                    if (undatedCount == 1) {
+                        "1 tarefa sem data não aparece aqui."
+                    } else {
+                        "$undatedCount tarefas sem data não aparecem aqui."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        }
+    }
+
+    selectedTask?.let { task ->
+        TaskDetailsDialog(
+            task = task,
+            store = store,
+            onTaskChanged = { selectedTask = it },
+            onDismiss = { selectedTask = null },
+        )
+    }
+
+    pendingDeleteTask?.let { task ->
+        TaskDeleteDialog(
+            task = task,
+            onDismiss = { pendingDeleteTask = null },
+            onDeleteOccurrence = {
+                deleteWithAnimation(task) { store.deleteRecurringOccurrence(task.id) }
+            },
+            onDeleteAll = {
+                deleteWithAnimation(task) {
+                    if (task.recurrence == RecurrenceKind.None) {
+                        store.deleteTask(task.id)
+                    } else {
+                        store.deleteTaskSeries(task.id)
+                    }
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun CalendarMonthGrid(
+    year: Int,
+    month: Int,
+    today: LocalDate,
+    selectedDate: LocalDate,
+    tasksByDate: Map<LocalDate, List<PopTask>>,
+    onSelect: (LocalDate) -> Unit,
+    onPreviousMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+) {
+    val cells = remember(year, month) {
+        val offset = isoDayNumber(LocalDate(year, month, 1)) - 1
+        val head = List<Int?>(offset) { null } + (1..daysInMonth(year, month)).toList()
+        // Fecha so a ultima semana. O Android fixa 42 celulas, o que deixa uma sexta linha inteira
+        // vazia na maioria dos meses, gastando altura de tela a toa.
+        head + List<Int?>((7 - head.size % 7) % 7) { null }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onPreviousMonth) { Icon(Icons.Rounded.ChevronLeft, "Mês anterior") }
+            Text(
+                monthTitle(year, month),
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onNextMonth) { Icon(Icons.Rounded.ChevronRight, "Próximo mês") }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            weekdayLabels.forEach { label ->
+                Text(
+                    label,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        cells.chunked(7).forEach { week ->
+            Row(Modifier.fillMaxWidth()) {
+                week.forEach { day ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        if (day == null) {
+                            Spacer(Modifier.height(44.dp))
+                        } else {
+                            val date = LocalDate(year, month, day)
+                            CalendarDayCell(
+                                day = day,
+                                isToday = date == today,
+                                isSelected = date == selectedDate,
+                                dayTasks = tasksByDate[date].orEmpty(),
+                                onClick = { onSelect(date) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarDayCell(
+    day: Int,
+    isToday: Boolean,
+    isSelected: Boolean,
+    dayTasks: List<PopTask>,
+    onClick: () -> Unit,
+) {
+    // Pendentes primeiro: se o dia tem mais marcadores do que cabem, o que precisa aparecer e o
+    // que ainda falta fazer, nao o que ja foi feito.
+    val ordered = dayTasks.filterNot { it.completed } + dayTasks.filter { it.completed }
+    val markers = ordered.take(3)
+    val extra = ordered.size - markers.size
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Box(
+            modifier = Modifier.size(26.dp).then(
+                // O Android pinta "hoje" e "dia selecionado" exatamente igual, entao com outro dia
+                // escolhido nao da para achar hoje na grade. Aqui o selecionado e preenchido e o
+                // hoje e contornado: dois estados, duas aparencias.
+                when {
+                    isSelected -> Modifier.background(PopBlue, CircleShape)
+                    isToday -> Modifier.border(1.5.dp, PopBlue, CircleShape)
+                    else -> Modifier
+                },
+            ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                day.toString(),
+                fontSize = 12.sp,
+                color = when {
+                    isSelected -> Color.White
+                    isToday -> PopBlue
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
+                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
+            )
+        }
+        Row(
+            modifier = Modifier.height(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            markers.forEach { task ->
+                Box(
+                    Modifier.size(5.dp).background(
+                        if (task.completed) MaterialTheme.colorScheme.outline else priorityColor(task.priority),
+                        CircleShape,
+                    ),
+                )
+            }
+            // O "+N" no lugar de mais pontos: o Android chega a desenhar 20 bolinhas de 2dp em
+            // orbita num circulo de 38dp, o que vira um borrao que ninguem consegue contar. O
+            // numero tambem nao depende de distinguir matiz, ao contrario da cor sozinha.
+            if (extra > 0) {
+                Text(
+                    "+$extra",
+                    fontSize = 8.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
     }
 }
@@ -1011,11 +1836,19 @@ private fun MoreItem(icon: ImageVector, title: String, detail: String, onClick: 
 private fun TeamScreen(store: PopStore) {
     val company = store.selectedCompany
     var showEditor by remember { mutableStateOf(false) }
+    // Convidar alguem exige um setor: addMember() usa o primeiro setor da empresa como destino.
+    val hasSector = company?.sectors?.isNotEmpty() == true
+    val canAdd = store.permissions.canManageEmployees && hasSector
     EntityListScreen(
         title = "Pessoas cadastradas",
         emptyTitle = "Nenhum colaborador",
+        emptyDetail = when {
+            !store.permissions.canManageEmployees -> "Somente quem administra a equipe pode convidar."
+            !hasSector -> "Cadastre um setor antes de convidar alguém."
+            else -> null
+        },
         items = company?.members.orEmpty().map { it.name to "${it.role} • ${it.email}" },
-        onAdd = { showEditor = true },
+        onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) MemberEditorDialog(store) { showEditor = false }
 }
@@ -1024,12 +1857,17 @@ private fun TeamScreen(store: PopStore) {
 private fun SectorsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     var showEditor by remember { mutableStateOf(false) }
+    val canAdd = store.permissions.canManageDepartments
     EntityListScreen(
         title = "Estrutura por setores",
         emptyTitle = "Nenhum setor",
-        emptyDetail = "Cadastre o primeiro setor para poder convidar pessoas.",
+        emptyDetail = if (canAdd) {
+            "Cadastre o primeiro setor para poder convidar pessoas."
+        } else {
+            "Somente quem administra a empresa pode criar setores."
+        },
         items = company?.sectors.orEmpty().map { it.name to it.description },
-        onAdd = { showEditor = true },
+        onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) {
         SimpleEntityEditorDialog(
@@ -1044,11 +1882,13 @@ private fun SectorsScreen(store: PopStore) {
 private fun GroupsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     var showEditor by remember { mutableStateOf(false) }
+    val canAdd = store.permissions.canManageGroups
     EntityListScreen(
         title = "Grupos de trabalho",
         emptyTitle = "Nenhum grupo",
+        emptyDetail = if (canAdd) null else "Somente quem administra a empresa pode criar grupos.",
         items = company?.groups.orEmpty().map { it.name to it.description },
-        onAdd = { showEditor = true },
+        onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) {
         SimpleEntityEditorDialog(
@@ -1262,7 +2102,10 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
         },
         confirmButton = {
             Button(
-                enabled = title.isNotBlank(),
+                // O painel web exige 3 caracteres no titulo (pop-organize.functions.ts:88). O
+                // endpoint movel nao valida, entao sem isto o iPhone criaria uma tarefa que o
+                // site recusaria — e que quebraria ao ser editada por la.
+                enabled = title.hasAtLeast(3),
                 onClick = {
                     store.addTask(
                         title = title,
@@ -1291,14 +2134,33 @@ private fun CompanyEditorDialog(store: PopStore, onDismiss: () -> Unit) {
         title = { Text("Criar minha empresa") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nome da empresa") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(description, { description = it }, label = { Text("Pequena descrição") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text("Nome da empresa") },
+                    singleLine = true,
+                    // createCompany nao exige descricao, so o nome com 2 caracteres.
+                    isError = name.isNotEmpty() && !name.hasAtLeast(2),
+                    supportingText = if (name.isNotEmpty() && !name.hasAtLeast(2)) {
+                        ({ Text("Pelo menos 2 caracteres.") })
+                    } else {
+                        null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    description,
+                    { description = it },
+                    label = { Text("Pequena descrição (opcional)") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Text("${store.state.companies.size}/3 empresas criadas", style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = {
             Button(
-                enabled = name.isNotBlank() && store.state.companies.size < 3,
+                enabled = name.hasAtLeast(2) && store.state.companies.size < 3,
                 onClick = { store.createCompany(name, description); onDismiss() },
             ) { Text("Criar") }
         },
@@ -1311,37 +2173,117 @@ private fun MemberEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("Colaborador") }
+    var touched by remember { mutableStateOf(false) }
+    val nameOk = name.hasAtLeast(2)
+    val emailOk = isValidEmail(email)
+    val roleOk = role.hasAtLeast(2)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Cadastrar pessoa") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nome") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(email, { email = it }, label = { Text("E-mail") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(role, { role = it }, label = { Text("Função") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text("Nome") },
+                    singleLine = true,
+                    isError = touched && !nameOk,
+                    supportingText = if (touched && !nameOk) ({ Text("Pelo menos 2 caracteres.") }) else null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    email,
+                    { email = it },
+                    label = { Text("E-mail") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                    isError = touched && !emailOk,
+                    supportingText = if (touched && !emailOk) ({ Text("Informe um e-mail válido.") }) else null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    role,
+                    { role = it },
+                    label = { Text("Função") },
+                    singleLine = true,
+                    isError = touched && !roleOk,
+                    supportingText = if (touched && !roleOk) ({ Text("Pelo menos 2 caracteres.") }) else null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
         confirmButton = {
-            Button(enabled = name.isNotBlank() && email.isNotBlank(), onClick = { store.addMember(name, email, role); onDismiss() }) { Text("Cadastrar") }
+            Button(
+                onClick = {
+                    touched = true
+                    if (nameOk && emailOk && roleOk) {
+                        store.addMember(name, email, role)
+                        onDismiss()
+                    }
+                },
+            ) { Text("Cadastrar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }
 
 @Composable
-private fun SimpleEntityEditorDialog(title: String, onSave: (String, String) -> Unit, onDismiss: () -> Unit) {
+private fun SimpleEntityEditorDialog(
+    title: String,
+    onSave: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+    // Setor e grupo exigem descricao com 3 caracteres no servidor; deixar explicito evita que um
+    // reuso futuro herde a regra sem perceber.
+    descriptionMinLength: Int = 3,
+) {
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
+    var touched by remember { mutableStateOf(false) }
+    val nameOk = name.hasAtLeast(2)
+    val descriptionOk = description.hasAtLeast(descriptionMinLength)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nome") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(description, { description = it }, label = { Text("Descrição") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text("Nome") },
+                    singleLine = true,
+                    isError = touched && !nameOk,
+                    supportingText = if (touched && !nameOk) ({ Text("Pelo menos 2 caracteres.") }) else null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    description,
+                    { description = it },
+                    label = { Text("Descrição") },
+                    isError = touched && !descriptionOk,
+                    supportingText = {
+                        Text(
+                            if (touched && !descriptionOk) {
+                                "Pelo menos $descriptionMinLength caracteres."
+                            } else {
+                                "Obrigatória, mínimo de $descriptionMinLength caracteres."
+                            },
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
-        confirmButton = { Button(enabled = name.isNotBlank(), onClick = { onSave(name, description); onDismiss() }) { Text("Salvar") } },
+        confirmButton = {
+            Button(
+                onClick = {
+                    touched = true
+                    if (nameOk && descriptionOk) {
+                        onSave(name, description)
+                        onDismiss()
+                    }
+                },
+            ) { Text("Salvar") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }
@@ -1373,6 +2315,17 @@ private fun EmptyState(title: String, detail: String) {
         Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
     }
 }
+
+/**
+ * Espelham a validacao do servidor para que a interface recuse antes de gastar uma ida a rede.
+ * requiredText() em mobile-api.server.ts:596 compara depois de trim, e o minimo padrao e 2;
+ * descricao de setor e de grupo exige 3. A expressao e a mesma de mobile-api.server.ts:809.
+ */
+internal fun String.hasAtLeast(minimum: Int) = trim().length >= minimum
+
+private val emailPattern = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
+
+internal fun isValidEmail(value: String) = emailPattern.matches(value.trim())
 
 private fun priorityColor(priority: Priority): Color = when (priority) {
     Priority.Low -> PopGreen

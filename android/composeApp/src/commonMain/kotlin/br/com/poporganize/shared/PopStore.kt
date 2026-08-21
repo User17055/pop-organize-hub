@@ -30,6 +30,10 @@ class PopStore(private val platform: PopPlatformServices) {
     var message by mutableStateOf("Dados salvos neste ${platform.platformName}")
         private set
 
+    /** Verdadeiro enquanto refreshNow() esta buscando dados; alimenta o puxar-para-atualizar. */
+    var syncing by mutableStateOf(false)
+        private set
+
     val selectedCompany: CompanyWorkspace?
         get() = state.companies.firstOrNull { it.id == state.selectedCompanyId }
 
@@ -41,14 +45,44 @@ class PopStore(private val platform: PopPlatformServices) {
             }
         }
 
+    /**
+     * Quem pode mexer em checklist.
+     *
+     * Parece adivinhacao por texto de cargo, mas nao e: **esta e a regra que o servidor enforca**.
+     * Nao existe permissao de checklist no conjunto que ele calcula -- os dois pontos que gravam
+     * subtarefa em mobile-api.server.ts conferem `currentUser.role.includes("admin")` na mao.
+     * Trocar isto por `permissions` faria a interface decidir por um criterio e o servidor por
+     * outro, que e como nascem as recusas silenciosas.
+     *
+     * O `isOwner` existe porque o servidor **reescreve o cargo antes de enviar**: o proprietario
+     * sai como "Proprietário" na lista de membros, enquanto o cargo cru, que ele mesmo confere na
+     * escrita, continua "Administrador". Sem esta linha o dono da empresa -- o unico que nao pode
+     * ter o acesso reduzido -- era justamente quem ficava sem editar checklist, e o addTask ainda
+     * descartava a checklist dele localmente antes de tentar enviar.
+     */
     val isCurrentUserAdmin: Boolean
         get() {
             if (state.workspace == WorkspaceKind.Personal) return true
+            if (permissions.isOwner) return true
             val email = state.currentUser?.email ?: return false
             return selectedCompany?.members
                 ?.firstOrNull { it.email.equals(email, ignoreCase = true) }
                 ?.role
                 ?.contains("admin", ignoreCase = true) == true
+        }
+
+    /**
+     * Permissoes do espaco ativo, como o servidor as resolveu. A interface deve consultar isto
+     * antes de oferecer qualquer acao de escrita: sem sessao nao ha permissao nenhuma, e no modo
+     * convidado so existe o espaco pessoal local.
+     */
+    val permissions: WorkspacePermissions
+        get() = when {
+            state.guestMode -> WorkspacePermissions(canCreateTasks = true)
+            state.apiToken.isNullOrBlank() -> WorkspacePermissions()
+            state.workspace == WorkspaceKind.Company -> selectedCompany?.permissions
+                ?: WorkspacePermissions()
+            else -> state.personalPermissions
         }
 
     init {
@@ -139,6 +173,9 @@ class PopStore(private val platform: PopPlatformServices) {
                 emptyList()
             },
             recurrence = recurrence,
+            // Sem preencher a regra crua aqui, a tarefa nasceria com o default "Nao repetir" e o
+            // servidor descartaria a recorrencia que o usuario acabou de escolher.
+            recurrenceRule = recurrence.toServerRule(),
             recurrenceSeriesId = taskId.takeIf { recurrence != RecurrenceKind.None },
         )
         update { copy(tasks = listOf(task) + tasks) }
@@ -341,6 +378,23 @@ class PopStore(private val platform: PopPlatformServices) {
         return null
     }
 
+    /**
+     * Recarrega espacos e tarefas sem exigir um escopo de corrotina de quem chama. Usado ao voltar
+     * do segundo plano e no puxar-para-atualizar: ate agora o unico refresh acontecia no login, e
+     * quem editasse pelo painel web nao via a mudanca no iPhone ate sair e entrar de novo.
+     */
+    fun refreshNow() {
+        if (state.apiToken.isNullOrBlank() || syncing) return
+        syncing = true
+        scope.launch {
+            try {
+                refreshFromServer()
+            } finally {
+                syncing = false
+            }
+        }
+    }
+
     suspend fun refreshFromServer() {
         val token = state.apiToken ?: return
         val response = platform.apiRequest(path = "workspaces", token = token)
@@ -368,10 +422,14 @@ class PopStore(private val platform: PopPlatformServices) {
                 },
                 sectors = workspace.sectors,
                 groups = workspace.groups,
+                permissions = workspace.toPermissions(),
             )
         }
         state = state.copy(
             personalWorkspaceId = personalId,
+            personalPermissions = remote.workspaces.firstOrNull { it.kind == "personal" }
+                ?.toPermissions()
+                ?: state.personalPermissions,
             companies = companies,
             selectedCompanyId = state.selectedCompanyId?.takeIf { id -> companies.any { it.id == id } },
             workspace = if (state.workspace == WorkspaceKind.Company && companies.isEmpty()) WorkspaceKind.Personal else state.workspace,
@@ -433,6 +491,16 @@ class PopStore(private val platform: PopPlatformServices) {
         runCatching { json.decodeFromString<ApiError>(response.body).error }.getOrNull() ?: fallback
 }
 
+private fun ApiWorkspace.toPermissions() = WorkspacePermissions(
+    isOwner = isOwner,
+    canCreateTasks = canCreateTasks,
+    canAssignTasks = canAssignTasks,
+    canManageEmployees = canManageEmployees,
+    canManageDepartments = canManageDepartments,
+    canManageGroups = canManageGroups,
+    canManagePermissions = canManagePermissions,
+)
+
 private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask(
     id = id.toString(),
     serverId = serverId,
@@ -456,12 +524,22 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     ),
     createdBy = createdBy,
     checklist = checklist,
+    // "Personalizada" nao tem equivalente no enum e cai aqui no else. Isso deixou de ser perda
+    // porque a regra crua segue guardada abaixo e volta intacta ao servidor; o enum agora e so
+    // o que a interface consegue desenhar.
     recurrence = when (recurrenceRule) {
         "Diária" -> RecurrenceKind.Daily
         "Semanal" -> RecurrenceKind.Weekly
         "Mensal" -> RecurrenceKind.Monthly
+        "Anual" -> RecurrenceKind.Yearly
         else -> RecurrenceKind.None
     },
+    recurrenceRule = recurrenceRule,
+    recurrenceDetail = recurrenceDetail,
+    recurrenceInterval = recurrenceInterval,
+    recurrenceEndMode = recurrenceEndMode,
+    recurrenceEndValue = recurrenceEndValue,
+    recurrenceOccurrence = recurrenceOccurrence,
 )
 
 private fun PopTask.toApiTask() = ApiTask(
@@ -476,9 +554,14 @@ private fun PopTask.toApiTask() = ApiTask(
     description = description,
     assignee = assignment.label,
     createdBy = createdBy,
-    recurrence = recurrence.label,
+    recurrence = wireRule(),
     dueTime = dueTime,
-    recurrenceRule = recurrence.label,
+    recurrenceRule = wireRule(),
+    recurrenceDetail = recurrenceDetail,
+    recurrenceInterval = recurrenceInterval,
+    recurrenceEndMode = recurrenceEndMode,
+    recurrenceEndValue = recurrenceEndValue,
+    recurrenceOccurrence = recurrenceOccurrence,
     assignmentType = when (assignment.kind) {
         AssignmentKind.Person -> "user"
         AssignmentKind.Sector -> "department"
@@ -489,6 +572,37 @@ private fun PopTask.toApiTask() = ApiTask(
     assignmentTargetLabel = assignment.label,
     checklist = checklist,
 )
+
+/**
+ * "Nao repetir" e a palavra que o servidor entende para ausencia de recorrencia -- "Sem
+ * recorrencia", o label do enum, nao aparece em lugar nenhum do mobile-api.server.ts.
+ *
+ * A diferenca nao era cosmetica. Em mobileTaskRecurrence() a guarda testa exatamente
+ * `item.recurrenceRule === "Nao repetir"`; recebendo "Sem recorrencia" ela nao dispara, nenhum dos
+ * ramos (Diaria/Semanal/Mensal/Anual) casa, e a funcao cai no return final, que devolve uma
+ * recorrencia *custom diaria*. Como o PUT de tarefas faz `existing.recurrence =
+ * mobileTaskRecurrence(item)` sem condicao, toda tarefa comum sincronizada pelo iPhone viraria uma
+ * tarefa que se repete todo dia -- inclusive para quem abre pelo Android ou pelo painel.
+ */
+private fun RecurrenceKind.toServerRule(): String = when (this) {
+    RecurrenceKind.None -> "Não repetir"
+    else -> label
+}
+
+/**
+ * A regra que vai no PUT: a crua do servidor, guardada no cofre.
+ *
+ * O `if` cobre a tarefa que foi salva no aparelho antes do cofre existir. Nela o campo cru
+ * desserializa com o default "Nao repetir" enquanto o enum ainda diz Semanal, e mandar o default
+ * apagaria no servidor justamente a recorrencia que o cofre veio proteger. Nesse caso o enum e
+ * quem sabe mais, e e ele que decide.
+ */
+private fun PopTask.wireRule(): String =
+    if (recurrenceRule == "Não repetir" && recurrence != RecurrenceKind.None) {
+        recurrence.toServerRule()
+    } else {
+        recurrenceRule
+    }
 
 internal fun todayIso(): String = Clock.System.now()
     .toLocalDateTime(TimeZone.currentSystemDefault())
@@ -502,6 +616,7 @@ private fun nextRecurrenceDate(value: String, recurrence: RecurrenceKind): Strin
         RecurrenceKind.Daily -> DatePeriod(days = 1)
         RecurrenceKind.Weekly -> DatePeriod(days = 7)
         RecurrenceKind.Monthly -> DatePeriod(months = 1)
+        RecurrenceKind.Yearly -> DatePeriod(years = 1)
         RecurrenceKind.None -> return null
     }
     return date.plus(period).toString()

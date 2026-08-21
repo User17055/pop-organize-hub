@@ -113,6 +113,7 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         kind: workspace.company.kind ?? "company",
         isOwner: workspace.company.ownerId === userId,
         canCreateTasks: hasPermission(permissionSet, "tasks.create"),
+        canAssignTasks: isCompany && hasPermission(permissionSet, "tasks.assign"),
         canManageEmployees: isCompany && hasPermission(permissionSet, "manage.employees"),
         canManageDepartments: isCompany && hasPermission(permissionSet, "manage.departments"),
         canManageGroups: isCompany && hasPermission(permissionSet, "manage.groups"),

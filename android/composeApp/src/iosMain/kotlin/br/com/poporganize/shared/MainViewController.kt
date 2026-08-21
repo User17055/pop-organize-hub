@@ -31,6 +31,7 @@ import platform.AuthenticationServices.ASPresentationAnchor
 // evita ter que acertar cada nome um a um.
 import platform.Foundation.*
 import platform.UIKit.UIApplication
+import platform.UIKit.UIApplicationWillEnterForegroundNotification
 import platform.UIKit.UIUserInterfaceStyle
 import platform.UIKit.UIViewController
 import platform.UIKit.UIWindow
@@ -60,6 +61,7 @@ private object IosPlatformServices : PopPlatformServices {
 
     private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var appleDelegate: AppleAuthorizationDelegate? = null
+    private var foregroundObserver: Any? = null
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     override val platformName = "iPhone"
@@ -241,6 +243,17 @@ private object IosPlatformServices : PopPlatformServices {
         val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
         if (hour !in 0..23 || minute !in 0..59) return null
         return LocalDateTime(date.year, date.monthNumber, date.dayOfMonth, hour, minute)
+    }
+
+    override fun observeForeground(onForeground: () -> Unit) {
+        // Registrado uma unica vez: o observador vive tanto quanto o processo, como o proprio
+        // MainViewController, entao nao ha o que remover.
+        if (foregroundObserver != null) return
+        foregroundObserver = NSNotificationCenter.defaultCenter.addObserverForName(
+            UIApplicationWillEnterForegroundNotification,
+            null,
+            NSOperationQueue.mainQueue,
+        ) { _ -> onForeground() }
     }
 
     override fun applyTheme(light: Boolean) {

@@ -102,18 +102,33 @@ class PopStore(private val platform: PopPlatformServices) {
         scope.launch { refreshFromServer() }
     }
 
-    fun signOut() = update {
-        copy(
-            currentUser = null,
-            guestMode = false,
-            workspace = WorkspaceKind.Personal,
-            selectedCompanyId = null,
-            personalWorkspaceId = null,
-            apiToken = null,
-            companies = emptyList(),
-            tasks = emptyList(),
-            pendingDeletedServerIds = emptyList(),
-        )
+    fun signOut() {
+        // Sair precisa encerrar a sessao no servidor tambem. Antes isto so limpava o estado local,
+        // e o token seguia valido para sempre do outro lado -- quem tivesse copiado o token de um
+        // aparelho perdido continuava com acesso, e nao havia como cortar sem apagar a conta.
+        //
+        // Melhor esforco, de proposito: o estado local e limpo mesmo se a chamada falhar. Prender
+        // alguem dentro do aplicativo porque a rede caiu seria pior do que uma sessao orfa no
+        // servidor, e o token local ja vai embora aqui de qualquer forma.
+        val token = state.apiToken
+        if (!token.isNullOrBlank()) {
+            scope.launch {
+                runCatching { platform.apiRequest(path = "auth/logout", method = "POST", token = token) }
+            }
+        }
+        update {
+            copy(
+                currentUser = null,
+                guestMode = false,
+                workspace = WorkspaceKind.Personal,
+                selectedCompanyId = null,
+                personalWorkspaceId = null,
+                apiToken = null,
+                companies = emptyList(),
+                tasks = emptyList(),
+                pendingDeletedServerIds = emptyList(),
+            )
+        }
     }
 
     fun setTheme(theme: PopThemeMode) = update { copy(theme = theme) }

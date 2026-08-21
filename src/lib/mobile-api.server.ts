@@ -479,6 +479,36 @@ export async function authenticateMobileApple(input: {
   });
 }
 
+/**
+ * Encerra a sessao do aparelho no servidor.
+ *
+ * Ate aqui o unico lugar em todo o servidor que removia sessao era a exclusao da conta, e o
+ * signOut() do aplicativo so limpava o estado local -- o token continuava valido para sempre
+ * (MOBILE_SESSION_EXPIRY e o ano 9999, de proposito). Na pratica, celular roubado ou token
+ * capturado dava acesso permanente, sem remedio a nao ser apagar a conta inteira.
+ *
+ * Responde ok mesmo com token ausente ou desconhecido: quem chama nao precisa saber se o token
+ * existia, e sair tem de funcionar sempre.
+ *
+ * O readDatabase antes do mutateDatabase nao e desperdicio. mutateDatabase reescreve o blob
+ * inteiro toda vez que e chamado, independente do que o mutador faca, entao chama-lo com token
+ * qualquer transformaria este endpoint numa amplificacao de escrita para quem nem sessao tem.
+ */
+export async function revokeMobileSession(request: Request) {
+  const authorization = request.headers.get("authorization") ?? "";
+  const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (!token) return { ok: true };
+
+  const tokenHash = hashToken(token);
+  const platform = await readDatabase();
+  if (!platform.sessions.some((session) => session.tokenHash === tokenHash)) return { ok: true };
+
+  await mutateDatabase((db) => {
+    db.sessions = db.sessions.filter((session) => session.tokenHash !== tokenHash);
+  });
+  return { ok: true };
+}
+
 async function requireMobileWorkspace(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();

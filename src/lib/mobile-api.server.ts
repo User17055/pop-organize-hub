@@ -410,18 +410,36 @@ export async function authenticateMobileApple(input: {
 }) {
   const appleUser = await verifyAppleIdentityToken(input.identityToken);
   const token = createSessionToken();
+  // So o e-mail que vem assinado dentro do token da Apple vale para achar ou vincular conta.
+  //
+  // input.email vem do corpo da requisicao, ou seja, de quem chama. Antes ele era usado como
+  // reserva quando o token nao trazia e-mail, e esse e-mail localizava uma conta existente e
+  // recebia o vinculo -- bastava mandar um token legitimo da propria conta Apple junto do e-mail
+  // de outra pessoa para sair com uma sessao valida na conta dela. Um token sem a claim de e-mail
+  // e obtivel: quem monta o proprio pedido de autorizacao escolhe os escopos e pode omitir o de
+  // e-mail.
+  //
+  // Ele continua servindo para o nome exibido, que nao decide acesso a nada.
   const tokenEmail = typeof appleUser.email === "string" ? normalizeEmail(appleUser.email) : "";
-  const suppliedEmail = input.email ? normalizeEmail(input.email) : "";
-  const email = tokenEmail || suppliedEmail;
-  if (!email) throw mobileHttpError("A Apple não informou o e-mail desta conta.", 409);
 
   return mutateDatabase((platform) => {
-    let account =
-      platform.accounts.find((item) => item.appleSubject === appleUser.sub) ??
-      platform.accounts.find((item) => normalizeEmail(item.email) === email);
+    // O sub da Apple e assinado e estavel, entao e a chave de reentrada de quem ja vinculou.
+    let account = platform.accounts.find((item) => item.appleSubject === appleUser.sub);
+
+    if (!account) {
+      if (!tokenEmail) {
+        throw mobileHttpError(
+          "A Apple não informou o e-mail desta conta. Entre pelo método usado no cadastro e vincule a Apple depois.",
+          409,
+        );
+      }
+      account = platform.accounts.find((item) => normalizeEmail(item.email) === tokenEmail);
+    }
+
     if (account?.appleSubject && account.appleSubject !== appleUser.sub) {
       throw mobileHttpError("Este e-mail já está vinculado a outra conta Apple.", 409);
     }
+    const email = account ? normalizeEmail(account.email) : tokenEmail;
     if (!account) {
       account = {
         id: nextId("u", platform.accounts),

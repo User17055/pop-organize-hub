@@ -8,6 +8,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
@@ -19,6 +20,8 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -59,6 +62,7 @@ import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Repeat
@@ -119,6 +123,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -151,19 +157,22 @@ fun PopOrganizeApp(platform: PopPlatformServices) {
 }
 
 @Composable
-private fun PopLogo(modifier: Modifier = Modifier) {
+private fun PopLogo(modifier: Modifier = Modifier, fontSize: TextUnit = 24.sp) {
+    // O ponto azul acompanha o tamanho da letra em vez de ser fixo em 17dp: em escala reduzida, um
+    // ponto que nao encolhe junto deixa de ser a letra "o" e vira uma bolinha ao lado do texto.
+    val dot = with(LocalDensity.current) { (fontSize.toPx() * 0.72f).toDp() }
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = "P",
             color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 24.sp,
+            fontSize = fontSize,
             fontWeight = FontWeight.ExtraBold,
         )
-        Box(Modifier.padding(horizontal = 1.dp).size(17.dp).background(PopBlue, CircleShape))
+        Box(Modifier.padding(horizontal = 1.dp).size(dot).background(PopBlue, CircleShape))
         Text(
             text = "p Organize",
             color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 24.sp,
+            fontSize = fontSize,
             fontWeight = FontWeight.ExtraBold,
         )
     }
@@ -636,7 +645,9 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
     ) { padding ->
         AnimatedContent(targetState = tab to morePage, modifier = Modifier.padding(padding)) { (selected, page) ->
             when (selected) {
-                MainTab.Dashboard -> Refreshable(store) { DashboardScreen(store) }
+                MainTab.Dashboard -> Refreshable(store) {
+                    DashboardScreen(store, onSeeAllTasks = { tab = MainTab.Tasks })
+                }
                 MainTab.Tasks -> Refreshable(store) { TasksScreen(store) }
                 MainTab.Calendar -> Refreshable(store) { CalendarScreen(store) }
                 MainTab.More -> when (page) {
@@ -699,8 +710,8 @@ private fun WorkspaceHeader(store: PopStore) {
                     Column(Modifier.weight(1f, fill = false)) {
                         Text(
                             if (inCompany) company!!.name else "Meu espaço",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -763,7 +774,11 @@ private fun WorkspaceHeader(store: PopStore) {
                     }
                 }
             }
-            PopLogo()
+            // Reduzido de 24sp para 16sp. Em 24 o logotipo era o MAIOR texto do cabecalho -- maior
+            // que o nome do espaco, que e a informacao que a pessoa precisa ler ali. Marca nao
+            // compete com conteudo; e assinatura, nao manchete. Em telas de login e onboarding ele
+            // segue no tamanho cheio, que e onde apresentar o produto e a funcao da tela.
+            PopLogo(fontSize = 16.sp)
         }
     }
 
@@ -782,11 +797,13 @@ private fun PageHeader(title: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun DashboardScreen(store: PopStore) {
+private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
     val tasks = store.visibleTasks
     val pending = tasks.count { !it.completed }
     val completed = tasks.size - pending
     val userName = store.state.currentUser?.firstName ?: "você"
+    val upcoming = tasks.filterNot { it.completed }
+    val shown = 4
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -798,8 +815,23 @@ private fun DashboardScreen(store: PopStore) {
         if (tasks.none { !it.completed }) {
             item { EmptyState("Nenhuma tarefa pendente", "Crie uma atividade para organizar seu dia.") }
         } else {
-            items(tasks.filterNot { it.completed }.take(3), key = { it.id }) { task ->
+            items(upcoming.take(shown), key = { it.id }) { task ->
                 CompactTaskRow(task)
+            }
+            // A lista parava em tres e nao havia saida: o resto das tarefas simplesmente nao era
+            // alcancavel a partir da home, e o que sobrava da tela era vazio. Agora ela diz quantas
+            // ficaram de fora e leva para a aba onde estao.
+            if (upcoming.size > shown) {
+                item {
+                    TextButton(onClick = onSeeAllTasks, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "Ver as outras ${upcoming.size - shown}",
+                            color = PopBlue,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
             }
         }
     }
@@ -926,6 +958,8 @@ private fun TasksScreen(store: PopStore) {
             .sortedBy { it.first }
             .map { (sector, sectorTasks) -> sector to sectorTasks.sortedWith(taskListOrder) }
     }
+    // Um unico grupo, e chamado "Sem setor", significa que nao ha setor nenhum para agrupar.
+    val flatList = groupedTasks.size == 1 && groupedTasks[0].first == "Sem setor"
 
     fun deleteWithAnimation(task: PopTask, action: () -> Unit) {
         pendingDeleteTask = null
@@ -943,13 +977,53 @@ private fun TasksScreen(store: PopStore) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Text("Tarefas", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-            Text("${tasks.count { !it.completed }} pendentes", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                Text(
+                    "Tarefas",
+                    fontSize = 27.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.weight(1f),
+                )
+                // A contagem sai da linha de baixo e vira companhia do titulo: eram duas linhas
+                // para um dado de duas palavras, e a segunda empurrava a lista para baixo sem
+                // acrescentar nada.
+                Text(
+                    "${tasks.count { !it.completed }} pendentes",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
         }
         if (tasks.isEmpty()) {
             item { EmptyState("Seu espaço está livre", "Toque em + para criar a primeira tarefa.") }
         }
         groupedTasks.forEach { (sector, sectorTasks) ->
+            // Sem agrupamento real, nao ha cabecalho de grupo.
+            //
+            // Os setores comecam fechados de proposito -- decisao anterior, e certa quando existem
+            // varios. Mas no Meu espaco nao existe setor nenhum: tudo cai num unico "Sem setor",
+            // que entao aparecia fechado e escondia a lista inteira. Abrir a aba Tarefas mostrava
+            // uma tela vazia dizendo "8 pendentes" logo acima. Encontrado rodando a previa.
+            if (flatList) {
+                items(sectorTasks, key = { it.id }) { task ->
+                    AnimatedVisibility(
+                        visible = removingId != task.id,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut(tween(220)) + shrinkVertically(tween(220)),
+                    ) {
+                        TaskRow(
+                            task = task,
+                            moveTargets = moveTargets,
+                            onOpen = { selectedTask = task },
+                            onToggle = { store.toggleTask(task.id) },
+                            onMove = { store.moveTask(task.id, it) },
+                            onDelete = { pendingDeleteTask = task },
+                        )
+                    }
+                }
+                return@forEach
+            }
             item(key = "sector-$sector") {
                 val expanded = sector in expandedSectors
                 val pending = sectorTasks.count { !it.completed }
@@ -1217,53 +1291,63 @@ private fun TaskRow(
     var showMenu by remember { mutableStateOf(false) }
     val isUrgent = task.priority == Priority.Urgent && !task.completed
     val isOverdue = !task.completed && task.dueDate < todayIso()
-    PopCard(
-        modifier = Modifier.animateContentSize().clickable(onClick = onOpen),
-        containerColor = if (isUrgent) PopRed else MaterialTheme.colorScheme.surface,
-        contentColor = if (isUrgent) Color.White else MaterialTheme.colorScheme.onSurface,
+    // Mesma correcao aplicada ao CompactTaskRow da tela inicial: urgencia marcada por contorno, e
+    // nao pintando o cartao inteiro de vermelho. Numa lista com varias tarefas o efeito era pior
+    // que na home -- um bloco vermelho solido no meio da rolagem apaga tudo em volta.
+    Card(
+        modifier = Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onOpen),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        border = BorderStroke(
+            1.dp,
+            if (isUrgent) PopRed.copy(alpha = .55f) else MaterialTheme.colorScheme.outline,
+        ),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconButton(onClick = onToggle) {
                 Icon(
-                    if (task.completed) Icons.Rounded.CheckCircle else Icons.Rounded.Check,
+                    if (task.completed) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
                     if (task.completed) "Reabrir" else "Concluir",
-                    tint = when {
-                        task.completed -> PopGreen
-                        isUrgent -> Color.White
-                        else -> priorityColor(task.priority)
-                    },
+                    // Era um "check" colorido pela prioridade em toda tarefa PENDENTE, o que lia
+                    // como se ja estivesse concluida -- e a cor da prioridade ja aparece no rotulo
+                    // ao lado, entao o icone repetia a informacao e mentia sobre o estado. Circulo
+                    // vazio para pendente, circulo marcado para concluida: o icone passa a dizer o
+                    // estado, e a cor passa a dizer a acao.
+                    tint = if (task.completed) PopGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         task.title,
-                        fontWeight = FontWeight.Bold,
-                        color = when {
-                            task.completed -> MaterialTheme.colorScheme.onSurfaceVariant
-                            isUrgent -> Color.White
-                            else -> MaterialTheme.colorScheme.onSurface
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (task.completed) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
                         },
                         modifier = Modifier.weight(1f),
                     )
                     if (isUrgent) {
-                        Text("URGENTE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Urgente", color = PopRed, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 if (task.description.isNotBlank()) {
                     Text(
                         task.description,
-                        color = if (isUrgent) Color.White.copy(alpha = .82f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
                         maxLines = 2,
                     )
                 }
                 Spacer(Modifier.height(5.dp))
-                val dateTint = when {
-                    isUrgent -> Color.White.copy(alpha = .9f)
-                    isOverdue -> PopRed
-                    else -> priorityColor(task.priority)
-                }
+                val dateTint = if (isOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         // Era a data ISO crua: "2026-08-20 • 09:00". Ninguem le uma agenda assim.
@@ -1290,7 +1374,7 @@ private fun TaskRow(
                     Icon(
                         Icons.Rounded.MoreVert,
                         "Mais opções",
-                        tint = if (isUrgent) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
@@ -1360,30 +1444,43 @@ private fun TaskRow(
 private fun CompactTaskRow(task: PopTask) {
     val isUrgent = task.priority == Priority.Urgent && !task.completed
     val isOverdue = !task.completed && task.dueDate < todayIso()
-    PopCard(
-        containerColor = if (isUrgent) PopRed else MaterialTheme.colorScheme.surface,
-        contentColor = if (isUrgent) Color.White else MaterialTheme.colorScheme.onSurface,
+    val accent = priorityColor(task.priority)
+
+    // A tarefa urgente pintava o cartao INTEIRO de vermelho solido. Com o cartao azul do topo na
+    // mesma tela, viravam dois blocos saturados disputando o olho -- e urgencia que aparece como
+    // parede de cor deixa de ser aviso e vira ruido. Aqui o vermelho fica numa faixa lateral e no
+    // rotulo: continua sendo a primeira coisa que se ve numa lista, sem gritar por cima do resto.
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        border = BorderStroke(1.dp, if (isUrgent) PopRed.copy(alpha = .55f) else MaterialTheme.colorScheme.outline),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(9.dp).background(if (isUrgent) Color.White else priorityColor(task.priority), CircleShape))
+        // Uma faixa vertical vermelha na borda esquerda foi tentada aqui e removida: o raio de
+        // canto do cartao a recorta e sobra um risco no meio da lateral. O contorno vermelho ja
+        // marca o cartao inteiro, entao a faixa era acessorio sem funcao.
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(9.dp).background(accent, CircleShape))
             Spacer(Modifier.size(11.dp))
             Column(Modifier.weight(1f)) {
                 Text(task.title, fontWeight = FontWeight.SemiBold)
                 Text(
                     taskDateLabel(task.dueDate, task.dueTime, todayDate()),
-                    color = when {
-                        isUrgent -> Color.White.copy(alpha = .9f)
-                        isOverdue -> PopRed
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                    color = if (isOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                 )
             }
+            Spacer(Modifier.size(10.dp))
             Text(
                 task.priority.label,
-                color = if (isUrgent) Color.White else priorityColor(task.priority),
+                color = accent,
                 fontSize = 10.sp,
-                fontWeight = if (isUrgent) FontWeight.ExtraBold else FontWeight.SemiBold,
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }
@@ -1550,14 +1647,22 @@ private fun CalendarScreen(store: PopStore) {
     ) {
         item(key = "cabecalho") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Calendário", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-                        Text(
-                            "${dated.count { !it.second.completed }} com prazo em aberto",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                // Mesmo tratamento da tela de Tarefas: titulo e contagem na mesma linha. Em duas
+                // linhas a contagem empurrava a grade do mes para baixo, e a grade e o conteudo
+                // pelo qual a pessoa abriu a tela.
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        "Calendário",
+                        fontSize = 27.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "${dated.count { !it.second.completed }} em aberto",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f).padding(bottom = 4.dp),
+                    )
                     // Sem este botao, voltar de uma navegacao de varios meses so seria possivel
                     // mes a mes, no toque.
                     TextButton(
@@ -2388,9 +2493,17 @@ private fun PopCard(
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    // O painel web separa cartao do fundo com --shadow-elegant. Aqui isso nao funciona: sombra
+    // preta sobre fundo quase preto nao aparece. A definicao vem de um fio de contorno, que e como
+    // o proprio iOS separa cartao do fundo no escuro.
+    //
+    // Aplicado so quando o cartao usa a cor de superficie padrao -- cartao colorido (tarefa urgente,
+    // em vermelho) ja se separa sozinho, e um contorno ali so sujaria a borda.
+    val isDefaultSurface = containerColor == MaterialTheme.colorScheme.surface
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = containerColor, contentColor = contentColor),
+        border = if (isDefaultSurface) BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp), content = content)
     }

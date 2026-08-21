@@ -75,7 +75,10 @@ const declaresBackgroundMode = info.includes("remote-notification");
 if (declaresRemotePush !== declaresBackgroundMode) {
   fail("APNs entitlement and the remote-notification background mode must be declared together.");
 }
-if (declaresRemotePush && !appDelegate.includes("didRegisterForRemoteNotificationsWithDeviceToken")) {
+if (
+  declaresRemotePush &&
+  !appDelegate.includes("didRegisterForRemoteNotificationsWithDeviceToken")
+) {
   fail("remote push is declared but AppDelegate never handles the APNs device token.");
 }
 

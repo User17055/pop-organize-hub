@@ -1,6 +1,13 @@
 import { Calendar, Check, GripVertical, ListChecks, MessageSquare, Paperclip } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { memo, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { cn } from "@/lib/utils";
 import { PriorityBadge, StatusBadge } from "@/components/app-shell";
 import {

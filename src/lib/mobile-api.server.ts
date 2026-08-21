@@ -976,8 +976,14 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       if (employee?.id === currentUser.id) {
         throw mobileHttpError("Voce nao pode alterar o proprio perfil na empresa.", 403);
       }
-      // Comportamento identico ao que estava escrito a mao aqui; o que muda e a definicao passar a
-      // ser compartilhada com os outros tres caminhos que gravam cargo.
+      // A definicao passa a ser compartilhada com os outros tres caminhos que gravam cargo.
+      //
+      // `grantsAdmin` e igual ao que estava escrito a mao (o mobile nao envia permissionGroupId,
+      // entao a checagem cai no texto do cargo). `alreadyAdmin` ficou mais abrangente de proposito:
+      // antes so o texto do cargo isentava, agora estar em um grupo com as chaves de escalada
+      // tambem isenta. Isso permite que um admin que nao e dono edite quem **ja** tem poder
+      // administrativo pelo grupo -- nao ha escalada, a pessoa ja o tinha -- em vez de travar por
+      // um criterio que ignorava metade das formas de ser administrador.
       const grantsAdmin = grantsAdministrativePower({
         role,
         permissionGroups: workspace.permissionGroups,

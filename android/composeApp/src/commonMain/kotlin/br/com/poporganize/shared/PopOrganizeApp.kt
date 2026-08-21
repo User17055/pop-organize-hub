@@ -8,6 +8,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -76,10 +77,10 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -105,7 +106,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -591,13 +596,34 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
             }
         },
         bottomBar = {
-            NavigationBar {
+            // O "comprimido" que o Material 3 desenha atras do icone selecionado e o sinal mais
+            // reconhecivel de app Android que existe -- nenhum app de iPhone marca a aba assim.
+            // Trocado por cor: item ativo em azul da marca, inativo apagado. Mesma informacao, sem
+            // o sotaque errado.
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 0.dp,
+            ) {
                 MainTab.entries.forEach { item ->
+                    val selected = tab == item
                     NavigationBarItem(
-                        selected = tab == item,
+                        selected = selected,
                         onClick = { tab = item; if (item != MainTab.More) morePage = MorePage.Menu },
-                        icon = { Icon(item.icon, item.label) },
-                        label = { Text(item.label) },
+                        icon = { Icon(item.icon, item.label, modifier = Modifier.size(24.dp)) },
+                        label = {
+                            Text(
+                                item.label,
+                                fontSize = 11.sp,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = PopBlue,
+                            selectedTextColor = PopBlue,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            indicatorColor = Color.Transparent,
+                        ),
                     )
                 }
             }
@@ -767,29 +793,7 @@ private fun DashboardScreen(store: PopStore) {
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item {
-            Text("${greetingForCurrentTime()}, $userName", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-            Text("Aqui está a visão geral do seu dia.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("Pendentes", pending.toString(), PopOrange, Modifier.weight(1f))
-                MetricCard("Concluídas", completed.toString(), PopGreen, Modifier.weight(1f))
-                MetricCard("Total", tasks.size.toString(), PopBlue, Modifier.weight(1f))
-            }
-        }
-        item {
-            SectionTitle("Progresso")
-            PopCard {
-                val progress = if (tasks.isEmpty()) 0f else completed.toFloat() / tasks.size
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Atividades concluídas", fontWeight = FontWeight.SemiBold)
-                    Text("${(progress * 100).toInt()}%", color = PopBlue, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.height(12.dp))
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(8.dp))
-            }
-        }
+        item { TodayHeroCard(greetingForCurrentTime(), userName, pending, completed, tasks.size) }
         item { SectionTitle("Próximas tarefas") }
         if (tasks.none { !it.completed }) {
             item { EmptyState("Nenhuma tarefa pendente", "Crie uma atividade para organizar seu dia.") }
@@ -801,13 +805,102 @@ private fun DashboardScreen(store: PopStore) {
     }
 }
 
+/**
+ * O unico elemento ousado da tela, e de proposito: tudo em volta fica quieto.
+ *
+ * Substitui tres cartoes de metrica ("Pendentes 2 / Concluidas 0 / Total 2") mais um cartao de
+ * progresso. Aqueles quatro blocos diziam a mesma coisa quatro vezes -- e o terceiro numero era a
+ * soma dos outros dois -- gastando metade da tela para nao responder a pergunta que alguem abre o
+ * app para responder, que e "o que eu tenho para fazer agora".
+ *
+ * O gradiente e o --gradient-primary do painel web, e este e o unico lugar do app onde ele aparece:
+ * um gradiente que se repete vira papel de parede e para de significar destaque.
+ */
 @Composable
-private fun MetricCard(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.padding(14.dp)) {
-            Text(value, color = color, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
-            Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1)
+private fun TodayHeroCard(greeting: String, userName: String, pending: Int, completed: Int, total: Int) {
+    val progress = if (total == 0) 0f else completed.toFloat() / total
+    val headline = when {
+        total == 0 -> "Nada na agenda"
+        pending == 0 -> "Tudo em dia"
+        pending == 1 -> "1 tarefa para hoje"
+        else -> "$pending tarefas para hoje"
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().background(PopBrandGradient).padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    // Sem o nome, "Boa tarde, você" tratava a pessoa por um pronome. Cumprimento
+                    // seco le melhor do que cumprimento com um substituto no lugar do nome.
+                    if (userName.isBlank() || userName == "você") greeting else "$greeting, $userName",
+                    color = Color.White.copy(alpha = .82f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    headline,
+                    color = Color.White,
+                    // 25sp quebrava "2 tarefas para hoje" em duas linhas e empurrava o anel; 21
+                    // cabe em uma linha ate em "12 tarefas para hoje", que e o pior caso realista.
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 26.sp,
+                )
+            }
+            if (total > 0) {
+                Spacer(Modifier.size(16.dp))
+                ProgressRing(progress)
+            }
         }
+    }
+}
+
+/**
+ * Anel em vez de barra. A barra linear que existia aqui ficava vazia em 0% -- um trilho cinza que
+ * ocupava largura inteira para comunicar nada. O anel ocupa um canto, guarda o numero no meio e le
+ * como indicador mesmo estando zerado.
+ */
+@Composable
+private fun ProgressRing(progress: Float) {
+    Box(contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(58.dp)) {
+            val stroke = 6.dp.toPx()
+            val inset = stroke / 2f
+            val arcSize = Size(size.width - stroke, size.height - stroke)
+            drawArc(
+                color = Color.White.copy(alpha = .3f),
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = Stroke(width = stroke, cap = StrokeCap.Round),
+            )
+            if (progress > 0f) {
+                drawArc(
+                    color = Color.White,
+                    startAngle = -90f,
+                    sweepAngle = 360f * progress.coerceIn(0f, 1f),
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = arcSize,
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
+            }
+        }
+        Text(
+            "${(progress * 100).toInt()}%",
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
@@ -2305,7 +2398,16 @@ private fun PopCard(
 
 @Composable
 private fun SectionTitle(title: String) {
-    Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    // Era negrito 16sp, do mesmo tamanho e peso do conteudo que anunciava -- entao nao anunciava
+    // nada. Rotulo pequeno, apagado e com letra aberta separa as secoes por hierarquia em vez de
+    // por volume, e e a convencao de lista agrupada do iOS em vez da de cabecalho do Material.
+    Text(
+        title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+    )
 }
 
 @Composable

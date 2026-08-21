@@ -911,14 +911,30 @@ function getMysqlPool() {
   return mysqlPool;
 }
 
+// Memoiza a criacao do schema por processo. Antes, todo readDatabase/saveDatabase/mutateDatabase
+// disparava um CREATE TABLE, que toma trava de metadados no MySQL -- trabalho de inicializacao
+// repetido em cada requisicao do app.
+//
+// Guarda a Promise, e nao um booleano, para que requisicoes simultaneas na partida compartilhem um
+// unico DDL em vez de dispararem dez. Em caso de erro o valor volta a null, senao uma falha
+// transitoria de rede na primeira chamada envenenaria o processo inteiro.
+let mysqlSchemaReady: Promise<void> | null = null;
+
 async function ensureMysqlSchema(pool: mysql.Pool) {
-  await pool.execute(`
-    CREATE TABLE IF NOT EXISTS app_state (
-      id VARCHAR(64) NOT NULL PRIMARY KEY,
-      data JSON NOT NULL,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
+  mysqlSchemaReady ??= pool
+    .execute(`
+      CREATE TABLE IF NOT EXISTS app_state (
+        id VARCHAR(64) NOT NULL PRIMARY KEY,
+        data JSON NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `)
+    .then(() => undefined)
+    .catch((error) => {
+      mysqlSchemaReady = null;
+      throw error;
+    });
+  await mysqlSchemaReady;
 }
 
 async function ensureMysqlState(pool: mysql.Pool) {
@@ -1014,7 +1030,14 @@ export async function mutateDatabase<T>(mutator: (db: PlatformDatabase) => T | P
 
 export async function checkDatabaseHealth() {
   const pool = getMysqlPool();
-  await ensureMysqlSchema(pool);
+  // Sem ensureMysqlSchema aqui de proposito. /api/health nao exige autenticacao e o nginx a expoe
+  // publicamente, entao qualquer pessoa disparava um CREATE TABLE por requisicao, cada uma tomando
+  // uma das 10 conexoes do pool que todas as rotas autenticadas compartilham -- login e
+  // sincronizacao do celular ficavam na fila atras de uma inundacao anonima.
+  //
+  // Criar tabela e trabalho de inicializacao: quem cria e o primeiro readDatabase/saveDatabase/
+  // mutateDatabase real, entao instalacao nova continua funcionando. Verificar saude e confirmar
+  // que da para falar com o banco, e SELECT 1 faz isso.
   await pool.execute("SELECT 1");
   return true;
 }

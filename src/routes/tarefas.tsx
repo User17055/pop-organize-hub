@@ -291,6 +291,48 @@ function TasksPage() {
     [normalizedSearch, taskRows, taskScope, data],
   );
 
+  // Estes dois useMemo ficavam depois dos returns de carregamento e de erro logo abaixo. Enquanto
+  // `data` nao chegava, o componente retornava cedo e nao os chamava; quando chegava, o render
+  // seguinte chamava mais hooks que o anterior e o React derrubava a tela inteira ("Rendered more
+  // hooks than during the previous render"). Por isso leem de `data` tolerando nulo, e ficam antes
+  // de qualquer return condicional.
+  const dataDepartments = data?.departments;
+  const taskSections = useMemo(
+    () =>
+      layoutPreferences.layoutMode === "department"
+        ? [
+            ...(dataDepartments ?? [])
+              .map((department) => ({
+                id: department.id,
+                label: department.name,
+                tasks: list.filter(
+                  (task) => task.target.type === "department" && task.target.id === department.id,
+                ),
+              }))
+              .filter((section) => section.tasks.length > 0),
+            {
+              id: "other",
+              label: "Outras atividades",
+              tasks: list.filter((task) => task.target.type !== "department"),
+            },
+          ].filter((section) => section.tasks.length > 0)
+        : [{ id: "all", label: "Todas as atividades", tasks: list }],
+    [layoutPreferences.layoutMode, dataDepartments, list],
+  );
+
+  const organizerToday = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date());
+  const organizerCounts = useMemo(
+    () => ({
+      all: activeTaskRows.length,
+      overdue: activeTaskRows.filter((task) => task.dueDate < organizerToday).length,
+      today: activeTaskRows.filter((task) => task.dueDate === organizerToday).length,
+      upcoming: activeTaskRows.filter((task) => task.dueDate > organizerToday).length,
+    }),
+    [activeTaskRows, organizerToday],
+  );
+
   if (isLoading) {
     return (
       <AppShell title="Tarefas" subtitle="Carregando demandas da empresa">
@@ -350,41 +392,6 @@ function TasksPage() {
           label: `Pessoa: ${employee.name}`,
         })),
       ];
-  const taskSections = useMemo(
-    () =>
-      layoutPreferences.layoutMode === "department"
-        ? [
-            ...departments
-              .map((department) => ({
-                id: department.id,
-                label: department.name,
-                tasks: list.filter(
-                  (task) => task.target.type === "department" && task.target.id === department.id,
-                ),
-              }))
-              .filter((section) => section.tasks.length > 0),
-            {
-              id: "other",
-              label: "Outras atividades",
-              tasks: list.filter((task) => task.target.type !== "department"),
-            },
-          ].filter((section) => section.tasks.length > 0)
-        : [{ id: "all", label: "Todas as atividades", tasks: list }],
-    [layoutPreferences.layoutMode, departments, list],
-  );
-
-  const organizerToday = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "America/Sao_Paulo",
-  }).format(new Date());
-  const organizerCounts = useMemo(
-    () => ({
-      all: activeTaskRows.length,
-      overdue: activeTaskRows.filter((task) => task.dueDate < organizerToday).length,
-      today: activeTaskRows.filter((task) => task.dueDate === organizerToday).length,
-      upcoming: activeTaskRows.filter((task) => task.dueDate > organizerToday).length,
-    }),
-    [activeTaskRows, organizerToday],
-  );
 
   function openForm() {
     const dueDate = getDefaultDueDate();

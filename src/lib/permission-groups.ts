@@ -42,6 +42,40 @@ export function hasPermission(set: PermissionSet, key: PermissionKey) {
   return set === "all" || set.has(key);
 }
 
+/**
+ * Chaves que permitem a quem as possui conceder poder a outra pessoa -- ou a si mesmo. Quem pode
+ * reescrever grupo de permissao, cadastrar ou editar funcionario alcanca acesso total em um passo,
+ * entao conceder qualquer uma delas equivale a conceder administracao.
+ */
+const escalationKeys: PermissionKey[] = [
+  "manage.permissions",
+  "manage.employees",
+  "manage.employees.edit",
+];
+
+/**
+ * Diz se um cargo/grupo de permissao concede poder administrativo.
+ *
+ * Existe para que a regra "so o dono cria outro administrador" tenha **uma** definicao. Ela estava
+ * escrita a mao em um unico dos quatro caminhos que gravam cargo (updateEmployee do mobile), e
+ * ausente nos outros tres -- convite pelo mobile, e edicao e convite pelo painel web.
+ *
+ * O texto do cargo conta porque e ele que decide o acesso em `isAdminRole` aqui e em
+ * `defaultPermissionGroupId` no database.server.ts: um cargo contendo "admin" recebe o grupo pg1
+ * (todas as permissoes) automaticamente.
+ */
+export function grantsAdministrativePower(input: {
+  role?: string;
+  permissionGroupId?: string;
+  permissionGroups: PermissionGroup[];
+}): boolean {
+  if (isAdminRole(input.role)) return true;
+  if (!input.permissionGroupId) return false;
+  const group = input.permissionGroups.find((item) => item.id === input.permissionGroupId);
+  if (!group) return false;
+  return escalationKeys.some((key) => group.permissions.includes(key));
+}
+
 export function isAdminUser(input: {
   currentUser?: CurrentUser | PermissionEmployee | null;
   employees: PermissionEmployee[];

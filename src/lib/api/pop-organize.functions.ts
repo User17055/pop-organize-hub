@@ -28,7 +28,12 @@ import {
   type Task,
   type TargetType,
 } from "../domain";
-import { hasPermission, isAdminUser, resolvePermissionSet } from "../permission-groups";
+import {
+  grantsAdministrativePower,
+  hasPermission,
+  isAdminUser,
+  resolvePermissionSet,
+} from "../permission-groups";
 import { canViewTask, getTaskPermissions } from "../permissions";
 import { materializeRecurringTasks } from "../recurrence.server";
 
@@ -1753,6 +1758,18 @@ export const createEmployee = createServerFn({ method: "POST" })
         "manage.employees",
         "Seu grupo de permissão não pode cadastrar funcionários.",
       );
+      // Convidar alguem com cargo ou grupo administrativo e conceder administracao sem passar pela
+      // edicao de funcionario -- por isso a mesma trava do updateEmployee vale aqui.
+      if (
+        grantsAdministrativePower({
+          role: data.role,
+          permissionGroupId: data.permissionGroupId,
+          permissionGroups: db.permissionGroups,
+        }) &&
+        db.company.ownerId !== currentUserId
+      ) {
+        throw createHttpError("Apenas o proprietário pode convidar outro administrador.", 403);
+      }
       if (!db.departments.some((department) => department.id === data.departmentId)) {
         throw createHttpError("Setor não encontrado.");
       }
@@ -1843,6 +1860,11 @@ export const updateEmployee = createServerFn({ method: "POST" })
       );
       const employee = db.employees.find((item) => item.id === data.id);
       if (!employee) throw createHttpError("Funcionário não encontrado.", 404);
+      // O perfil do dono e intocavel, como ja era no app (mobile-api.server.ts). A tela de
+      // funcionarios ja escondia editar e excluir para o dono -- faltava o servidor recusar.
+      if (employee.id === db.company.ownerId) {
+        throw createHttpError("O perfil do proprietário da empresa não pode ser alterado.", 403);
+      }
       if (!db.departments.some((department) => department.id === data.departmentId)) {
         throw createHttpError("Setor não encontrado.");
       }
@@ -1851,6 +1873,29 @@ export const updateEmployee = createServerFn({ method: "POST" })
         !db.permissionGroups.some((group) => group.id === data.permissionGroupId)
       ) {
         throw createHttpError("Grupo de permissão não encontrado.");
+      }
+      const grantsAdmin = grantsAdministrativePower({
+        role: data.role,
+        permissionGroupId: data.permissionGroupId,
+        permissionGroups: db.permissionGroups,
+      });
+      const alreadyAdmin = grantsAdministrativePower({
+        role: employee.role,
+        permissionGroupId: employee.permissionGroupId,
+        permissionGroups: db.permissionGroups,
+      });
+      if (grantsAdmin && !alreadyAdmin && db.company.ownerId !== currentUserId) {
+        throw createHttpError("Apenas o proprietário pode definir outro administrador.", 403);
+      }
+      // Auto-promocao e o caminho mais curto: quem tem "manage.employees.edit" abria a propria
+      // ficha e se dava o grupo pg1. Editar a si mesmo continua permitido (a tela de funcionarios
+      // oferece isso e nome/setor sao inofensivos) -- o que se recusa e mudar o proprio cargo ou
+      // grupo de permissao. Nome, avatar e senha seguem pelo updateProfile.
+      if (
+        employee.id === currentUserId &&
+        (data.role !== employee.role || data.permissionGroupId !== employee.permissionGroupId)
+      ) {
+        throw createHttpError("Você não pode alterar o próprio cargo ou grupo de permissão.", 403);
       }
       employee.name = data.name;
       employee.role = data.role;

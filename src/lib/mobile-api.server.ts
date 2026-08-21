@@ -12,7 +12,11 @@ import {
   verifyGoogleCredential,
 } from "./database.server";
 import { allPermissionKeys, departmentColors, type PermissionKey, type Task } from "./domain";
-import { hasPermission, resolvePermissionSet } from "./permission-groups";
+import {
+  grantsAdministrativePower,
+  hasPermission,
+  resolvePermissionSet,
+} from "./permission-groups";
 import { canViewTask, getTaskPermissions } from "./permissions";
 import { materializeRecurringTasks } from "./recurrence.server";
 
@@ -410,18 +414,36 @@ export async function authenticateMobileApple(input: {
 }) {
   const appleUser = await verifyAppleIdentityToken(input.identityToken);
   const token = createSessionToken();
+  // So o e-mail que vem assinado dentro do token da Apple vale para achar ou vincular conta.
+  //
+  // input.email vem do corpo da requisicao, ou seja, de quem chama. Antes ele era usado como
+  // reserva quando o token nao trazia e-mail, e esse e-mail localizava uma conta existente e
+  // recebia o vinculo -- bastava mandar um token legitimo da propria conta Apple junto do e-mail
+  // de outra pessoa para sair com uma sessao valida na conta dela. Um token sem a claim de e-mail
+  // e obtivel: quem monta o proprio pedido de autorizacao escolhe os escopos e pode omitir o de
+  // e-mail.
+  //
+  // Ele continua servindo para o nome exibido, que nao decide acesso a nada.
   const tokenEmail = typeof appleUser.email === "string" ? normalizeEmail(appleUser.email) : "";
-  const suppliedEmail = input.email ? normalizeEmail(input.email) : "";
-  const email = tokenEmail || suppliedEmail;
-  if (!email) throw mobileHttpError("A Apple não informou o e-mail desta conta.", 409);
 
   return mutateDatabase((platform) => {
-    let account =
-      platform.accounts.find((item) => item.appleSubject === appleUser.sub) ??
-      platform.accounts.find((item) => normalizeEmail(item.email) === email);
+    // O sub da Apple e assinado e estavel, entao e a chave de reentrada de quem ja vinculou.
+    let account = platform.accounts.find((item) => item.appleSubject === appleUser.sub);
+
+    if (!account) {
+      if (!tokenEmail) {
+        throw mobileHttpError(
+          "A Apple não informou o e-mail desta conta. Entre pelo método usado no cadastro e vincule a Apple depois.",
+          409,
+        );
+      }
+      account = platform.accounts.find((item) => normalizeEmail(item.email) === tokenEmail);
+    }
+
     if (account?.appleSubject && account.appleSubject !== appleUser.sub) {
       throw mobileHttpError("Este e-mail já está vinculado a outra conta Apple.", 409);
     }
+    const email = account ? normalizeEmail(account.email) : tokenEmail;
     if (!account) {
       account = {
         id: nextId("u", platform.accounts),
@@ -459,6 +481,36 @@ export async function authenticateMobileApple(input: {
       workspaces: workspaceSummaries(platform, account.id),
     };
   });
+}
+
+/**
+ * Encerra a sessao do aparelho no servidor.
+ *
+ * Ate aqui o unico lugar em todo o servidor que removia sessao era a exclusao da conta, e o
+ * signOut() do aplicativo so limpava o estado local -- o token continuava valido para sempre
+ * (MOBILE_SESSION_EXPIRY e o ano 9999, de proposito). Na pratica, celular roubado ou token
+ * capturado dava acesso permanente, sem remedio a nao ser apagar a conta inteira.
+ *
+ * Responde ok mesmo com token ausente ou desconhecido: quem chama nao precisa saber se o token
+ * existia, e sair tem de funcionar sempre.
+ *
+ * O readDatabase antes do mutateDatabase nao e desperdicio. mutateDatabase reescreve o blob
+ * inteiro toda vez que e chamado, independente do que o mutador faca, entao chama-lo com token
+ * qualquer transformaria este endpoint numa amplificacao de escrita para quem nem sessao tem.
+ */
+export async function revokeMobileSession(request: Request) {
+  const authorization = request.headers.get("authorization") ?? "";
+  const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (!token) return { ok: true };
+
+  const tokenHash = hashToken(token);
+  const platform = await readDatabase();
+  if (!platform.sessions.some((session) => session.tokenHash === tokenHash)) return { ok: true };
+
+  await mutateDatabase((db) => {
+    db.sessions = db.sessions.filter((session) => session.tokenHash !== tokenHash);
+  });
+  return { ok: true };
 }
 
 async function requireMobileWorkspace(request: Request) {
@@ -825,6 +877,14 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       if (!hasPermission(permissionSet, "manage.employees")) {
         throw mobileHttpError("Seu grupo de permissão não pode cadastrar funcionários.", 403);
       }
+      // Mesma regra que o updateEmployee logo abaixo ja aplicava, e que faltava aqui: convidar
+      // alguem com cargo administrativo e conceder administracao, so que sem passar pela edicao.
+      if (
+        grantsAdministrativePower({ role, permissionGroups: workspace.permissionGroups }) &&
+        workspace.company.ownerId !== currentUser.id
+      ) {
+        throw mobileHttpError("Apenas o proprietário pode convidar outro administrador.", 403);
+      }
       if (!workspace.departments.some((department) => department.id === departmentId)) {
         throw mobileHttpError("Selecione um setor válido.");
       }
@@ -916,8 +976,23 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       if (employee?.id === currentUser.id) {
         throw mobileHttpError("Voce nao pode alterar o proprio perfil na empresa.", 403);
       }
-      const grantsAdmin = role.toLowerCase().includes("admin");
-      const alreadyAdmin = employee?.role.toLowerCase().includes("admin") ?? false;
+      // A definicao passa a ser compartilhada com os outros tres caminhos que gravam cargo.
+      //
+      // `grantsAdmin` e igual ao que estava escrito a mao (o mobile nao envia permissionGroupId,
+      // entao a checagem cai no texto do cargo). `alreadyAdmin` ficou mais abrangente de proposito:
+      // antes so o texto do cargo isentava, agora estar em um grupo com as chaves de escalada
+      // tambem isenta. Isso permite que um admin que nao e dono edite quem **ja** tem poder
+      // administrativo pelo grupo -- nao ha escalada, a pessoa ja o tinha -- em vez de travar por
+      // um criterio que ignorava metade das formas de ser administrador.
+      const grantsAdmin = grantsAdministrativePower({
+        role,
+        permissionGroups: workspace.permissionGroups,
+      });
+      const alreadyAdmin = grantsAdministrativePower({
+        role: employee?.role,
+        permissionGroupId: employee?.permissionGroupId,
+        permissionGroups: workspace.permissionGroups,
+      });
       if (grantsAdmin && !alreadyAdmin && workspace.company.ownerId !== currentUser.id) {
         throw mobileHttpError("Apenas o proprietario pode definir outro administrador.", 403);
       }

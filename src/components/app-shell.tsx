@@ -688,12 +688,7 @@ export function AppShell({
           })}
         </nav>
 
-        <div
-          className={cn(
-            "space-y-1.5 py-4",
-            collapsed ? "px-3.5" : "px-5",
-          )}
-        >
+        <div className={cn("space-y-1.5 py-4", collapsed ? "px-3.5" : "px-5")}>
           <button
             type="button"
             onClick={openProfile}

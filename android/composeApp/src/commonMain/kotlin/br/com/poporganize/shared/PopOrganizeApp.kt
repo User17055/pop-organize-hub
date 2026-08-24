@@ -52,6 +52,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Groups
@@ -774,6 +775,10 @@ private fun WorkspaceHeader(store: PopStore) {
                     }
                 }
             }
+            // Sem este respiro o nome do espaco encostava no logotipo: com "Clinica Sao Francisco"
+            // no cabecalho, o chevron de trocar de espaco ficava colado no "P" da marca e os dois
+            // liam como um bloco so.
+            Spacer(Modifier.width(12.dp))
             // Reduzido de 24sp para 16sp. Em 24 o logotipo era o MAIOR texto do cabecalho -- maior
             // que o nome do espaco, que e a informacao que a pessoa precisa ler ali. Marca nao
             // compete com conteudo; e assinatura, nao manchete. Em telas de login e onboarding ele
@@ -799,20 +804,50 @@ private fun PageHeader(title: String, onBack: () -> Unit) {
 @Composable
 private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
     val tasks = store.visibleTasks
-    val pending = tasks.count { !it.completed }
-    val completed = tasks.size - pending
+    val today = remember { todayDate() }
     val userName = store.state.currentUser?.firstName ?: "você"
-    val upcoming = tasks.filterNot { it.completed }
     val shown = 4
+
+    // "Para hoje" precisa contar o que e de hoje. Contava tudo que estivesse pendente no espaco:
+    // com 8 pendentes e 4 vencendo hoje, o maior texto da tela anunciava "8 tarefas para hoje".
+    // Atrasada entra na conta porque atrasada tambem e para hoje -- e por isso o filtro e <= 0.
+    val agenda = remember(tasks, today) {
+        tasks.filter { task ->
+            val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) }
+            offset != null && offset <= 0L
+        }
+    }
+    val pendingToday = agenda.count { !it.completed }
+    val doneToday = agenda.size - pendingToday
+    val overdue = remember(agenda, today) {
+        agenda.count { task ->
+            val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } ?: 0L
+            !task.completed && offset < 0L
+        }
+    }
+    // A lista saia na ordem de armazenamento: as quatro primeiras eram as quatro primeiras a
+    // existir, nao as quatro mais proximas. Uma tarefa atrasada de alta prioridade podia ficar
+    // atras de tres de semana que vem, dentro do bloco chamado "Proximas tarefas".
+    val upcoming = remember(tasks) { tasks.filterNot { it.completed }.sortedWith(taskListOrder) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item { TodayHeroCard(greetingForCurrentTime(), userName, pending, completed, tasks.size) }
+        item {
+            TodayHeroCard(
+                greeting = greetingForCurrentTime(),
+                userName = userName,
+                pending = pendingToday,
+                completed = doneToday,
+                total = agenda.size,
+                overdue = overdue,
+                hasFuture = upcoming.isNotEmpty(),
+            )
+        }
         item { SectionTitle("Próximas tarefas") }
-        if (tasks.none { !it.completed }) {
+        if (upcoming.isEmpty()) {
             item { EmptyState("Nenhuma tarefa pendente", "Crie uma atividade para organizar seu dia.") }
         } else {
             items(upcoming.take(shown), key = { it.id }) { task ->
@@ -847,12 +882,25 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
  *
  * O gradiente e o --gradient-primary do painel web, e este e o unico lugar do app onde ele aparece:
  * um gradiente que se repete vira papel de parede e para de significar destaque.
+ *
+ * `total` e `pending` sao da AGENDA DE HOJE (vencidas incluidas), nao do espaco inteiro. O anel
+ * mede o progresso do dia; medir o do espaco fazia a fracao andar para tras a cada tarefa futura
+ * criada.
  */
 @Composable
-private fun TodayHeroCard(greeting: String, userName: String, pending: Int, completed: Int, total: Int) {
+private fun TodayHeroCard(
+    greeting: String,
+    userName: String,
+    pending: Int,
+    completed: Int,
+    total: Int,
+    overdue: Int,
+    hasFuture: Boolean,
+) {
     val progress = if (total == 0) 0f else completed.toFloat() / total
     val headline = when {
-        total == 0 -> "Nada na agenda"
+        total == 0 && !hasFuture -> "Nada na agenda"
+        total == 0 -> "Nada para hoje"
         pending == 0 -> "Tudo em dia"
         pending == 1 -> "1 tarefa para hoje"
         else -> "$pending tarefas para hoje"
@@ -885,6 +933,24 @@ private fun TodayHeroCard(greeting: String, userName: String, pending: Int, comp
                     fontWeight = FontWeight.Bold,
                     lineHeight = 26.sp,
                 )
+                if (overdue > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Rounded.ErrorOutline,
+                            null,
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            if (overdue == 1) "1 já passou do prazo" else "$overdue já passaram do prazo",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 5.dp),
+                        )
+                    }
+                }
             }
             if (total > 0) {
                 Spacer(Modifier.size(16.dp))
@@ -1959,58 +2025,142 @@ private fun CalendarDayCell(
 
 @Composable
 private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
+    val company = store.selectedCompany
+    val inCompany = store.state.workspace == WorkspaceKind.Company && company != null
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item {
-            Text("Mais", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-            Text("Conta e preferências", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        item {
-            val company = store.selectedCompany
-            val inCompany = store.state.workspace == WorkspaceKind.Company && company != null
-            val pending = store.visibleTasks.count { !it.completed }
-            PopCard {
-                Text(if (inCompany) company!!.name else "Meu espaço", fontWeight = FontWeight.Bold)
-                Text(
-                    if (pending == 1) "1 atividade pendente" else "$pending atividades pendentes",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                )
-            }
-        }
-        item { SectionTitle("Aplicativo") }
-        item { MoreItem(Icons.Rounded.Settings, "Configurações", "Tema, conta e suporte") { onPage(MorePage.Settings) } }
-        if (
-            store.state.workspace == WorkspaceKind.Company &&
-            store.selectedCompany != null
-        ) {
-            val company = store.selectedCompany!!
+        // Nao ha titulo "Mais" aqui de proposito. Ele nomeava a ABA, nao o conteudo -- e a aba ja
+        // se nomeia na barra de baixo, dois centimetros abaixo. Somado ao cabecalho de espaco que
+        // fica logo acima, a tela abria com tres titulos empilhados, dois deles dizendo "Meu
+        // espaco". O cartao de conta assume o topo: e identidade, e nao se repete em lugar nenhum.
+        item { AccountCard(store) }
+        // Empresa antes de Aplicativo: quem abre esta aba vem atras de equipe, setor ou grupo.
+        // Configuracoes e o destino raro, e destino raro vai para o fim da lista.
+        if (inCompany) {
             item { SectionTitle("Empresa") }
             item {
                 MoreItem(
                     Icons.Rounded.Person,
                     "Equipe",
-                    "${company.members.size} pessoas cadastradas",
+                    "${company!!.members.size} pessoas cadastradas",
                 ) { onPage(MorePage.Team) }
             }
             item {
                 MoreItem(
                     Icons.Rounded.Apartment,
                     "Setores",
-                    "${company.sectors.size} setores",
+                    "${company!!.sectors.size} setores",
                 ) { onPage(MorePage.Sectors) }
             }
             item {
                 MoreItem(
                     Icons.Rounded.Groups,
                     "Grupos",
-                    "${company.groups.size} grupos",
+                    "${company!!.groups.size} grupos",
                 ) { onPage(MorePage.Groups) }
             }
         }
+        item { SectionTitle("Aplicativo") }
+        item { MoreItem(Icons.Rounded.Settings, "Configurações", "Tema, conta e suporte") { onPage(MorePage.Settings) } }
+    }
+}
+
+/**
+ * Cartao de conta: quem esta logado, e quanto ha em aberto no espaco atual.
+ *
+ * Substitui um cartao que repetia o nome do espaco que ja estava no cabecalho da tela. Nao e
+ * clicavel e nao leva chevron -- nao existe tela de perfil para abrir, e um chevron que nao abre
+ * nada e uma promessa quebrada.
+ */
+@Composable
+private fun AccountCard(store: PopStore) {
+    val user = store.state.currentUser
+    val name = user?.name?.trim().orEmpty().ifBlank { "Visitante" }
+    val tasks = store.visibleTasks
+    val today = remember { todayDate() }
+    val pending = tasks.count { !it.completed }
+    val done = tasks.size - pending
+    val late = remember(tasks, today) {
+        tasks.count { task ->
+            val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } ?: 0L
+            !task.completed && offset < 0L
+        }
+    }
+    PopCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(52.dp).clip(CircleShape).background(PopBrandGradient),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(initialsOf(name), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+            Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                Text(
+                    name,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    // Sem conta, o e-mail nao existe. Dizer o que a sessao E vale mais do que
+                    // deixar a linha vazia ou inventar um espaco reservado.
+                    user?.email ?: "Sessão local, sem conta",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        HorizontalDivider(
+            Modifier.padding(vertical = 14.dp),
+            color = MaterialTheme.colorScheme.outlineVariant,
+        )
+        Row(Modifier.fillMaxWidth()) {
+            // Nao repete o herói do Início: la o numero e de HOJE, aqui e o total em aberto no
+            // espaco. Sao respostas diferentes para perguntas diferentes.
+            AccountStat("$pending", "em aberto", Modifier.weight(1f))
+            // O terceiro numero era o total, ou seja, a soma dos outros dois -- o mesmo defeito que
+            // custou os tres cartoes de metrica do Inicio. "Atrasadas" nao sai de conta nenhuma.
+            AccountStat("$late", "atrasadas", Modifier.weight(1f), if (late > 0) PopRed else null)
+            AccountStat("$done", "concluídas", Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun AccountStat(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    valueColor: Color? = null,
+) {
+    Column(modifier) {
+        Text(
+            value,
+            fontSize = 19.sp,
+            fontWeight = FontWeight.Bold,
+            color = valueColor ?: MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Iniciais do primeiro e do ultimo nome; um so nome devolve uma letra, e vazio devolve "?". */
+private fun initialsOf(name: String): String {
+    val parts = name.trim().split(' ').filter { it.isNotBlank() }
+    return when (parts.size) {
+        0 -> "?"
+        1 -> parts[0].take(1).uppercase()
+        else -> (parts.first().take(1) + parts.last().take(1)).uppercase()
     }
 }
 
@@ -2037,15 +2187,28 @@ private fun TeamScreen(store: PopStore) {
     // Convidar alguem exige um setor: addMember() usa o primeiro setor da empresa como destino.
     val hasSector = company?.sectors?.isNotEmpty() == true
     val canAdd = store.permissions.canManageEmployees && hasSector
+    val members = company?.members.orEmpty()
     EntityListScreen(
-        title = "Pessoas cadastradas",
+        header = if (members.size == 1) "1 pessoa cadastrada" else "${members.size} pessoas cadastradas",
         emptyTitle = "Nenhum colaborador",
         emptyDetail = when {
             !store.permissions.canManageEmployees -> "Somente quem administra a equipe pode convidar."
             !hasSector -> "Cadastre um setor antes de convidar alguém."
             else -> null
         },
-        items = company?.members.orEmpty().map { it.name to "${it.role} • ${it.email}" },
+        items = members.map { member ->
+            EntityRow(
+                title = member.name,
+                // O setor sai da linha do e-mail e vira a legenda do nome: e a informacao que se
+                // usa para decidir a quem atribuir tarefa, e o e-mail e a que se le por ultimo.
+                subtitle = company?.sectors?.firstOrNull { it.id == member.sectorId }?.name.orEmpty(),
+                // Linha propria e de largura cheia. Concatenado ao cargo com um ponto, o e-mail
+                // quebrava em duas linhas no primeiro cartao e sobrava um "Administrador -" solto.
+                detail = member.email,
+                initials = initialsOf(member.name),
+                badge = member.role.takeIf { it.isNotBlank() },
+            )
+        },
         onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) MemberEditorDialog(store) { showEditor = false }
@@ -2056,15 +2219,25 @@ private fun SectorsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     var showEditor by remember { mutableStateOf(false) }
     val canAdd = store.permissions.canManageDepartments
+    val sectors = company?.sectors.orEmpty()
+    val members = company?.members.orEmpty()
     EntityListScreen(
-        title = "Estrutura por setores",
+        header = "Estrutura por setores",
         emptyTitle = "Nenhum setor",
         emptyDetail = if (canAdd) {
             "Cadastre o primeiro setor para poder convidar pessoas."
         } else {
             "Somente quem administra a empresa pode criar setores."
         },
-        items = company?.sectors.orEmpty().map { it.name to it.description },
+        items = sectors.map { sector ->
+            val people = members.count { it.sectorId == sector.id }
+            EntityRow(
+                title = sector.name,
+                subtitle = sector.description,
+                icon = Icons.Rounded.Apartment,
+                badge = if (people == 1) "1 pessoa" else "$people pessoas",
+            )
+        },
         onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) {
@@ -2082,10 +2255,17 @@ private fun GroupsScreen(store: PopStore) {
     var showEditor by remember { mutableStateOf(false) }
     val canAdd = store.permissions.canManageGroups
     EntityListScreen(
-        title = "Grupos de trabalho",
+        header = "Grupos de trabalho",
         emptyTitle = "Nenhum grupo",
         emptyDetail = if (canAdd) null else "Somente quem administra a empresa pode criar grupos.",
-        items = company?.groups.orEmpty().map { it.name to it.description },
+        items = company?.groups.orEmpty().map { group ->
+            EntityRow(
+                title = group.name,
+                subtitle = group.description,
+                icon = Icons.Rounded.Groups,
+                badge = if (group.memberIds.size == 1) "1 pessoa" else "${group.memberIds.size} pessoas",
+            )
+        },
         onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) {
@@ -2097,11 +2277,32 @@ private fun GroupsScreen(store: PopStore) {
     }
 }
 
+/**
+ * Uma linha das listas de Equipe, Setores e Grupos.
+ *
+ * As tres desenhavam `Pair<String, String>`: titulo em negrito e uma segunda linha com tudo o mais
+ * concatenado. Tres telas iguais, sem hierarquia interna e sem nenhum sinal visual de que tipo de
+ * coisa estava listada ali.
+ */
+private data class EntityRow(
+    val title: String,
+    /** Legenda curta, ao lado do avatar. */
+    val subtitle: String = "",
+    /** Linha de largura cheia, abaixo. Para texto que nao pode ser cortado, como e-mail. */
+    val detail: String = "",
+    /** Avatar circular com iniciais -- pessoas. */
+    val initials: String? = null,
+    /** Caixa com icone -- setores e grupos. */
+    val icon: ImageVector? = null,
+    /** Selo a direita: cargo, ou quantas pessoas. */
+    val badge: String? = null,
+)
+
 @Composable
 private fun EntityListScreen(
-    title: String,
+    header: String,
     emptyTitle: String,
-    items: List<Pair<String, String>>,
+    items: List<EntityRow>,
     onAdd: (() -> Unit)? = null,
     emptyDetail: String? = null,
 ) {
@@ -2110,22 +2311,77 @@ private fun EntityListScreen(
         ?: if (onAdd != null) "Toque em + para cadastrar." else "Cadastre pela versão web."
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            contentPadding = PaddingValues(18.dp, 14.dp, 18.dp, 88.dp),
+            contentPadding = PaddingValues(18.dp, 6.dp, 18.dp, 88.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item { Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            item { SectionTitle(header) }
             if (items.isEmpty()) item { EmptyState(emptyTitle, detail) }
-            items(items) { item ->
-                PopCard {
-                    Text(item.first, fontWeight = FontWeight.Bold)
-                    if (item.second.isNotBlank()) Text(item.second, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                }
-            }
+            items(items) { row -> EntityCard(row) }
         }
         if (onAdd != null) {
             FloatingActionButton(onClick = onAdd, modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp)) {
                 Icon(Icons.Rounded.Add, "Adicionar")
             }
+        }
+    }
+}
+
+@Composable
+private fun EntityCard(row: EntityRow) {
+    PopCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (row.initials != null) {
+                Box(
+                    Modifier.size(40.dp).clip(CircleShape).background(PopBrandGradient),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(row.initials, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            } else if (row.icon != null) {
+                Box(
+                    Modifier.size(40.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(13.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(row.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                }
+            }
+            Column(
+                Modifier
+                    .padding(start = if (row.initials != null || row.icon != null) 12.dp else 0.dp)
+                    .weight(1f),
+            ) {
+                Text(row.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (row.subtitle.isNotBlank()) {
+                    Text(
+                        row.subtitle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (row.badge != null) {
+                Text(
+                    row.badge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.extraSmall)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+        if (row.detail.isNotBlank()) {
+            Text(
+                row.detail,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 10.dp),
+            )
         }
     }
 }

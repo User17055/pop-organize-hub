@@ -9,8 +9,11 @@ name: iOS release (TestFlight)
 #   APPSTORE_API_ISSUER_ID    Issuer ID da App Store Connect API
 #   APPSTORE_API_PRIVATE_KEY  conteudo do arquivo AuthKey_XXXX.p8 em base64
 #
-# A chave da API precisa ter papel "App Manager" ou "Admin" para que o Xcode possa
-# criar/baixar o certificado de distribuicao e o provisioning profile sozinho.
+# A chave da API precisa ter papel "Admin". Nao basta "App Manager": o passo de export usa
+# assinatura na nuvem, e certificado de distribuicao gerenciado pela Apple so e liberado para
+# Admin -- com App Manager o archive passa e o export morre em
+# "exportArchive Cloud signing permission error". O papel de uma chave NAO pode ser alterado
+# depois de criada; para trocar, revogue e gere outra.
 
 on:
   workflow_dispatch:

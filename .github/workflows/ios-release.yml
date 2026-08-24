@@ -147,6 +147,19 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # Sem isto, um crash em aparelho vira uma lista de numeros. O relatorio do iPhone traz os
+      # quadros do app so como deslocamento, e so o dSYM DAQUELA build (casado pelo UUID) os
+      # converte em nome de funcao. O dSYM vive dentro do .xcarchive, que o runner descarta ao
+      # terminar -- o primeiro crash de verdade nos pegou justamente assim.
+      - name: Publicar os simbolos (dSYM)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pop-organize-ios-dsym
+          path: ${{ runner.temp }}/App.xcarchive/dSYMs
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Enviar para o App Store Connect
         if: ${{ inputs.upload }}
         env:

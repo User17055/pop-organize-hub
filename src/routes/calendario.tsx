@@ -245,33 +245,32 @@ function CalendarPage() {
     setShowCreateForm(true);
   }
 
-  function handleCreateSubmit(event: FormEvent) {
-    event.preventDefault();
-    const [selectedType, selectedId] = createForm.targetKey.split(":") as [TargetType, string];
+  function handleCreateSubmit(submittedForm: TaskFormState) {
+    const [selectedType, selectedId] = submittedForm.targetKey.split(":") as [TargetType, string];
     const type = isPersonalWorkspace ? "user" : selectedType;
     const id = isPersonalWorkspace ? currentUser.id : selectedId;
-    const responsibleId = type === "user" ? "" : createForm.responsibleId;
+    const responsibleId = type === "user" ? "" : submittedForm.responsibleId;
     createTaskMutation.mutate({
-      title: createForm.title,
-      description: createForm.description,
-      priority: createForm.priority,
-      dueDate: createForm.dueDate,
+      title: submittedForm.title,
+      description: submittedForm.description,
+      priority: submittedForm.priority,
+      dueDate: submittedForm.dueDate,
       target: { type, id },
       responsibleId,
       reviewerId:
-        !isPersonalWorkspace && createForm.requiresReview
-          ? createForm.reviewerId || responsibleId || undefined
+        !isPersonalWorkspace && submittedForm.requiresReview
+          ? submittedForm.reviewerId || responsibleId || undefined
           : undefined,
-      requiresReview: !isPersonalWorkspace && createForm.requiresReview,
-      tags: createForm.tags
+      requiresReview: !isPersonalWorkspace && submittedForm.requiresReview,
+      tags: submittedForm.tags
         .split(",")
         .map((tag) => tag.trim())
         .filter(Boolean),
-      checklist: createForm.checklist
+      checklist: submittedForm.checklist
         .split(/\r?\n/)
         .map((item) => item.trim())
         .filter(Boolean),
-      recurrence: recurrenceFromForm(createForm.recurrence),
+      recurrence: recurrenceFromForm(submittedForm.recurrence),
     });
   }
 
@@ -493,7 +492,6 @@ function CalendarPage() {
         open={showCreateForm}
         onOpenChange={setShowCreateForm}
         form={createForm}
-        onFormChange={setCreateForm}
         onSubmit={handleCreateSubmit}
         isSubmitting={createTaskMutation.isPending}
         errorMessage={

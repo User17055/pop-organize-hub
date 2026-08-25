@@ -10466,8 +10466,8 @@ private fun PermissionGroupsOverviewPage(
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 110.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
                 Row(
@@ -10479,45 +10479,14 @@ private fun PermissionGroupsOverviewPage(
                     }
                     Spacer(Modifier.width(6.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Permissões", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                        Text("Permissões", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
                         Text(
-                            "$companyName • ${groups.size} grupos de acesso",
+                            "$companyName • ${groups.size} grupos",
                             color = PopMuted,
                             fontSize = 11.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                    }
-                }
-            }
-
-            item {
-                Surface(
-                    color = PopBlueSoft,
-                    shape = RoundedCornerShape(22.dp),
-                    border = BorderStroke(1.dp, PopBlue.copy(alpha = .18f)),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            modifier = Modifier.size(48.dp).background(PopBlue, RoundedCornerShape(16.dp)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Rounded.Shield, null, tint = Color.White, modifier = Modifier.size(25.dp))
-                        }
-                        Spacer(Modifier.width(13.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Acesso organizado por função", color = PopText, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
-                            Text(
-                                "Defina o que cada equipe pode visualizar e alterar.",
-                                color = PopMuted,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp,
-                            )
-                        }
                     }
                 }
             }
@@ -10538,99 +10507,68 @@ private fun PermissionGroupsOverviewPage(
                     }
                 }
             } else {
-                items(groups, key = { it.id }) { group ->
-                    val memberCount = members.count { it.permissionGroupId == group.id }
+                item {
                     Surface(
-                        onClick = { onGroupClick?.invoke(group) },
-                        enabled = onGroupClick != null,
                         color = PopSurfaceAlt,
-                        shape = RoundedCornerShape(22.dp),
-                        border = if (group.isSystem) {
-                            BorderStroke(1.dp, PopBlue.copy(alpha = .22f))
-                        } else {
-                            BorderStroke(1.dp, PopMuted.copy(alpha = .1f))
-                        },
+                        shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .background(
-                                            if (group.isSystem) PopBlue else PopBlueSoft,
-                                            RoundedCornerShape(14.dp),
-                                        ),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        if (group.isSystem) Icons.Rounded.Lock else Icons.Rounded.Shield,
-                                        null,
-                                        tint = if (group.isSystem) Color.White else PopBlue,
-                                        modifier = Modifier.size(22.dp),
-                                    )
-                                }
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        group.name,
-                                        color = PopText,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        if (group.isSystem) "Grupo protegido do sistema" else "Grupo personalizado",
-                                        color = if (group.isSystem) PopBlue else PopMuted,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
-                                if (onGroupClick != null) {
-                                    Icon(Icons.Rounded.ChevronRight, null, tint = PopMuted, modifier = Modifier.size(20.dp))
-                                }
-                            }
-
-                            if (group.description.isNotBlank()) {
-                                Text(
-                                    group.description,
-                                    color = PopMuted,
-                                    fontSize = 11.sp,
-                                    lineHeight = 16.sp,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(top = 12.dp),
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier.padding(top = 13.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
+                        Column {
+                            groups.forEachIndexed { index, group ->
+                                val memberCount = members.count { it.permissionGroupId == group.id }
                                 Row(
                                     modifier = Modifier
-                                        .background(PopBlueSoft, RoundedCornerShape(10.dp))
-                                        .padding(horizontal = 9.dp, vertical = 6.dp),
+                                        .fillMaxWidth()
+                                        .clickable(enabled = onGroupClick != null) {
+                                            onGroupClick?.invoke(group)
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 13.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Icon(Icons.Rounded.CheckCircle, null, tint = PopBlue, modifier = Modifier.size(14.dp))
-                                    Spacer(Modifier.width(5.dp))
-                                    Text("${group.permissions.size} acessos", color = PopBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .background(PopBlueSoft, RoundedCornerShape(11.dp)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            if (group.isSystem) Icons.Rounded.Lock else Icons.Rounded.Shield,
+                                            null,
+                                            tint = PopBlue,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                    Spacer(Modifier.width(11.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            group.name,
+                                            color = PopText,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            "${group.permissions.size} permissões • $memberCount ${if (memberCount == 1) "membro" else "membros"}${if (group.isSystem) " • Padrão" else ""}",
+                                            color = PopMuted,
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    if (onGroupClick != null) {
+                                        Icon(
+                                            Icons.Rounded.ChevronRight,
+                                            null,
+                                            tint = PopMuted,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
                                 }
-                                Row(
-                                    modifier = Modifier
-                                        .background(PopSurface, RoundedCornerShape(10.dp))
-                                        .padding(horizontal = 9.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Icon(Icons.Rounded.Groups, null, tint = PopMuted, modifier = Modifier.size(14.dp))
-                                    Spacer(Modifier.width(5.dp))
-                                    Text(
-                                        "$memberCount ${if (memberCount == 1) "membro" else "membros"}",
-                                        color = PopMuted,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
+                                if (index < groups.lastIndex) {
+                                    HorizontalDivider(
+                                        color = PopMuted.copy(alpha = .1f),
+                                        modifier = Modifier.padding(start = 61.dp),
                                     )
                                 }
                             }
@@ -10660,9 +10598,9 @@ private fun PermissionGroupsOverviewPage(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 24.dp, bottom = 28.dp)
-                    .size(66.dp),
+                    .size(58.dp),
             ) {
-                Icon(Icons.Rounded.Add, "Criar grupo de permissão", modifier = Modifier.size(30.dp))
+                Icon(Icons.Rounded.Add, "Criar grupo de permissão", modifier = Modifier.size(26.dp))
             }
         }
     }

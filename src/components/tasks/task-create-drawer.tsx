@@ -21,7 +21,6 @@ export function TaskCreateDrawer({
   open,
   onOpenChange,
   form,
-  onFormChange,
   onSubmit,
   isSubmitting,
   errorMessage,
@@ -33,8 +32,7 @@ export function TaskCreateDrawer({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   form: TaskFormState;
-  onFormChange: (updater: (current: TaskFormState) => TaskFormState) => void;
-  onSubmit: (event: FormEvent) => void;
+  onSubmit: (form: TaskFormState) => void;
   isSubmitting: boolean;
   errorMessage?: string | null;
   employees: Employee[];
@@ -44,20 +42,24 @@ export function TaskCreateDrawer({
 }) {
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(0);
+  const [draft, setDraft] = useState(form);
   const steps = personalMode ? personalSteps : companySteps;
   const isLastStep = step === steps.length - 1;
-  const isDepartmentTarget = form.targetKey.startsWith("department:");
-  const isUserTarget = form.targetKey.startsWith("user:");
+  const isDepartmentTarget = draft.targetKey.startsWith("department:");
+  const isUserTarget = draft.targetKey.startsWith("user:");
   const canContinue =
-    step !== 0 || Boolean(form.title.trim() && form.description.trim() && form.dueDate);
+    step !== 0 || Boolean(draft.title.trim() && draft.description.trim() && draft.dueDate);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (open) setStep(0);
-  }, [open]);
+    if (open) {
+      setDraft(form);
+      setStep(0);
+    }
+  }, [form, open]);
 
   useEffect(() => {
     if (!open || !mounted) return;
@@ -86,7 +88,7 @@ export function TaskCreateDrawer({
     <>
       <div
         className={cn(
-          "fixed inset-0 z-[190] bg-slate-950/28 backdrop-blur-[2px] transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+          "fixed inset-0 z-[190] bg-slate-950/36 transition-opacity duration-300 ease-out",
           open ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
         onClick={() => onOpenChange(false)}
@@ -100,7 +102,10 @@ export function TaskCreateDrawer({
         )}
       >
         <form
-          onSubmit={onSubmit}
+          onSubmit={(event: FormEvent) => {
+            event.preventDefault();
+            onSubmit(draft);
+          }}
           className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg"
         >
           <header className="task-create-header task-create-panel-section z-[60] shrink-0 border-b px-4 pb-4 pt-4 sm:px-5">
@@ -144,9 +149,9 @@ export function TaskCreateDrawer({
               <>
                 <Field label="Título">
                   <input
-                    value={form.title}
+                    value={draft.title}
                     onChange={(event) =>
-                      onFormChange((current) => ({ ...current, title: event.target.value }))
+                      setDraft((current) => ({ ...current, title: event.target.value }))
                     }
                     className={inputClass}
                     placeholder="Ex: Criar campanha..."
@@ -155,9 +160,9 @@ export function TaskCreateDrawer({
                 </Field>
                 <Field label="Descrição">
                   <textarea
-                    value={form.description}
+                    value={draft.description}
                     onChange={(event) =>
-                      onFormChange((current) => ({
+                      setDraft((current) => ({
                         ...current,
                         description: event.target.value,
                       }))
@@ -170,13 +175,13 @@ export function TaskCreateDrawer({
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <Field label="Prioridade">
                     <GlassSelect
-                      value={form.priority}
+                      value={draft.priority}
                       options={Object.entries(priorityLabels).map(([value, label]) => ({
                         value,
                         label,
                       }))}
                       onChange={(priority) =>
-                        onFormChange((current) => ({
+                        setDraft((current) => ({
                           ...current,
                           priority: priority as Priority,
                         }))
@@ -185,9 +190,9 @@ export function TaskCreateDrawer({
                   </Field>
                   <Field label="Prazo">
                     <GlassDatePicker
-                      value={form.dueDate}
+                      value={draft.dueDate}
                       onChange={(dueDate) =>
-                        onFormChange((current) => ({
+                        setDraft((current) => ({
                           ...current,
                           dueDate,
                         }))
@@ -207,10 +212,8 @@ export function TaskCreateDrawer({
                     Recorrência
                   </div>
                   <RecurrenceFields
-                    value={form.recurrence}
-                    onChange={(recurrence) =>
-                      onFormChange((current) => ({ ...current, recurrence }))
-                    }
+                    value={draft.recurrence}
+                    onChange={(recurrence) => setDraft((current) => ({ ...current, recurrence }))}
                   />
                 </div>
                 {personalMode ? (
@@ -225,10 +228,10 @@ export function TaskCreateDrawer({
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <Field label="Visível para">
                       <GlassSelect
-                        value={form.targetKey}
+                        value={draft.targetKey}
                         options={targetOptions}
                         onChange={(targetKey) =>
-                          onFormChange((current) => ({
+                          setDraft((current) => ({
                             ...current,
                             targetKey,
                             responsibleId: targetKey.startsWith("user:")
@@ -241,7 +244,7 @@ export function TaskCreateDrawer({
                     {!isUserTarget && (
                       <Field label={isDepartmentTarget ? "Responsável (opcional)" : "Responsável"}>
                         <GlassSelect
-                          value={form.responsibleId}
+                          value={draft.responsibleId}
                           options={[
                             {
                               value: "",
@@ -255,7 +258,7 @@ export function TaskCreateDrawer({
                             })),
                           ]}
                           onChange={(responsibleId) =>
-                            onFormChange((current) => ({
+                            setDraft((current) => ({
                               ...current,
                               responsibleId,
                             }))
@@ -274,9 +277,9 @@ export function TaskCreateDrawer({
                   <label className="task-create-review-toggle task-create-card pressable flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3.5 text-sm font-bold text-foreground">
                     <input
                       type="checkbox"
-                      checked={form.requiresReview}
+                      checked={draft.requiresReview}
                       onChange={(event) =>
-                        onFormChange((current) => ({
+                        setDraft((current) => ({
                           ...current,
                           requiresReview: event.target.checked,
                           reviewerId:
@@ -290,7 +293,7 @@ export function TaskCreateDrawer({
                     <span
                       className={cn(
                         "task-create-checkbox flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition",
-                        form.requiresReview && "task-create-checkbox-checked",
+                        draft.requiresReview && "task-create-checkbox-checked",
                       )}
                       aria-hidden="true"
                     >
@@ -299,14 +302,16 @@ export function TaskCreateDrawer({
                     <span className="min-w-0">Precisa de revisão</span>
                   </label>
                 )}
-                {!personalMode && form.requiresReview && (
+                {!personalMode && draft.requiresReview && (
                   <Field label="Revisor">
                     <GlassSelect
-                      value={form.reviewerId}
+                      value={draft.reviewerId}
                       options={[
                         {
                           value: "",
-                          label: form.responsibleId ? "Usar o responsável" : "Selecione um revisor",
+                          label: draft.responsibleId
+                            ? "Usar o responsável"
+                            : "Selecione um revisor",
                         },
                         ...employees.map((employee) => ({
                           value: employee.id,
@@ -314,7 +319,7 @@ export function TaskCreateDrawer({
                         })),
                       ]}
                       onChange={(reviewerId) =>
-                        onFormChange((current) => ({
+                        setDraft((current) => ({
                           ...current,
                           reviewerId,
                         }))
@@ -324,9 +329,9 @@ export function TaskCreateDrawer({
                 )}
                 <Field label="Tags">
                   <input
-                    value={form.tags}
+                    value={draft.tags}
                     onChange={(event) =>
-                      onFormChange((current) => ({ ...current, tags: event.target.value }))
+                      setDraft((current) => ({ ...current, tags: event.target.value }))
                     }
                     className={inputClass}
                     placeholder="Separadas por vírgula"
@@ -343,9 +348,9 @@ export function TaskCreateDrawer({
                       durante o cadastro.
                     </p>
                     <textarea
-                      value={form.checklist}
+                      value={draft.checklist}
                       onChange={(event) =>
-                        onFormChange((current) => ({
+                        setDraft((current) => ({
                           ...current,
                           checklist: event.target.value,
                         }))

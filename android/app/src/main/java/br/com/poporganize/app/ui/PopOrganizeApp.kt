@@ -3182,14 +3182,6 @@ private fun PopMainContent(
                                     }
                                 }
                             },
-                            onOpenTask = { task ->
-                                taskToOpenId = null
-                                destination = PopDestination.Tasks
-                                navigationScope.launch {
-                                    delay(240)
-                                    taskToOpenId = task.id
-                                }
-                            },
                             onCreateTaskForDate = { date -> taskToCreateDate = date },
                         )
                         if (taskToCreateDate != null) {
@@ -8045,7 +8037,6 @@ private fun CalendarScreen(
     onCreateCompany: () -> Unit,
     onOpenMenu: () -> Unit,
     onToggleTaskComplete: (PopTask) -> Unit,
-    onOpenTask: (PopTask) -> Unit,
     onCreateTaskForDate: (LocalDate) -> Unit,
 ) {
     val taskSnapshot = tasks.toList()
@@ -8060,6 +8051,7 @@ private fun CalendarScreen(
             .collect { page -> month = anchorMonth.plusMonths((page - pagerCenter).toLong()) }
     }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var selectedTaskId by remember { mutableStateOf<Int?>(null) }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
     val visibleCalendarTasks = remember(taskSnapshot, month) {
@@ -8160,7 +8152,7 @@ private fun CalendarScreen(
                     CalendarDayAgenda(
                         tasks = selectedDayTasks,
                         today = today,
-                        onOpenTask = onOpenTask,
+                        onOpenTask = { task -> selectedTaskId = task.id },
                         onToggleTaskComplete = onToggleTaskComplete,
                     )
                 }
@@ -8168,6 +8160,13 @@ private fun CalendarScreen(
         }
     }
 
+    val selectedTask = taskSnapshot.firstOrNull { it.id == selectedTaskId }
+    if (selectedTask != null) {
+        CalendarTaskDetails(
+            task = selectedTask,
+            onDismiss = { selectedTaskId = null },
+        )
+    }
 }
 
 @Composable

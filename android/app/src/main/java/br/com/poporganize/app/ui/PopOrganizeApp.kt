@@ -7734,7 +7734,7 @@ private fun TaskCard(
     ) {
         Box(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxSize().padding(start = 14.dp, end = 76.dp),
+            Modifier.fillMaxSize().padding(start = 14.dp, end = 60.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -7838,6 +7838,7 @@ private fun TaskCard(
                 }
             }
             if (showAssigneeAvatars && hasVisibleAssignees) {
+                Spacer(Modifier.width(10.dp))
                 TaskAssigneeAvatarStack(task = task, members = members)
             }
         }
@@ -8695,28 +8696,18 @@ private fun MoreScreen(
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
             Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
-                ManagementOverviewPage(
-                    title = "Permissões",
-                    subtitle = "${companyNames.getOrElse(selectedCompanyIndex) { "Empresa" }} • ${companyPermissionGroups.size} grupos",
-                    emptyMessage = "Nenhum grupo de permissão cadastrado nesta empresa.",
-                    items = companyPermissionGroups.map { group ->
-                        ManagementOverviewEntry(
-                            id = group.id,
-                            title = group.name + if (group.isSystem) " • Sistema" else "",
-                            description = group.description,
-                            detail = "${group.permissions.size} permissões",
-                        )
-                    },
-                    icon = Icons.Rounded.Shield,
-                    canAdd = canManagePermissions,
-                    addDescription = "Criar grupo de permissão",
+                PermissionGroupsOverviewPage(
+                    companyName = companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
+                    groups = companyPermissionGroups,
+                    members = companyMembers,
+                    canManage = canManagePermissions,
                     onAdd = {
                         editingPermissionGroup = null
                         showPermissionGroupEditor = true
                     },
-                    onItemClick = if (canManagePermissions) {
-                        { id ->
-                            editingPermissionGroup = companyPermissionGroups.find { it.id == id }
+                    onGroupClick = if (canManagePermissions) {
+                        { group ->
+                            editingPermissionGroup = group
                             showPermissionGroupEditor = true
                         }
                     } else {
@@ -10458,6 +10449,221 @@ private fun ReportTaskCard(
             }
             Spacer(Modifier.width(10.dp))
             PriorityPill(task.priority)
+        }
+    }
+}
+
+@Composable
+private fun PermissionGroupsOverviewPage(
+    companyName: String,
+    groups: List<PermissionGroup>,
+    members: List<CompanyMember>,
+    canManage: Boolean,
+    onAdd: () -> Unit,
+    onGroupClick: ((PermissionGroup) -> Unit)?,
+    onBack: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 110.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(42.dp)) {
+                        Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText)
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Permissões", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            "$companyName • ${groups.size} grupos de acesso",
+                            color = PopMuted,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            item {
+                Surface(
+                    color = PopBlueSoft,
+                    shape = RoundedCornerShape(22.dp),
+                    border = BorderStroke(1.dp, PopBlue.copy(alpha = .18f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier.size(48.dp).background(PopBlue, RoundedCornerShape(16.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.Shield, null, tint = Color.White, modifier = Modifier.size(25.dp))
+                        }
+                        Spacer(Modifier.width(13.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Acesso organizado por função", color = PopText, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(
+                                "Defina o que cada equipe pode visualizar e alterar.",
+                                color = PopMuted,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (groups.isEmpty()) {
+                item {
+                    Surface(
+                        color = PopSurfaceAlt,
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            "Nenhum grupo de permissão cadastrado nesta empresa.",
+                            color = PopMuted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(18.dp),
+                        )
+                    }
+                }
+            } else {
+                items(groups, key = { it.id }) { group ->
+                    val memberCount = members.count { it.permissionGroupId == group.id }
+                    Surface(
+                        onClick = { onGroupClick?.invoke(group) },
+                        enabled = onGroupClick != null,
+                        color = PopSurfaceAlt,
+                        shape = RoundedCornerShape(22.dp),
+                        border = if (group.isSystem) {
+                            BorderStroke(1.dp, PopBlue.copy(alpha = .22f))
+                        } else {
+                            BorderStroke(1.dp, PopMuted.copy(alpha = .1f))
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .background(
+                                            if (group.isSystem) PopBlue else PopBlueSoft,
+                                            RoundedCornerShape(14.dp),
+                                        ),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        if (group.isSystem) Icons.Rounded.Lock else Icons.Rounded.Shield,
+                                        null,
+                                        tint = if (group.isSystem) Color.White else PopBlue,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        group.name,
+                                        color = PopText,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        if (group.isSystem) "Grupo protegido do sistema" else "Grupo personalizado",
+                                        color = if (group.isSystem) PopBlue else PopMuted,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                                if (onGroupClick != null) {
+                                    Icon(Icons.Rounded.ChevronRight, null, tint = PopMuted, modifier = Modifier.size(20.dp))
+                                }
+                            }
+
+                            if (group.description.isNotBlank()) {
+                                Text(
+                                    group.description,
+                                    color = PopMuted,
+                                    fontSize = 11.sp,
+                                    lineHeight = 16.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 12.dp),
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.padding(top = 13.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .background(PopBlueSoft, RoundedCornerShape(10.dp))
+                                        .padding(horizontal = 9.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Rounded.CheckCircle, null, tint = PopBlue, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("${group.permissions.size} acessos", color = PopBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .background(PopSurface, RoundedCornerShape(10.dp))
+                                        .padding(horizontal = 9.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Rounded.Groups, null, tint = PopMuted, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text(
+                                        "$memberCount ${if (memberCount == 1) "membro" else "membros"}",
+                                        color = PopMuted,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!canManage) {
+                item {
+                    Text(
+                        "Seu grupo pode visualizar as permissões, mas não alterá-las.",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+            }
+        }
+
+        if (canManage) {
+            FloatingActionButton(
+                onClick = onAdd,
+                containerColor = PopBlue,
+                contentColor = Color.White,
+                shape = CircleShape,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 24.dp, bottom = 28.dp)
+                    .size(66.dp),
+            ) {
+                Icon(Icons.Rounded.Add, "Criar grupo de permissão", modifier = Modifier.size(30.dp))
+            }
         }
     }
 }

@@ -690,6 +690,21 @@ function requireAdmin(db: Database, currentUserId: string) {
 }
 
 export const getWorkspaceData = createServerFn({ method: "GET" }).handler(async () => {
+  const snapshot = await readSessionContext();
+  if (!snapshot.context) throw createHttpError("Sessão expirada. Faça login novamente.", 401);
+
+  const createdFromSnapshot = materializeRecurringTasks(snapshot.context.workspace);
+  if (createdFromSnapshot === 0) {
+    return sanitizeDatabase(
+      snapshot.context.workspace,
+      snapshot.context.account.id,
+      snapshot.platform.workspaces,
+    );
+  }
+
+  // Só abre uma transação de escrita quando existe uma ocorrência recorrente nova para salvar.
+  // Antes, cada consulta periódica do navegador bloqueava e regravava o JSON inteiro no MySQL,
+  // podendo deixar o cadastro de tarefas esperando atrás de vários leitores.
   return mutateCurrentWorkspace((workspace, currentUserId, platform) => {
     materializeRecurringTasks(workspace);
     return sanitizeDatabase(workspace, currentUserId, platform.workspaces);

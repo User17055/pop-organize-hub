@@ -60,7 +60,6 @@ export function useTaskMutations(options?: {
           : current,
       );
       options?.onCreated?.();
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
 

@@ -651,8 +651,12 @@ private fun recurringSeriesKey(task: PopTask) = listOf(
 ).joinToString("|")
 
 private fun calendarTasksForMonth(tasks: List<PopTask>, month: YearMonth): List<PopTask> {
+    val monthStart = month.atDay(1)
     val monthEnd = month.atEndOfMonth()
-    val result = tasks.toMutableList()
+    val result = tasks.filterTo(mutableListOf()) { task ->
+        val dueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
+        dueDate != null && !dueDate.isBefore(monthStart) && !dueDate.isAfter(monthEnd)
+    }
     val existingDates = tasks.mapTo(mutableSetOf()) { task ->
         "${recurringSeriesKey(task)}:${task.dueDate}"
     }
@@ -687,7 +691,7 @@ private fun calendarTasksForMonth(tasks: List<PopTask>, month: YearMonth): List<
                 if (!withinEnd) break
 
                 val dateKey = "$seriesKey:$occurrenceDate"
-                if (!occurrenceDate.isBefore(month.atDay(1)) && existingDates.add(dateKey)) {
+                if (!occurrenceDate.isBefore(monthStart) && existingDates.add(dateKey)) {
                     result += template.copy(
                         id = -("${template.id}:$occurrenceDate".hashCode().absoluteValue + 1),
                         serverId = template.serverId,
@@ -8043,6 +8047,7 @@ private fun CalendarScreen(
     onOpenTask: (PopTask) -> Unit,
     onCreateTaskForDate: (LocalDate) -> Unit,
 ) {
+    val taskSnapshot = tasks.toList()
     val anchorMonth = remember { YearMonth.now() }
     val pagerCenter = 6000
     val pagerPageCount = 12001
@@ -8056,22 +8061,24 @@ private fun CalendarScreen(
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
-    val visibleCalendarTasks = calendarTasksForMonth(tasks, month)
-    val selectedDayTasks = visibleCalendarTasks.filter { task ->
-        runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == selectedDate
-    }.sortedWith(
-        compareBy<PopTask> { it.dueTime.isBlank() }
-            .thenBy { it.dueTime }
-            .thenBy { it.completed }
-            .thenBy {
-                when (it.priority) {
-                    "Urgente" -> 0
-                    "Alta" -> 1
-                    "Média" -> 2
-                    else -> 3
-                }
-            },
-    )
+    val visibleCalendarTasks = remember(taskSnapshot, month) {
+        calendarTasksForMonth(taskSnapshot, month)
+    }
+    val selectedDayTasks = remember(visibleCalendarTasks, selectedDate) {
+        visibleCalendarTasks.filter { task -> task.dueDate == selectedDate.toString() }.sortedWith(
+            compareBy<PopTask> { it.dueTime.isBlank() }
+                .thenBy { it.dueTime }
+                .thenBy { it.completed }
+                .thenBy {
+                    when (it.priority) {
+                        "Urgente" -> 0
+                        "Alta" -> 1
+                        "Média" -> 2
+                        else -> 3
+                    }
+                },
+        )
+    }
     val selectedDateLabel = if (selectedDate == today) {
         "Tarefas de hoje"
     } else {
@@ -8119,9 +8126,16 @@ private fun CalendarScreen(
                 modifier = Modifier.fillMaxWidth().wrapContentHeight(),
             ) { page ->
                 val pageMonth = anchorMonth.plusMonths((page - pagerCenter).toLong())
+                val pageTasks = if (pageMonth == month) {
+                    visibleCalendarTasks
+                } else {
+                    remember(taskSnapshot, pageMonth) {
+                        calendarTasksForMonth(taskSnapshot, pageMonth)
+                    }
+                }
                 CalendarGrid(
                     month = pageMonth,
-                    tasks = calendarTasksForMonth(tasks, pageMonth),
+                    tasks = pageTasks,
                     selectedDate = selectedDate,
                     onDateSelected = { selectedDate = it },
                     onDateDoubleSelected = if (canCreateTask) {
@@ -8323,10 +8337,13 @@ private fun CalendarGrid(
     onDateSelected: (LocalDate) -> Unit,
     onDateDoubleSelected: ((LocalDate) -> Unit)? = null,
 ) {
-    val firstOffset = month.atDay(1).dayOfWeek.value - 1
-    val monthCells = List(firstOffset) { null } + (1..month.lengthOfMonth()).map { it }
-    val cells = monthCells + List(42 - monthCells.size) { null }
-    val today = LocalDate.now()
+    val cells = remember(month) {
+        val firstOffset = month.atDay(1).dayOfWeek.value - 1
+        val monthCells = List(firstOffset) { null } + (1..month.lengthOfMonth()).map { it }
+        monthCells + List(42 - monthCells.size) { null }
+    }
+    val tasksByDate = remember(tasks) { tasks.groupBy(PopTask::dueDate) }
+    val today = remember { LocalDate.now() }
     Column(
         Modifier
             .padding(horizontal = 20.dp)
@@ -8345,9 +8362,7 @@ private fun CalendarGrid(
                     val date = day?.let(month::atDay)
                     val selected = date == selectedDate
                     val isToday = date == today
-                    val dayTasks = if (day == null) emptyList() else tasks.filter { task ->
-                        runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == month.atDay(day)
-                    }
+                    val dayTasks = if (date == null) emptyList() else tasksByDate[date.toString()].orEmpty()
                     Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
                         if (day != null) {
                             Box(

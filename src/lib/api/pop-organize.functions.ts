@@ -1410,9 +1410,9 @@ export const createTaskFolder = createServerFn({ method: "POST" })
       }
       if (data.parentId) {
         const parent = ownedFolders.find((folder) => folder.id === data.parentId);
-        if (!parent) throw createHttpError("Grupo nÃ£o encontrado.", 404);
+        if (!parent) throw createHttpError("Grupo não encontrado.", 404);
         if (parent.parentId) {
-          throw createHttpError("Um subgrupo nÃ£o pode conter outro subgrupo.", 400);
+          throw createHttpError("Um subgrupo não pode conter outro subgrupo.", 400);
         }
       }
       const duplicate = ownedFolders.some(
@@ -1420,7 +1420,7 @@ export const createTaskFolder = createServerFn({ method: "POST" })
           (folder.parentId ?? "") === (data.parentId ?? "") &&
           folder.name.localeCompare(data.name, "pt-BR", { sensitivity: "base" }) === 0,
       );
-      if (duplicate) throw createHttpError("JÃ¡ existe uma pasta com esse nome.", 409);
+      if (duplicate) throw createHttpError("Já existe uma pasta com esse nome.", 409);
 
       const folder = {
         id: nextId("tf", db.taskFolders),
@@ -1446,14 +1446,14 @@ export const createTaskListDefinition = createServerFn({ method: "POST" })
           (folder) => folder.id === data.folderId && folder.ownerId === currentUserId,
         )
       ) {
-        throw createHttpError("Grupo ou subgrupo nÃ£o encontrado.", 404);
+        throw createHttpError("Grupo ou subgrupo não encontrado.", 404);
       }
       const duplicate = ownedLists.some(
         (list) =>
           (list.folderId ?? "") === (data.folderId ?? "") &&
           list.name.localeCompare(data.name, "pt-BR", { sensitivity: "base" }) === 0,
       );
-      if (duplicate) throw createHttpError("JÃ¡ existe uma lista com esse nome.", 409);
+      if (duplicate) throw createHttpError("Já existe uma lista com esse nome.", 409);
 
       const list = {
         id: nextId("tl", db.taskLists),
@@ -1476,7 +1476,7 @@ export const renameTaskOrganizerItem = createServerFn({ method: "POST" })
       const item = collection.find(
         (candidate) => candidate.id === data.id && candidate.ownerId === currentUserId,
       );
-      if (!item) throw createHttpError("Item nÃ£o encontrado.", 404);
+      if (!item) throw createHttpError("Item não encontrado.", 404);
       item.name = data.name;
       return item;
     });
@@ -1490,7 +1490,7 @@ export const deleteTaskOrganizerItem = createServerFn({ method: "POST" })
         const index = db.taskLists.findIndex(
           (list) => list.id === data.id && list.ownerId === currentUserId,
         );
-        if (index < 0) throw createHttpError("Lista nÃ£o encontrada.", 404);
+        if (index < 0) throw createHttpError("Lista não encontrada.", 404);
         db.taskLists.splice(index, 1);
         return { id: data.id };
       }
@@ -1498,7 +1498,7 @@ export const deleteTaskOrganizerItem = createServerFn({ method: "POST" })
       const folder = db.taskFolders.find(
         (candidate) => candidate.id === data.id && candidate.ownerId === currentUserId,
       );
-      if (!folder) throw createHttpError("Grupo nÃ£o encontrado.", 404);
+      if (!folder) throw createHttpError("Grupo não encontrado.", 404);
       const folderIds = new Set([
         folder.id,
         ...db.taskFolders
@@ -1522,7 +1522,7 @@ export const updateTaskListTasks = createServerFn({ method: "POST" })
       const list = db.taskLists.find(
         (candidate) => candidate.id === data.listId && candidate.ownerId === currentUserId,
       );
-      if (!list) throw createHttpError("Lista nÃ£o encontrada.", 404);
+      if (!list) throw createHttpError("Lista não encontrada.", 404);
 
       const visibleTaskIds = new Set(
         db.tasks
@@ -1662,7 +1662,7 @@ export const deleteTask = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     return mutateCurrentWorkspace((db, currentUserId) => {
       const taskIndex = db.tasks.findIndex((item) => item.id === data.id);
-      if (taskIndex === -1) throw createHttpError("Tarefa nÃ£o encontrada.", 404);
+      if (taskIndex === -1) throw createHttpError("Tarefa não encontrada.", 404);
 
       const task = db.tasks[taskIndex];
       const currentUser = db.employees.find((employee) => employee.id === currentUserId);

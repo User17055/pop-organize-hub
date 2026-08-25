@@ -10566,20 +10566,6 @@ private fun PermissionGroupsOverviewPage(
                                         .padding(horizontal = 14.dp, vertical = 13.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .background(PopBlueSoft, RoundedCornerShape(11.dp)),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Icon(
-                                            if (group.isSystem) Icons.Rounded.Lock else Icons.Rounded.Shield,
-                                            null,
-                                            tint = PopBlue,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
-                                    Spacer(Modifier.width(11.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(
                                             group.name,
@@ -10609,7 +10595,7 @@ private fun PermissionGroupsOverviewPage(
                                 if (index < groups.lastIndex) {
                                     HorizontalDivider(
                                         color = PopMuted.copy(alpha = .1f),
-                                        modifier = Modifier.padding(start = 61.dp),
+                                        modifier = Modifier.padding(horizontal = 14.dp),
                                     )
                                 }
                             }
@@ -10880,8 +10866,8 @@ private fun PermissionGroupEditorDialog(
             Box(Modifier.fillMaxSize()) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 110.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 82.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     item {
                         Row(
@@ -10908,92 +10894,140 @@ private fun PermissionGroupEditorDialog(
                             }
                         }
                     }
-                    item { ManagementField(name, { name = it }, "Nome") }
-                    item { ManagementField(description, { description = it }, "Descrição") }
+                    item {
+                        Surface(
+                            color = PopSurfaceAlt,
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text("Informações do grupo", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("Nome", color = PopMuted, fontSize = 10.sp)
+                                ManagementField(name, { name = it }, "Nome")
+                                Text("Descrição", color = PopMuted, fontSize = 10.sp)
+                                ManagementDescriptionField(description, { description = it }, "Descrição")
+                            }
+                        }
+                    }
                     for (category in permissionCatalog) {
                         item {
-                            Text(
-                                category.name,
-                                color = PopText,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                modifier = Modifier.padding(top = 6.dp),
-                            )
-                        }
-                        items(category.items, key = { it.key }) { permission ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable(enabled = !isSystem) {
-                                        selectedPermissions = if (permission.key in selectedPermissions) {
-                                            selectedPermissions - permission.key
-                                        } else {
-                                            selectedPermissions + permission.key
+                            Surface(
+                                color = PopSurfaceAlt,
+                                shape = RoundedCornerShape(18.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column {
+                                    Text(
+                                        category.name,
+                                        color = PopText,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                    )
+                                    category.items.forEachIndexed { index, permission ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable(enabled = !isSystem) {
+                                                    selectedPermissions =
+                                                        if (permission.key in selectedPermissions) {
+                                                            selectedPermissions - permission.key
+                                                        } else {
+                                                            selectedPermissions + permission.key
+                                                        }
+                                                }
+                                                .padding(start = 10.dp, end = 14.dp, top = 2.dp, bottom = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Checkbox(
+                                                checked = permission.key in selectedPermissions,
+                                                onCheckedChange = { checked ->
+                                                    selectedPermissions = if (checked) {
+                                                        selectedPermissions + permission.key
+                                                    } else {
+                                                        selectedPermissions - permission.key
+                                                    }
+                                                },
+                                                enabled = !isSystem,
+                                                modifier = Modifier.size(40.dp),
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(permission.label, color = PopText, fontSize = 12.sp)
+                                        }
+                                        if (index < category.items.lastIndex) {
+                                            HorizontalDivider(
+                                                color = PopMuted.copy(alpha = .08f),
+                                                modifier = Modifier.padding(start = 54.dp),
+                                            )
                                         }
                                     }
-                                    .padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Checkbox(
-                                    checked = permission.key in selectedPermissions,
-                                    onCheckedChange = { checked ->
-                                        selectedPermissions = if (checked) {
-                                            selectedPermissions + permission.key
-                                        } else {
-                                            selectedPermissions - permission.key
-                                        }
-                                    },
-                                    enabled = !isSystem,
-                                )
-                                Text(permission.label, color = PopText, fontSize = 12.sp)
+                                    Spacer(Modifier.height(6.dp))
+                                }
                             }
                         }
                     }
                     item {
-                        Text(
-                            "Pessoas neste grupo",
-                            color = PopText,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(top = 10.dp),
-                        )
-                    }
-                    if (companyMembers.isEmpty()) {
-                        item {
-                            Text(
-                                "Nenhum colaborador cadastrado nesta empresa.",
-                                color = PopMuted,
-                                fontSize = 11.sp,
-                            )
-                        }
-                    } else {
-                        items(companyMembers, key = { it.id }) { member ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        selectedMemberIds = if (member.id in selectedMemberIds) {
-                                            selectedMemberIds - member.id
-                                        } else {
-                                            selectedMemberIds + member.id
+                        Surface(
+                            color = PopSurfaceAlt,
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(Modifier.padding(bottom = 8.dp)) {
+                                Text(
+                                    "Pessoas neste grupo (${selectedMemberIds.size})",
+                                    color = PopText,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                )
+                                if (companyMembers.isEmpty()) {
+                                    Text(
+                                        "Nenhum colaborador cadastrado nesta empresa.",
+                                        color = PopMuted,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    )
+                                }
+                                companyMembers.forEachIndexed { index, member ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                selectedMemberIds = if (member.id in selectedMemberIds) {
+                                                    selectedMemberIds - member.id
+                                                } else {
+                                                    selectedMemberIds + member.id
+                                                }
+                                            }
+                                            .padding(start = 10.dp, top = 2.dp, end = 14.dp, bottom = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Checkbox(
+                                            checked = member.id in selectedMemberIds,
+                                            onCheckedChange = { checked ->
+                                                selectedMemberIds = if (checked) {
+                                                    selectedMemberIds + member.id
+                                                } else {
+                                                    selectedMemberIds - member.id
+                                                }
+                                            },
+                                            modifier = Modifier.size(40.dp),
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Column {
+                                            Text(member.name, color = PopText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                            Text(member.email, color = PopMuted, fontSize = 10.sp)
                                         }
                                     }
-                                    .padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Checkbox(
-                                    checked = member.id in selectedMemberIds,
-                                    onCheckedChange = { checked ->
-                                        selectedMemberIds = if (checked) {
-                                            selectedMemberIds + member.id
-                                        } else {
-                                            selectedMemberIds - member.id
-                                        }
-                                    },
-                                )
-                                Column {
-                                    Text(member.name, color = PopText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                    Text(member.email, color = PopMuted, fontSize = 10.sp)
+                                    if (index < companyMembers.lastIndex) {
+                                        HorizontalDivider(
+                                            color = PopMuted.copy(alpha = .08f),
+                                            modifier = Modifier.padding(start = 54.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -11012,19 +11046,23 @@ private fun PermissionGroupEditorDialog(
                 }
                 Surface(
                     color = PopSurface,
-                    shape = RoundedCornerShape(20.dp),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(20.dp)
                         .fillMaxWidth(),
                 ) {
                     Row(
-                        modifier = Modifier.padding(14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        TextButton(onClick = onDismiss, enabled = !saving, modifier = Modifier.weight(1f)) {
+                        TextButton(
+                            onClick = onDismiss,
+                            enabled = !saving,
+                            modifier = Modifier.height(38.dp),
+                        ) {
                             Text("Cancelar", color = PopMuted)
                         }
+                        Spacer(Modifier.width(8.dp))
                         Button(
                             onClick = {
                                 onSave(
@@ -11036,7 +11074,7 @@ private fun PermissionGroupEditorDialog(
                             },
                             enabled = valid && !saving,
                             colors = ButtonDefaults.buttonColors(containerColor = PopBlue),
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.width(100.dp).height(38.dp),
                         ) {
                             if (saving) {
                                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
@@ -11477,6 +11515,29 @@ private fun ManagementField(value: String, onValueChange: (String) -> Unit, plac
         onValueChange = onValueChange,
         placeholder = { Text(placeholder) },
         singleLine = true,
+        shape = RoundedCornerShape(14.dp),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = PopBlueSoft,
+            unfocusedContainerColor = PopSurfaceAlt,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun ManagementDescriptionField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+) {
+    TextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = { Text(placeholder) },
+        minLines = 2,
+        maxLines = 3,
         shape = RoundedCornerShape(14.dp),
         colors = TextFieldDefaults.colors(
             focusedContainerColor = PopBlueSoft,

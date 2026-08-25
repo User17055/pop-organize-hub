@@ -2503,6 +2503,7 @@ private fun PopMainContent(
     val moreSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var taskToOpenId by remember { mutableStateOf<Int?>(null) }
     var taskToCreateDate by remember { mutableStateOf<LocalDate?>(null) }
+    var calendarTaskToOpenId by remember { mutableStateOf<Int?>(null) }
     var workSpace by remember { mutableStateOf(WorkSpace.Personal) }
     var selectedCompanyIndex by remember { mutableIntStateOf(0) }
     var preferredWorkspaceRestored by remember(googleAccount?.id) { mutableStateOf(false) }
@@ -3182,8 +3183,49 @@ private fun PopMainContent(
                                     }
                                 }
                             },
+                            onOpenTask = { task -> calendarTaskToOpenId = task.id },
                             onCreateTaskForDate = { date -> taskToCreateDate = date },
                         )
+                        if (calendarTaskToOpenId != null) {
+                            TasksScreen(
+                                tasks = tasks,
+                                canCreateTask = canCreateTask,
+                                currentUserId = googleAccount?.id.orEmpty(),
+                                currentUserName = googleAccount?.name.orEmpty(),
+                                workSpace = workSpace,
+                                onWorkSpaceChange = ::selectWorkSpace,
+                                companyNames = companyNames,
+                                companyDescriptions = companyDescriptions,
+                                companyMembers = companyMembers,
+                                companySectors = companySectors,
+                                companyGroups = companyGroups,
+                                selectedCompanyIndex = selectedCompanyIndex,
+                                onCompanySelect = ::selectCompany,
+                                onCreateCompany = ::requestCreateCompany,
+                                onOpenMenu = { showTaskOrganizer = true },
+                                initialTaskId = calendarTaskToOpenId,
+                                onInitialTaskOpened = {},
+                                onTaskDeleted = { deletedTask ->
+                                    val account = googleAccount
+                                    if (account != null && deletedTask.serverId.isNotBlank()) {
+                                        val workspaceId =
+                                            if (workSpace == WorkSpace.Company) {
+                                                companyIds.getOrNull(selectedCompanyIndex).orEmpty()
+                                            } else {
+                                                ""
+                                            }
+                                        queueTaskDeletion(
+                                            context = context,
+                                            accountId = account.id,
+                                            workspaceId = workspaceId,
+                                            serverId = deletedTask.serverId,
+                                        )
+                                    }
+                                },
+                                detailOnly = true,
+                                onDetailClosed = { calendarTaskToOpenId = null },
+                            )
+                        }
                         if (taskToCreateDate != null) {
                             TasksScreen(
                                 tasks = tasks,
@@ -4954,6 +4996,8 @@ private fun TasksScreen(
     initialCreateDate: LocalDate? = null,
     createOnly: Boolean = false,
     onCreateFormClosed: () -> Unit = {},
+    detailOnly: Boolean = false,
+    onDetailClosed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -5281,6 +5325,11 @@ private fun TasksScreen(
         editAttachment = task.attachmentName
     }
 
+    fun finishTaskDetails() {
+        editingTaskId = null
+        if (detailOnly) onDetailClosed()
+    }
+
     LaunchedEffect(initialTaskId) {
         initialTaskId?.let { taskId ->
             tasks.firstOrNull { it.id == taskId }?.let(::openTask)
@@ -5358,7 +5407,7 @@ private fun TasksScreen(
             checklist = if (isTaskAdmin) editChecklist else original.checklist,
             attachmentName = editAttachment,
         )
-        editingTaskId = null
+        finishTaskDetails()
     }
 
     fun dismissTaskDetails() {
@@ -5366,7 +5415,7 @@ private fun TasksScreen(
         if (currentTask?.canEdit == true) {
             saveEditedTask()
         } else {
-            editingTaskId = null
+            finishTaskDetails()
         }
     }
 
@@ -5493,7 +5542,7 @@ private fun TasksScreen(
         showCreate = false
     }
 
-    if (!createOnly && initialCreateDate == null) Box(Modifier.fillMaxSize()) {
+    if (!createOnly && !detailOnly && initialCreateDate == null) Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = taskListState,
             contentPadding = PaddingValues(bottom = 92.dp),
@@ -6592,7 +6641,7 @@ private fun TasksScreen(
                                         delay(340)
                                         tasks.firstOrNull { it.id == taskId }?.let(onTaskDeleted)
                                         tasks.removeAll { it.id == taskId }
-                                        editingTaskId = null
+                                        finishTaskDetails()
                                         deletingTaskId = null
                                     }
                                 }
@@ -6624,7 +6673,7 @@ private fun TasksScreen(
                                         onTaskDeleted(selectedTask)
                                         tasks.removeAll { it.id == taskId }
                                     }
-                                    editingTaskId = null
+                                    finishTaskDetails()
                                     deletingTaskId = null
                                 }
                             }
@@ -8037,6 +8086,7 @@ private fun CalendarScreen(
     onCreateCompany: () -> Unit,
     onOpenMenu: () -> Unit,
     onToggleTaskComplete: (PopTask) -> Unit,
+    onOpenTask: (PopTask) -> Unit,
     onCreateTaskForDate: (LocalDate) -> Unit,
 ) {
     val taskSnapshot = tasks.toList()
@@ -8051,7 +8101,6 @@ private fun CalendarScreen(
             .collect { page -> month = anchorMonth.plusMonths((page - pagerCenter).toLong()) }
     }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-    var selectedTaskId by remember { mutableStateOf<Int?>(null) }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
     val visibleCalendarTasks = remember(taskSnapshot, month) {
@@ -8152,7 +8201,7 @@ private fun CalendarScreen(
                     CalendarDayAgenda(
                         tasks = selectedDayTasks,
                         today = today,
-                        onOpenTask = { task -> selectedTaskId = task.id },
+                        onOpenTask = onOpenTask,
                         onToggleTaskComplete = onToggleTaskComplete,
                     )
                 }
@@ -8160,13 +8209,6 @@ private fun CalendarScreen(
         }
     }
 
-    val selectedTask = taskSnapshot.firstOrNull { it.id == selectedTaskId }
-    if (selectedTask != null) {
-        CalendarTaskDetails(
-            task = selectedTask,
-            onDismiss = { selectedTaskId = null },
-        )
-    }
 }
 
 @Composable

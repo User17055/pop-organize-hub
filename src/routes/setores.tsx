@@ -135,7 +135,9 @@ function SetoresPage() {
             const departmentTasks = tasks.filter(
               (task) => task.target.type === "department" && task.target.id === department.id,
             );
-            const pendingTasks = departmentTasks.filter((task) => task.status !== "done").length;
+            const pendingTasks = departmentTasks.filter(
+              (task) => task.status !== "completed",
+            ).length;
             const manager = getEmployee(department.managerId);
 
             return (

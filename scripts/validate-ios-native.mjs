@@ -43,6 +43,14 @@ if (/Capacitor|CapApp-SPM|PopOrganizeNative\.swift/.test(project)) {
 if (info.includes("CAPACITOR_DEBUG") || info.includes("UIMainStoryboardFile")) {
   fail("Info.plist still contains a Capacitor launch setting.");
 }
+// Compose Multiplatform runs PlistSanityCheck.performIfNeeded() at launch, on a background
+// queue, and THROWS when this key is absent or false. Nothing catches it, so the process aborts
+// before the first frame. Build 1.0.3(4) died exactly this way on the first iPhone that ever ran
+// it -- three launches, three identical stacks -- and the build itself was green. Only a device
+// catches it, so the check lives here.
+if (!/<key>CADisableMinimumFrameDurationOnPhone<\/key>\s*<true\/>/.test(info)) {
+  fail("Info.plist must set CADisableMinimumFrameDurationOnPhone to true, or the app aborts on launch.");
+}
 if (
   !appDelegate.includes("import ComposeApp") ||
   !appDelegate.includes("MainViewControllerKt.MainViewController")

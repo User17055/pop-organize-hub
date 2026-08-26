@@ -1396,11 +1396,10 @@ function mobileRecurrence(task: Task) {
   return {
     rule,
     detail:
-      (recurrence.frequency === "daily"
-        ? recurrence.excludedWeekDays
-        : recurrence.weekDays
-      )?.map((day) => dayTokens[day - 1]).filter(Boolean).join(",") ??
-      (recurrence.dayOfMonth ? String(recurrence.dayOfMonth) : ""),
+      (recurrence.frequency === "daily" ? recurrence.excludedWeekDays : recurrence.weekDays)
+        ?.map((day) => dayTokens[day - 1])
+        .filter(Boolean)
+        .join(",") ?? (recurrence.dayOfMonth ? String(recurrence.dayOfMonth) : ""),
     interval,
     endMode: recurrence.endDate ? "Em uma data" : "Nunca",
     endValue: recurrence.endDate ?? "",

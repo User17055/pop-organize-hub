@@ -49,7 +49,9 @@ function addYears(value: string, amount: number, preferredMonth?: number, prefer
 }
 
 function nextSelectedWeekDay(value: string, weekDays: number[], intervalWeeks = 1) {
-  const selected = [...new Set(weekDays)].filter((day) => day >= 1 && day <= 7).sort((a, b) => a - b);
+  const selected = [...new Set(weekDays)]
+    .filter((day) => day >= 1 && day <= 7)
+    .sort((a, b) => a - b);
   if (selected.length === 0) return addDays(value, intervalWeeks * 7);
   const { year, month, day } = dateParts(value);
   const current = new Date(Date.UTC(year, month - 1, day));

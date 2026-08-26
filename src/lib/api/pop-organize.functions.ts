@@ -537,9 +537,7 @@ function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["rec
   return {
     frequency: value.frequency,
     weekDays:
-      value.frequency === "weekly" || value.frequency === "biweekly"
-        ? value.weekDays
-        : undefined,
+      value.frequency === "weekly" || value.frequency === "biweekly" ? value.weekDays : undefined,
     excludedWeekDays: value.frequency === "daily" ? value.excludedWeekDays : undefined,
     times: value.frequency === "daily" ? value.times : undefined,
     interval,

@@ -79,9 +79,7 @@ export function RecurrenceFields({
 
       {showWeekDays && (
         <Field
-          label={
-            value.frequency === "daily" ? "Não repetir nestes dias" : "Repetir nestes dias"
-          }
+          label={value.frequency === "daily" ? "Não repetir nestes dias" : "Repetir nestes dias"}
         >
           <div>
             <div className="flex justify-between gap-1">

@@ -20,6 +20,8 @@ export interface TaskRecurrence {
   weekDays?: number[];
   /** ISO weekday numbers skipped by a daily recurrence. */
   excludedWeekDays?: number[];
+  /** Times in HH:mm format when the task occurs more than once per day. */
+  times?: string[];
   interval?: number;
   intervalDays?: number;
   customUnit?: RecurrenceCustomUnit;

@@ -65,6 +65,11 @@ const recurrenceSchema = z
       .default("none"),
     weekDays: z.array(z.coerce.number().int().min(1).max(7)).max(7).optional(),
     excludedWeekDays: z.array(z.coerce.number().int().min(1).max(7)).max(6).optional(),
+    times: z
+      .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
+      .min(2)
+      .max(12)
+      .optional(),
     interval: z.coerce.number().int().min(1).max(120).optional(),
     intervalDays: z.coerce.number().int().min(1).max(3650).optional(),
     customUnit: z.enum(["days", "weeks", "months", "years"]).optional(),
@@ -531,6 +536,7 @@ function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["rec
         ? value.weekDays
         : undefined,
     excludedWeekDays: value.frequency === "daily" ? value.excludedWeekDays : undefined,
+    times: value.frequency === "daily" ? value.times : undefined,
     interval,
     intervalDays: value.frequency === "custom" && customUnit === "days" ? interval : undefined,
     customUnit,

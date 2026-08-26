@@ -138,6 +138,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -150,6 +151,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -280,6 +282,7 @@ private data class PopTask(
     val reminder: String = "Sem lembrete",
     val attachmentName: String = "",
     val dueTime: String = "",
+    val recurrenceTimes: List<String> = emptyList(),
     val duration: String = "Sem duração",
     val recurrenceRule: String = "Não repetir",
     val recurrenceDetail: String = "",
@@ -501,6 +504,13 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 reminder = item.optString("reminder", "Sem lembrete"),
                 attachmentName = item.optString("attachmentName"),
                 dueTime = item.optString("dueTime"),
+                recurrenceTimes = item.optJSONArray("recurrenceTimes")?.let { values ->
+                    buildList {
+                        repeat(values.length()) { index ->
+                            values.optString(index).takeIf(String::isNotBlank)?.let(::add)
+                        }
+                    }
+                }.orEmpty(),
                 duration = item.optString("duration", "Sem duração"),
                 recurrenceRule = item.optString("recurrenceRule", "Não repetir"),
                 recurrenceDetail = item.optString("recurrenceDetail"),
@@ -738,6 +748,7 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("reminder", task.reminder)
                 .put("attachmentName", task.attachmentName)
                 .put("dueTime", task.dueTime)
+                .put("recurrenceTimes", JSONArray(task.recurrenceTimes))
                 .put("duration", task.duration)
                 .put("recurrenceRule", task.recurrenceRule)
                 .put("recurrenceDetail", task.recurrenceDetail)
@@ -3029,13 +3040,16 @@ private fun PopMainContent(
     LaunchedEffect(personalTasks.toList(), companyTaskGroups.map { it.toList() }) {
         saveNotificationTaskSnapshot(
             context,
-            (personalTasks + companyTaskGroups.flatten()).map { task ->
-                NotificationTaskSnapshot(
-                    title = task.title,
-                    dueDate = task.dueDate,
-                    dueTime = task.dueTime,
-                    completed = task.completed,
-                )
+            (personalTasks + companyTaskGroups.flatten()).flatMap { task ->
+                val times = task.recurrenceTimes.takeIf { it.size >= 2 } ?: listOf(task.dueTime)
+                times.map { time ->
+                    NotificationTaskSnapshot(
+                        title = task.title,
+                        dueDate = task.dueDate,
+                        dueTime = time,
+                        completed = task.completed,
+                    )
+                }
             },
         )
     }
@@ -3165,12 +3179,13 @@ private fun PopMainContent(
                                         val markingCompleted = !task.completed
                                         tasks[index] = task.copy(completed = markingCompleted)
                                         if (markingCompleted) {
-                                            val nextDate = nextRecurrenceDate(task)
+                                            val nextOccurrence = nextTaskOccurrence(task)
                                             if (
-                                                nextDate != null &&
+                                                nextOccurrence != null &&
                                                 tasks.none {
                                                     it.title == task.title &&
-                                                        it.dueDate == nextDate.toString() &&
+                                                        it.dueDate == nextOccurrence.first.toString() &&
+                                                        it.dueTime == nextOccurrence.second &&
                                                         !it.completed
                                                 }
                                             ) {
@@ -3180,8 +3195,9 @@ private fun PopMainContent(
                                                         id = (tasks.filter { it.id > 0 }
                                                             .maxOfOrNull { it.id } ?: 0) + 1,
                                                         serverId = "",
-                                                        dueDate = nextDate.toString(),
-                                                        dueLabel = dueLabelForDate(nextDate),
+                                                        dueDate = nextOccurrence.first.toString(),
+                                                        dueLabel = dueLabelForDate(nextOccurrence.first),
+                                                        dueTime = nextOccurrence.second,
                                                         completed = false,
                                                         recurrenceOccurrence =
                                                             task.recurrenceOccurrence + 1,
@@ -5028,6 +5044,7 @@ private fun TasksScreen(
     var newTaskReminder by remember { mutableStateOf("Sem lembrete") }
     var newTaskAttachment by remember { mutableStateOf("") }
     var newTaskTime by remember { mutableStateOf("") }
+    var newTaskRecurrenceTimes by remember { mutableStateOf<List<String>>(emptyList()) }
     var newTaskDuration by remember { mutableStateOf("Sem duração") }
     var newTaskRecurrenceEnd by remember { mutableStateOf("Nunca") }
     var newTaskRecurrenceInterval by remember { mutableIntStateOf(1) }
@@ -5056,6 +5073,7 @@ private fun TasksScreen(
     var editPriority by remember { mutableStateOf("Média") }
     var editDueDate by remember { mutableStateOf("") }
     var editDueTime by remember { mutableStateOf("") }
+    var editRecurrenceTimes by remember { mutableStateOf<List<String>>(emptyList()) }
     var editReminder by remember { mutableStateOf("Sem lembrete") }
     var editRecurrence by remember { mutableStateOf("Não repetir") }
     var editRecurrenceDetail by remember { mutableStateOf("") }
@@ -5239,15 +5257,24 @@ private fun TasksScreen(
                 val currentIndex = tasks.indexOfFirst { it.id == task.id }
                 if (currentIndex >= 0) {
                     tasks[currentIndex] = task.copy(completed = true)
-                    val nextDate = nextRecurrenceDate(task)
-                    if (nextDate != null && tasks.none { it.title == task.title && it.dueDate == nextDate.toString() && !it.completed }) {
+                    val nextOccurrence = nextTaskOccurrence(task)
+                    if (
+                        nextOccurrence != null &&
+                        tasks.none {
+                            it.title == task.title &&
+                                it.dueDate == nextOccurrence.first.toString() &&
+                                it.dueTime == nextOccurrence.second &&
+                                !it.completed
+                        }
+                    ) {
                         tasks.add(
                             (currentIndex + 1).coerceAtMost(tasks.size),
                             task.copy(
                                 id = (tasks.filter { it.id > 0 }.maxOfOrNull { it.id } ?: 0) + 1,
                                 serverId = "",
-                                dueDate = nextDate.toString(),
-                                dueLabel = dueLabelForDate(nextDate),
+                                dueDate = nextOccurrence.first.toString(),
+                                dueLabel = dueLabelForDate(nextOccurrence.first),
+                                dueTime = nextOccurrence.second,
                                 completed = false,
                                 recurrenceOccurrence = task.recurrenceOccurrence + 1,
                             ),
@@ -5314,6 +5341,7 @@ private fun TasksScreen(
         editDueDate = runCatching { LocalDate.parse(task.dueDate) }
             .getOrNull()?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: task.dueDate
         editDueTime = task.dueTime
+        editRecurrenceTimes = task.recurrenceTimes
         editReminder = task.reminder
         editRecurrence = task.recurrenceRule
         editRecurrenceDetail = task.recurrenceDetail
@@ -5350,6 +5378,10 @@ private fun TasksScreen(
         val taskId = editingTaskId ?: return
         val index = tasks.indexOfFirst { it.id == taskId }
         if (index < 0 || editTitle.trim().length < 3) return
+        if (editRecurrenceTimes.isNotEmpty() && editRecurrenceTimes.size < 2) {
+            Toast.makeText(context, "Informe pelo menos dois horários", Toast.LENGTH_SHORT).show()
+            return
+        }
         val original = tasks[index]
         if (!canEditTask(original)) {
             Toast.makeText(context, "Você pode visualizar, mas não editar esta tarefa", Toast.LENGTH_SHORT).show()
@@ -5383,6 +5415,7 @@ private fun TasksScreen(
                 add(editRecurrence)
                 if (editRecurrenceInterval > 1) add("a cada $editRecurrenceInterval")
                 if (detailSummary.isNotBlank()) add(detailSummary)
+                if (editRecurrenceTimes.size >= 2) add(editRecurrenceTimes.sorted().joinToString(" e "))
                 when (editRecurrenceEnd) {
                     "Após" -> add("${storedEndValue} ocorrências")
                     "Em uma data" -> add("até $editRecurrenceEndValue")
@@ -5405,7 +5438,8 @@ private fun TasksScreen(
             priority = editPriority,
             dueDate = parsedDate.toString(),
             dueLabel = dueLabelForDate(parsedDate),
-            dueTime = editDueTime.trim(),
+            dueTime = editRecurrenceTimes.minOrNull() ?: editDueTime.trim(),
+            recurrenceTimes = editRecurrenceTimes.sorted(),
             reminder = editReminder,
             recurrence = recurrenceSummary,
             recurrenceRule = editRecurrence,
@@ -5447,6 +5481,10 @@ private fun TasksScreen(
 
     fun addTask() {
         if (newTaskTitle.trim().length < 3) return
+        if (newTaskRecurrenceTimes.isNotEmpty() && newTaskRecurrenceTimes.size < 2) {
+            Toast.makeText(context, "Informe pelo menos dois horários", Toast.LENGTH_SHORT).show()
+            return
+        }
         val selectedDueDate = LocalDate.now().plusDays(newTaskDateOffset.toLong())
         val recurrenceEndValue = when (newTaskRecurrenceEnd) {
             "Após" -> newTaskRecurrenceCount.toString()
@@ -5512,6 +5550,9 @@ private fun TasksScreen(
                         add(newTaskRecurrence)
                         if (newTaskRecurrenceInterval > 1) add("a cada $newTaskRecurrenceInterval")
                         if (recurrenceDetailSummary.isNotBlank()) add(recurrenceDetailSummary)
+                        if (newTaskRecurrenceTimes.size >= 2) {
+                            add(newTaskRecurrenceTimes.sorted().joinToString(" e "))
+                        }
                         when (newTaskRecurrenceEnd) {
                             "Após" -> add("$newTaskRecurrenceCount ocorrências")
                             "Em uma data" -> add("até $newTaskRecurrenceEndDate")
@@ -5520,7 +5561,8 @@ private fun TasksScreen(
                 },
                 reminder = newTaskReminder,
                 attachmentName = newTaskAttachment,
-                dueTime = newTaskTime,
+                dueTime = newTaskRecurrenceTimes.minOrNull() ?: newTaskTime,
+                recurrenceTimes = newTaskRecurrenceTimes.sorted(),
                 duration = newTaskDuration,
                 recurrenceRule = newTaskRecurrence,
                 recurrenceDetail = newTaskRecurrenceDetail,
@@ -5558,6 +5600,7 @@ private fun TasksScreen(
         newTaskReminder = "Sem lembrete"
         newTaskAttachment = ""
         newTaskTime = ""
+        newTaskRecurrenceTimes = emptyList()
         newTaskDuration = "Sem duração"
         newTaskRecurrenceEnd = "Nunca"
         newTaskRecurrenceInterval = 1
@@ -6339,6 +6382,7 @@ private fun TasksScreen(
                                             val changed = editRecurrence != option
                                             editRecurrence = option
                                             if (changed) {
+                                                if (option != "Diária") editRecurrenceTimes = emptyList()
                                                 editRecurrenceDetail = if (option == "Semanal") {
                                                     val dueDay = openedTask?.dueDate
                                                         ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
@@ -6356,6 +6400,7 @@ private fun TasksScreen(
                                     listOf("Mensal", "Anual").forEach { option ->
                                         DetailChoicePill(option, editRecurrence == option) {
                                             if (editRecurrence != option) editRecurrenceDetail = ""
+                                            editRecurrenceTimes = emptyList()
                                             editRecurrence = option
                                         }
                                         if (option != "Anual") Spacer(Modifier.width(7.dp))
@@ -6380,6 +6425,18 @@ private fun TasksScreen(
                                                 preventAllSelected = editRecurrence == "Diária",
                                                 onDetailChange = { editRecurrenceDetail = it },
                                             )
+                                            if (editRecurrence == "Diária") {
+                                                DailyTimesPicker(
+                                                    times = editRecurrenceTimes,
+                                                    baseTime = editDueTime,
+                                                    onTimesChange = { updatedTimes ->
+                                                        editRecurrenceTimes = updatedTimes
+                                                        if (updatedTimes.isNotEmpty()) {
+                                                            editDueTime = updatedTimes.minOrNull().orEmpty()
+                                                        }
+                                                    },
+                                                )
+                                            }
                                         } else if (editRecurrence == "Mensal") {
                                             TextField(
                                                 value = editRecurrenceDetail,
@@ -6899,9 +6956,12 @@ private fun TasksScreen(
                         interval = newTaskRecurrenceInterval,
                         endCount = newTaskRecurrenceCount,
                         endDate = newTaskRecurrenceEndDate,
+                        times = newTaskRecurrenceTimes,
+                        baseTime = newTaskTime,
                         selectedDate = taskDateDraft,
                         onRecurrenceChange = {
                             newTaskRecurrence = it
+                            if (it != "Diária") newTaskRecurrenceTimes = emptyList()
                             newTaskRecurrenceDetail = if (it == "Semanal") {
                                 weekDayToken(taskDateDraft.dayOfWeek.value)
                             } else {
@@ -6913,6 +6973,10 @@ private fun TasksScreen(
                         onIntervalChange = { newTaskRecurrenceInterval = it.coerceIn(1, 99) },
                         onEndCountChange = { newTaskRecurrenceCount = it.coerceIn(2, 999) },
                         onEndDateChange = { newTaskRecurrenceEndDate = it },
+                        onTimesChange = { updatedTimes ->
+                            newTaskRecurrenceTimes = updatedTimes
+                            if (updatedTimes.isNotEmpty()) newTaskTime = updatedTimes.minOrNull().orEmpty()
+                        },
                         )
                     }
                     }
@@ -6926,6 +6990,7 @@ private fun TasksScreen(
                         newTaskTime = ""
                         newTaskReminder = "Sem lembrete"
                         newTaskRecurrence = "Não repetir"
+                        newTaskRecurrenceTimes = emptyList()
                         newTaskRecurrenceDetail = ""
                         newTaskRecurrenceEnd = "Nunca"
                         newTaskRecurrenceInterval = 1
@@ -7174,6 +7239,7 @@ private fun TasksScreen(
                         newTaskPriority = "Média"
                         newTaskDateOffset = 0
                         newTaskRecurrence = "Não repetir"
+                        newTaskRecurrenceTimes = emptyList()
                         newTaskRecurrenceDetail = ""
                         newTaskReminder = "Sem lembrete"
                         newTaskAttachment = ""
@@ -7200,6 +7266,8 @@ private fun RecurrenceSettings(
     interval: Int,
     endCount: Int,
     endDate: String,
+    times: List<String>,
+    baseTime: String,
     selectedDate: LocalDate,
     onRecurrenceChange: (String) -> Unit,
     onDetailChange: (String) -> Unit,
@@ -7207,7 +7275,11 @@ private fun RecurrenceSettings(
     onIntervalChange: (Int) -> Unit,
     onEndCountChange: (Int) -> Unit,
     onEndDateChange: (String) -> Unit,
+    onTimesChange: (List<String>) -> Unit,
 ) {
+    var showOtherFrequencies by remember(recurrence) {
+        mutableStateOf(recurrence == "Mensal" || recurrence == "Anual")
+    }
     Column(
         modifier = modifier.fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState()).padding(bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -7218,9 +7290,18 @@ private fun RecurrenceSettings(
                 ChoicePill(option, recurrence == option) { onRecurrenceChange(option) }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            listOf("Mensal", "Anual").forEach { option ->
-                ChoicePill(option, recurrence == option) { onRecurrenceChange(option) }
+        TextButton(onClick = { showOtherFrequencies = !showOtherFrequencies }) {
+            Text(
+                if (showOtherFrequencies) "Menos opções" else "Outras frequências",
+                color = PopMuted,
+                fontSize = 11.sp,
+            )
+        }
+        AnimatedVisibility(visible = showOtherFrequencies) {
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf("Mensal", "Anual").forEach { option ->
+                    ChoicePill(option, recurrence == option) { onRecurrenceChange(option) }
+                }
             }
         }
 
@@ -7259,6 +7340,13 @@ private fun RecurrenceSettings(
                             detail = detail,
                             preventAllSelected = recurrence == "Diária",
                             onDetailChange = onDetailChange,
+                        )
+                    }
+                    AnimatedVisibility(visible = recurrence == "Diária") {
+                        DailyTimesPicker(
+                            times = times,
+                            baseTime = baseTime,
+                            onTimesChange = onTimesChange,
                         )
                     }
                     AnimatedVisibility(
@@ -7345,6 +7433,103 @@ private fun RecurrenceSettings(
                 )
             }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DailyTimesPicker(
+    times: List<String>,
+    baseTime: String,
+    onTimesChange: (List<String>) -> Unit,
+) {
+    var editingIndex by remember { mutableStateOf<Int?>(null) }
+    val enabled = times.size >= 2
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Várias vezes ao dia", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text("Cada horário gera uma nova ocorrência", color = PopMuted, fontSize = 10.sp)
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = { checked ->
+                    if (checked) {
+                        val first = baseTime.takeIf { it.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) } ?: "09:00"
+                        val firstHour = first.substringBefore(":").toIntOrNull() ?: 9
+                        val second = "%02d:%s".format((firstHour + 4) % 24, first.substringAfter(":"))
+                        onTimesChange(listOf(first, second).distinct().sorted())
+                    } else {
+                        onTimesChange(emptyList())
+                    }
+                },
+            )
+        }
+        if (enabled) {
+            times.sorted().forEachIndexed { index, time ->
+                Surface(
+                    onClick = { editingIndex = index },
+                    color = PopSurface,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Rounded.AccessTime, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(9.dp))
+                        Text(time, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        if (times.size > 2) {
+                            IconButton(
+                                onClick = { onTimesChange(times.filter { it != time }) },
+                                modifier = Modifier.size(30.dp),
+                            ) {
+                                Icon(Icons.Rounded.Close, "Remover horário", tint = PopMuted, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+            if (times.size < 12) {
+                TextButton(onClick = { editingIndex = times.size }) {
+                    Text("+ Adicionar horário", color = PopBlue, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+
+    editingIndex?.let { index ->
+        val currentTime = times.getOrNull(index) ?: "12:00"
+        key(index, currentTime) {
+            val pickerState = rememberTimePickerState(
+                initialHour = currentTime.substringBefore(":").toIntOrNull() ?: 12,
+                initialMinute = currentTime.substringAfter(":").toIntOrNull() ?: 0,
+                is24Hour = true,
+            )
+            AlertDialog(
+                onDismissRequest = { editingIndex = null },
+                title = { Text("Escolher horário", fontWeight = FontWeight.ExtraBold) },
+                text = { TimePicker(state = pickerState) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val selected = "%02d:%02d".format(pickerState.hour, pickerState.minute)
+                            val updated = times.toMutableList().apply {
+                                if (index in indices) set(index, selected) else add(selected)
+                            }.distinct().sorted()
+                            if (updated.size >= 2) onTimesChange(updated)
+                            editingIndex = null
+                        },
+                    ) { Text("Confirmar", color = PopBlue, fontWeight = FontWeight.Bold) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editingIndex = null }) { Text("Voltar", color = PopMuted) }
+                },
+                containerColor = PopSurface,
+                shape = RoundedCornerShape(24.dp),
+            )
         }
     }
 }
@@ -8256,6 +8441,18 @@ private fun CalendarScreen(
         }
     }
 
+}
+
+private fun nextTaskOccurrence(task: PopTask): Pair<LocalDate, String>? {
+    val currentDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return null
+    val times = task.recurrenceTimes.distinct().sorted()
+    if (times.size >= 2) {
+        val currentTime = task.dueTime.ifBlank { times.first() }
+        val laterToday = times.firstOrNull { it > currentTime }
+        if (laterToday != null) return currentDate to laterToday
+    }
+    val nextDate = nextRecurrenceDate(task) ?: return null
+    return nextDate to (times.firstOrNull() ?: task.dueTime)
 }
 
 private fun weekDayToken(dayOfWeek: Int): String =

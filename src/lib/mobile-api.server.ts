@@ -43,6 +43,7 @@ export type MobileTask = {
   reminder: string;
   attachmentName: string;
   dueTime: string;
+  recurrenceTimes: string[];
   duration: string;
   recurrenceRule: string;
   recurrenceDetail: string;
@@ -1378,6 +1379,7 @@ function taskToMobileTask(
     reminder: task.nativeRemindersByUser?.[currentUser.id] ?? native?.reminder ?? "Sem lembrete",
     attachmentName: native?.attachmentName ?? "",
     dueTime: native?.dueTime ?? "",
+    recurrenceTimes: native?.recurrenceTimes ?? task.recurrence?.times ?? [],
     duration: native?.duration ?? "Sem duração",
     recurrenceRule: native?.recurrenceRule ?? recurrence.rule,
     recurrenceDetail: native?.recurrenceDetail ?? recurrence.detail,
@@ -1500,8 +1502,14 @@ function mobileTaskRecurrence(item: MobileTask): Task["recurrence"] {
 
   if (item.recurrenceRule === "Diária") {
     return interval === 1
-      ? { frequency: "daily", excludedWeekDays: weekDays, endDate }
-      : { frequency: "daily", interval, excludedWeekDays: weekDays, endDate };
+      ? { frequency: "daily", excludedWeekDays: weekDays, times: item.recurrenceTimes, endDate }
+      : {
+          frequency: "daily",
+          interval,
+          excludedWeekDays: weekDays,
+          times: item.recurrenceTimes,
+          endDate,
+        };
   }
   if (item.recurrenceRule === "Semanal") {
     if (interval === 1) return { frequency: "weekly", weekDays, endDate };

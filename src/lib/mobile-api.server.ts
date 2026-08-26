@@ -1696,6 +1696,14 @@ export async function replaceMobileTasks(
       }) as NativeTask | undefined;
 
       if (existing) {
+        // permissionGroups PRECISA vir aqui, como ja vem nas outras duas chamadas de canViewTask
+        // deste arquivo (a listagem e a exclusao em lote). Sem ele, canViewTask nem consulta
+        // tasks.viewAll (permissions.ts:44) e cai direto na hierarquia de responsavel/gestor.
+        //
+        // Quem tem acesso amplo SO por tasks.viewAll -- o grupo de sistema "Gestor" (pg2), que
+        // nasce em toda empresa -- via a tarefa na lista e perdia a edicao aqui: o `continue`
+        // pula o item antes de qualquer gravacao, sem erro e sem entrar na contagem, entao o
+        // aparelho da a sincronizacao por concluida e a alteracao some na proxima leitura.
         if (
           !canViewTask({
             task: existing,
@@ -1703,6 +1711,7 @@ export async function replaceMobileTasks(
             employees: workspace.employees,
             departments: workspace.departments,
             groups: workspace.groups,
+            permissionGroups: workspace.permissionGroups,
           })
         )
           continue;

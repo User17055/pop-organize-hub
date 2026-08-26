@@ -5947,6 +5947,7 @@ private fun TasksScreen(
             onDismissRequest = ::dismissTaskDetails,
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
         ) {
+            KeepModalNavigationBarHidden()
             val dialogView = LocalView.current
             val openedTask = tasks.firstOrNull { it.id == editingTaskId }
             val detailCanEdit = openedTask?.canEdit == true

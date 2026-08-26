@@ -216,7 +216,7 @@ private fun OnboardingScreen(onFinish: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(34.dp))
-                Text(item.first, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
+                Text(item.first, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, lineHeight = 36.sp)
                 Spacer(Modifier.height(12.dp))
                 Text(item.second, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             }
@@ -329,6 +329,7 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
                             LoginStage.Code -> "Verifique seu e-mail"
                         },
                         fontSize = 30.sp,
+                        lineHeight = 36.sp,
                         fontWeight = FontWeight.ExtraBold,
                         textAlign = TextAlign.Center,
                     )
@@ -593,6 +594,7 @@ private fun EmailOtpField(value: String, onValueChange: (String) -> Unit, enable
                         Text(
                             if (filled) value[index].toString() else "",
                             fontSize = 22.sp,
+                            lineHeight = 28.sp,
                             fontWeight = FontWeight.Bold,
                         )
                     }
@@ -1091,6 +1093,7 @@ private fun TasksScreen(store: PopStore) {
                 Text(
                     "Tarefas",
                     fontSize = 27.sp,
+                    lineHeight = 32.sp,
                     fontWeight = FontWeight.ExtraBold,
                     modifier = Modifier.weight(1f),
                 )
@@ -1922,6 +1925,7 @@ private fun CalendarScreen(store: PopStore) {
                     Text(
                         "Calendário",
                         fontSize = 27.sp,
+                        lineHeight = 32.sp,
                         fontWeight = FontWeight.ExtraBold,
                     )
                     Spacer(Modifier.width(10.dp))

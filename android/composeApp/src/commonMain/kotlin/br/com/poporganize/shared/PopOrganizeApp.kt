@@ -303,8 +303,13 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
     ) {
         PopLogo()
 
+        // O vazio fica todo AQUI, num lugar so. Antes esta Column tinha weight(1f): ela absorvia
+        // o espaco livre inteiro e centralizava o titulo dentro dele, o que abria DOIS vazios --
+        // um entre o logo e o titulo, outro entre o titulo e os botoes. No iPhone o resultado
+        // eram tres blocos boiando, com o conteudo espremido nas pontas da tela.
+        Spacer(Modifier.weight(1f))
+
         Column(
-            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -333,6 +338,8 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
                 }
             }
         }
+
+        Spacer(Modifier.height(30.dp))
 
         AnimatedContent(targetState = stage, label = "loginActions") { current ->
             Column(
@@ -482,19 +489,49 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
 
         // O aviso ficava no fim de uma lista rolavel: com o teclado aberto num iPhone pequeno ele
         // nascia fora da tela e o toque parecia nao ter feito nada.
-        Spacer(Modifier.height(10.dp))
-        Text(
-            feedbackError ?: feedbackInfo.orEmpty(),
-            color = if (feedbackError != null) {
+        //
+        // E depois disso ele ainda era 12sp cinza-avermelhado, centralizado, abaixo de tudo. Quando
+        // o login com Apple falhou no primeiro iPhone que rodou o app, o motivo EXATO da falha
+        // estava escrito ali -- e passou despercebido, porque o texto mais importante da tela era o
+        // desenhado como menos importante. Custou uma ida e volta inteira de diagnostico.
+        Spacer(Modifier.height(14.dp))
+        val feedbackTexto = feedbackError ?: feedbackInfo.orEmpty()
+        if (feedbackTexto.isNotBlank()) {
+            val ehErro = feedbackError != null
+            val tinta = if (ehErro) {
                 MaterialTheme.colorScheme.error
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            fontSize = 12.sp,
-            textAlign = TextAlign.Center,
-            minLines = 2,
-            modifier = Modifier.fillMaxWidth(),
-        )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (ehErro) {
+                            MaterialTheme.colorScheme.error.copy(alpha = .12f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        MaterialTheme.shapes.medium,
+                    )
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    if (ehErro) Icons.Rounded.ErrorOutline else Icons.Rounded.Email,
+                    null,
+                    tint = tinta,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    feedbackTexto,
+                    color = tinta,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(start = 10.dp),
+                )
+            }
+        }
     }
 }
 

@@ -41,10 +41,14 @@ actual fun AppleSignInButton(
 
     Box(
         modifier.then(
-            if (lightBackground) {
-                Modifier.border(1.dp, Color(0xFF1D1D1F), RoundedCornerShape(radius.dp))
-            } else {
-                Modifier
+            when {
+                lightBackground -> Modifier.border(1.dp, Color(0xFF1D1D1F), RoundedCornerShape(radius.dp))
+                // Preto a 50% sobre um fundo quase preto praticamente SOME. Enquanto conecta, o
+                // botao nao ficava apagado -- ficava invisivel, e a tela parecia ter perdido uma
+                // opcao. Este contorno fica FORA do alpha (ele e do Box; a transparencia e do
+                // UIKitView de dentro), entao a forma continua na tela com o miolo apagado.
+                !enabled -> Modifier.border(1.dp, Color.White.copy(alpha = .22f), RoundedCornerShape(radius.dp))
+                else -> Modifier
             },
         ),
     ) {

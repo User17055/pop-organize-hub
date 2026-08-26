@@ -30,6 +30,10 @@ const project = readFileSync(resolve("ios/App/App.xcodeproj/project.pbxproj"), "
 const info = readFileSync(resolve("ios/App/App/Info.plist"), "utf8");
 const appDelegate = readFileSync(resolve("ios/App/App/AppDelegate.swift"), "utf8");
 const entitlements = readFileSync(resolve("ios/App/App/App.entitlements"), "utf8");
+const mainViewController = readFileSync(
+  resolve("android/composeApp/src/iosMain/kotlin/br/com/poporganize/shared/MainViewController.kt"),
+  "utf8",
+);
 
 if (!project.includes(":composeApp:embedAndSignAppleFrameworkForXcode")) {
   fail("the Xcode build phase does not generate ComposeApp.framework.");
@@ -50,6 +54,18 @@ if (info.includes("CAPACITOR_DEBUG") || info.includes("UIMainStoryboardFile")) {
 // catches it, so the check lives here.
 if (!/<key>CADisableMinimumFrameDurationOnPhone<\/key>\s*<true\/>/.test(info)) {
   fail("Info.plist must set CADisableMinimumFrameDurationOnPhone to true, or the app aborts on launch.");
+}
+// The Apple sign-in payload declares name and email as nullable with a null default, and Apple
+// fills neither from the second authorization onward. With encodeDefaults the serializer writes
+// {"identityToken":"...","name":null,"email":null}, and the zod schema on the route declares both
+// .optional() -- which accepts an ABSENT key but rejects an explicit null. Every sign-in after the
+// first one died there as a 400 "Credencial Apple invalida.", right after Face ID had succeeded.
+// Cheap to reintroduce by copying the line from PopStore.kt, where the same flag is harmless.
+if (/private val json = Json \{[^}]*encodeDefaults/.test(mainViewController)) {
+  fail(
+    "MainViewController.kt must not set encodeDefaults on its Json: it makes the Apple sign-in " +
+      "payload send name/email as explicit nulls, which the server's zod schema rejects.",
+  );
 }
 if (
   !appDelegate.includes("import ComposeApp") ||

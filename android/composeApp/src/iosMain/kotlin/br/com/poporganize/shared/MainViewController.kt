@@ -62,7 +62,27 @@ private object IosPlatformServices : PopPlatformServices {
     private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var appleDelegate: AppleAuthorizationDelegate? = null
     private var foregroundObserver: Any? = null
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    // Sem `encodeDefaults = true` de proposito: era ele que quebrava o login com Apple.
+    //
+    // A Apple so entrega nome e e-mail no objeto de credencial na PRIMEIRA autorizacao. Da segunda
+    // em diante os dois vem vazios, viram `null` em AppleAuthPayload -- e com encodeDefaults o
+    // kotlinx escrevia as chaves assim mesmo:
+    //
+    //     {"identityToken":"...","name":null,"email":null}
+    //
+    // O zod do lado do servidor (routes/api/mobile/auth/apple.ts) declara os dois como
+    // `.optional()`, que aceita a chave AUSENTE mas recusa `null` explicito. O safeParse falhava,
+    // e a rota devolvia 400 "Credencial Apple inválida." -- depois do Face ID ter dado certo, que
+    // e o que tornava o sintoma tao confuso: a Apple autenticava, o servidor recusava.
+    //
+    // Sem encodeDefaults, valor igual ao padrao nao e escrito, as chaves somem e o schema passa.
+    // Conferido rodando os dois Json contra a mesma classe (kotlinx-serialization-json 1.8.1) e o
+    // schema real contra os tres corpos possiveis.
+    //
+    // Aqui nao ha perda: neste arquivo o json so codifica AppleAuthPayload e uma String solta na
+    // linha da mensagem de erro -- o resto e decodificacao, onde encodeDefaults nao tem efeito.
+    // O json do PopStore.kt e outro objeto e continua como estava.
+    private val json = Json { ignoreUnknownKeys = true }
 
     override val platformName = "iPhone"
     override val supportsAppleSignIn = true

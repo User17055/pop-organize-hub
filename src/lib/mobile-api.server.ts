@@ -1320,7 +1320,10 @@ function mobileRecurrence(task: Task) {
   return {
     rule,
     detail:
-      recurrence.weekDays?.map((day) => dayTokens[day - 1]).filter(Boolean).join(",") ??
+      (recurrence.frequency === "daily"
+        ? recurrence.excludedWeekDays
+        : recurrence.weekDays
+      )?.map((day) => dayTokens[day - 1]).filter(Boolean).join(",") ??
       (recurrence.dayOfMonth ? String(recurrence.dayOfMonth) : ""),
     interval,
     endMode: recurrence.endDate ? "Em uma data" : "Nunca",
@@ -1497,8 +1500,8 @@ function mobileTaskRecurrence(item: MobileTask): Task["recurrence"] {
 
   if (item.recurrenceRule === "Diária") {
     return interval === 1
-      ? { frequency: "daily", endDate }
-      : { frequency: "custom", interval, intervalDays: interval, customUnit: "days", endDate };
+      ? { frequency: "daily", excludedWeekDays: weekDays, endDate }
+      : { frequency: "daily", interval, excludedWeekDays: weekDays, endDate };
   }
   if (item.recurrenceRule === "Semanal") {
     if (interval === 1) return { frequency: "weekly", weekDays, endDate };

@@ -41,8 +41,22 @@ function nextSelectedWeekDay(value: string, weekDays: number[], intervalWeeks = 
   return addDays(value, intervalWeeks * 7 - currentWeekDay + selected[0]);
 }
 
+function nextDailyDate(value: string, excludedWeekDays: number[], intervalDays = 1) {
+  const excluded = new Set(excludedWeekDays.filter((day) => day >= 1 && day <= 7));
+  let next = addDays(value, intervalDays);
+  for (let attempts = 0; attempts < 7 && excluded.size < 7; attempts += 1) {
+    const { year, month, day } = dateParts(next);
+    const weekDay = new Date(year, month - 1, day).getDay() || 7;
+    if (!excluded.has(weekDay)) return next;
+    next = addDays(next, 1);
+  }
+  return next;
+}
+
 export function advanceRecurringDate(value: string, recurrence: TaskRecurrence) {
-  if (recurrence.frequency === "daily") return addDays(value, 1);
+  if (recurrence.frequency === "daily") {
+    return nextDailyDate(value, recurrence.excludedWeekDays ?? [], recurrence.interval ?? 1);
+  }
   if (recurrence.frequency === "weekly") {
     return nextSelectedWeekDay(value, recurrence.weekDays ?? [], recurrence.interval ?? 1);
   }

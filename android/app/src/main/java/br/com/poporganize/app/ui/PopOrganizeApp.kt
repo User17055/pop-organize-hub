@@ -419,10 +419,19 @@ private fun dueLabelForDate(date: LocalDate): String {
 
 private fun advanceRecurrenceDate(task: PopTask, from: LocalDate): LocalDate? {
     val interval = task.recurrenceInterval.coerceAtLeast(1)
+    val dayMap = mapOf("S" to 1, "T" to 2, "Q" to 3, "Q2" to 4, "S2" to 5, "Sá" to 6, "D" to 7)
     return when (task.recurrenceRule) {
-        "Diária" -> from.plusDays(interval.toLong())
+        "Diária" -> {
+            val excludedDays = task.recurrenceDetail.split(",").mapNotNull(dayMap::get).toSet()
+            var nextDate = from.plusDays(interval.toLong())
+            var attempts = 0
+            while (nextDate.dayOfWeek.value in excludedDays && attempts < 7) {
+                nextDate = nextDate.plusDays(1)
+                attempts += 1
+            }
+            nextDate
+        }
         "Semanal" -> {
-            val dayMap = mapOf("S" to 1, "T" to 2, "Q" to 3, "Q2" to 4, "S2" to 5, "Sá" to 6, "D" to 7)
             val selectedDays = task.recurrenceDetail.split(",").mapNotNull(dayMap::get).sorted()
                 .ifEmpty { listOf(from.dayOfWeek.value) }
             val weekStart = from.minusDays((from.dayOfWeek.value - 1).toLong())
@@ -5359,10 +5368,21 @@ private fun TasksScreen(
         val recurrenceSummary = if (editRecurrence == "Não repetir") {
             editRecurrence
         } else {
+            val dayLabels = mapOf("S" to "Seg", "T" to "Ter", "Q" to "Qua", "Q2" to "Qui", "S2" to "Sex", "Sá" to "Sáb", "D" to "Dom")
+            val selectedDayLabels = editRecurrenceDetail
+                .split(",")
+                .mapNotNull(dayLabels::get)
+                .joinToString(", ")
+            val detailSummary = when (editRecurrence) {
+                "Diária" -> selectedDayLabels.takeIf(String::isNotBlank)?.let { "exceto $it" }.orEmpty()
+                "Semanal" -> selectedDayLabels
+                "Mensal" -> editRecurrenceDetail.takeIf(String::isNotBlank)?.let { "dia $it" }.orEmpty()
+                else -> ""
+            }
             buildList {
                 add(editRecurrence)
                 if (editRecurrenceInterval > 1) add("a cada $editRecurrenceInterval")
-                if (editRecurrenceDetail.isNotBlank()) add(editRecurrenceDetail.trim())
+                if (detailSummary.isNotBlank()) add(detailSummary)
                 when (editRecurrenceEnd) {
                     "Após" -> add("${storedEndValue} ocorrências")
                     "Em uma data" -> add("até $editRecurrenceEndValue")
@@ -5436,6 +5456,11 @@ private fun TasksScreen(
             else -> ""
         }
         val recurrenceDetailSummary = when (newTaskRecurrence) {
+            "Diária" -> {
+                val labels = mapOf("S" to "Seg", "T" to "Ter", "Q" to "Qua", "Q2" to "Qui", "S2" to "Sex", "Sá" to "Sáb", "D" to "Dom")
+                newTaskRecurrenceDetail.split(",").mapNotNull(labels::get).joinToString(", ")
+                    .takeIf(String::isNotBlank)?.let { "exceto $it" }.orEmpty()
+            }
             "Semanal" -> {
                 val labels = mapOf("S" to "Seg", "T" to "Ter", "Q" to "Qua", "Q2" to "Qui", "S2" to "Sex", "Sá" to "Sáb", "D" to "Dom")
                 newTaskRecurrenceDetail.split(",").mapNotNull(labels::get).joinToString(", ")
@@ -6311,15 +6336,28 @@ private fun TasksScreen(
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                                     listOf("Não repetir", "Diária", "Semanal").forEach { option ->
                                         DetailChoicePill(option, editRecurrence == option) {
+                                            val changed = editRecurrence != option
                                             editRecurrence = option
-                                            if (option == "Não repetir") editRecurrenceDetail = ""
+                                            if (changed) {
+                                                editRecurrenceDetail = if (option == "Semanal") {
+                                                    val dueDay = openedTask?.dueDate
+                                                        ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                                                        ?.dayOfWeek?.value ?: LocalDate.now().dayOfWeek.value
+                                                    weekDayToken(dueDay)
+                                                } else {
+                                                    ""
+                                                }
+                                            }
                                         }
                                         if (option != "Semanal") Spacer(Modifier.width(7.dp))
                                     }
                                 }
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                                     listOf("Mensal", "Anual").forEach { option ->
-                                        DetailChoicePill(option, editRecurrence == option) { editRecurrence = option }
+                                        DetailChoicePill(option, editRecurrence == option) {
+                                            if (editRecurrence != option) editRecurrenceDetail = ""
+                                            editRecurrence = option
+                                        }
                                         if (option != "Anual") Spacer(Modifier.width(7.dp))
                                     }
                                 }
@@ -6331,16 +6369,24 @@ private fun TasksScreen(
                                             onValueChange = { editRecurrenceInterval = it.coerceIn(1, 99) },
                                             accentColor = PopBlue,
                                         )
-                                        if (editRecurrence == "Semanal") {
-                                            WeeklyDayPicker(
+                                        if (editRecurrence == "Diária" || editRecurrence == "Semanal") {
+                                            WeekDayPicker(
+                                                title = if (editRecurrence == "Diária") {
+                                                    "Não repetir nestes dias"
+                                                } else {
+                                                    "Repetir nestes dias"
+                                                },
                                                 detail = editRecurrenceDetail,
+                                                preventAllSelected = editRecurrence == "Diária",
                                                 onDetailChange = { editRecurrenceDetail = it },
                                             )
-                                        } else {
+                                        } else if (editRecurrence == "Mensal") {
                                             TextField(
                                                 value = editRecurrenceDetail,
-                                                onValueChange = { editRecurrenceDetail = it },
-                                                label = { Text("Regra personalizada") },
+                                                onValueChange = { value ->
+                                                    editRecurrenceDetail = value.filter(Char::isDigit).take(2)
+                                                },
+                                                label = { Text("Dia do mês") },
                                                 singleLine = true,
                                                 shape = RoundedCornerShape(14.dp),
                                                 colors = taskEditorFieldColors(PopSurface),
@@ -6856,7 +6902,11 @@ private fun TasksScreen(
                         selectedDate = taskDateDraft,
                         onRecurrenceChange = {
                             newTaskRecurrence = it
-                            newTaskRecurrenceDetail = ""
+                            newTaskRecurrenceDetail = if (it == "Semanal") {
+                                weekDayToken(taskDateDraft.dayOfWeek.value)
+                            } else {
+                                ""
+                            }
                         },
                         onDetailChange = { newTaskRecurrenceDetail = it },
                         onEndsChange = { newTaskRecurrenceEnd = it },
@@ -7196,11 +7246,20 @@ private fun RecurrenceSettings(
                     )
 
                     AnimatedVisibility(
-                        visible = recurrence == "Semanal",
+                        visible = recurrence == "Diária" || recurrence == "Semanal",
                         enter = fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 8 },
                         exit = fadeOut(tween(160)),
                     ) {
-                        WeeklyDayPicker(detail = detail, onDetailChange = onDetailChange)
+                        WeekDayPicker(
+                            title = if (recurrence == "Diária") {
+                                "Não repetir nestes dias"
+                            } else {
+                                "Repetir nestes dias"
+                            },
+                            detail = detail,
+                            preventAllSelected = recurrence == "Diária",
+                            onDetailChange = onDetailChange,
+                        )
                     }
                     AnimatedVisibility(
                         visible = recurrence == "Mensal",
@@ -8198,6 +8257,9 @@ private fun CalendarScreen(
     }
 
 }
+
+private fun weekDayToken(dayOfWeek: Int): String =
+    listOf("S", "T", "Q", "Q2", "S2", "Sá", "D")[dayOfWeek.coerceIn(1, 7) - 1]
 
 @Composable
 private fun CalendarDayAgenda(
@@ -10622,35 +10684,25 @@ private fun PermissionGroupsOverviewPage(
 }
 
 @Composable
-private fun WeeklyDayPicker(
+private fun WeekDayPicker(
+    title: String,
     detail: String,
+    preventAllSelected: Boolean = false,
     onDetailChange: (String) -> Unit,
 ) {
     val dayOrder = listOf("S", "T", "Q", "Q2", "S2", "Sá", "D")
     val selectedDays = detail.split(",").filter { it.isNotBlank() }.toSet()
-    val weekdays = setOf("S", "T", "Q", "Q2", "S2")
-    val weekend = setOf("Sá", "D")
-    val allDays = weekdays + weekend
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Dias da semana", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ChoicePill("Seg a sex", selectedDays == weekdays) {
-                onDetailChange(dayOrder.filter(weekdays::contains).joinToString(","))
-            }
-            ChoicePill("Fim de semana", selectedDays == weekend) {
-                onDetailChange(dayOrder.filter(weekend::contains).joinToString(","))
-            }
-            ChoicePill("Todos", selectedDays == allDays) {
-                onDetailChange(dayOrder.joinToString(","))
-            }
-        }
+        Text(title, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             dayOrder.forEach { day ->
                 val selected = day in selectedDays
                 Surface(
                     onClick = {
                         val updated = if (selected) selectedDays - day else selectedDays + day
-                        onDetailChange(dayOrder.filter(updated::contains).joinToString(","))
+                        if (!preventAllSelected || updated.size < dayOrder.size) {
+                            onDetailChange(dayOrder.filter(updated::contains).joinToString(","))
+                        }
                     },
                     color = if (selected) PopBlue else PopSurface,
                     contentColor = if (selected) Color.White else PopMuted,

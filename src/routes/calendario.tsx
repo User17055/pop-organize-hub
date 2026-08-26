@@ -85,6 +85,7 @@ function CalendarPage() {
     recurrence: {
       frequency: "none",
       weekDays: [],
+      excludedWeekDays: [],
       interval: "1",
       customUnit: "days",
       dayOfMonth: "1",

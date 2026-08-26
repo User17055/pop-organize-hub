@@ -34,6 +34,7 @@ export type TaskEditState = {
 export type RecurrenceFormState = {
   frequency: RecurrenceFrequency | "none";
   weekDays: number[];
+  excludedWeekDays: number[];
   interval: string;
   customUnit: RecurrenceCustomUnit;
   dayOfMonth: string;
@@ -45,6 +46,7 @@ export type RecurrenceInput =
   | {
       frequency: RecurrenceFrequency;
       weekDays?: number[];
+      excludedWeekDays?: number[];
       interval?: number;
       intervalDays?: number;
       customUnit?: RecurrenceCustomUnit;
@@ -142,6 +144,7 @@ export function getDefaultRecurrence(dueDate?: string): RecurrenceFormState {
   return {
     frequency: "none",
     weekDays: [],
+    excludedWeekDays: [],
     interval: "1",
     customUnit: "days",
     dayOfMonth: anchor.dayOfMonth,
@@ -158,6 +161,7 @@ export function recurrenceToForm(
   return {
     frequency: recurrence?.frequency ?? "none",
     weekDays: recurrence?.weekDays ?? [],
+    excludedWeekDays: recurrence?.excludedWeekDays ?? [],
     interval: String(recurrence?.interval ?? recurrence?.intervalDays ?? 1),
     customUnit: recurrence?.customUnit ?? "days",
     dayOfMonth: String(recurrence?.dayOfMonth ?? anchor.dayOfMonth),
@@ -185,6 +189,15 @@ export function recurrenceFromForm(recurrence: RecurrenceFormState): RecurrenceI
     return {
       frequency: recurrence.frequency,
       weekDays: recurrence.weekDays.length > 0 ? recurrence.weekDays : undefined,
+      endDate,
+    };
+  }
+
+  if (recurrence.frequency === "daily") {
+    return {
+      frequency: recurrence.frequency,
+      excludedWeekDays:
+        recurrence.excludedWeekDays.length > 0 ? recurrence.excludedWeekDays : undefined,
       endDate,
     };
   }
@@ -225,9 +238,15 @@ export function recurrenceLabel(recurrence?: TaskRecurrence) {
     ?.map((day) => weekDayNames[day - 1])
     .filter(Boolean)
     .join(", ");
+  const excludedWeekDays = recurrence.excludedWeekDays
+    ?.map((day) => weekDayNames[day - 1])
+    .filter(Boolean)
+    .join(", ");
   const label =
     recurrence.frequency === "daily"
-      ? "Diária"
+      ? excludedWeekDays
+        ? `Diária, exceto ${excludedWeekDays}`
+        : "Diária"
       : recurrence.frequency === "weekly"
         ? selectedWeekDays
           ? `Semanal: ${selectedWeekDays}`

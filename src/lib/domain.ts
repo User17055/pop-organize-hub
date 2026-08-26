@@ -18,6 +18,8 @@ export interface TaskRecurrence {
   frequency: RecurrenceFrequency;
   /** ISO weekday numbers: Monday = 1, Sunday = 7. */
   weekDays?: number[];
+  /** ISO weekday numbers skipped by a daily recurrence. */
+  excludedWeekDays?: number[];
   interval?: number;
   intervalDays?: number;
   customUnit?: RecurrenceCustomUnit;

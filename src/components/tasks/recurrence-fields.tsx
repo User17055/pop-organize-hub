@@ -31,7 +31,8 @@ export function RecurrenceFields({
     (value.frequency === "custom" && value.customUnit === "months");
   const showYearlyDate =
     value.frequency === "yearly" || (value.frequency === "custom" && value.customUnit === "years");
-  const showWeekDays = value.frequency === "weekly" || value.frequency === "biweekly";
+  const showWeekDays =
+    value.frequency === "daily" || value.frequency === "weekly" || value.frequency === "biweekly";
   const weekDays = [
     { value: 1, label: "S" },
     { value: 2, label: "T" },
@@ -77,27 +78,17 @@ export function RecurrenceFields({
       )}
 
       {showWeekDays && (
-        <Field label="Dias da semana">
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { label: "Seg a sex", days: [1, 2, 3, 4, 5] },
-                { label: "Fim de semana", days: [6, 7] },
-                { label: "Todos", days: [1, 2, 3, 4, 5, 6, 7] },
-              ].map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  className="task-create-input h-7 rounded-md border px-2 text-[11px] font-semibold"
-                  onClick={() => update({ weekDays: preset.days })}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
+        <Field
+          label={
+            value.frequency === "daily" ? "Não repetir nestes dias" : "Repetir nestes dias"
+          }
+        >
+          <div>
             <div className="flex justify-between gap-1">
               {weekDays.map((day) => {
-                const selected = value.weekDays.includes(day.value);
+                const selectedDays =
+                  value.frequency === "daily" ? value.excludedWeekDays : value.weekDays;
+                const selected = selectedDays.includes(day.value);
                 return (
                   <button
                     key={day.value}
@@ -109,13 +100,17 @@ export function RecurrenceFields({
                         ? "border-blue-500 bg-blue-600 text-white"
                         : "task-create-input text-muted-foreground",
                     )}
-                    onClick={() =>
-                      update({
-                        weekDays: selected
-                          ? value.weekDays.filter((value) => value !== day.value)
-                          : [...value.weekDays, day.value].sort((left, right) => left - right),
-                      })
-                    }
+                    onClick={() => {
+                      const nextDays = selected
+                        ? selectedDays.filter((value) => value !== day.value)
+                        : [...selectedDays, day.value].sort((left, right) => left - right);
+                      if (value.frequency === "daily" && nextDays.length === 7) return;
+                      update(
+                        value.frequency === "daily"
+                          ? { excludedWeekDays: nextDays }
+                          : { weekDays: nextDays },
+                      );
+                    }}
                   >
                     {day.label}
                   </button>

@@ -65,18 +65,11 @@ function GoogleLoginButton({
   callbackRef.current = onCredential;
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
-  if (disabled && clientId) {
-    return (
-      <button
-        type="button"
-        disabled
-        className="flex h-14 w-full items-center justify-center rounded-[18px] bg-white"
-      >
-        <LoginSpinner />
-      </button>
-    );
-  }
-
+  // Nenhum hook pode ficar depois de um return condicional. Aqui havia um `if (disabled &&
+  // clientId) return <spinner>` antes deste useEffect: com o client id configurado, o primeiro
+  // clique ligava `disabled`, o componente retornava cedo e o React renderizava menos hooks que na
+  // vez anterior -- derrubando a rota de login inteira. So nao acontecia porque, sem
+  // VITE_GOOGLE_CLIENT_ID, `disabled && clientId` nunca era verdadeiro.
   useEffect(() => {
     if (!clientId) return;
     const configuredClientId = clientId;
@@ -138,9 +131,20 @@ function GoogleLoginButton({
     );
   }
 
+  // O container do botao do Google fica montado mesmo enquanto carrega, com o spinner por cima.
+  // Desmonta-lo trocaria a ref por null e o efeito nao roda de novo (a dependencia `clientId` nao
+  // muda), entao o botao do Google nunca mais seria desenhado depois de um login que falhasse.
   return (
-    <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
-      <div ref={buttonRef} className="flex min-h-12 w-full justify-center overflow-hidden" />
+    <div className={`relative${disabled ? " pointer-events-none" : ""}`}>
+      <div
+        ref={buttonRef}
+        className={`flex min-h-12 w-full justify-center overflow-hidden${disabled ? " opacity-0" : ""}`}
+      />
+      {disabled && (
+        <div className="absolute inset-0 flex items-center justify-center rounded-[18px] bg-white">
+          <LoginSpinner />
+        </div>
+      )}
     </div>
   );
 }

@@ -134,9 +134,7 @@ function Dashboard() {
               key={s.label}
               className={cn(
                 "hover-lift min-w-0 rounded-[20px] p-3.5 sm:rounded-[24px] sm:p-4 md:rounded-2xl",
-                s.featured
-                  ? "text-white shadow-[var(--shadow-elegant)]"
-                  : "mobile-card",
+                s.featured ? "text-white shadow-[var(--shadow-elegant)]" : "mobile-card",
               )}
               style={s.featured ? { background: "var(--gradient-primary)" } : undefined}
             >

@@ -20,6 +20,14 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- Sem esta chave o app NAO ABRE. Nao e otimizacao: o Compose Multiplatform roda
+	     PlistSanityCheck.performIfNeeded() no lancamento, numa fila de segundo plano, e LANCA
+	     excecao se ela faltar ou estiver como false. Ninguem captura, o processo aborta antes de
+	     desenhar o primeiro quadro. Foi exatamente assim que a build 1.0.3(4) morreu no primeiro
+	     iPhone em que ela rodou, tres de tres vezes, com a mesma pilha.
+	     Ela libera o app a desenhar acima de 60 quadros por segundo em telas ProMotion. -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

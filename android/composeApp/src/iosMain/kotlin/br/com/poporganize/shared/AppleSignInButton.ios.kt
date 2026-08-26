@@ -33,17 +33,39 @@ actual fun AppleSignInButton(
     enabled: Boolean,
     lightBackground: Boolean,
 ) {
+    // Metade da altura do botao (52.dp no ponto de chamada) deixa a pilula completa, que e a forma
+    // dos outros botoes da tela. Sem isto o botao da Apple sai com o canto do sistema, quase reto,
+    // e fica sendo o unico elemento quadrado numa tela de pilulas -- le como peca colada de outro
+    // aplicativo. Foi a primeira coisa que o Guilherme apontou ao ver a tela num iPhone.
+    val radius = 26.0
+
     Box(
         modifier.then(
-            if (lightBackground) {
-                Modifier.border(1.dp, Color(0xFF1D1D1F), RoundedCornerShape(8.dp))
-            } else {
-                Modifier
+            when {
+                lightBackground -> Modifier.border(1.dp, Color(0xFF1D1D1F), RoundedCornerShape(radius.dp))
+                // Preto a 50% sobre um fundo quase preto praticamente SOME. Enquanto conecta, o
+                // botao nao ficava apagado -- ficava invisivel, e a tela parecia ter perdido uma
+                // opcao. Este contorno fica FORA do alpha (ele e do Box; a transparencia e do
+                // UIKitView de dentro), entao a forma continua na tela com o miolo apagado.
+                !enabled -> Modifier.border(1.dp, Color.White.copy(alpha = .22f), RoundedCornerShape(radius.dp))
+                else -> Modifier
             },
         ),
     ) {
         UIKitView(
-            factory = { ASAuthorizationAppleIDButton().apply { userInteractionEnabled = false } },
+            factory = {
+                ASAuthorizationAppleIDButton().apply {
+                    userInteractionEnabled = false
+                    // Propriedade do proprio botao, e nao `layer.cornerRadius`.
+                    //
+                    // Nao ha compilador Kotlin/Native nesta maquina, entao a escolha e por
+                    // evidencia. O que ja falhou a resolver aqui foi `ASAuthorizationAppleIDButtonStyle*`
+                    // -- CONSTANTES, que sao geradas por outro caminho. Propriedade simples desta
+                    // mesma classe ja compila verde na linha de cima. `layer` seria dois saltos e
+                    // nunca apareceu neste projeto; `cornerRadius` e um salto, na classe provada.
+                    cornerRadius = radius
+                }
+            },
             modifier = Modifier.matchParentSize().alpha(if (enabled) 1f else .5f),
         )
         Box(Modifier.matchParentSize().clickable(enabled = enabled, onClick = onClick))

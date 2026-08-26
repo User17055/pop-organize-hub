@@ -1,0 +1,60 @@
+name: Web check
+
+# Confere o painel web e o servidor: formatacao, regras do React, tipos e build.
+#
+# Existe porque `src/` nao era compilado por nenhum CI deste repositorio -- so o Kotlin era. Tres
+# erros de `react-hooks/rules-of-hooks` sobreviveram assim, dois deles derrubando a tela em tempo
+# de execucao, todos detectaveis pelo eslint que ja estava instalado no projeto. O que faltava era
+# alguem rodando.
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "vite.config.ts"
+      - "eslint.config.js"
+      - ".github/workflows/web-check.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+  workflow_dispatch:
+
+concurrency:
+  group: web-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      # Roda antes do typecheck de proposito: e o passo que pega regra de hook violada, que o tsc
+      # nao ve. Os avisos de react-refresh nao reprovam -- so erros reprovam.
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # O build nao precisa de banco nem de segredo: validateRuntimeEnvironment so roda ao atender
+      # requisicao. O que ele pega e rota ausente na arvore gerada e erro de bundling.
+      - name: Build
+        run: npm run build

@@ -13,14 +13,43 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
 import kotlin.random.Random
 
 class PopStore(private val platform: PopPlatformServices) {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    // As tres bandeiras sao necessarias JUNTAS, e nenhuma delas pode sair sozinha.
+    //
+    // `encodeDefaults = true` precisa ficar: o mobileTaskSchema tem 18 campos estritamente
+    // obrigatorios (sem .optional() e sem .default()) que no ApiTask tem valor padrao --
+    // description "", completed false, dueTime "", reminder "Sem lembrete", recurrenceInterval 1,
+    // e mais. Sem a bandeira, toda tarefa comum omitiria essas chaves e o zod reprovaria a carga.
+    //
+    // `explicitNulls = false` precisa ENTRAR, e e o conserto. O ApiTask tem quatro campos
+    // nulaveis -- serverId, assignmentType, assignmentTargetId, assignmentTargetLabel -- e com
+    // encodeDefaults sozinho eles saiam como `null` explicito. Do outro lado os quatro sao
+    // `.optional()` no zod, que aceita a chave AUSENTE e recusa `null`. Como `tasks` e um array,
+    // um unico item ruim reprova a carga inteira: nenhuma tarefa sincronizava, e
+    // assignmentTargetId e nulo em toda tarefa "Sem responsavel", ou seja, quase sempre.
+    //
+    // E o mesmo mecanismo que quebrava o login com Apple no MainViewController.kt, mas o conserto
+    // ali foi o oposto -- tirar encodeDefaults -- porque a rota da Apple nao tem campo obrigatorio
+    // com default. Mesma bandeira, correcao invertida em cada arquivo: por isso ha trava no
+    // validador para nao copiarem a linha de um para o outro.
+    //
+    // Conferido rodando os tres arranjos contra kotlinx-serialization-json 1.8.1, a versao do
+    // projeto, e a saida contra o schema real extraido de tasks.ts.
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        explicitNulls = false
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /** A ultima sincronizacao disparada, para o signOut nao revogar o token por baixo dela. */
+    private var syncJob: Job? = null
 
     var state by mutableStateOf(
         restore(),
@@ -102,18 +131,47 @@ class PopStore(private val platform: PopPlatformServices) {
         scope.launch { refreshFromServer() }
     }
 
-    fun signOut() = update {
-        copy(
-            currentUser = null,
-            guestMode = false,
-            workspace = WorkspaceKind.Personal,
-            selectedCompanyId = null,
-            personalWorkspaceId = null,
-            apiToken = null,
-            companies = emptyList(),
-            tasks = emptyList(),
-            pendingDeletedServerIds = emptyList(),
-        )
+    fun signOut() {
+        // Sair precisa encerrar a sessao no servidor tambem. Antes isto so limpava o estado local,
+        // e o token seguia valido para sempre do outro lado -- quem tivesse copiado o token de um
+        // aparelho perdido continuava com acesso, e nao havia como cortar sem apagar a conta.
+        //
+        // Melhor esforco, de proposito: o estado local e limpo mesmo se a chamada falhar. Prender
+        // alguem dentro do aplicativo porque a rede caiu seria pior do que uma sessao orfa no
+        // servidor, e o token local ja vai embora aqui de qualquer forma.
+        val token = state.apiToken
+        if (!token.isNullOrBlank()) {
+            // Espera a sincronizacao que ja estava no ar antes de revogar o token.
+            //
+            // `update(sync = true)` dispara syncTasks() e devolve o controle na hora. Quem
+            // concluia uma tarefa e tocava "Sair" no segundo seguinte tinha duas corrotinas na
+            // fila: o PUT carrega a lista visivel inteira, o logout precisa de um round-trip
+            // curto. Chegando primeiro, o logout apagava a sessao e o PUT voltava 401 -- e o
+            // estado local ja tinha sido limpo aqui embaixo, entao a conclusao nao sobrava em
+            // lugar nenhum. Antes de este PR existir o token continuava valido e o PUT completava,
+            // ou seja, foi regressao introduzida junto com o logout.
+            //
+            // O `join` nao prende ninguem: isto ja roda fora da thread da interface, e a tela de
+            // login aparece assim que o update() abaixo executa, sem esperar por nada disto.
+            val pendente = syncJob
+            scope.launch {
+                runCatching { pendente?.join() }
+                runCatching { platform.apiRequest(path = "auth/logout", method = "POST", token = token) }
+            }
+        }
+        update {
+            copy(
+                currentUser = null,
+                guestMode = false,
+                workspace = WorkspaceKind.Personal,
+                selectedCompanyId = null,
+                personalWorkspaceId = null,
+                apiToken = null,
+                companies = emptyList(),
+                tasks = emptyList(),
+                pendingDeletedServerIds = emptyList(),
+            )
+        }
     }
 
     fun setTheme(theme: PopThemeMode) = update { copy(theme = theme) }
@@ -229,7 +287,11 @@ class PopStore(private val platform: PopPlatformServices) {
             copy(
                 tasks = tasks.mapNotNull { task ->
                     if (task.id != taskId) return@mapNotNull task
-                    val nextDate = nextRecurrenceDate(task.dueDate, task.recurrence)
+                    val nextDate = nextRecurrenceDate(
+                        task.dueDate,
+                        task.recurrence,
+                        task.recurrenceInterval,
+                    )
                     if (nextDate == null) null else task.copy(dueDate = nextDate, completed = false)
                 },
             )
@@ -301,7 +363,8 @@ class PopStore(private val platform: PopPlatformServices) {
         state = state.transform()
         platform.saveState(json.encodeToString(state))
         publishNotifications()
-        if (sync && !state.apiToken.isNullOrBlank()) scope.launch { syncTasks() }
+        // A referencia fica guardada para o signOut poder esperar por ela. Ver o comentario la.
+        if (sync && !state.apiToken.isNullOrBlank()) syncJob = scope.launch { syncTasks() }
     }
 
     private fun publishNotifications() {
@@ -609,14 +672,43 @@ internal fun todayIso(): String = Clock.System.now()
     .date
     .toString()
 
-private fun nextRecurrenceDate(value: String, recurrence: RecurrenceKind): String? {
+/**
+ * Proxima data de uma serie, usada por "excluir somente esta ocorrencia".
+ *
+ * O `intervalo` existe porque a recorrencia do servidor nao e so o tipo: ela tem um "de quantos em
+ * quantos". Esta funcao avancava sempre UM periodo e ignorava isso, entao numa serie de duas em
+ * duas semanas ela caia na semana errada -- a ocorrencia intermediaria, que nao deveria existir.
+ *
+ * O intervalo e limitado a no minimo 1: o campo vem do servidor como texto livre e um 0 faria a
+ * data nunca avancar, transformando a exclusao de uma ocorrencia num laco parado.
+ *
+ * ATENCAO -- esta conta continua errada, e o efeito NAO e passageiro.
+ *
+ * Uma versao anterior deste comentario afirmava que "a sincronizacao seguinte traz a data
+ * recalculada pelo servidor". E falso: mobile-api.server.ts faz `existing.dueDate = item.dueDate`,
+ * ou seja, ADOTA a data que o aparelho manda, grava e devolve igual. A data errada e persistida, e
+ * vale para o Android e para o painel tambem.
+ *
+ * O intervalo sozinho tampouco resolve os casos que a recorrencia por dias da semana trouxe:
+ *
+ *   - semanal com dias marcados: numa serie de segunda e quarta, o servidor avanca para a quarta
+ *     (advanceRecurringDate, em recurrence.server.ts) e esta funcao avanca sete dias;
+ *   - diaria com dias excluidos: pode cair justamente num dia que a serie nao tem;
+ *   - mensal com dia do mes: o servidor usa o dia gravado, esta funcao preserva o dia da data atual.
+ *
+ * O conserto de verdade nao cabe no cliente: ou o servidor passa a expor a proxima data da serie,
+ * ou "excluir somente esta ocorrencia" vira exclusao de verdade, via pendingDeletedServerIds, em
+ * vez de aritmetica de data aqui. Enquanto isso o intervalo pelo menos acerta o caso simples.
+ */
+private fun nextRecurrenceDate(value: String, recurrence: RecurrenceKind, intervalo: Int): String? {
     if (recurrence == RecurrenceKind.None) return null
     val date = runCatching { LocalDate.parse(value) }.getOrNull() ?: return null
+    val passos = intervalo.coerceAtLeast(1)
     val period = when (recurrence) {
-        RecurrenceKind.Daily -> DatePeriod(days = 1)
-        RecurrenceKind.Weekly -> DatePeriod(days = 7)
-        RecurrenceKind.Monthly -> DatePeriod(months = 1)
-        RecurrenceKind.Yearly -> DatePeriod(years = 1)
+        RecurrenceKind.Daily -> DatePeriod(days = passos)
+        RecurrenceKind.Weekly -> DatePeriod(days = 7 * passos)
+        RecurrenceKind.Monthly -> DatePeriod(months = passos)
+        RecurrenceKind.Yearly -> DatePeriod(years = passos)
         RecurrenceKind.None -> return null
     }
     return date.plus(period).toString()

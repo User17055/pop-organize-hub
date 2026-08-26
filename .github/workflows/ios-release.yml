@@ -9,8 +9,11 @@ name: iOS release (TestFlight)
 #   APPSTORE_API_ISSUER_ID    Issuer ID da App Store Connect API
 #   APPSTORE_API_PRIVATE_KEY  conteudo do arquivo AuthKey_XXXX.p8 em base64
 #
-# A chave da API precisa ter papel "App Manager" ou "Admin" para que o Xcode possa
-# criar/baixar o certificado de distribuicao e o provisioning profile sozinho.
+# A chave da API precisa ter papel "Admin". Nao basta "App Manager": o passo de export usa
+# assinatura na nuvem, e certificado de distribuicao gerenciado pela Apple so e liberado para
+# Admin -- com App Manager o archive passa e o export morre em
+# "exportArchive Cloud signing permission error". O papel de uma chave NAO pode ser alterado
+# depois de criada; para trocar, revogue e gere outra.
 
 on:
   workflow_dispatch:
@@ -143,6 +146,19 @@ jobs:
           path: ${{ runner.temp }}/export/*.ipa
           if-no-files-found: error
           retention-days: 14
+
+      # Sem isto, um crash em aparelho vira uma lista de numeros. O relatorio do iPhone traz os
+      # quadros do app so como deslocamento, e so o dSYM DAQUELA build (casado pelo UUID) os
+      # converte em nome de funcao. O dSYM vive dentro do .xcarchive, que o runner descarta ao
+      # terminar -- o primeiro crash de verdade nos pegou justamente assim.
+      - name: Publicar os simbolos (dSYM)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pop-organize-ios-dsym
+          path: ${{ runner.temp }}/App.xcarchive/dSYMs
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Enviar para o App Store Connect
         if: ${{ inputs.upload }}

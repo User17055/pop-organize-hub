@@ -31,11 +31,21 @@ kotlin {
             implementation compose.material3
             implementation compose.materialIconsExtended
             implementation compose.ui
+            // Poppins vive em src/commonMain/composeResources/font. Sao os MESMOS arquivos que o
+            // app Android ja embute em android/app/src/main/res/font -- nao ha fonte nova entrando
+            // no projeto, nem licenca nova a resolver (Poppins e SIL OFL).
+            implementation compose.components.resources
             implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1'
             implementation 'org.jetbrains.kotlinx:kotlinx-datetime:0.6.2'
             implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2'
         }
     }
+}
+
+// O pacote e fixado para que a previa em desktop (preview-desktop/, fora do versionamento) gere a
+// classe Res no MESMO pacote e possa compilar os fontes de commonMain sem alteracao nenhuma.
+compose.resources {
+    packageOfResClass = 'br.com.poporganize.shared.resources'
 }
 
 android {

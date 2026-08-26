@@ -29,6 +29,7 @@ import { Route as ApiMobileTasksRouteImport } from './routes/api/mobile/tasks'
 import { Route as ApiMobileTaskListsRouteImport } from './routes/api/mobile/task-lists'
 import { Route as ApiMobileInvitationsRouteImport } from './routes/api/mobile/invitations'
 import { Route as ApiMobileAccountRouteImport } from './routes/api/mobile/account'
+import { Route as ApiMobileAuthLogoutRouteImport } from './routes/api/mobile/auth/logout'
 import { Route as ApiMobileAuthGoogleRouteImport } from './routes/api/mobile/auth/google'
 import { Route as ApiMobileAuthAppleRouteImport } from './routes/api/mobile/auth/apple'
 import { Route as ApiMobileAuthEmailVerifyCodeRouteImport } from './routes/api/mobile/auth/email/verify-code'
@@ -134,6 +135,11 @@ const ApiMobileAccountRoute = ApiMobileAccountRouteImport.update({
   path: '/api/mobile/account',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMobileAuthLogoutRoute = ApiMobileAuthLogoutRouteImport.update({
+  id: '/api/mobile/auth/logout',
+  path: '/api/mobile/auth/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMobileAuthGoogleRoute = ApiMobileAuthGoogleRouteImport.update({
   id: '/api/mobile/auth/google',
   path: '/api/mobile/auth/google',
@@ -180,6 +186,7 @@ export interface FileRoutesByFullPath {
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
+  '/api/mobile/auth/logout': typeof ApiMobileAuthLogoutRoute
   '/api/mobile/auth/email/request-code': typeof ApiMobileAuthEmailRequestCodeRoute
   '/api/mobile/auth/email/verify-code': typeof ApiMobileAuthEmailVerifyCodeRoute
 }
@@ -206,6 +213,7 @@ export interface FileRoutesByTo {
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
+  '/api/mobile/auth/logout': typeof ApiMobileAuthLogoutRoute
   '/api/mobile/auth/email/request-code': typeof ApiMobileAuthEmailRequestCodeRoute
   '/api/mobile/auth/email/verify-code': typeof ApiMobileAuthEmailVerifyCodeRoute
 }
@@ -233,6 +241,7 @@ export interface FileRoutesById {
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
+  '/api/mobile/auth/logout': typeof ApiMobileAuthLogoutRoute
   '/api/mobile/auth/email/request-code': typeof ApiMobileAuthEmailRequestCodeRoute
   '/api/mobile/auth/email/verify-code': typeof ApiMobileAuthEmailVerifyCodeRoute
 }
@@ -261,6 +270,7 @@ export interface FileRouteTypes {
     | '/api/mobile/workspaces'
     | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
+    | '/api/mobile/auth/logout'
     | '/api/mobile/auth/email/request-code'
     | '/api/mobile/auth/email/verify-code'
   fileRoutesByTo: FileRoutesByTo
@@ -287,6 +297,7 @@ export interface FileRouteTypes {
     | '/api/mobile/workspaces'
     | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
+    | '/api/mobile/auth/logout'
     | '/api/mobile/auth/email/request-code'
     | '/api/mobile/auth/email/verify-code'
   id:
@@ -313,6 +324,7 @@ export interface FileRouteTypes {
     | '/api/mobile/workspaces'
     | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
+    | '/api/mobile/auth/logout'
     | '/api/mobile/auth/email/request-code'
     | '/api/mobile/auth/email/verify-code'
   fileRoutesById: FileRoutesById
@@ -340,6 +352,7 @@ export interface RootRouteChildren {
   ApiMobileWorkspacesRoute: typeof ApiMobileWorkspacesRoute
   ApiMobileAuthAppleRoute: typeof ApiMobileAuthAppleRoute
   ApiMobileAuthGoogleRoute: typeof ApiMobileAuthGoogleRoute
+  ApiMobileAuthLogoutRoute: typeof ApiMobileAuthLogoutRoute
   ApiMobileAuthEmailRequestCodeRoute: typeof ApiMobileAuthEmailRequestCodeRoute
   ApiMobileAuthEmailVerifyCodeRoute: typeof ApiMobileAuthEmailVerifyCodeRoute
 }
@@ -486,6 +499,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMobileAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mobile/auth/logout': {
+      id: '/api/mobile/auth/logout'
+      path: '/api/mobile/auth/logout'
+      fullPath: '/api/mobile/auth/logout'
+      preLoaderRoute: typeof ApiMobileAuthLogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mobile/auth/google': {
       id: '/api/mobile/auth/google'
       path: '/api/mobile/auth/google'
@@ -540,6 +560,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMobileWorkspacesRoute: ApiMobileWorkspacesRoute,
   ApiMobileAuthAppleRoute: ApiMobileAuthAppleRoute,
   ApiMobileAuthGoogleRoute: ApiMobileAuthGoogleRoute,
+  ApiMobileAuthLogoutRoute: ApiMobileAuthLogoutRoute,
   ApiMobileAuthEmailRequestCodeRoute: ApiMobileAuthEmailRequestCodeRoute,
   ApiMobileAuthEmailVerifyCodeRoute: ApiMobileAuthEmailVerifyCodeRoute,
 }

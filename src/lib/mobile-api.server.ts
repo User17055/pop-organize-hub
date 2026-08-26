@@ -47,6 +47,7 @@ export type MobileTask = {
   reminder: string;
   attachmentName: string;
   dueTime: string;
+  recurrenceTimes: string[];
   duration: string;
   recurrenceRule: string;
   recurrenceDetail: string;
@@ -1391,9 +1392,15 @@ function mobileRecurrence(task: Task) {
   }[recurrence.frequency];
   const interval =
     recurrence.frequency === "biweekly" ? 2 : (recurrence.interval ?? recurrence.intervalDays ?? 1);
+  const dayTokens = ["S", "T", "Q", "Q2", "S2", "Sá", "D"];
   return {
     rule,
-    detail: recurrence.dayOfMonth ? String(recurrence.dayOfMonth) : "",
+    detail:
+      (recurrence.frequency === "daily"
+        ? recurrence.excludedWeekDays
+        : recurrence.weekDays
+      )?.map((day) => dayTokens[day - 1]).filter(Boolean).join(",") ??
+      (recurrence.dayOfMonth ? String(recurrence.dayOfMonth) : ""),
     interval,
     endMode: recurrence.endDate ? "Em uma data" : "Nunca",
     endValue: recurrence.endDate ?? "",
@@ -1447,6 +1454,7 @@ function taskToMobileTask(
     reminder: task.nativeRemindersByUser?.[currentUser.id] ?? native?.reminder ?? "Sem lembrete",
     attachmentName: native?.attachmentName ?? "",
     dueTime: native?.dueTime ?? "",
+    recurrenceTimes: native?.recurrenceTimes ?? task.recurrence?.times ?? [],
     duration: native?.duration ?? "Sem duração",
     recurrenceRule: native?.recurrenceRule ?? recurrence.rule,
     recurrenceDetail: native?.recurrenceDetail ?? recurrence.detail,
@@ -1553,16 +1561,35 @@ function mobileTaskRecurrence(item: MobileTask): Task["recurrence"] {
       : undefined;
   const dueDay = Number(item.dueDate.slice(8, 10)) || 1;
   const dueMonth = Number(item.dueDate.slice(5, 7)) || 1;
+  const dayMap = new Map([
+    ["S", 1],
+    ["T", 2],
+    ["Q", 3],
+    ["Q2", 4],
+    ["S2", 5],
+    ["Sá", 6],
+    ["D", 7],
+  ]);
+  const weekDays = item.recurrenceDetail
+    .split(",")
+    .map((day) => dayMap.get(day))
+    .filter((day): day is number => day != null);
 
   if (item.recurrenceRule === "Diária") {
     return interval === 1
-      ? { frequency: "daily", endDate }
-      : { frequency: "custom", interval, intervalDays: interval, customUnit: "days", endDate };
+      ? { frequency: "daily", excludedWeekDays: weekDays, times: item.recurrenceTimes, endDate }
+      : {
+          frequency: "daily",
+          interval,
+          excludedWeekDays: weekDays,
+          times: item.recurrenceTimes,
+          endDate,
+        };
   }
   if (item.recurrenceRule === "Semanal") {
-    if (interval === 1) return { frequency: "weekly", endDate };
-    if (interval === 2) return { frequency: "biweekly", endDate };
-    return { frequency: "custom", interval, customUnit: "weeks", endDate };
+    if (interval === 1) return { frequency: "weekly", weekDays, endDate };
+    if (interval === 2) return { frequency: "biweekly", weekDays, endDate };
+    return { frequency: "weekly", interval, weekDays, endDate };
   }
   if (item.recurrenceRule === "Mensal") {
     return {

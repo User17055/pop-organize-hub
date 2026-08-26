@@ -428,34 +428,33 @@ function TasksPage() {
     updateTaskMutation.reset();
   }
 
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    const [selectedType, selectedId] = form.targetKey.split(":") as [TargetType, string];
+  function handleSubmit(submittedForm: TaskFormState) {
+    const [selectedType, selectedId] = submittedForm.targetKey.split(":") as [TargetType, string];
     const type = isPersonalWorkspace ? "user" : selectedType;
     const id = isPersonalWorkspace ? currentUser.id : selectedId;
-    const responsibleId = type === "user" ? "" : form.responsibleId;
+    const responsibleId = type === "user" ? "" : submittedForm.responsibleId;
 
     createTaskMutation.mutate({
-      title: form.title,
-      description: form.description,
-      priority: form.priority,
-      dueDate: form.dueDate,
+      title: submittedForm.title,
+      description: submittedForm.description,
+      priority: submittedForm.priority,
+      dueDate: submittedForm.dueDate,
       target: { type, id },
       responsibleId,
       reviewerId:
-        !isPersonalWorkspace && form.requiresReview
-          ? form.reviewerId || responsibleId || undefined
+        !isPersonalWorkspace && submittedForm.requiresReview
+          ? submittedForm.reviewerId || responsibleId || undefined
           : undefined,
-      requiresReview: !isPersonalWorkspace && form.requiresReview,
-      tags: form.tags
+      requiresReview: !isPersonalWorkspace && submittedForm.requiresReview,
+      tags: submittedForm.tags
         .split(",")
         .map((tag) => tag.trim())
         .filter(Boolean),
-      checklist: form.checklist
+      checklist: submittedForm.checklist
         .split(/\r?\n/)
         .map((item) => item.trim())
         .filter(Boolean),
-      recurrence: recurrenceFromForm(form.recurrence),
+      recurrence: recurrenceFromForm(submittedForm.recurrence),
     });
   }
 
@@ -1074,7 +1073,6 @@ function TasksPage() {
         open={showForm}
         onOpenChange={setShowForm}
         form={form}
-        onFormChange={setForm}
         onSubmit={handleSubmit}
         isSubmitting={createTaskMutation.isPending}
         errorMessage={mutationError}

@@ -8,13 +8,13 @@ import { ErrorState, LoadingState } from "@/components/data-state";
 import { Field } from "@/components/form-field";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   createPermissionGroup,
   deletePermissionGroup,
@@ -326,23 +326,34 @@ function PermissoesPage() {
         })}
       </div>
 
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <form onSubmit={handleSubmit}>
-            <DialogHeader>
-              <DialogTitle>{form.id ? "Editar grupo" : "Novo grupo de permissão"}</DialogTitle>
-              <DialogDescription>
+      <Sheet open={showForm} onOpenChange={setShowForm}>
+        <SheetContent
+          side="left"
+          className="w-full gap-0 overflow-hidden border-r border-primary/15 bg-card p-0 shadow-[24px_0_60px_-32px_rgba(15,92,190,0.45)] sm:max-w-[620px]"
+        >
+          <form
+            onSubmit={handleSubmit}
+            className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]"
+          >
+            <SheetHeader className="border-b border-border/70 bg-primary/[0.035] px-5 pb-5 pt-6 text-left sm:px-6">
+              <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                {form.isSystem ? <Lock className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
+              </div>
+              <SheetTitle className="font-display text-2xl font-bold">
+                {form.id ? "Editar grupo de permissão" : "Criar grupo de permissão"}
+              </SheetTitle>
+              <SheetDescription className="max-w-lg leading-relaxed">
                 Escolha o que os membros deste grupo podem ver e fazer no sistema.
-              </DialogDescription>
-            </DialogHeader>
+              </SheetDescription>
+            </SheetHeader>
 
-            <div className="space-y-4 mt-4">
+            <div className="min-h-0 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Nome">
                   <input
                     value={form.name}
                     onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
-                    className="w-full h-9 px-3 rounded-xl bg-background border border-input outline-none focus:border-primary text-sm"
+                    className="task-create-input h-11 w-full rounded-xl border px-3.5 text-sm outline-none transition"
                     placeholder="Ex: Financeiro - somente tarefas"
                     required
                   />
@@ -353,7 +364,7 @@ function PermissoesPage() {
                     onChange={(e) =>
                       setForm((current) => ({ ...current, description: e.target.value }))
                     }
-                    className="w-full h-9 px-3 rounded-xl bg-background border border-input outline-none focus:border-primary text-sm"
+                    className="task-create-input h-11 w-full rounded-xl border px-3.5 text-sm outline-none transition"
                     placeholder="O que este grupo pode fazer"
                   />
                 </Field>
@@ -372,7 +383,10 @@ function PermissoesPage() {
                   const keys = category.items.map((item) => item.key);
                   const allSelected = keys.every((key) => form.permissions.includes(key));
                   return (
-                    <div key={category.category} className="rounded-xl border border-border p-3.5">
+                    <div
+                      key={category.category}
+                      className="rounded-2xl border border-border bg-background/55 p-3.5"
+                    >
                       <div className="mb-2.5 flex items-center justify-between gap-3">
                         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           {category.category}
@@ -391,7 +405,10 @@ function PermissoesPage() {
                           <label
                             key={item.key}
                             className={cn(
-                              "flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors",
+                              "flex items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors",
+                              form.permissions.includes(item.key)
+                                ? "border-primary/25 bg-primary/[0.055]"
+                                : "border-transparent",
                               form.isSystem ? "opacity-60" : "cursor-pointer hover:bg-muted/60",
                             )}
                           >
@@ -417,7 +434,7 @@ function PermissoesPage() {
                 })}
               </div>
 
-              <div className="rounded-xl border border-border p-3.5">
+              <div className="rounded-2xl border border-border bg-background/55 p-3.5">
                 <div className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Membros ({form.memberIds.length})
                 </div>
@@ -431,7 +448,12 @@ function PermissoesPage() {
                     return (
                       <label
                         key={employee.id}
-                        className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 cursor-pointer hover:bg-muted/60 transition-colors"
+                        className={cn(
+                          "flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-colors",
+                          form.memberIds.includes(employee.id)
+                            ? "border-primary/25 bg-primary/[0.055]"
+                            : "border-transparent hover:bg-muted/60",
+                        )}
                       >
                         <Checkbox
                           checked={form.memberIds.includes(employee.id)}
@@ -455,11 +477,11 @@ function PermissoesPage() {
               {mutationError && <div className="text-sm text-destructive">{mutationError}</div>}
             </div>
 
-            <DialogFooter className="mt-6">
+            <SheetFooter className="border-t border-border/70 bg-card/95 px-5 py-4 backdrop-blur sm:px-6">
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="h-9 px-4 rounded-xl border border-border text-sm font-medium hover:bg-muted transition"
+                className="h-11 rounded-xl border border-border px-5 text-sm font-semibold transition hover:bg-muted"
               >
                 Cancelar
               </button>
@@ -467,14 +489,14 @@ function PermissoesPage() {
                 type="submit"
                 disabled={isSaving}
                 style={{ background: "var(--gradient-primary)" }}
-                className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
+                className="h-11 flex-1 rounded-xl px-5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-elegant)] transition hover:opacity-90 disabled:opacity-60 sm:flex-none"
               >
                 {isSaving ? "Salvando..." : form.id ? "Salvar grupo" : "Criar grupo"}
               </button>
-            </DialogFooter>
+            </SheetFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </AppShell>
   );
 }

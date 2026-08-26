@@ -138,6 +138,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -150,6 +151,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -280,6 +282,7 @@ private data class PopTask(
     val reminder: String = "Sem lembrete",
     val attachmentName: String = "",
     val dueTime: String = "",
+    val recurrenceTimes: List<String> = emptyList(),
     val duration: String = "Sem duração",
     val recurrenceRule: String = "Não repetir",
     val recurrenceDetail: String = "",
@@ -419,10 +422,19 @@ private fun dueLabelForDate(date: LocalDate): String {
 
 private fun advanceRecurrenceDate(task: PopTask, from: LocalDate): LocalDate? {
     val interval = task.recurrenceInterval.coerceAtLeast(1)
+    val dayMap = mapOf("S" to 1, "T" to 2, "Q" to 3, "Q2" to 4, "S2" to 5, "Sá" to 6, "D" to 7)
     return when (task.recurrenceRule) {
-        "Diária" -> from.plusDays(interval.toLong())
+        "Diária" -> {
+            val excludedDays = task.recurrenceDetail.split(",").mapNotNull(dayMap::get).toSet()
+            var nextDate = from.plusDays(interval.toLong())
+            var attempts = 0
+            while (nextDate.dayOfWeek.value in excludedDays && attempts < 7) {
+                nextDate = nextDate.plusDays(1)
+                attempts += 1
+            }
+            nextDate
+        }
         "Semanal" -> {
-            val dayMap = mapOf("S" to 1, "T" to 2, "Q" to 3, "Q2" to 4, "S2" to 5, "Sá" to 6, "D" to 7)
             val selectedDays = task.recurrenceDetail.split(",").mapNotNull(dayMap::get).sorted()
                 .ifEmpty { listOf(from.dayOfWeek.value) }
             val weekStart = from.minusDays((from.dayOfWeek.value - 1).toLong())
@@ -492,6 +504,13 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 reminder = item.optString("reminder", "Sem lembrete"),
                 attachmentName = item.optString("attachmentName"),
                 dueTime = item.optString("dueTime"),
+                recurrenceTimes = item.optJSONArray("recurrenceTimes")?.let { values ->
+                    buildList {
+                        repeat(values.length()) { index ->
+                            values.optString(index).takeIf(String::isNotBlank)?.let(::add)
+                        }
+                    }
+                }.orEmpty(),
                 duration = item.optString("duration", "Sem duração"),
                 recurrenceRule = item.optString("recurrenceRule", "Não repetir"),
                 recurrenceDetail = item.optString("recurrenceDetail"),
@@ -651,8 +670,12 @@ private fun recurringSeriesKey(task: PopTask) = listOf(
 ).joinToString("|")
 
 private fun calendarTasksForMonth(tasks: List<PopTask>, month: YearMonth): List<PopTask> {
+    val monthStart = month.atDay(1)
     val monthEnd = month.atEndOfMonth()
-    val result = tasks.toMutableList()
+    val result = tasks.filterTo(mutableListOf()) { task ->
+        val dueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull()
+        dueDate != null && !dueDate.isBefore(monthStart) && !dueDate.isAfter(monthEnd)
+    }
     val existingDates = tasks.mapTo(mutableSetOf()) { task ->
         "${recurringSeriesKey(task)}:${task.dueDate}"
     }
@@ -687,7 +710,7 @@ private fun calendarTasksForMonth(tasks: List<PopTask>, month: YearMonth): List<
                 if (!withinEnd) break
 
                 val dateKey = "$seriesKey:$occurrenceDate"
-                if (!occurrenceDate.isBefore(month.atDay(1)) && existingDates.add(dateKey)) {
+                if (!occurrenceDate.isBefore(monthStart) && existingDates.add(dateKey)) {
                     result += template.copy(
                         id = -("${template.id}:$occurrenceDate".hashCode().absoluteValue + 1),
                         serverId = template.serverId,
@@ -725,6 +748,7 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("reminder", task.reminder)
                 .put("attachmentName", task.attachmentName)
                 .put("dueTime", task.dueTime)
+                .put("recurrenceTimes", JSONArray(task.recurrenceTimes))
                 .put("duration", task.duration)
                 .put("recurrenceRule", task.recurrenceRule)
                 .put("recurrenceDetail", task.recurrenceDetail)
@@ -2499,6 +2523,7 @@ private fun PopMainContent(
     val moreSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var taskToOpenId by remember { mutableStateOf<Int?>(null) }
     var taskToCreateDate by remember { mutableStateOf<LocalDate?>(null) }
+    var calendarTaskToOpenId by remember { mutableStateOf<Int?>(null) }
     var workSpace by remember { mutableStateOf(WorkSpace.Personal) }
     var selectedCompanyIndex by remember { mutableIntStateOf(0) }
     var preferredWorkspaceRestored by remember(googleAccount?.id) { mutableStateOf(false) }
@@ -3015,13 +3040,16 @@ private fun PopMainContent(
     LaunchedEffect(personalTasks.toList(), companyTaskGroups.map { it.toList() }) {
         saveNotificationTaskSnapshot(
             context,
-            (personalTasks + companyTaskGroups.flatten()).map { task ->
-                NotificationTaskSnapshot(
-                    title = task.title,
-                    dueDate = task.dueDate,
-                    dueTime = task.dueTime,
-                    completed = task.completed,
-                )
+            (personalTasks + companyTaskGroups.flatten()).flatMap { task ->
+                val times = task.recurrenceTimes.takeIf { it.size >= 2 } ?: listOf(task.dueTime)
+                times.map { time ->
+                    NotificationTaskSnapshot(
+                        title = task.title,
+                        dueDate = task.dueDate,
+                        dueTime = time,
+                        completed = task.completed,
+                    )
+                }
             },
         )
     }
@@ -3151,12 +3179,13 @@ private fun PopMainContent(
                                         val markingCompleted = !task.completed
                                         tasks[index] = task.copy(completed = markingCompleted)
                                         if (markingCompleted) {
-                                            val nextDate = nextRecurrenceDate(task)
+                                            val nextOccurrence = nextTaskOccurrence(task)
                                             if (
-                                                nextDate != null &&
+                                                nextOccurrence != null &&
                                                 tasks.none {
                                                     it.title == task.title &&
-                                                        it.dueDate == nextDate.toString() &&
+                                                        it.dueDate == nextOccurrence.first.toString() &&
+                                                        it.dueTime == nextOccurrence.second &&
                                                         !it.completed
                                                 }
                                             ) {
@@ -3166,8 +3195,9 @@ private fun PopMainContent(
                                                         id = (tasks.filter { it.id > 0 }
                                                             .maxOfOrNull { it.id } ?: 0) + 1,
                                                         serverId = "",
-                                                        dueDate = nextDate.toString(),
-                                                        dueLabel = dueLabelForDate(nextDate),
+                                                        dueDate = nextOccurrence.first.toString(),
+                                                        dueLabel = dueLabelForDate(nextOccurrence.first),
+                                                        dueTime = nextOccurrence.second,
                                                         completed = false,
                                                         recurrenceOccurrence =
                                                             task.recurrenceOccurrence + 1,
@@ -3178,16 +3208,49 @@ private fun PopMainContent(
                                     }
                                 }
                             },
-                            onOpenTask = { task ->
-                                taskToOpenId = null
-                                destination = PopDestination.Tasks
-                                navigationScope.launch {
-                                    delay(240)
-                                    taskToOpenId = task.id
-                                }
-                            },
+                            onOpenTask = { task -> calendarTaskToOpenId = task.id },
                             onCreateTaskForDate = { date -> taskToCreateDate = date },
                         )
+                        if (calendarTaskToOpenId != null) {
+                            TasksScreen(
+                                tasks = tasks,
+                                canCreateTask = canCreateTask,
+                                currentUserId = googleAccount?.id.orEmpty(),
+                                currentUserName = googleAccount?.name.orEmpty(),
+                                workSpace = workSpace,
+                                onWorkSpaceChange = ::selectWorkSpace,
+                                companyNames = companyNames,
+                                companyDescriptions = companyDescriptions,
+                                companyMembers = companyMembers,
+                                companySectors = companySectors,
+                                companyGroups = companyGroups,
+                                selectedCompanyIndex = selectedCompanyIndex,
+                                onCompanySelect = ::selectCompany,
+                                onCreateCompany = ::requestCreateCompany,
+                                onOpenMenu = { showTaskOrganizer = true },
+                                initialTaskId = calendarTaskToOpenId,
+                                onInitialTaskOpened = {},
+                                onTaskDeleted = { deletedTask ->
+                                    val account = googleAccount
+                                    if (account != null && deletedTask.serverId.isNotBlank()) {
+                                        val workspaceId =
+                                            if (workSpace == WorkSpace.Company) {
+                                                companyIds.getOrNull(selectedCompanyIndex).orEmpty()
+                                            } else {
+                                                ""
+                                            }
+                                        queueTaskDeletion(
+                                            context = context,
+                                            accountId = account.id,
+                                            workspaceId = workspaceId,
+                                            serverId = deletedTask.serverId,
+                                        )
+                                    }
+                                },
+                                detailOnly = true,
+                                onDetailClosed = { calendarTaskToOpenId = null },
+                            )
+                        }
                         if (taskToCreateDate != null) {
                             TasksScreen(
                                 tasks = tasks,
@@ -4958,6 +5021,8 @@ private fun TasksScreen(
     initialCreateDate: LocalDate? = null,
     createOnly: Boolean = false,
     onCreateFormClosed: () -> Unit = {},
+    detailOnly: Boolean = false,
+    onDetailClosed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -4979,6 +5044,7 @@ private fun TasksScreen(
     var newTaskReminder by remember { mutableStateOf("Sem lembrete") }
     var newTaskAttachment by remember { mutableStateOf("") }
     var newTaskTime by remember { mutableStateOf("") }
+    var newTaskRecurrenceTimes by remember { mutableStateOf<List<String>>(emptyList()) }
     var newTaskDuration by remember { mutableStateOf("Sem duração") }
     var newTaskRecurrenceEnd by remember { mutableStateOf("Nunca") }
     var newTaskRecurrenceInterval by remember { mutableIntStateOf(1) }
@@ -5007,6 +5073,7 @@ private fun TasksScreen(
     var editPriority by remember { mutableStateOf("Média") }
     var editDueDate by remember { mutableStateOf("") }
     var editDueTime by remember { mutableStateOf("") }
+    var editRecurrenceTimes by remember { mutableStateOf<List<String>>(emptyList()) }
     var editReminder by remember { mutableStateOf("Sem lembrete") }
     var editRecurrence by remember { mutableStateOf("Não repetir") }
     var editRecurrenceDetail by remember { mutableStateOf("") }
@@ -5190,15 +5257,24 @@ private fun TasksScreen(
                 val currentIndex = tasks.indexOfFirst { it.id == task.id }
                 if (currentIndex >= 0) {
                     tasks[currentIndex] = task.copy(completed = true)
-                    val nextDate = nextRecurrenceDate(task)
-                    if (nextDate != null && tasks.none { it.title == task.title && it.dueDate == nextDate.toString() && !it.completed }) {
+                    val nextOccurrence = nextTaskOccurrence(task)
+                    if (
+                        nextOccurrence != null &&
+                        tasks.none {
+                            it.title == task.title &&
+                                it.dueDate == nextOccurrence.first.toString() &&
+                                it.dueTime == nextOccurrence.second &&
+                                !it.completed
+                        }
+                    ) {
                         tasks.add(
                             (currentIndex + 1).coerceAtMost(tasks.size),
                             task.copy(
                                 id = (tasks.filter { it.id > 0 }.maxOfOrNull { it.id } ?: 0) + 1,
                                 serverId = "",
-                                dueDate = nextDate.toString(),
-                                dueLabel = dueLabelForDate(nextDate),
+                                dueDate = nextOccurrence.first.toString(),
+                                dueLabel = dueLabelForDate(nextOccurrence.first),
+                                dueTime = nextOccurrence.second,
                                 completed = false,
                                 recurrenceOccurrence = task.recurrenceOccurrence + 1,
                             ),
@@ -5265,6 +5341,7 @@ private fun TasksScreen(
         editDueDate = runCatching { LocalDate.parse(task.dueDate) }
             .getOrNull()?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: task.dueDate
         editDueTime = task.dueTime
+        editRecurrenceTimes = task.recurrenceTimes
         editReminder = task.reminder
         editRecurrence = task.recurrenceRule
         editRecurrenceDetail = task.recurrenceDetail
@@ -5285,6 +5362,11 @@ private fun TasksScreen(
         editAttachment = task.attachmentName
     }
 
+    fun finishTaskDetails() {
+        editingTaskId = null
+        if (detailOnly) onDetailClosed()
+    }
+
     LaunchedEffect(initialTaskId) {
         initialTaskId?.let { taskId ->
             tasks.firstOrNull { it.id == taskId }?.let(::openTask)
@@ -5296,6 +5378,10 @@ private fun TasksScreen(
         val taskId = editingTaskId ?: return
         val index = tasks.indexOfFirst { it.id == taskId }
         if (index < 0 || editTitle.trim().length < 3) return
+        if (editRecurrenceTimes.isNotEmpty() && editRecurrenceTimes.size < 2) {
+            Toast.makeText(context, "Informe pelo menos dois horários", Toast.LENGTH_SHORT).show()
+            return
+        }
         val original = tasks[index]
         if (!canEditTask(original)) {
             Toast.makeText(context, "Você pode visualizar, mas não editar esta tarefa", Toast.LENGTH_SHORT).show()
@@ -5314,10 +5400,22 @@ private fun TasksScreen(
         val recurrenceSummary = if (editRecurrence == "Não repetir") {
             editRecurrence
         } else {
+            val dayLabels = mapOf("S" to "Seg", "T" to "Ter", "Q" to "Qua", "Q2" to "Qui", "S2" to "Sex", "Sá" to "Sáb", "D" to "Dom")
+            val selectedDayLabels = editRecurrenceDetail
+                .split(",")
+                .mapNotNull(dayLabels::get)
+                .joinToString(", ")
+            val detailSummary = when (editRecurrence) {
+                "Diária" -> selectedDayLabels.takeIf(String::isNotBlank)?.let { "exceto $it" }.orEmpty()
+                "Semanal" -> selectedDayLabels
+                "Mensal" -> editRecurrenceDetail.takeIf(String::isNotBlank)?.let { "dia $it" }.orEmpty()
+                else -> ""
+            }
             buildList {
                 add(editRecurrence)
                 if (editRecurrenceInterval > 1) add("a cada $editRecurrenceInterval")
-                if (editRecurrenceDetail.isNotBlank()) add(editRecurrenceDetail.trim())
+                if (detailSummary.isNotBlank()) add(detailSummary)
+                if (editRecurrenceTimes.size >= 2) add(editRecurrenceTimes.sorted().joinToString(" e "))
                 when (editRecurrenceEnd) {
                     "Após" -> add("${storedEndValue} ocorrências")
                     "Em uma data" -> add("até $editRecurrenceEndValue")
@@ -5340,7 +5438,8 @@ private fun TasksScreen(
             priority = editPriority,
             dueDate = parsedDate.toString(),
             dueLabel = dueLabelForDate(parsedDate),
-            dueTime = editDueTime.trim(),
+            dueTime = editRecurrenceTimes.minOrNull() ?: editDueTime.trim(),
+            recurrenceTimes = editRecurrenceTimes.sorted(),
             reminder = editReminder,
             recurrence = recurrenceSummary,
             recurrenceRule = editRecurrence,
@@ -5362,7 +5461,7 @@ private fun TasksScreen(
             checklist = if (isTaskAdmin) editChecklist else original.checklist,
             attachmentName = editAttachment,
         )
-        editingTaskId = null
+        finishTaskDetails()
     }
 
     fun dismissTaskDetails() {
@@ -5370,7 +5469,7 @@ private fun TasksScreen(
         if (currentTask?.canEdit == true) {
             saveEditedTask()
         } else {
-            editingTaskId = null
+            finishTaskDetails()
         }
     }
 
@@ -5382,6 +5481,10 @@ private fun TasksScreen(
 
     fun addTask() {
         if (newTaskTitle.trim().length < 3) return
+        if (newTaskRecurrenceTimes.isNotEmpty() && newTaskRecurrenceTimes.size < 2) {
+            Toast.makeText(context, "Informe pelo menos dois horários", Toast.LENGTH_SHORT).show()
+            return
+        }
         val selectedDueDate = LocalDate.now().plusDays(newTaskDateOffset.toLong())
         val recurrenceEndValue = when (newTaskRecurrenceEnd) {
             "Após" -> newTaskRecurrenceCount.toString()
@@ -5391,6 +5494,11 @@ private fun TasksScreen(
             else -> ""
         }
         val recurrenceDetailSummary = when (newTaskRecurrence) {
+            "Diária" -> {
+                val labels = mapOf("S" to "Seg", "T" to "Ter", "Q" to "Qua", "Q2" to "Qui", "S2" to "Sex", "Sá" to "Sáb", "D" to "Dom")
+                newTaskRecurrenceDetail.split(",").mapNotNull(labels::get).joinToString(", ")
+                    .takeIf(String::isNotBlank)?.let { "exceto $it" }.orEmpty()
+            }
             "Semanal" -> {
                 val labels = mapOf("S" to "Seg", "T" to "Ter", "Q" to "Qua", "Q2" to "Qui", "S2" to "Sex", "Sá" to "Sáb", "D" to "Dom")
                 newTaskRecurrenceDetail.split(",").mapNotNull(labels::get).joinToString(", ")
@@ -5442,6 +5550,9 @@ private fun TasksScreen(
                         add(newTaskRecurrence)
                         if (newTaskRecurrenceInterval > 1) add("a cada $newTaskRecurrenceInterval")
                         if (recurrenceDetailSummary.isNotBlank()) add(recurrenceDetailSummary)
+                        if (newTaskRecurrenceTimes.size >= 2) {
+                            add(newTaskRecurrenceTimes.sorted().joinToString(" e "))
+                        }
                         when (newTaskRecurrenceEnd) {
                             "Após" -> add("$newTaskRecurrenceCount ocorrências")
                             "Em uma data" -> add("até $newTaskRecurrenceEndDate")
@@ -5450,7 +5561,8 @@ private fun TasksScreen(
                 },
                 reminder = newTaskReminder,
                 attachmentName = newTaskAttachment,
-                dueTime = newTaskTime,
+                dueTime = newTaskRecurrenceTimes.minOrNull() ?: newTaskTime,
+                recurrenceTimes = newTaskRecurrenceTimes.sorted(),
                 duration = newTaskDuration,
                 recurrenceRule = newTaskRecurrence,
                 recurrenceDetail = newTaskRecurrenceDetail,
@@ -5488,6 +5600,7 @@ private fun TasksScreen(
         newTaskReminder = "Sem lembrete"
         newTaskAttachment = ""
         newTaskTime = ""
+        newTaskRecurrenceTimes = emptyList()
         newTaskDuration = "Sem duração"
         newTaskRecurrenceEnd = "Nunca"
         newTaskRecurrenceInterval = 1
@@ -5497,7 +5610,7 @@ private fun TasksScreen(
         showCreate = false
     }
 
-    if (!createOnly && initialCreateDate == null) Box(Modifier.fillMaxSize()) {
+    if (!createOnly && !detailOnly && initialCreateDate == null) Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = taskListState,
             contentPadding = PaddingValues(bottom = 92.dp),
@@ -5902,6 +6015,7 @@ private fun TasksScreen(
             onDismissRequest = ::dismissTaskDetails,
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
         ) {
+            KeepModalNavigationBarHidden()
             val dialogView = LocalView.current
             val openedTask = tasks.firstOrNull { it.id == editingTaskId }
             val detailCanEdit = openedTask?.canEdit == true
@@ -6265,15 +6379,30 @@ private fun TasksScreen(
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                                     listOf("Não repetir", "Diária", "Semanal").forEach { option ->
                                         DetailChoicePill(option, editRecurrence == option) {
+                                            val changed = editRecurrence != option
                                             editRecurrence = option
-                                            if (option == "Não repetir") editRecurrenceDetail = ""
+                                            if (changed) {
+                                                if (option != "Diária") editRecurrenceTimes = emptyList()
+                                                editRecurrenceDetail = if (option == "Semanal") {
+                                                    val dueDay = openedTask?.dueDate
+                                                        ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                                                        ?.dayOfWeek?.value ?: LocalDate.now().dayOfWeek.value
+                                                    weekDayToken(dueDay)
+                                                } else {
+                                                    ""
+                                                }
+                                            }
                                         }
                                         if (option != "Semanal") Spacer(Modifier.width(7.dp))
                                     }
                                 }
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                                     listOf("Mensal", "Anual").forEach { option ->
-                                        DetailChoicePill(option, editRecurrence == option) { editRecurrence = option }
+                                        DetailChoicePill(option, editRecurrence == option) {
+                                            if (editRecurrence != option) editRecurrenceDetail = ""
+                                            editRecurrenceTimes = emptyList()
+                                            editRecurrence = option
+                                        }
                                         if (option != "Anual") Spacer(Modifier.width(7.dp))
                                     }
                                 }
@@ -6285,16 +6414,42 @@ private fun TasksScreen(
                                             onValueChange = { editRecurrenceInterval = it.coerceIn(1, 99) },
                                             accentColor = PopBlue,
                                         )
-                                        TextField(
-                                            value = editRecurrenceDetail,
-                                            onValueChange = { editRecurrenceDetail = it },
-                                            label = { Text("Dias ou regra personalizada") },
-                                            placeholder = { Text("Ex.: segunda e quarta") },
-                                            singleLine = true,
-                                            shape = RoundedCornerShape(14.dp),
-                                            colors = taskEditorFieldColors(PopSurface),
-                                            modifier = Modifier.fillMaxWidth(),
-                                        )
+                                        if (editRecurrence == "Diária" || editRecurrence == "Semanal") {
+                                            WeekDayPicker(
+                                                title = if (editRecurrence == "Diária") {
+                                                    "Não repetir nestes dias"
+                                                } else {
+                                                    "Repetir nestes dias"
+                                                },
+                                                detail = editRecurrenceDetail,
+                                                preventAllSelected = editRecurrence == "Diária",
+                                                onDetailChange = { editRecurrenceDetail = it },
+                                            )
+                                            if (editRecurrence == "Diária") {
+                                                DailyTimesPicker(
+                                                    times = editRecurrenceTimes,
+                                                    baseTime = editDueTime,
+                                                    onTimesChange = { updatedTimes ->
+                                                        editRecurrenceTimes = updatedTimes
+                                                        if (updatedTimes.isNotEmpty()) {
+                                                            editDueTime = updatedTimes.minOrNull().orEmpty()
+                                                        }
+                                                    },
+                                                )
+                                            }
+                                        } else if (editRecurrence == "Mensal") {
+                                            TextField(
+                                                value = editRecurrenceDetail,
+                                                onValueChange = { value ->
+                                                    editRecurrenceDetail = value.filter(Char::isDigit).take(2)
+                                                },
+                                                label = { Text("Dia do mês") },
+                                                singleLine = true,
+                                                shape = RoundedCornerShape(14.dp),
+                                                colors = taskEditorFieldColors(PopSurface),
+                                                modifier = Modifier.fillMaxWidth(),
+                                            )
+                                        }
                                         Text("Quando termina?", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                                             listOf("Nunca", "Após", "Em uma data").forEach { option ->
@@ -6596,7 +6751,7 @@ private fun TasksScreen(
                                         delay(340)
                                         tasks.firstOrNull { it.id == taskId }?.let(onTaskDeleted)
                                         tasks.removeAll { it.id == taskId }
-                                        editingTaskId = null
+                                        finishTaskDetails()
                                         deletingTaskId = null
                                     }
                                 }
@@ -6628,7 +6783,7 @@ private fun TasksScreen(
                                         onTaskDeleted(selectedTask)
                                         tasks.removeAll { it.id == taskId }
                                     }
-                                    editingTaskId = null
+                                    finishTaskDetails()
                                     deletingTaskId = null
                                 }
                             }
@@ -6801,16 +6956,27 @@ private fun TasksScreen(
                         interval = newTaskRecurrenceInterval,
                         endCount = newTaskRecurrenceCount,
                         endDate = newTaskRecurrenceEndDate,
+                        times = newTaskRecurrenceTimes,
+                        baseTime = newTaskTime,
                         selectedDate = taskDateDraft,
                         onRecurrenceChange = {
                             newTaskRecurrence = it
-                            newTaskRecurrenceDetail = ""
+                            if (it != "Diária") newTaskRecurrenceTimes = emptyList()
+                            newTaskRecurrenceDetail = if (it == "Semanal") {
+                                weekDayToken(taskDateDraft.dayOfWeek.value)
+                            } else {
+                                ""
+                            }
                         },
                         onDetailChange = { newTaskRecurrenceDetail = it },
                         onEndsChange = { newTaskRecurrenceEnd = it },
                         onIntervalChange = { newTaskRecurrenceInterval = it.coerceIn(1, 99) },
                         onEndCountChange = { newTaskRecurrenceCount = it.coerceIn(2, 999) },
                         onEndDateChange = { newTaskRecurrenceEndDate = it },
+                        onTimesChange = { updatedTimes ->
+                            newTaskRecurrenceTimes = updatedTimes
+                            if (updatedTimes.isNotEmpty()) newTaskTime = updatedTimes.minOrNull().orEmpty()
+                        },
                         )
                     }
                     }
@@ -6824,6 +6990,7 @@ private fun TasksScreen(
                         newTaskTime = ""
                         newTaskReminder = "Sem lembrete"
                         newTaskRecurrence = "Não repetir"
+                        newTaskRecurrenceTimes = emptyList()
                         newTaskRecurrenceDetail = ""
                         newTaskRecurrenceEnd = "Nunca"
                         newTaskRecurrenceInterval = 1
@@ -7072,6 +7239,7 @@ private fun TasksScreen(
                         newTaskPriority = "Média"
                         newTaskDateOffset = 0
                         newTaskRecurrence = "Não repetir"
+                        newTaskRecurrenceTimes = emptyList()
                         newTaskRecurrenceDetail = ""
                         newTaskReminder = "Sem lembrete"
                         newTaskAttachment = ""
@@ -7098,6 +7266,8 @@ private fun RecurrenceSettings(
     interval: Int,
     endCount: Int,
     endDate: String,
+    times: List<String>,
+    baseTime: String,
     selectedDate: LocalDate,
     onRecurrenceChange: (String) -> Unit,
     onDetailChange: (String) -> Unit,
@@ -7105,7 +7275,11 @@ private fun RecurrenceSettings(
     onIntervalChange: (Int) -> Unit,
     onEndCountChange: (Int) -> Unit,
     onEndDateChange: (String) -> Unit,
+    onTimesChange: (List<String>) -> Unit,
 ) {
+    var showOtherFrequencies by remember(recurrence) {
+        mutableStateOf(recurrence == "Mensal" || recurrence == "Anual")
+    }
     Column(
         modifier = modifier.fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState()).padding(bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -7116,9 +7290,18 @@ private fun RecurrenceSettings(
                 ChoicePill(option, recurrence == option) { onRecurrenceChange(option) }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            listOf("Mensal", "Anual").forEach { option ->
-                ChoicePill(option, recurrence == option) { onRecurrenceChange(option) }
+        TextButton(onClick = { showOtherFrequencies = !showOtherFrequencies }) {
+            Text(
+                if (showOtherFrequencies) "Menos opções" else "Outras frequências",
+                color = PopMuted,
+                fontSize = 11.sp,
+            )
+        }
+        AnimatedVisibility(visible = showOtherFrequencies) {
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf("Mensal", "Anual").forEach { option ->
+                    ChoicePill(option, recurrence == option) { onRecurrenceChange(option) }
+                }
             }
         }
 
@@ -7144,30 +7327,27 @@ private fun RecurrenceSettings(
                     )
 
                     AnimatedVisibility(
-                        visible = recurrence == "Semanal",
+                        visible = recurrence == "Diária" || recurrence == "Semanal",
                         enter = fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 8 },
                         exit = fadeOut(tween(160)),
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Dias da semana", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        val selectedDays = detail.split(",").filter { it.isNotBlank() }.toSet()
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            listOf("S", "T", "Q", "Q2", "S2", "Sá", "D").forEach { day ->
-                                val label = day.removeSuffix("2")
-                                val selected = day in selectedDays
-                                Surface(
-                                    onClick = {
-                                        val updated = if (selected) selectedDays - day else selectedDays + day
-                                        onDetailChange(updated.joinToString(","))
-                                    },
-                                    color = if (selected) PopBlue else PopSurface,
-                                    contentColor = if (selected) Color.White else PopMuted,
-                                    shape = CircleShape,
-                                    modifier = Modifier.size(34.dp),
-                                ) { Box(contentAlignment = Alignment.Center) { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) } }
-                            }
-                        }
-                        }
+                        WeekDayPicker(
+                            title = if (recurrence == "Diária") {
+                                "Não repetir nestes dias"
+                            } else {
+                                "Repetir nestes dias"
+                            },
+                            detail = detail,
+                            preventAllSelected = recurrence == "Diária",
+                            onDetailChange = onDetailChange,
+                        )
+                    }
+                    AnimatedVisibility(visible = recurrence == "Diária") {
+                        DailyTimesPicker(
+                            times = times,
+                            baseTime = baseTime,
+                            onTimesChange = onTimesChange,
+                        )
                     }
                     AnimatedVisibility(
                         visible = recurrence == "Mensal",
@@ -7253,6 +7433,103 @@ private fun RecurrenceSettings(
                 )
             }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DailyTimesPicker(
+    times: List<String>,
+    baseTime: String,
+    onTimesChange: (List<String>) -> Unit,
+) {
+    var editingIndex by remember { mutableStateOf<Int?>(null) }
+    val enabled = times.size >= 2
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Várias vezes ao dia", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text("Cada horário gera uma nova ocorrência", color = PopMuted, fontSize = 10.sp)
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = { checked ->
+                    if (checked) {
+                        val first = baseTime.takeIf { it.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) } ?: "09:00"
+                        val firstHour = first.substringBefore(":").toIntOrNull() ?: 9
+                        val second = "%02d:%s".format((firstHour + 4) % 24, first.substringAfter(":"))
+                        onTimesChange(listOf(first, second).distinct().sorted())
+                    } else {
+                        onTimesChange(emptyList())
+                    }
+                },
+            )
+        }
+        if (enabled) {
+            times.sorted().forEachIndexed { index, time ->
+                Surface(
+                    onClick = { editingIndex = index },
+                    color = PopSurface,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Rounded.AccessTime, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(9.dp))
+                        Text(time, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        if (times.size > 2) {
+                            IconButton(
+                                onClick = { onTimesChange(times.filter { it != time }) },
+                                modifier = Modifier.size(30.dp),
+                            ) {
+                                Icon(Icons.Rounded.Close, "Remover horário", tint = PopMuted, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+            if (times.size < 12) {
+                TextButton(onClick = { editingIndex = times.size }) {
+                    Text("+ Adicionar horário", color = PopBlue, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+
+    editingIndex?.let { index ->
+        val currentTime = times.getOrNull(index) ?: "12:00"
+        key(index, currentTime) {
+            val pickerState = rememberTimePickerState(
+                initialHour = currentTime.substringBefore(":").toIntOrNull() ?: 12,
+                initialMinute = currentTime.substringAfter(":").toIntOrNull() ?: 0,
+                is24Hour = true,
+            )
+            AlertDialog(
+                onDismissRequest = { editingIndex = null },
+                title = { Text("Escolher horário", fontWeight = FontWeight.ExtraBold) },
+                text = { TimePicker(state = pickerState) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val selected = "%02d:%02d".format(pickerState.hour, pickerState.minute)
+                            val updated = times.toMutableList().apply {
+                                if (index in indices) set(index, selected) else add(selected)
+                            }.distinct().sorted()
+                            if (updated.size >= 2) onTimesChange(updated)
+                            editingIndex = null
+                        },
+                    ) { Text("Confirmar", color = PopBlue, fontWeight = FontWeight.Bold) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editingIndex = null }) { Text("Voltar", color = PopMuted) }
+                },
+                containerColor = PopSurface,
+                shape = RoundedCornerShape(24.dp),
+            )
         }
     }
 }
@@ -7730,7 +8007,7 @@ private fun TaskCard(
     ) {
         Box(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxSize().padding(start = 14.dp, end = 76.dp),
+            Modifier.fillMaxSize().padding(start = 14.dp, end = 60.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -7834,6 +8111,7 @@ private fun TaskCard(
                 }
             }
             if (showAssigneeAvatars && hasVisibleAssignees) {
+                Spacer(Modifier.width(10.dp))
                 TaskAssigneeAvatarStack(task = task, members = members)
             }
         }
@@ -8043,6 +8321,7 @@ private fun CalendarScreen(
     onOpenTask: (PopTask) -> Unit,
     onCreateTaskForDate: (LocalDate) -> Unit,
 ) {
+    val taskSnapshot = tasks.toList()
     val anchorMonth = remember { YearMonth.now() }
     val pagerCenter = 6000
     val pagerPageCount = 12001
@@ -8056,22 +8335,24 @@ private fun CalendarScreen(
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
-    val visibleCalendarTasks = calendarTasksForMonth(tasks, month)
-    val selectedDayTasks = visibleCalendarTasks.filter { task ->
-        runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == selectedDate
-    }.sortedWith(
-        compareBy<PopTask> { it.dueTime.isBlank() }
-            .thenBy { it.dueTime }
-            .thenBy { it.completed }
-            .thenBy {
-                when (it.priority) {
-                    "Urgente" -> 0
-                    "Alta" -> 1
-                    "Média" -> 2
-                    else -> 3
-                }
-            },
-    )
+    val visibleCalendarTasks = remember(taskSnapshot, month) {
+        calendarTasksForMonth(taskSnapshot, month)
+    }
+    val selectedDayTasks = remember(visibleCalendarTasks, selectedDate) {
+        visibleCalendarTasks.filter { task -> task.dueDate == selectedDate.toString() }.sortedWith(
+            compareBy<PopTask> { it.dueTime.isBlank() }
+                .thenBy { it.dueTime }
+                .thenBy { it.completed }
+                .thenBy {
+                    when (it.priority) {
+                        "Urgente" -> 0
+                        "Alta" -> 1
+                        "Média" -> 2
+                        else -> 3
+                    }
+                },
+        )
+    }
     val selectedDateLabel = if (selectedDate == today) {
         "Tarefas de hoje"
     } else {
@@ -8119,9 +8400,16 @@ private fun CalendarScreen(
                 modifier = Modifier.fillMaxWidth().wrapContentHeight(),
             ) { page ->
                 val pageMonth = anchorMonth.plusMonths((page - pagerCenter).toLong())
+                val pageTasks = if (pageMonth == month) {
+                    visibleCalendarTasks
+                } else {
+                    remember(taskSnapshot, pageMonth) {
+                        calendarTasksForMonth(taskSnapshot, pageMonth)
+                    }
+                }
                 CalendarGrid(
                     month = pageMonth,
-                    tasks = calendarTasksForMonth(tasks, pageMonth),
+                    tasks = pageTasks,
                     selectedDate = selectedDate,
                     onDateSelected = { selectedDate = it },
                     onDateDoubleSelected = if (canCreateTask) {
@@ -8154,6 +8442,21 @@ private fun CalendarScreen(
     }
 
 }
+
+private fun nextTaskOccurrence(task: PopTask): Pair<LocalDate, String>? {
+    val currentDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return null
+    val times = task.recurrenceTimes.distinct().sorted()
+    if (times.size >= 2) {
+        val currentTime = task.dueTime.ifBlank { times.first() }
+        val laterToday = times.firstOrNull { it > currentTime }
+        if (laterToday != null) return currentDate to laterToday
+    }
+    val nextDate = nextRecurrenceDate(task) ?: return null
+    return nextDate to (times.firstOrNull() ?: task.dueTime)
+}
+
+private fun weekDayToken(dayOfWeek: Int): String =
+    listOf("S", "T", "Q", "Q2", "S2", "Sá", "D")[dayOfWeek.coerceIn(1, 7) - 1]
 
 @Composable
 private fun CalendarDayAgenda(
@@ -8323,10 +8626,13 @@ private fun CalendarGrid(
     onDateSelected: (LocalDate) -> Unit,
     onDateDoubleSelected: ((LocalDate) -> Unit)? = null,
 ) {
-    val firstOffset = month.atDay(1).dayOfWeek.value - 1
-    val monthCells = List(firstOffset) { null } + (1..month.lengthOfMonth()).map { it }
-    val cells = monthCells + List(42 - monthCells.size) { null }
-    val today = LocalDate.now()
+    val cells = remember(month) {
+        val firstOffset = month.atDay(1).dayOfWeek.value - 1
+        val monthCells = List(firstOffset) { null } + (1..month.lengthOfMonth()).map { it }
+        monthCells + List(42 - monthCells.size) { null }
+    }
+    val tasksByDate = remember(tasks) { tasks.groupBy(PopTask::dueDate) }
+    val today = remember { LocalDate.now() }
     Column(
         Modifier
             .padding(horizontal = 20.dp)
@@ -8345,9 +8651,7 @@ private fun CalendarGrid(
                     val date = day?.let(month::atDay)
                     val selected = date == selectedDate
                     val isToday = date == today
-                    val dayTasks = if (day == null) emptyList() else tasks.filter { task ->
-                        runCatching { LocalDate.parse(task.dueDate) }.getOrNull() == month.atDay(day)
-                    }
+                    val dayTasks = if (date == null) emptyList() else tasksByDate[date.toString()].orEmpty()
                     Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
                         if (day != null) {
                             Box(
@@ -8680,28 +8984,18 @@ private fun MoreScreen(
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
             Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
-                ManagementOverviewPage(
-                    title = "Permissões",
-                    subtitle = "${companyNames.getOrElse(selectedCompanyIndex) { "Empresa" }} • ${companyPermissionGroups.size} grupos",
-                    emptyMessage = "Nenhum grupo de permissão cadastrado nesta empresa.",
-                    items = companyPermissionGroups.map { group ->
-                        ManagementOverviewEntry(
-                            id = group.id,
-                            title = group.name + if (group.isSystem) " • Sistema" else "",
-                            description = group.description,
-                            detail = "${group.permissions.size} permissões",
-                        )
-                    },
-                    icon = Icons.Rounded.Shield,
-                    canAdd = canManagePermissions,
-                    addDescription = "Criar grupo de permissão",
+                PermissionGroupsOverviewPage(
+                    companyName = companyNames.getOrElse(selectedCompanyIndex) { "Empresa" },
+                    groups = companyPermissionGroups,
+                    members = companyMembers,
+                    canManage = canManagePermissions,
                     onAdd = {
                         editingPermissionGroup = null
                         showPermissionGroupEditor = true
                     },
-                    onItemClick = if (canManagePermissions) {
-                        { id ->
-                            editingPermissionGroup = companyPermissionGroups.find { it.id == id }
+                    onGroupClick = if (canManagePermissions) {
+                        { group ->
+                            editingPermissionGroup = group
                             showPermissionGroupEditor = true
                         }
                     } else {
@@ -10447,6 +10741,180 @@ private fun ReportTaskCard(
     }
 }
 
+@Composable
+private fun PermissionGroupsOverviewPage(
+    companyName: String,
+    groups: List<PermissionGroup>,
+    members: List<CompanyMember>,
+    canManage: Boolean,
+    onAdd: () -> Unit,
+    onGroupClick: ((PermissionGroup) -> Unit)?,
+    onBack: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(42.dp)) {
+                        Icon(Icons.Rounded.ArrowBack, "Voltar", tint = PopText)
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Permissões", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            "$companyName • ${groups.size} grupos",
+                            color = PopMuted,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            if (groups.isEmpty()) {
+                item {
+                    Surface(
+                        color = PopSurfaceAlt,
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            "Nenhum grupo de permissão cadastrado nesta empresa.",
+                            color = PopMuted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(18.dp),
+                        )
+                    }
+                }
+            } else {
+                item {
+                    Surface(
+                        color = PopSurfaceAlt,
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column {
+                            groups.forEachIndexed { index, group ->
+                                val memberCount = members.count { it.permissionGroupId == group.id }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(enabled = onGroupClick != null) {
+                                            onGroupClick?.invoke(group)
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 13.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            group.name,
+                                            color = PopText,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            "${group.permissions.size} permissões • $memberCount ${if (memberCount == 1) "membro" else "membros"}${if (group.isSystem) " • Padrão" else ""}",
+                                            color = PopMuted,
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    if (onGroupClick != null) {
+                                        Icon(
+                                            Icons.Rounded.ChevronRight,
+                                            null,
+                                            tint = PopMuted,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                }
+                                if (index < groups.lastIndex) {
+                                    HorizontalDivider(
+                                        color = PopMuted.copy(alpha = .1f),
+                                        modifier = Modifier.padding(horizontal = 14.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!canManage) {
+                item {
+                    Text(
+                        "Seu grupo pode visualizar as permissões, mas não alterá-las.",
+                        color = PopMuted,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+            }
+        }
+
+        if (canManage) {
+            FloatingActionButton(
+                onClick = onAdd,
+                containerColor = PopBlue,
+                contentColor = Color.White,
+                shape = CircleShape,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 24.dp, bottom = 28.dp)
+                    .size(58.dp),
+            ) {
+                Icon(Icons.Rounded.Add, "Criar grupo de permissão", modifier = Modifier.size(26.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeekDayPicker(
+    title: String,
+    detail: String,
+    preventAllSelected: Boolean = false,
+    onDetailChange: (String) -> Unit,
+) {
+    val dayOrder = listOf("S", "T", "Q", "Q2", "S2", "Sá", "D")
+    val selectedDays = detail.split(",").filter { it.isNotBlank() }.toSet()
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            dayOrder.forEach { day ->
+                val selected = day in selectedDays
+                Surface(
+                    onClick = {
+                        val updated = if (selected) selectedDays - day else selectedDays + day
+                        if (!preventAllSelected || updated.size < dayOrder.size) {
+                            onDetailChange(dayOrder.filter(updated::contains).joinToString(","))
+                        }
+                    },
+                    color = if (selected) PopBlue else PopSurface,
+                    contentColor = if (selected) Color.White else PopMuted,
+                    shape = CircleShape,
+                    modifier = Modifier.size(34.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(day.removeSuffix("2"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
 private data class ManagementOverviewEntry(
     val id: String,
     val title: String,
@@ -10680,8 +11148,8 @@ private fun PermissionGroupEditorDialog(
             Box(Modifier.fillMaxSize()) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 110.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     item {
                         Row(
@@ -10706,94 +11174,163 @@ private fun PermissionGroupEditorDialog(
                                     )
                                 }
                             }
-                        }
-                    }
-                    item { ManagementField(name, { name = it }, "Nome") }
-                    item { ManagementField(description, { description = it }, "Descrição") }
-                    for (category in permissionCatalog) {
-                        item {
-                            Text(
-                                category.name,
-                                color = PopText,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                modifier = Modifier.padding(top = 6.dp),
-                            )
-                        }
-                        items(category.items, key = { it.key }) { permission ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable(enabled = !isSystem) {
-                                        selectedPermissions = if (permission.key in selectedPermissions) {
-                                            selectedPermissions - permission.key
-                                        } else {
-                                            selectedPermissions + permission.key
-                                        }
-                                    }
-                                    .padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                            TextButton(
+                                onClick = {
+                                    onSave(
+                                        name.trim(),
+                                        description.trim(),
+                                        selectedPermissions.toList(),
+                                        selectedMemberIds.toList(),
+                                    )
+                                },
+                                enabled = valid && !saving,
                             ) {
-                                Checkbox(
-                                    checked = permission.key in selectedPermissions,
-                                    onCheckedChange = { checked ->
-                                        selectedPermissions = if (checked) {
-                                            selectedPermissions + permission.key
-                                        } else {
-                                            selectedPermissions - permission.key
-                                        }
-                                    },
-                                    enabled = !isSystem,
-                                )
-                                Text(permission.label, color = PopText, fontSize = 12.sp)
+                                if (saving) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = PopBlue,
+                                    )
+                                } else {
+                                    Text("Salvar", color = PopBlue, fontWeight = FontWeight.ExtraBold)
+                                }
                             }
                         }
                     }
                     item {
-                        Text(
-                            "Pessoas neste grupo",
-                            color = PopText,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(top = 10.dp),
-                        )
-                    }
-                    if (companyMembers.isEmpty()) {
-                        item {
-                            Text(
-                                "Nenhum colaborador cadastrado nesta empresa.",
-                                color = PopMuted,
-                                fontSize = 11.sp,
-                            )
+                        Surface(
+                            color = Color.Transparent,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text("Nome", color = PopMuted, fontSize = 10.sp)
+                                ManagementField(name, { name = it }, "Nome", Modifier.height(48.dp))
+                                Spacer(Modifier.height(2.dp))
+                                Text("Descrição", color = PopMuted, fontSize = 10.sp)
+                                ManagementDescriptionField(
+                                    description,
+                                    { description = it },
+                                    "Descrição",
+                                    Modifier.height(72.dp),
+                                )
+                            }
                         }
-                    } else {
-                        items(companyMembers, key = { it.id }) { member ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        selectedMemberIds = if (member.id in selectedMemberIds) {
-                                            selectedMemberIds - member.id
-                                        } else {
-                                            selectedMemberIds + member.id
+                    }
+                    for (category in permissionCatalog) {
+                        item {
+                            Surface(
+                                color = Color.Transparent,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column {
+                                    Text(
+                                        category.name,
+                                        color = PopText,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 5.dp),
+                                    )
+                                    category.items.forEachIndexed { index, permission ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable(enabled = !isSystem) {
+                                                    selectedPermissions =
+                                                        if (permission.key in selectedPermissions) {
+                                                            selectedPermissions - permission.key
+                                                        } else {
+                                                            selectedPermissions + permission.key
+                                                        }
+                                                }
+                                                .padding(end = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Checkbox(
+                                                checked = permission.key in selectedPermissions,
+                                                onCheckedChange = { checked ->
+                                                    selectedPermissions = if (checked) {
+                                                        selectedPermissions + permission.key
+                                                    } else {
+                                                        selectedPermissions - permission.key
+                                                    }
+                                                },
+                                                enabled = !isSystem,
+                                                modifier = Modifier.size(36.dp),
+                                            )
+                                            Spacer(Modifier.width(2.dp))
+                                            Text(permission.label, color = PopText, fontSize = 12.sp)
+                                        }
+                                        if (index < category.items.lastIndex) {
+                                            HorizontalDivider(
+                                                color = PopMuted.copy(alpha = .08f),
+                                                modifier = Modifier.padding(start = 38.dp),
+                                            )
                                         }
                                     }
-                                    .padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Checkbox(
-                                    checked = member.id in selectedMemberIds,
-                                    onCheckedChange = { checked ->
-                                        selectedMemberIds = if (checked) {
-                                            selectedMemberIds + member.id
-                                        } else {
-                                            selectedMemberIds - member.id
-                                        }
-                                    },
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Surface(
+                            color = Color.Transparent,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column {
+                                Text(
+                                    "Pessoas neste grupo (${selectedMemberIds.size})",
+                                    color = PopText,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 5.dp),
                                 )
-                                Column {
-                                    Text(member.name, color = PopText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                    Text(member.email, color = PopMuted, fontSize = 10.sp)
+                                if (companyMembers.isEmpty()) {
+                                    Text(
+                                        "Nenhum colaborador cadastrado nesta empresa.",
+                                        color = PopMuted,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    )
+                                }
+                                companyMembers.forEachIndexed { index, member ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                selectedMemberIds = if (member.id in selectedMemberIds) {
+                                                    selectedMemberIds - member.id
+                                                } else {
+                                                    selectedMemberIds + member.id
+                                                }
+                                            }
+                                            .padding(end = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Checkbox(
+                                            checked = member.id in selectedMemberIds,
+                                            onCheckedChange = { checked ->
+                                                selectedMemberIds = if (checked) {
+                                                    selectedMemberIds + member.id
+                                                } else {
+                                                    selectedMemberIds - member.id
+                                                }
+                                            },
+                                            modifier = Modifier.size(36.dp),
+                                        )
+                                        Spacer(Modifier.width(2.dp))
+                                        Column {
+                                            Text(member.name, color = PopText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                            Text(member.email, color = PopMuted, fontSize = 10.sp)
+                                        }
+                                    }
+                                    if (index < companyMembers.lastIndex) {
+                                        HorizontalDivider(
+                                            color = PopMuted.copy(alpha = .08f),
+                                            modifier = Modifier.padding(start = 38.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -10806,42 +11343,6 @@ private fun PermissionGroupEditorDialog(
                                 modifier = Modifier.padding(top = 12.dp),
                             ) {
                                 Text("Excluir grupo", color = Color(0xFFE5484D), fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-                Surface(
-                    color = PopSurface,
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(20.dp)
-                        .fillMaxWidth(),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        TextButton(onClick = onDismiss, enabled = !saving, modifier = Modifier.weight(1f)) {
-                            Text("Cancelar", color = PopMuted)
-                        }
-                        Button(
-                            onClick = {
-                                onSave(
-                                    name.trim(),
-                                    description.trim(),
-                                    selectedPermissions.toList(),
-                                    selectedMemberIds.toList(),
-                                )
-                            },
-                            enabled = valid && !saving,
-                            colors = ButtonDefaults.buttonColors(containerColor = PopBlue),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            if (saving) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                            } else {
-                                Text("Salvar", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -11271,7 +11772,12 @@ private fun EmployeesManagementPageLegacy(
 }
 
 @Composable
-private fun ManagementField(value: String, onValueChange: (String) -> Unit, placeholder: String) {
+private fun ManagementField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+) {
     TextField(
         value = value,
         onValueChange = onValueChange,
@@ -11284,7 +11790,31 @@ private fun ManagementField(value: String, onValueChange: (String) -> Unit, plac
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent,
         ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun ManagementDescriptionField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+) {
+    TextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = { Text(placeholder) },
+        minLines = 1,
+        maxLines = 2,
+        shape = RoundedCornerShape(14.dp),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = PopBlueSoft,
+            unfocusedContainerColor = PopSurfaceAlt,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+        ),
+        modifier = modifier.fillMaxWidth(),
     )
 }
 

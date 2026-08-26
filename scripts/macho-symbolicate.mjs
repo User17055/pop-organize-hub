@@ -74,10 +74,17 @@ syms.sort((a, b) => a.addr - b.addr);
 console.log("simbolos utilizaveis: " + syms.length);
 
 function resolve(target) {
-  let lo = 0, hi = syms.length - 1, best = null;
+  let lo = 0,
+    hi = syms.length - 1,
+    best = null;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    if (syms[mid].addr <= target) { best = syms[mid]; lo = mid + 1; } else { hi = mid - 1; }
+    if (syms[mid].addr <= target) {
+      best = syms[mid];
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
   }
   return best;
 }
@@ -86,6 +93,9 @@ console.log("");
 for (const off of offsets) {
   const target = (textVmaddr ?? 0) + off;
   const s = resolve(target);
-  if (!s) { console.log(off + "  ->  (nada abaixo deste endereco)"); continue; }
+  if (!s) {
+    console.log(off + "  ->  (nada abaixo deste endereco)");
+    continue;
+  }
   console.log(off + "  ->  " + s.name + "  +" + (target - s.addr));
 }

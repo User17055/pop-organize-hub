@@ -53,7 +53,9 @@ if (info.includes("CAPACITOR_DEBUG") || info.includes("UIMainStoryboardFile")) {
 // it -- three launches, three identical stacks -- and the build itself was green. Only a device
 // catches it, so the check lives here.
 if (!/<key>CADisableMinimumFrameDurationOnPhone<\/key>\s*<true\/>/.test(info)) {
-  fail("Info.plist must set CADisableMinimumFrameDurationOnPhone to true, or the app aborts on launch.");
+  fail(
+    "Info.plist must set CADisableMinimumFrameDurationOnPhone to true, or the app aborts on launch.",
+  );
 }
 // The Apple sign-in payload declares name and email as nullable with a null default, and Apple
 // fills neither from the second authorization onward. With encodeDefaults the serializer writes

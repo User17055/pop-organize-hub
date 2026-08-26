@@ -10866,8 +10866,8 @@ private fun PermissionGroupEditorDialog(
             Box(Modifier.fillMaxSize()) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 82.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     item {
                         Row(
@@ -10892,31 +10892,54 @@ private fun PermissionGroupEditorDialog(
                                     )
                                 }
                             }
+                            TextButton(
+                                onClick = {
+                                    onSave(
+                                        name.trim(),
+                                        description.trim(),
+                                        selectedPermissions.toList(),
+                                        selectedMemberIds.toList(),
+                                    )
+                                },
+                                enabled = valid && !saving,
+                            ) {
+                                if (saving) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = PopBlue,
+                                    )
+                                } else {
+                                    Text("Salvar", color = PopBlue, fontWeight = FontWeight.ExtraBold)
+                                }
+                            }
                         }
                     }
                     item {
                         Surface(
-                            color = PopSurfaceAlt,
-                            shape = RoundedCornerShape(18.dp),
+                            color = Color.Transparent,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                Text("Informações do grupo", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 Text("Nome", color = PopMuted, fontSize = 10.sp)
-                                ManagementField(name, { name = it }, "Nome")
+                                ManagementField(name, { name = it }, "Nome", Modifier.height(48.dp))
+                                Spacer(Modifier.height(2.dp))
                                 Text("Descrição", color = PopMuted, fontSize = 10.sp)
-                                ManagementDescriptionField(description, { description = it }, "Descrição")
+                                ManagementDescriptionField(
+                                    description,
+                                    { description = it },
+                                    "Descrição",
+                                    Modifier.height(72.dp),
+                                )
                             }
                         }
                     }
                     for (category in permissionCatalog) {
                         item {
                             Surface(
-                                color = PopSurfaceAlt,
-                                shape = RoundedCornerShape(18.dp),
+                                color = Color.Transparent,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Column {
@@ -10925,7 +10948,7 @@ private fun PermissionGroupEditorDialog(
                                         color = PopText,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.ExtraBold,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                        modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 5.dp),
                                     )
                                     category.items.forEachIndexed { index, permission ->
                                         Row(
@@ -10939,7 +10962,7 @@ private fun PermissionGroupEditorDialog(
                                                             selectedPermissions + permission.key
                                                         }
                                                 }
-                                                .padding(start = 10.dp, end = 14.dp, top = 2.dp, bottom = 2.dp),
+                                                .padding(end = 4.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             Checkbox(
@@ -10952,36 +10975,34 @@ private fun PermissionGroupEditorDialog(
                                                     }
                                                 },
                                                 enabled = !isSystem,
-                                                modifier = Modifier.size(40.dp),
+                                                modifier = Modifier.size(36.dp),
                                             )
-                                            Spacer(Modifier.width(4.dp))
+                                            Spacer(Modifier.width(2.dp))
                                             Text(permission.label, color = PopText, fontSize = 12.sp)
                                         }
                                         if (index < category.items.lastIndex) {
                                             HorizontalDivider(
                                                 color = PopMuted.copy(alpha = .08f),
-                                                modifier = Modifier.padding(start = 54.dp),
+                                                modifier = Modifier.padding(start = 38.dp),
                                             )
                                         }
                                     }
-                                    Spacer(Modifier.height(6.dp))
                                 }
                             }
                         }
                     }
                     item {
                         Surface(
-                            color = PopSurfaceAlt,
-                            shape = RoundedCornerShape(18.dp),
+                            color = Color.Transparent,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Column(Modifier.padding(bottom = 8.dp)) {
+                            Column {
                                 Text(
                                     "Pessoas neste grupo (${selectedMemberIds.size})",
                                     color = PopText,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                    modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 5.dp),
                                 )
                                 if (companyMembers.isEmpty()) {
                                     Text(
@@ -11002,7 +11023,7 @@ private fun PermissionGroupEditorDialog(
                                                     selectedMemberIds + member.id
                                                 }
                                             }
-                                            .padding(start = 10.dp, top = 2.dp, end = 14.dp, bottom = 2.dp),
+                                            .padding(end = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Checkbox(
@@ -11014,9 +11035,9 @@ private fun PermissionGroupEditorDialog(
                                                     selectedMemberIds - member.id
                                                 }
                                             },
-                                            modifier = Modifier.size(40.dp),
+                                            modifier = Modifier.size(36.dp),
                                         )
-                                        Spacer(Modifier.width(4.dp))
+                                        Spacer(Modifier.width(2.dp))
                                         Column {
                                             Text(member.name, color = PopText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                             Text(member.email, color = PopMuted, fontSize = 10.sp)
@@ -11025,7 +11046,7 @@ private fun PermissionGroupEditorDialog(
                                     if (index < companyMembers.lastIndex) {
                                         HorizontalDivider(
                                             color = PopMuted.copy(alpha = .08f),
-                                            modifier = Modifier.padding(start = 54.dp),
+                                            modifier = Modifier.padding(start = 38.dp),
                                         )
                                     }
                                 }
@@ -11040,46 +11061,6 @@ private fun PermissionGroupEditorDialog(
                                 modifier = Modifier.padding(top = 12.dp),
                             ) {
                                 Text("Excluir grupo", color = Color(0xFFE5484D), fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-                Surface(
-                    color = PopSurface,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth(),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextButton(
-                            onClick = onDismiss,
-                            enabled = !saving,
-                            modifier = Modifier.height(38.dp),
-                        ) {
-                            Text("Cancelar", color = PopMuted)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                onSave(
-                                    name.trim(),
-                                    description.trim(),
-                                    selectedPermissions.toList(),
-                                    selectedMemberIds.toList(),
-                                )
-                            },
-                            enabled = valid && !saving,
-                            colors = ButtonDefaults.buttonColors(containerColor = PopBlue),
-                            modifier = Modifier.width(100.dp).height(38.dp),
-                        ) {
-                            if (saving) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                            } else {
-                                Text("Salvar", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -11509,7 +11490,12 @@ private fun EmployeesManagementPageLegacy(
 }
 
 @Composable
-private fun ManagementField(value: String, onValueChange: (String) -> Unit, placeholder: String) {
+private fun ManagementField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+) {
     TextField(
         value = value,
         onValueChange = onValueChange,
@@ -11522,7 +11508,7 @@ private fun ManagementField(value: String, onValueChange: (String) -> Unit, plac
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent,
         ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     )
 }
 
@@ -11531,13 +11517,14 @@ private fun ManagementDescriptionField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
+    modifier: Modifier = Modifier,
 ) {
     TextField(
         value = value,
         onValueChange = onValueChange,
         placeholder = { Text(placeholder) },
-        minLines = 2,
-        maxLines = 3,
+        minLines = 1,
+        maxLines = 2,
         shape = RoundedCornerShape(14.dp),
         colors = TextFieldDefaults.colors(
             focusedContainerColor = PopBlueSoft,
@@ -11545,7 +11532,7 @@ private fun ManagementDescriptionField(
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent,
         ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     )
 }
 

@@ -164,6 +164,11 @@ Além do app em si, a Apple pede:
 - [ ] Questionário de privacidade respondido
 - [ ] **Conta de teste com dados reais** para o revisor entrar
 
+**Categoria, questionário de privacidade, classificação etária e criptografia já estão respondidos
+em [`FICHA_LOJA.md`](FICHA_LOJA.md)**, prontos para copiar, cada um com a evidência no código. As
+respostas de privacidade precisam bater com `ios/App/App/PrivacyInfo.xcprivacy` — divergir entre os
+dois é motivo de rejeição, e o erro é difícil de ver porque são preenchidos em lugares diferentes.
+
 O último item importa mais do que parece: revisor que não consegue entrar rejeita sem olhar o resto.
 
 ---

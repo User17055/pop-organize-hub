@@ -61,12 +61,6 @@ internal fun monthTitle(year: Int, month: Int): String =
     "${monthNames[month - 1].replaceFirstChar { it.uppercase() }} $year"
 
 /**
- * Cabecalho de dia da agenda: "Hoje", "Amanha", "Ontem" ou "seg, 25 de agosto".
- *
- * O ano so entra quando nao e o corrente. Numa agenda a esmagadora maioria das linhas e do ano em
- * curso, e repetir "de 2026" em todas elas so rouba largura de tela.
- */
-/**
  * Rotulo de prazo de uma linha de tarefa: "Hoje • 09:00", "seg, 25 de agosto".
  *
  * Uma dueDate vazia ou fora do ISO e devolvida como veio, em vez de virar excecao ou sumir: e
@@ -78,6 +72,12 @@ internal fun taskDateLabel(dueDate: String, dueTime: String, today: LocalDate): 
     return listOf(datePart, dueTime).filter { it.isNotBlank() }.joinToString(" • ")
 }
 
+/**
+ * Cabecalho de dia da agenda: "Hoje", "Amanha", "Ontem" ou "seg, 25 de agosto".
+ *
+ * O ano so entra quando nao e o corrente. Numa agenda a esmagadora maioria das linhas e do ano em
+ * curso, e repetir "de 2026" em todas elas so rouba largura de tela.
+ */
 internal fun dayHeaderLabel(date: LocalDate, today: LocalDate): String = when (daysBetween(today, date)) {
     0L -> "Hoje"
     1L -> "Amanhã"

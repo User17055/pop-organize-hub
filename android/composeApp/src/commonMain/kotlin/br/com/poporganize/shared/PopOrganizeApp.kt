@@ -1274,10 +1274,32 @@ private fun TaskDetailsDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (task.description.isNotBlank()) Text(task.description)
+                // taskDateLabel, e nao a data crua: este era o unico ponto do app que mostrava
+                // "2026-08-24" em vez de "seg, 24 de agosto". Ficava atras do dialogo a mesma
+                // tarefa na lista, escrita do jeito certo, uma ao lado da outra.
+                //
+                // A funcao ja faz o mesmo filter/joinToString que estava aqui e devolve dueDate
+                // como veio quando ela e vazia ou nao e ISO, entao nao ha caso perdido na troca.
                 Text(
-                    listOf(task.dueDate, task.dueTime).filter { it.isNotBlank() }.joinToString(" • "),
+                    taskDateLabel(task.dueDate, task.dueTime, todayDate()),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // A prioridade era o unico campo de PopTask que este dialogo nao mostrava, embora
+                // a lista de onde ele e aberto estampe "Alta" e "Urgente" em cor. Quem abria para
+                // ver a tarefa inteira perdia justamente o campo mais visivel da linha.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(priorityColor(task.priority)),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Prioridade ${task.priority.label.lowercase()}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (task.assignment.label != "Sem responsável") {
                     Text(
                         "Responsável: ${task.assignment.label}",

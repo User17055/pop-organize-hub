@@ -103,10 +103,20 @@ O dia 6 de agosto tem **345 tarefas**, com títulos todos diferentes ("Pesagem d
 **Consequência:** as **354 atrasadas** de um total de 361 são reais, e são quase todas essa
 importação. Não é bug de contagem.
 
-### B2 — 346 de 361 tarefas sem responsável
+### B2 — 346 de 361 tarefas sem responsável — e isto é ESPERADO, não é defeito
 
 Relatórios: "Com responsável 15 / Sem responsável 346". As tarefas têm **setor**, mas ninguém
 designado. Os 15 com responsável se distribuem entre as 5 pessoas.
+
+**Explicação do Guilherme, e ela encerra o assunto:** o app ainda não foi lançado. A ordem
+necessária é lançar, os funcionários baixarem, criarem login, e só então as tarefas serem atribuídas
+a cada pessoa. Atribuir antes disso não é possível — não há a quem atribuir.
+
+Ou seja, os 346 são o estado correto de uma empresa que carregou o trabalho por setor e está
+esperando as pessoas entrarem. **Não deve ser tratado como número a corrigir**, e qualquer leitura
+futura destes dados precisa levar isso em conta: é uma foto de pré-lançamento, não de operação.
+
+Fica registrado porque eu apresentei esse número como se fosse achado, e não era.
 
 ### B3 — Dados de teste convivendo com dados reais
 

@@ -79,7 +79,21 @@ private val darkColors = darkColorScheme(
 // --- Claro -------------------------------------------------------------------------------------
 
 private val lightColors = lightColorScheme(
-    primary = PopBlue,
+    // PopBlueDeep, e nao PopBlue, apesar de PopBlue ser a cor da marca no painel.
+    //
+    // `primary` no tema claro carrega texto branco: e o fundo de todo Button do Material 3, cujo
+    // labelLarge tem 14.sp -- abaixo do limiar de "texto grande" do WCAG, entao vale a regua de
+    // 4.5:1. PopBlue #1687F8 com branco da 3.59:1 e reprova; PopBlueDeep #0864DC da 5.43:1 e
+    // passa. (Conferido com o calculo de luminancia relativa, aferido antes contra preto/branco,
+    // que tem de dar exatamente 21.00.)
+    //
+    // Este arquivo tinha #0864DC aqui e a troca para PopBlue veio junto com a paleta nova, sem
+    // que a conta fosse refeita. O azul claro da marca continua na tela onde nao carrega texto:
+    // no gradiente, no ponto do logotipo e no tema escuro, onde o fundo e escuro e a regua e outra.
+    //
+    // Fica igual a `secondary` logo abaixo. E feio no papel e nao muda nada na tela: nenhum
+    // componente do app usa `secondary` hoje.
+    primary = PopBlueDeep,
     onPrimary = Color.White,
     primaryContainer = Color(0xFFE4F1FF),
     onPrimaryContainer = Color(0xFF074C98),

@@ -22,8 +22,6 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -850,17 +848,33 @@ private fun PageHeader(title: String, onBack: () -> Unit) {
 @Composable
 private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
     val tasks = store.visibleTasks
-    val today = remember { todayDate() }
+    // Sem `remember`: com chave nenhuma, este valor viveria enquanto a composicao vivesse, e as
+    // linhas de tarefa logo abaixo chamam todayDate() fresco. Com o app aberto atravessando a
+    // meia-noite, o cartao de cima ainda contava a tarefa de ontem como "para hoje" enquanto a
+    // linha de baixo ja escrevia "Ontem" -- duas afirmacoes contrarias sobre a mesma tarefa, uma
+    // acima da outra. Recalcular e barato, e os `remember(tasks, today)` seguintes continuam
+    // estaveis porque LocalDate tem igualdade estrutural: so invalidam quando o dia vira mesmo.
+    val today = todayDate()
     val userName = store.state.currentUser?.firstName ?: "você"
     val shown = 4
 
     // "Para hoje" precisa contar o que e de hoje. Contava tudo que estivesse pendente no espaco:
     // com 8 pendentes e 4 vencendo hoje, o maior texto da tela anunciava "8 tarefas para hoje".
-    // Atrasada entra na conta porque atrasada tambem e para hoje -- e por isso o filtro e <= 0.
+    // Atrasada entra na conta porque atrasada tambem e para hoje.
+    //
+    // O filtro era `offset <= 0`, sem piso, e isso pegava TODA tarefa datada de hoje ou de
+    // qualquer dia passado, concluida ou nao. `pending` saia certo, mas `completed` e `total`
+    // viravam o acumulado de vida inteira, e o anel so subia. Com tres semanas de uso -- 30
+    // tarefas concluidas no periodo e 3 abertas hoje -- a tela mostrava "3 tarefas para hoje" ao
+    // lado de um anel marcando 90%, sem a pessoa ter feito nada hoje. Em dois meses ele travaria
+    // perto de 97% e deixaria de significar coisa alguma.
+    //
+    // Concluida de hoje entra (e o numerador do anel); atrasada so entra enquanto estiver aberta,
+    // porque atrasada ja concluida e trabalho de outro dia e nao pertence ao progresso deste.
     val agenda = remember(tasks, today) {
         tasks.filter { task ->
             val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) }
-            offset != null && offset <= 0L
+            offset == 0L || (offset != null && offset < 0L && !task.completed)
         }
     }
     val pendingToday = agenda.count { !it.completed }
@@ -2308,7 +2322,9 @@ private fun AccountCard(store: PopStore) {
     val user = store.state.currentUser
     val name = user?.name?.trim().orEmpty().ifBlank { "Visitante" }
     val tasks = store.visibleTasks
-    val today = remember { todayDate() }
+    // Sem `remember`, pelo mesmo motivo do DashboardScreen: congelado, o cartao de conta seguiria
+    // contando pelo dia anterior depois da meia-noite.
+    val today = todayDate()
     val pending = tasks.count { !it.completed }
     val done = tasks.size - pending
     val late = remember(tasks, today) {

@@ -16,6 +16,8 @@ export type RecurrenceCustomUnit = "days" | "weeks" | "months" | "years";
 
 export interface TaskRecurrence {
   frequency: RecurrenceFrequency;
+  /** ISO weekday numbers: Monday = 1, Sunday = 7. */
+  weekDays?: number[];
   interval?: number;
   intervalDays?: number;
   customUnit?: RecurrenceCustomUnit;

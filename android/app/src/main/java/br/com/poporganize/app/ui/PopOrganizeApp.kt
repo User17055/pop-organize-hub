@@ -6331,16 +6331,22 @@ private fun TasksScreen(
                                             onValueChange = { editRecurrenceInterval = it.coerceIn(1, 99) },
                                             accentColor = PopBlue,
                                         )
-                                        TextField(
-                                            value = editRecurrenceDetail,
-                                            onValueChange = { editRecurrenceDetail = it },
-                                            label = { Text("Dias ou regra personalizada") },
-                                            placeholder = { Text("Ex.: segunda e quarta") },
-                                            singleLine = true,
-                                            shape = RoundedCornerShape(14.dp),
-                                            colors = taskEditorFieldColors(PopSurface),
-                                            modifier = Modifier.fillMaxWidth(),
-                                        )
+                                        if (editRecurrence == "Semanal") {
+                                            WeeklyDayPicker(
+                                                detail = editRecurrenceDetail,
+                                                onDetailChange = { editRecurrenceDetail = it },
+                                            )
+                                        } else {
+                                            TextField(
+                                                value = editRecurrenceDetail,
+                                                onValueChange = { editRecurrenceDetail = it },
+                                                label = { Text("Regra personalizada") },
+                                                singleLine = true,
+                                                shape = RoundedCornerShape(14.dp),
+                                                colors = taskEditorFieldColors(PopSurface),
+                                                modifier = Modifier.fillMaxWidth(),
+                                            )
+                                        }
                                         Text("Quando termina?", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                                             listOf("Nunca", "Após", "Em uma data").forEach { option ->
@@ -7194,26 +7200,7 @@ private fun RecurrenceSettings(
                         enter = fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 8 },
                         exit = fadeOut(tween(160)),
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Dias da semana", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        val selectedDays = detail.split(",").filter { it.isNotBlank() }.toSet()
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            listOf("S", "T", "Q", "Q2", "S2", "Sá", "D").forEach { day ->
-                                val label = day.removeSuffix("2")
-                                val selected = day in selectedDays
-                                Surface(
-                                    onClick = {
-                                        val updated = if (selected) selectedDays - day else selectedDays + day
-                                        onDetailChange(updated.joinToString(","))
-                                    },
-                                    color = if (selected) PopBlue else PopSurface,
-                                    contentColor = if (selected) Color.White else PopMuted,
-                                    shape = CircleShape,
-                                    modifier = Modifier.size(34.dp),
-                                ) { Box(contentAlignment = Alignment.Center) { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) } }
-                            }
-                        }
-                        }
+                        WeeklyDayPicker(detail = detail, onDetailChange = onDetailChange)
                     }
                     AnimatedVisibility(
                         visible = recurrence == "Mensal",
@@ -10629,6 +10616,51 @@ private fun PermissionGroupsOverviewPage(
                     .size(58.dp),
             ) {
                 Icon(Icons.Rounded.Add, "Criar grupo de permissão", modifier = Modifier.size(26.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeeklyDayPicker(
+    detail: String,
+    onDetailChange: (String) -> Unit,
+) {
+    val dayOrder = listOf("S", "T", "Q", "Q2", "S2", "Sá", "D")
+    val selectedDays = detail.split(",").filter { it.isNotBlank() }.toSet()
+    val weekdays = setOf("S", "T", "Q", "Q2", "S2")
+    val weekend = setOf("Sá", "D")
+    val allDays = weekdays + weekend
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Dias da semana", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ChoicePill("Seg a sex", selectedDays == weekdays) {
+                onDetailChange(dayOrder.filter(weekdays::contains).joinToString(","))
+            }
+            ChoicePill("Fim de semana", selectedDays == weekend) {
+                onDetailChange(dayOrder.filter(weekend::contains).joinToString(","))
+            }
+            ChoicePill("Todos", selectedDays == allDays) {
+                onDetailChange(dayOrder.joinToString(","))
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            dayOrder.forEach { day ->
+                val selected = day in selectedDays
+                Surface(
+                    onClick = {
+                        val updated = if (selected) selectedDays - day else selectedDays + day
+                        onDetailChange(dayOrder.filter(updated::contains).joinToString(","))
+                    },
+                    color = if (selected) PopBlue else PopSurface,
+                    contentColor = if (selected) Color.White else PopMuted,
+                    shape = CircleShape,
+                    modifier = Modifier.size(34.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(day.removeSuffix("2"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }

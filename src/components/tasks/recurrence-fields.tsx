@@ -31,6 +31,16 @@ export function RecurrenceFields({
     (value.frequency === "custom" && value.customUnit === "months");
   const showYearlyDate =
     value.frequency === "yearly" || (value.frequency === "custom" && value.customUnit === "years");
+  const showWeekDays = value.frequency === "weekly" || value.frequency === "biweekly";
+  const weekDays = [
+    { value: 1, label: "S" },
+    { value: 2, label: "T" },
+    { value: 3, label: "Q" },
+    { value: 4, label: "Q" },
+    { value: 5, label: "S" },
+    { value: 6, label: "S" },
+    { value: 7, label: "D" },
+  ];
 
   return (
     <div className={cn("grid grid-cols-1 gap-3", !compact && "md:grid-cols-2")}>
@@ -62,6 +72,56 @@ export function RecurrenceFields({
               onChange={(customUnit) => update({ customUnit: customUnit as RecurrenceCustomUnit })}
               compact={compact}
             />
+          </div>
+        </Field>
+      )}
+
+      {showWeekDays && (
+        <Field label="Dias da semana">
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: "Seg a sex", days: [1, 2, 3, 4, 5] },
+                { label: "Fim de semana", days: [6, 7] },
+                { label: "Todos", days: [1, 2, 3, 4, 5, 6, 7] },
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  className="task-create-input h-7 rounded-md border px-2 text-[11px] font-semibold"
+                  onClick={() => update({ weekDays: preset.days })}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-between gap-1">
+              {weekDays.map((day) => {
+                const selected = value.weekDays.includes(day.value);
+                return (
+                  <button
+                    key={day.value}
+                    type="button"
+                    aria-pressed={selected}
+                    className={cn(
+                      "h-8 w-8 rounded-full border text-xs font-bold transition",
+                      selected
+                        ? "border-blue-500 bg-blue-600 text-white"
+                        : "task-create-input text-muted-foreground",
+                    )}
+                    onClick={() =>
+                      update({
+                        weekDays: selected
+                          ? value.weekDays.filter((value) => value !== day.value)
+                          : [...value.weekDays, day.value].sort((left, right) => left - right),
+                      })
+                    }
+                  >
+                    {day.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </Field>
       )}

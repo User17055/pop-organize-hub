@@ -84,6 +84,7 @@ function CalendarPage() {
     responsibleId: "",
     recurrence: {
       frequency: "none",
+      weekDays: [],
       interval: "1",
       customUnit: "days",
       dayOfMonth: "1",

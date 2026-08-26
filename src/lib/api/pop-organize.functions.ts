@@ -63,6 +63,7 @@ const recurrenceSchema = z
     frequency: z
       .enum(["none", "daily", "weekly", "biweekly", "monthly", "yearly", "custom"])
       .default("none"),
+    weekDays: z.array(z.coerce.number().int().min(1).max(7)).max(7).optional(),
     interval: z.coerce.number().int().min(1).max(120).optional(),
     intervalDays: z.coerce.number().int().min(1).max(3650).optional(),
     customUnit: z.enum(["days", "weeks", "months", "years"]).optional(),
@@ -524,6 +525,10 @@ function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["rec
 
   return {
     frequency: value.frequency,
+    weekDays:
+      value.frequency === "weekly" || value.frequency === "biweekly"
+        ? value.weekDays
+        : undefined,
     interval,
     intervalDays: value.frequency === "custom" && customUnit === "days" ? interval : undefined,
     customUnit,

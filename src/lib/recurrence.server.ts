@@ -48,10 +48,25 @@ function addYears(value: string, amount: number, preferredMonth?: number, prefer
   return dateString(nextYear, nextMonth, nextDay);
 }
 
+function nextSelectedWeekDay(value: string, weekDays: number[], intervalWeeks = 1) {
+  const selected = [...new Set(weekDays)].filter((day) => day >= 1 && day <= 7).sort((a, b) => a - b);
+  if (selected.length === 0) return addDays(value, intervalWeeks * 7);
+  const { year, month, day } = dateParts(value);
+  const current = new Date(Date.UTC(year, month - 1, day));
+  const currentWeekDay = current.getUTCDay() || 7;
+  const laterThisWeek = selected.find((weekDay) => weekDay > currentWeekDay);
+  if (laterThisWeek != null) return addDays(value, laterThisWeek - currentWeekDay);
+  return addDays(value, intervalWeeks * 7 - currentWeekDay + selected[0]);
+}
+
 function advanceRecurringDate(date: string, recurrence: NonNullable<Task["recurrence"]>) {
   if (recurrence.frequency === "daily") return addDays(date, 1);
-  if (recurrence.frequency === "weekly") return addDays(date, 7);
-  if (recurrence.frequency === "biweekly") return addDays(date, 14);
+  if (recurrence.frequency === "weekly") {
+    return nextSelectedWeekDay(date, recurrence.weekDays ?? [], recurrence.interval ?? 1);
+  }
+  if (recurrence.frequency === "biweekly") {
+    return nextSelectedWeekDay(date, recurrence.weekDays ?? [], 2);
+  }
   if (recurrence.frequency === "monthly") return addMonths(date, 1, recurrence.dayOfMonth);
   if (recurrence.frequency === "yearly") {
     return addYears(date, 1, recurrence.monthOfYear, recurrence.dayOfMonth);

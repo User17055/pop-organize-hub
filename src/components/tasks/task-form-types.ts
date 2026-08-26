@@ -33,6 +33,7 @@ export type TaskEditState = {
 
 export type RecurrenceFormState = {
   frequency: RecurrenceFrequency | "none";
+  weekDays: number[];
   interval: string;
   customUnit: RecurrenceCustomUnit;
   dayOfMonth: string;
@@ -43,6 +44,7 @@ export type RecurrenceFormState = {
 export type RecurrenceInput =
   | {
       frequency: RecurrenceFrequency;
+      weekDays?: number[];
       interval?: number;
       intervalDays?: number;
       customUnit?: RecurrenceCustomUnit;
@@ -139,6 +141,7 @@ export function getDefaultRecurrence(dueDate?: string): RecurrenceFormState {
   const anchor = getDueDateAnchor(dueDate);
   return {
     frequency: "none",
+    weekDays: [],
     interval: "1",
     customUnit: "days",
     dayOfMonth: anchor.dayOfMonth,
@@ -154,6 +157,7 @@ export function recurrenceToForm(
   const anchor = getDueDateAnchor(dueDate);
   return {
     frequency: recurrence?.frequency ?? "none",
+    weekDays: recurrence?.weekDays ?? [],
     interval: String(recurrence?.interval ?? recurrence?.intervalDays ?? 1),
     customUnit: recurrence?.customUnit ?? "days",
     dayOfMonth: String(recurrence?.dayOfMonth ?? anchor.dayOfMonth),
@@ -175,6 +179,14 @@ export function recurrenceFromForm(recurrence: RecurrenceFormState): RecurrenceI
 
   if (recurrence.frequency === "yearly") {
     return { frequency: recurrence.frequency, dayOfMonth, monthOfYear, endDate };
+  }
+
+  if (recurrence.frequency === "weekly" || recurrence.frequency === "biweekly") {
+    return {
+      frequency: recurrence.frequency,
+      weekDays: recurrence.weekDays.length > 0 ? recurrence.weekDays : undefined,
+      endDate,
+    };
   }
 
   if (recurrence.frequency === "custom") {
@@ -208,13 +220,22 @@ export function recurrenceLabel(recurrence?: TaskRecurrence) {
   const plural = (value: number, singular: string, pluralText: string) =>
     value === 1 ? singular : pluralText;
 
+  const weekDayNames = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
+  const selectedWeekDays = recurrence.weekDays
+    ?.map((day) => weekDayNames[day - 1])
+    .filter(Boolean)
+    .join(", ");
   const label =
     recurrence.frequency === "daily"
       ? "Diária"
       : recurrence.frequency === "weekly"
-        ? "Semanal"
+        ? selectedWeekDays
+          ? `Semanal: ${selectedWeekDays}`
+          : "Semanal"
         : recurrence.frequency === "biweekly"
-          ? "Quinzenal"
+          ? selectedWeekDays
+            ? `Quinzenal: ${selectedWeekDays}`
+            : "Quinzenal"
           : recurrence.frequency === "monthly"
             ? hasDayOfMonth
               ? `Mensal no dia ${dayOfMonth}`

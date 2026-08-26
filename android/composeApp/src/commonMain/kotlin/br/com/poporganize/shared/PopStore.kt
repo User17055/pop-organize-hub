@@ -244,7 +244,11 @@ class PopStore(private val platform: PopPlatformServices) {
             copy(
                 tasks = tasks.mapNotNull { task ->
                     if (task.id != taskId) return@mapNotNull task
-                    val nextDate = nextRecurrenceDate(task.dueDate, task.recurrence)
+                    val nextDate = nextRecurrenceDate(
+                        task.dueDate,
+                        task.recurrence,
+                        task.recurrenceInterval,
+                    )
                     if (nextDate == null) null else task.copy(dueDate = nextDate, completed = false)
                 },
             )
@@ -624,14 +628,28 @@ internal fun todayIso(): String = Clock.System.now()
     .date
     .toString()
 
-private fun nextRecurrenceDate(value: String, recurrence: RecurrenceKind): String? {
+/**
+ * Proxima data de uma serie, usada por "excluir somente esta ocorrencia".
+ *
+ * O `intervalo` existe porque a recorrencia do servidor nao e so o tipo: ela tem um "de quantos em
+ * quantos". Esta funcao avancava sempre UM periodo e ignorava isso, entao numa serie de duas em
+ * duas semanas ela caia na semana errada -- a ocorrencia intermediaria, que nao deveria existir.
+ *
+ * O efeito era passageiro, porque a sincronizacao seguinte traz a data recalculada pelo servidor.
+ * Mas ate ela chegar a pessoa via na lista uma data que a serie dela nao tem.
+ *
+ * O intervalo e limitado a no minimo 1: o campo vem do servidor como texto livre e um 0 faria a
+ * data nunca avancar, transformando a exclusao de uma ocorrencia num laco parado.
+ */
+private fun nextRecurrenceDate(value: String, recurrence: RecurrenceKind, intervalo: Int): String? {
     if (recurrence == RecurrenceKind.None) return null
     val date = runCatching { LocalDate.parse(value) }.getOrNull() ?: return null
+    val passos = intervalo.coerceAtLeast(1)
     val period = when (recurrence) {
-        RecurrenceKind.Daily -> DatePeriod(days = 1)
-        RecurrenceKind.Weekly -> DatePeriod(days = 7)
-        RecurrenceKind.Monthly -> DatePeriod(months = 1)
-        RecurrenceKind.Yearly -> DatePeriod(years = 1)
+        RecurrenceKind.Daily -> DatePeriod(days = passos)
+        RecurrenceKind.Weekly -> DatePeriod(days = 7 * passos)
+        RecurrenceKind.Monthly -> DatePeriod(months = passos)
+        RecurrenceKind.Yearly -> DatePeriod(years = passos)
         RecurrenceKind.None -> return null
     }
     return date.plus(period).toString()

@@ -16,6 +16,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -35,10 +37,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apartment
@@ -93,9 +97,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -1091,7 +1098,7 @@ private fun TasksScreen(store: PopStore) {
                 // para um dado de duas palavras, e a segunda empurrava a lista para baixo sem
                 // acrescentar nada.
                 Text(
-                    "${tasks.count { !it.completed }} pendentes",
+                    plural(tasks.count { !it.completed }, "pendente", "pendentes"),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 4.dp),
@@ -1115,7 +1122,7 @@ private fun TasksScreen(store: PopStore) {
                         enter = fadeIn() + expandVertically(),
                         exit = fadeOut(tween(220)) + shrinkVertically(tween(220)),
                     ) {
-                        TaskRow(
+                        SwipeableTaskRow(
                             task = task,
                             moveTargets = moveTargets,
                             onOpen = { selectedTask = task },
@@ -1148,7 +1155,7 @@ private fun TasksScreen(store: PopStore) {
                         Text(sector, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         Text(
                             // Com o setor fechado o que importa e quanto falta, nao o total.
-                            if (pending == 0) "tudo concluído" else "$pending pendentes",
+                            if (pending == 0) "tudo concluído" else plural(pending, "pendente", "pendentes"),
                             color = if (pending == 0) PopGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
                         )
@@ -1167,7 +1174,7 @@ private fun TasksScreen(store: PopStore) {
                         enter = fadeIn() + expandVertically(),
                         exit = fadeOut(tween(220)) + shrinkVertically(tween(220)),
                     ) {
-                        TaskRow(
+                        SwipeableTaskRow(
                             task = task,
                             moveTargets = moveTargets,
                             onOpen = { selectedTask = task },
@@ -1493,27 +1500,12 @@ private fun TaskRow(
                     moveTargets.forEach { target ->
                         val current = target.kind == task.assignment.kind && target.id == task.assignment.id
                         DropdownMenuItem(
-                            text = {
-                                Text(
-                                    when (target.kind) {
-                                        AssignmentKind.Person -> target.label
-                                        AssignmentKind.Group -> "Grupo: ${target.label}"
-                                        AssignmentKind.Sector -> "Setor: ${target.label}"
-                                        AssignmentKind.None -> target.label
-                                    },
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    when (target.kind) {
-                                        AssignmentKind.Person -> Icons.Rounded.Person
-                                        AssignmentKind.Group -> Icons.Rounded.Groups
-                                        AssignmentKind.Sector -> Icons.Rounded.Apartment
-                                        AssignmentKind.None -> Icons.Rounded.MoreHoriz
-                                    },
-                                    null,
-                                )
-                            },
+                            // Rotulo e icone saem dos mesmos helpers que o dialogo do gesto usa.
+                            // Eram dois `when` escritos a mao aqui; com o gesto seriam quatro, e
+                            // ai bastava alguem acrescentar um tipo de responsavel para os dois
+                            // caminhos passarem a discordar em silencio.
+                            text = { Text(assignmentLabel(target)) },
+                            leadingIcon = { Icon(assignmentIcon(target.kind), null) },
                             trailingIcon = {
                                 if (current) Icon(Icons.Rounded.Check, null, tint = PopBlue)
                             },
@@ -1541,6 +1533,179 @@ private fun TaskRow(
             }
         }
     }
+}
+
+/**
+ * Gestao rapida por gesto na lista de tarefas.
+ *
+ * Arrastar para a ESQUERDA pede exclusao; para a DIREITA, troca o responsavel. A escolha do lado
+ * segue a convencao do iOS, onde o gesto destrutivo vem da direita para a esquerda -- e Mail,
+ * Lembretes e Mensagens ensinam isso ao usuario antes de ele abrir este app.
+ *
+ * Nenhuma das duas acoes e nova: `onDelete` ja abre o dialogo de confirmacao que existia, e
+ * `onMove` ja e o mesmo caminho do menu de tres pontos. O gesto so encurta o percurso, e por isso
+ * nao ha regra de negocio nova aqui para dar errado.
+ *
+ * `confirmValueChange` devolve **false** de proposito nos dois lados. Devolver true faria o cartao
+ * sair da tela: certo para um "arraste para arquivar", errado aqui, porque excluir ainda precisa de
+ * confirmacao e trocar responsavel nao remove nada da lista. Com false, o cartao volta ao lugar e
+ * quem decide o que acontece com ele e o dialogo.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeableTaskRow(
+    task: PopTask,
+    moveTargets: List<AssignmentTarget>,
+    onOpen: () -> Unit,
+    onToggle: () -> Unit,
+    onMove: (AssignmentTarget) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var showAssign by remember { mutableStateOf(false) }
+    // Sem a permissao tasks.assign o servidor recusa a troca, e rememberMoveTargets devolve lista
+    // vazia. Nesse caso o gesto para a direita fica desligado, em vez de abrir um dialogo sem
+    // nenhuma opcao dentro.
+    val podeReatribuir = moveTargets.isNotEmpty()
+
+    val estado = rememberSwipeToDismissBoxState(
+        confirmValueChange = { valor ->
+            when (valor) {
+                SwipeToDismissBoxValue.EndToStart -> onDelete()
+                SwipeToDismissBoxValue.StartToEnd -> if (podeReatribuir) showAssign = true
+                SwipeToDismissBoxValue.Settled -> Unit
+            }
+            false
+        },
+    )
+
+    SwipeToDismissBox(
+        state = estado,
+        enableDismissFromStartToEnd = podeReatribuir,
+        enableDismissFromEndToStart = true,
+        backgroundContent = { TaskSwipeBackground(estado.dismissDirection) },
+    ) {
+        TaskRow(
+            task = task,
+            moveTargets = moveTargets,
+            onOpen = onOpen,
+            onToggle = onToggle,
+            onMove = onMove,
+            onDelete = onDelete,
+        )
+    }
+
+    if (showAssign) {
+        TaskAssignDialog(
+            task = task,
+            targets = moveTargets,
+            onPick = onMove,
+            onDismiss = { showAssign = false },
+        )
+    }
+}
+
+/** O que aparece atras do cartao enquanto ele desliza: cor, icone e a palavra do que vai acontecer. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TaskSwipeBackground(direcao: SwipeToDismissBoxValue) {
+    if (direcao == SwipeToDismissBoxValue.Settled) return
+    val excluir = direcao == SwipeToDismissBoxValue.EndToStart
+    Box(
+        Modifier
+            .fillMaxSize()
+            .clip(MaterialTheme.shapes.medium)
+            .background(if (excluir) MaterialTheme.colorScheme.error else PopBlue)
+            .padding(horizontal = 22.dp),
+        // O rotulo nasce do lado de onde o dedo veio, e nao no centro: assim ele aparece ja no
+        // primeiro centimetro do gesto, antes de o cartao ter saido do lugar.
+        contentAlignment = if (excluir) Alignment.CenterEnd else Alignment.CenterStart,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (excluir) Icons.Rounded.DeleteOutline else Icons.Rounded.Person,
+                null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                if (excluir) "Excluir" else "Responsável",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+    }
+}
+
+/** Lista de responsaveis possiveis, aberta pelo gesto. Mesma fonte de dados do menu de tres pontos. */
+@Composable
+private fun TaskAssignDialog(
+    task: PopTask,
+    targets: List<AssignmentTarget>,
+    onPick: (AssignmentTarget) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Responsável") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                targets.forEach { target ->
+                    val atual = target.kind == task.assignment.kind && target.id == task.assignment.id
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.small)
+                            .clickable {
+                                if (!atual) onPick(target)
+                                onDismiss()
+                            }
+                            .padding(horizontal = 10.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            assignmentIcon(target.kind),
+                            null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Text(
+                            assignmentLabel(target),
+                            modifier = Modifier.padding(start = 12.dp).weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (atual) Icon(Icons.Rounded.Check, null, tint = PopBlue)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
+    )
+}
+
+/**
+ * "1 pendentes" aparecia no cabecalho de todo setor com uma tarefa so, e o mesmo defeito estava em
+ * "1 atrasadas" e "1 concluídas" no cartao de conta. Concordancia errada num numero pequeno nao
+ * quebra nada, mas e o tipo de coisa que quem usa nota antes de notar qualquer acerto.
+ */
+private fun plural(quantidade: Int, singular: String, plural: String): String =
+    "$quantidade ${if (quantidade == 1) singular else plural}"
+
+/** Rotulo e icone de um destino de atribuicao, para o menu e para o dialogo dizerem a mesma coisa. */
+private fun assignmentLabel(target: AssignmentTarget): String = when (target.kind) {
+    AssignmentKind.Person -> target.label
+    AssignmentKind.Group -> "Grupo: ${target.label}"
+    AssignmentKind.Sector -> "Setor: ${target.label}"
+    AssignmentKind.None -> target.label
+}
+
+private fun assignmentIcon(kind: AssignmentKind): ImageVector = when (kind) {
+    AssignmentKind.Person -> Icons.Rounded.Person
+    AssignmentKind.Group -> Icons.Rounded.Groups
+    AssignmentKind.Sector -> Icons.Rounded.Apartment
+    AssignmentKind.None -> Icons.Rounded.MoreHoriz
 }
 
 @Composable
@@ -2163,8 +2328,8 @@ private fun AccountCard(store: PopStore) {
             AccountStat("$pending", "em aberto", Modifier.weight(1f))
             // O terceiro numero era o total, ou seja, a soma dos outros dois -- o mesmo defeito que
             // custou os tres cartoes de metrica do Inicio. "Atrasadas" nao sai de conta nenhuma.
-            AccountStat("$late", "atrasadas", Modifier.weight(1f), if (late > 0) PopRed else null)
-            AccountStat("$done", "concluídas", Modifier.weight(1f))
+            AccountStat("$late", if (late == 1) "atrasada" else "atrasadas", Modifier.weight(1f), if (late > 0) PopRed else null)
+            AccountStat("$done", if (done == 1) "concluída" else "concluídas", Modifier.weight(1f))
         }
     }
 }
@@ -2501,7 +2666,11 @@ private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// FlowRow no lugar de Row nas fileiras de opcao. Nao e ajuste de estetica: Row simples nao quebra
+// linha nem rola, entao o que nao coubesse na largura era CORTADO e ficava inalcancavel. Com cinco
+// valores em RecurrenceKind, so tres apareciam -- nao havia como criar tarefa mensal nem anual pelo
+// iPhone. O mesmo valia para "Grupo" em Atribuir para. Encontrado abrindo o dialogo na previa.
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     var title by remember { mutableStateOf("") }
@@ -2536,7 +2705,10 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                 }
                 item {
                     Text("Prioridade", fontWeight = FontWeight.SemiBold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         Priority.entries.forEach {
                             FilterChip(selected = priority == it, onClick = { priority = it }, label = { Text(it.label, fontSize = 11.sp) })
                         }
@@ -2544,7 +2716,10 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                 }
                 item {
                     Text("Recorrência", fontWeight = FontWeight.SemiBold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         RecurrenceKind.entries.forEach {
                             FilterChip(
                                 selected = recurrence == it,
@@ -2569,7 +2744,10 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                 if (company != null) {
                     item {
                         Text("Atribuir para", fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
                             AssignmentKind.entries.forEach {
                                 FilterChip(
                                     selected = assignmentKind == it,

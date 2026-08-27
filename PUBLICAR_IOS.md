@@ -130,8 +130,11 @@ O app vai como **versão 1.0.3**, cobrindo **apenas iPhone** (decisão de 2026-0
 > **O número do build é manual e o projeto tem `4` fixo.** O workflow não incrementa
 > `CURRENT_PROJECT_VERSION` sozinho: quem disparar sem preencher `build_number` reenvia um número já
 > usado, e o App Store Connect recusa por duplicidade sem explicar direito o porquê. **Último
-> enviado: 7** (2026-08-26). O próximo tem de ser 8 ou maior. A dívida está registrada em
-> `ACHADOS_IOS.md`.
+> enviado: 8** (2026-08-27, versão 1.0.3). O próximo tem de ser 9 ou maior — **atualizar esta linha
+> a cada envio**, porque não há outro lugar que guarde esse número.
+>
+> A correção definitiva seria o workflow usar `github.run_number` como padrão quando a entrada vier
+> vazia, ou consultar o último build pela API do App Store Connect.
 
 Se falhar, o log do passo que quebrou diz o motivo. Os erros mais comuns são: secret com nome
 errado, `.p8` colado sem base64, ou bundle identifier divergente.

@@ -246,10 +246,12 @@ class PopStore(private val platform: PopPlatformServices) {
         // (mobile-api.server.ts:1702) -- e a recusa derruba a carga INTEIRA, nao so o item errado.
         // O toque errado na agenda custava a sincronizacao do aparelho inteiro ate alguem perceber.
         //
-        // A fonte fiel seria o flag `canComplete`, que o servidor ja manda e o app ignora; le-lo
-        // exige campo novo no ApiTask, e o item 7 do ACHADOS_IOS.md explica por que acrescentar
-        // campo ali e perigoso enquanto o `recurrenceTimes` do servidor estiver como esta. Quando
-        // aquilo sair, trocar esta regra pelo flag.
+        // A fonte fiel seria o flag `canComplete`, que o servidor ja manda e o app ignora. Le-lo
+        // exige campo novo no ApiTask, e ISSO E PERIGOSO HOJE: o `json` daqui usa
+        // `encodeDefaults = true` -- que e obrigatorio, porque o schema movel tem 18 campos
+        // estritamente exigidos que no ApiTask tem valor padrao -- entao todo campo novo passa a
+        // ser enviado sempre, com o proprio padrao. Foi assim que `recurrenceTimes` travou tudo do
+        // lado do servidor. Quando o schema do servidor for afrouxado, trocar esta regra pelo flag.
         if (!alvo.completed && ocorrenciaFuturaDeSerie(alvo)) {
             message = "Esta ocorrência ainda não chegou. Ela pode ser concluída no dia dela."
             return

@@ -6,14 +6,29 @@ FRANCISCO, com dados reais. Nada foi criado, editado ou excluído.
 **Estado da exploração: CONCLUÍDA.** Oito rotas visitadas, uma quebrada. O que ficou por verificar
 está na seção final, nomeado.
 
-> **Aviso importante sobre a validade destes achados:** o painel no ar roda um bundle **anterior ao
-> trabalho de hoje** — nem o do André, nem o deste PR. Verificado baixando o arquivo servido
-> (`index-Ch4OQqWF.js`) e procurando textos que só existem no código de hoje: `"Não repetir nestes
-> dias"`, `excludedWeekDays`, `recurrenceTimes` e `manage.permissions` — **nenhum presente**. A
-> aferição foi procurar `"Algo deu errado"`, que **está** lá, provando que o arquivo é o certo.
+> ## ⚠️ CORREÇÃO de 27/08/2026 — leia antes do resto
 >
-> Portanto: os itens de **interface** abaixo descrevem código velho e podem já estar consertados.
-> Os itens de **dado** valem independentemente disso.
+> Este documento afirmava, no dia 26, que **o servidor no ar era antigo**, e usava isso para
+> descontar os achados de interface ("descrevem código velho, podem já estar consertados").
+>
+> **Essa ressalva está retirada.** No dia 27, o app no iPhone recebeu do servidor de **produção**
+> uma recusa que só o código do `d89358a` (26/08) produz — provado reconstruindo o JSON exato e
+> validando contra os dois schemas com o zod do projeto (detalhe em `PARA_ANDRE.md`). Ou seja: **o
+> servidor em produção está atualizado.**
+>
+> **De onde veio o erro.** A conclusão do dia 26 saiu de uma evidência *indireta*: baixei o bundle
+> servido (`index-Ch4OQqWF.js`) e não achei `recurrenceTimes`, `excludedWeekDays`, `"Não repetir
+> nestes dias"` nem `manage.permissions`. A aferição — procurar `"Algo deu errado"`, que estava lá
+> — só provava que o arquivo era o certo, **não** que era o mais recente; um bundle em cache
+> passaria igual nessa prova. O aparelho é evidência direta e ganha da inferência.
+>
+> **Consequência, e ela é o motivo desta correção existir:** o achado **A1** (`/tarefas` quebrada)
+> deixa de ser "provavelmente já consertado" e passa a ser **candidato a defeito no código atual**.
+> Foi assim que ele entrou no `PARA_ANDRE.md`.
+>
+> As duas evidências ainda não foram plenamente reconciliadas — pode ser cache de CDN, pode ser
+> deploy parcial (servidor sem cliente). A conferência barata é reabrir o painel e procurar
+> `recurrenceTimes` no bundle servido agora. **Está listado na seção E como não verificado.**
 
 ---
 
@@ -44,10 +59,11 @@ sempre em `index-Ch4OQqWF.js:9:114462`.
 **Testado nos dois extremos:** espaço pessoal **vazio** (0 tarefas) e SÃO FRANCISCO com **361**. Quebra
 igual. **Não é caminho de estado vazio nem dependente de volume — é incondicional.**
 
-**Proposta:** a regra `react-hooks/rules-of-hooks` está ligada no `eslint.config.js` (via
-`reactHooks.configs.recommended.rules`) e o código atual passa com zero erros. O primeiro passo é
-**redeployar** e reconferir. Se persistir depois do redeploy, aí é bug que o eslint não vê
-estaticamente, e vale caçar com build não-minificado para obter o nome do componente.
+**Proposta (revista em 27/08):** a regra `react-hooks/rules-of-hooks` está ligada no
+`eslint.config.js` (via `reactHooks.configs.recommended.rules`) e o código atual passa com zero
+erros — então é bug que o eslint **não vê estaticamente**. Como a hipótese "é só deploy velho" caiu
+(ver a correção no topo), redeployar deixou de ser o primeiro passo. O caminho é caçar com build
+**não minificado**, que devolve o nome do componente no stack. Repassado ao André.
 
 ### A2 — Acentos corrompidos nos dados importados
 
@@ -123,9 +139,11 @@ Fica registrado porque eu apresentei esse número como se fosse achado, e não e
 "kakakakak", "TESTE 1fgkhlglvlvlbllblvkvkckc", "tete andre", "Eae, tudo bem?", "Teste ADM" ao lado de
 tarefas legítimas da clínica. Não é bug — é gente testando em produção.
 
-### B4 — O deploy está atrasado
+### B4 — ~~O deploy está atrasado~~ (RETIRADO em 27/08)
 
-Ver o aviso no topo. Nem o trabalho do André de hoje, nem este PR.
+Era a conclusão do dia 26. **O servidor de produção está atualizado** — provado pelo aparelho. Ver
+a correção no topo. O que resta em aberto é apenas o bundle do navegador, que segue sem explicação
+e está na seção E.
 
 ---
 
@@ -135,15 +153,22 @@ Todo o trabalho de hoje no iPhone foi calibrado contra uma semente de teste com 
 setores**. A realidade é **5 pessoas, 16 setores, 361 tarefas, 354 atrasadas**. Três decisões que eu
 dei por resolvidas não sobrevivem a esses números:
 
-### C1 — O cartão principal vai anunciar "354 tarefas para hoje"
+### C1 — O cartão principal vai anunciar "354 tarefas para hoje" — ✅ CONFIRMADO E CORRIGIDO
 
-O conserto de hoje (`PopOrganizeApp.kt`, `DashboardScreen`) faz `agenda` = tarefas de hoje **mais
-atrasadas em aberto**, porque atrasada também é para hoje. Defensável no papel; com 354 atrasadas,
-o maior texto da tela vira um número sem uso, e o anel de progresso marca perto de zero
-permanentemente.
+**Deixou de ser previsão em 27/08.** O build 7 no iPhone mostrou exatamente isto: **"349 tarefas
+para hoje"**, com "348 já passaram do prazo" logo abaixo e o anel em **0%**. Só **uma** tarefa
+vencia de fato naquele dia.
 
-**Proposta:** separar as duas ideias. "Para hoje" conta só o que vence hoje; atrasadas ganham linha
-própria com o total, sem entrar no denominador do anel. O anel volta a medir o dia.
+O conserto de 26/08 (`PopOrganizeApp.kt`, `DashboardScreen`) fazia `agenda` = tarefas de hoje
+**mais atrasadas em aberto**, porque atrasada também é para hoje. Defensável no papel; com 348
+atrasadas, o maior texto da tela virou um número sem uso e o anel travou em zero.
+
+**Proposta, aplicada no build 8:** separar as duas ideias. "Para hoje" conta só o que vence hoje;
+atrasadas ganham linha própria com o total, sem entrar no denominador do anel. O anel volta a medir
+o dia.
+
+Efeito nos mesmos dados: **"1 tarefa para hoje"** + "348 já passaram do prazo", com o anel medindo
+a única tarefa do dia.
 
 ### C2 — A aba Tarefas abre como uma parede de dezesseis cabeçalhos fechados
 
@@ -185,12 +210,15 @@ Fica registrado porque o erro foi meu e a conclusão anterior chegou a ser comun
 
 ## E. O que NÃO foi verificado
 
-- **Se o código do servidor está tão desatualizado quanto o do navegador.** Só o bundle do
-  navegador foi testado. A tentativa de sondar o lado servidor falhou por erro meu, e não foi
-  repetida para não mexer em produção.
-- **Se o `/tarefas` quebra no código atual.** Não foi possível rodar a aplicação localmente:
-  `database.server.ts` exige `DATABASE_URL` e não tem alternativa em memória. Apontar para o banco
-  de produção seria escrever nele.
+- **Por que o bundle do navegador parecia antigo se o servidor está atual.** ~~Se o código do
+  servidor está tão desatualizado quanto o do navegador.~~ Resolvido pela metade em 27/08: o
+  servidor **está** atual. O bundle segue sem explicação — cache de CDN e deploy parcial são as
+  duas hipóteses, nenhuma testada. **Conferência barata:** reabrir o painel e procurar
+  `recurrenceTimes` no bundle servido agora.
+- **Se o `/tarefas` quebra no código atual.** Continua sem resposta, e agora importa mais (ver a
+  correção no topo). Não foi possível rodar a aplicação localmente: `database.server.ts` exige
+  `DATABASE_URL` e não tem alternativa em memória. Apontar para o banco de produção seria escrever
+  nele.
 - **O assistente "Falar com a Pop (assistente de IA)".** Não foi aberto.
 - **Detalhe de tarefa, edição, criação, convite** — todos exigiriam escrever em produção.
 - **A tela `/tarefas` em si**, obviamente: nunca carregou.

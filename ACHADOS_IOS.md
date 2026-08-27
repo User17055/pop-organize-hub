@@ -1,13 +1,32 @@
 # Achados verificados no app iOS e no contrato — pendentes de conserto
 
-Levantados na revisão do PR #3 em 2026-08-26, **todos verificados lendo os dois lados do código**,
-nenhum consertado. O que foi consertado está nos commits `7855357` e `4862e4e` e não se repete aqui.
+Levantados na revisão do PR #3 em 2026-08-26, **todos verificados lendo os dois lados do código**.
+O que foi consertado está nos commits `7855357` e `4862e4e` e não se repete aqui.
 
 Ordenado por gravidade. Cada item traz o que foi verificado, o cenário concreto e a proposta.
 
+## Estado em 2026-08-27 (build 8)
+
+| Item | Estado |
+| --- | --- |
+| 1 — resíduo de conta no disco | ✅ **consertado no build 8** |
+| 2 — congelamento por 409 | ✅ **consertado no build 8** |
+| 3 — `assignees` não volta | ⏸ bloqueado no item 7 |
+| 4 — quatro campos descartados | ⏸ bloqueado no item 7 |
+| 5 — `deleteTaskSeries` | ⏳ aberto |
+| 6 — `nextRecurrenceDate` | ⏳ aberto (conserto limpo depende do servidor) |
+| 7 — `recurrenceTimes` | 🔴 **confirmado em produção**, bloqueado no André |
+| 8 — `nativeData` | ❓ não verificado |
+
+**O build 8 também levou quatro defeitos achados no teste em aparelho do build 7**, que nunca
+chegaram a virar item desta lista porque foram consertados no mesmo dia: espaço pessoal oferecendo
+pessoas e setores de empresa, o diálogo de exclusão com botões sobrepostos, a faixa morta abaixo da
+barra de abas, e o cartão principal anunciando "349 tarefas para hoje" (seção C1 do
+`ACHADOS_PAINEL.md`). Detalhes na mensagem do commit.
+
 ---
 
-## 1. Resíduo de conta anterior fica no disco depois do logout — e meu conserto de hoje cobriu só metade
+## 1. ✅ CONSERTADO NO BUILD 8 — Resíduo de conta anterior fica no disco depois do logout
 
 `PopStore.kt`, `refreshFromServer()`.
 
@@ -24,7 +43,7 @@ o logout esperar o `syncJob`. Mas o `refreshFromServer` é disparado por outros 
 **não é rastreado pelo `syncJob`**. O conserto cobriu metade do problema e foi apresentado como se
 cobrisse o todo.
 
-**Proposta:** uma linha, antes do `state.copy`:
+**Conserto aplicado no build 8** — uma linha, antes do `state.copy`:
 
 ```kotlin
 if (state.apiToken != token) return
@@ -33,7 +52,7 @@ if (state.apiToken != token) return
 Prioridade alta: é dado pessoal de terceiros sobrevivendo a um logout, num aparelho que pode ser
 compartilhado.
 
-## 2. Um toque errado congela a sincronização inteira, e o refresh seguinte apaga o que ficou preso
+## 2. ✅ CONSERTADO NO BUILD 8 — Um toque errado congela a sincronização inteira
 
 `mobile-api.server.ts:1702` e `PopStore.kt` (`syncTasks`, `refreshTasks`).
 
@@ -47,9 +66,17 @@ PUT volta 409, o `completed = true` fica salvo no aparelho, e **todo** `update()
 mesmo item e leva 409 de novo. As tarefas criadas depois não sobem. Mandar o app para segundo plano
 e voltar dispara `refreshTasks()`, que substitui a lista pela do servidor e descarta as locais.
 
-**Proposta:** duas partes. Impedir na interface que ocorrência futura seja concluída (o servidor já
-manda os flags de permissão, basta lê-los), e reverter o `completed` local quando o PUT voltar 409,
-em vez de deixá-lo envenenando toda sincronização futura.
+**Conserto aplicado no build 8**, nas duas partes propostas:
+
+1. `toggleTask` recusa concluir ocorrência futura de série recorrente e explica o motivo, em vez de
+   deixar o toque passar e o servidor recusar depois.
+2. `syncTasks`, ao receber **409**, reverte localmente as conclusões que a regra do servidor proíbe,
+   em vez de deixá-las envenenando toda sincronização futura.
+
+A regra foi reimplementada no cliente (`completed && recurrenceOccurrence > 1 && dueDate > hoje`)
+espelhando `mobile-api.server.ts:1702`. A alternativa fiel seria ler os flags `canComplete` que o
+servidor já manda — mas isso exige campo novo no `ApiTask`, e **o item 7 explica por que acrescentar
+campo ali é perigoso hoje**. Quando o item 7 sair, vale trocar a regra local pelo flag.
 
 ## 3. `assignees` não faz o caminho de volta — sincronizar zera os responsáveis
 
@@ -111,7 +138,12 @@ do mês.
 **Proposta:** o conserto limpo não cabe no cliente. Ou o servidor passa a expor a próxima data da
 série, ou "excluir somente esta ocorrência" vira exclusão de verdade via `pendingDeletedServerIds`.
 
-## 7. `recurrenceTimes` — bloqueado no André, e há uma armadilha para quem for mexer
+## 7. 🔴 `recurrenceTimes` — CONFIRMADO EM PRODUÇÃO, bloqueado no André
+
+> **27/08:** deixou de ser dedução. Um espaço **pessoal** com **uma** tarefa trivial recebeu
+> `400 — "Lista de tarefas inválida."` do servidor de produção. O JSON exato foi reconstruído e
+> validado: passa no schema antigo, reprova no atual, em `recurrenceTimes`. **A sincronização de
+> tarefas está morta para iOS e Android, em todos os espaços.** Ver `PARA_ANDRE.md`.
 
 O campo é novo no contrato (`d89358a`) e o `ApiTask` não o tem. O zod é
 `.min(2).max(12).optional().default([])`, e **o zod valida o próprio valor padrão**: `[]` reprova no
@@ -142,7 +174,9 @@ uma recorrência editada no painel voltar ao valor antigo quando o celular sincr
 `build_number` explicitamente reenvia um número já usado, e o App Store Connect recusa por
 duplicidade — sem explicar direito o porquê.
 
-**Último número enviado: 7** (2026-08-26, versão 1.0.3). O próximo tem de ser 8 ou maior.
+**Último número enviado: 7** (2026-08-26, versão 1.0.3). O próximo tem de ser 8 ou maior — e o
+lote de 2026-08-27 foi preparado justamente para ir como **build 8**. Atualizar esta linha assim que
+ele subir.
 
 **Proposta:** fazer o workflow usar `github.run_number` como padrão quando a entrada vier vazia,
 ou ler o último build do App Store Connect pela API.

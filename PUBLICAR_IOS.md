@@ -13,7 +13,7 @@ Este documento é a lista de tarefas até o app estar na App Store.
 | --- | --- | --- |
 | **Guilherme** | Conta no Apple Developer Program (US$ 99/ano) | Sem ela não existe certificado, nem TestFlight, nem envio. **Trava todo o resto.** |
 | **Guilherme** | 4 secrets no GitHub | É o que deixa o robô assinar e enviar o app sozinho. Só existem depois da conta. |
-| **Guilherme** | Um iPhone de verdade | Dois fluxos nunca rodaram em aparelho nenhum, e a Apple testa os dois. |
+| ~~**Guilherme**~~ | ~~Um iPhone de verdade~~ | ✅ **feito em 27/08**: login com Apple e exclusão de conta exercidos e funcionando. Ver §6. |
 | **André** | `APPLE_CLIENT_ID` publicado na VPS | Sem isso o login com Apple não fecha o ciclo no servidor. |
 
 Os passos 1 a 3 são uma corrente: cada um depende do anterior. O passo 4 (André) pode acontecer em
@@ -125,30 +125,38 @@ Dois campos opcionais aparecem ao disparar:
 - **build_number** — deixe vazio para usar o valor do projeto
 - **upload** — deixe marcado para enviar de fato; desmarque se quiser só testar se compila e assina
 
-O app vai como **versão 1.0.3, build 4**, cobrindo **apenas iPhone** (decisão de 2026-08-20).
+O app vai como **versão 1.0.3**, cobrindo **apenas iPhone** (decisão de 2026-08-20).
+
+> **O número do build é manual e o projeto tem `4` fixo.** O workflow não incrementa
+> `CURRENT_PROJECT_VERSION` sozinho: quem disparar sem preencher `build_number` reenvia um número já
+> usado, e o App Store Connect recusa por duplicidade sem explicar direito o porquê. **Último
+> enviado: 7** (2026-08-26). O próximo tem de ser 8 ou maior. A dívida está registrada em
+> `ACHADOS_IOS.md`.
 
 Se falhar, o log do passo que quebrou diz o motivo. Os erros mais comuns são: secret com nome
 errado, `.p8` colado sem base64, ou bundle identifier divergente.
 
 ---
 
-## 6. Teste em aparelho — o passo mais importante
+## 6. Teste em aparelho — FEITO em 2026-08-27, build 7
 
-Instale pelo TestFlight e teste **nesta ordem de prioridade**:
+Os três fluxos que nunca tinham rodado em aparelho nenhum foram exercidos. Resultado:
 
-- [ ] **Login com Apple.** É o maior risco técnico em aberto. Há um objeto no código
-      (`ASAuthorizationController`, em `MainViewController.kt:136`) criado como variável local, que
-      pode ser destruído antes de a resposta chegar — o padrão clássico de "toca no botão e não
-      acontece nada". Foi deixado **sem correção de propósito**: mexer no escuro, sem conseguir
-      reproduzir, costuma criar um segundo bug em vez de resolver o primeiro.
+- [x] **Login com Apple — FUNCIONA.** Era o maior risco técnico em aberto, e por dois motivos: o
+      `ASAuthorizationController` como variável local (padrão clássico de "toca e não acontece
+      nada"), e um `encodeDefaults` que mandava `name:null,email:null` e fazia o servidor recusar a
+      credencial com 400 depois de o Face ID ter dado certo. O segundo foi consertado no build 7 e
+      **confirmado em aparelho**; o primeiro nunca se manifestou.
 
-- [ ] **Exclusão de conta.** A Apple testa e rejeita se não funcionar (Review 5.1.1).
+- [x] **Exclusão de conta — FUNCIONA.** Testada com uma conta descartável, criada por e-mail/código
+      justamente para não apagar a conta real. A Apple testa e rejeita se não funcionar (Review
+      5.1.1). Esse mesmo caminho serve para produzir a **conta de teste do revisor** do §7.
 
-- [ ] **Calendário e tarefas.** Foram reescritos por completo e nunca foram vistos rodando.
+- [x] **Calendário e tarefas — rodam.** Junto com os gestos de arraste.
 
-Uma expectativa honesta: **o primeiro teste em aparelho vai achar coisa.** Compilar verde prova que
-o código é válido, não que ele se comporta certo. Achar defeito aqui é o processo funcionando, não
-sinal de que algo deu errado.
+A expectativa se confirmou: **o primeiro teste em aparelho achou coisa.** Quatro defeitos visuais e
+de comportamento, todos consertados no build 8 — e um quinto que não é do app, e sim do servidor
+(`recurrenceTimes`, ver `PARA_ANDRE.md`). Achar defeito aqui é o processo funcionando.
 
 ---
 

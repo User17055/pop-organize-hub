@@ -24,10 +24,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -630,8 +632,22 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
         }
     }
 
+    // A area segura de BAIXO nao entra aqui de proposito -- quem cuida dela e a NavigationBar.
+    //
+    // Com `safeDrawing` inteiro, o Scaffold empurrava tambem a barra de abas para dentro da area
+    // segura: a barra terminava ACIMA do indicador de home, e a faixa que sobrava embaixo mostrava
+    // a cor de fundo do Scaffold (`background`) enquanto a barra usa `surface`. Como as duas cores
+    // diferem nos dois temas, sobrava uma tira morta visivel -- escura no tema escuro, cinza-azulada
+    // no claro. Apontado em aparelho em 27/08.
+    //
+    // `safeDrawing` inclui o teclado (ime), entao NAO somar `imePadding()` junto: a NavigationBar
+    // ja sobe sozinha quando o teclado abre, e as duas coisas juntas dobrariam o deslocamento.
     Scaffold(
-        modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+            ),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             if (tab == MainTab.More && morePage != MorePage.Menu) {
@@ -657,6 +673,11 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,
                 tonalElevation = 0.dp,
+                // A barra passa a desenhar ATE a borda inferior da tela e pinta a propria cor
+                // atras do indicador de home, em vez de parar antes e deixar a faixa aparecendo.
+                // Como `safeDrawing` inclui o teclado, e tambem esta linha que faz a barra subir
+                // quando o teclado abre -- por isso o Scaffold nao aplica mais nada embaixo.
+                windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
             ) {
                 MainTab.entries.forEach { item ->
                     val selected = tab == item
@@ -858,31 +879,34 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
     val userName = store.state.currentUser?.firstName ?: "você"
     val shown = 4
 
-    // "Para hoje" precisa contar o que e de hoje. Contava tudo que estivesse pendente no espaco:
-    // com 8 pendentes e 4 vencendo hoje, o maior texto da tela anunciava "8 tarefas para hoje".
-    // Atrasada entra na conta porque atrasada tambem e para hoje.
+    // "Hoje" e "atrasada" sao contas SEPARADAS, e a separacao custou caro para ser aprendida.
     //
-    // O filtro era `offset <= 0`, sem piso, e isso pegava TODA tarefa datada de hoje ou de
-    // qualquer dia passado, concluida ou nao. `pending` saia certo, mas `completed` e `total`
-    // viravam o acumulado de vida inteira, e o anel so subia. Com tres semanas de uso -- 30
-    // tarefas concluidas no periodo e 3 abertas hoje -- a tela mostrava "3 tarefas para hoje" ao
-    // lado de um anel marcando 90%, sem a pessoa ter feito nada hoje. Em dois meses ele travaria
-    // perto de 97% e deixaria de significar coisa alguma.
+    // Primeiro erro (corrigido em 26/08): o filtro era `offset <= 0`, sem piso, e pegava TODA
+    // tarefa de hoje ou de qualquer dia passado, concluida ou nao. `completed` e `total` viravam o
+    // acumulado de vida inteira e o anel so subia -- em dois meses ele travaria perto de 97% e
+    // deixaria de significar coisa alguma.
     //
-    // Concluida de hoje entra (e o numerador do anel); atrasada so entra enquanto estiver aberta,
-    // porque atrasada ja concluida e trabalho de outro dia e nao pertence ao progresso deste.
-    val agenda = remember(tasks, today) {
+    // Segundo erro (este, corrigido em 27/08): o conserto anterior juntou hoje + atrasadas em
+    // aberto numa lista so, com o argumento de que "atrasada tambem e para hoje". Defensavel no
+    // papel, desmentido pelo primeiro contato com dado real. No iPhone, na SAO FRANCISCO, o cartao
+    // anunciou **"349 tarefas para hoje"** com o anel em **0%**: eram 348 atrasadas de uma
+    // importacao de planilha e UMA tarefa vencendo no dia. O maior texto da tela virou um numero
+    // sem uso, e o anel, um enfeite travado em zero.
+    //
+    // Agora o titulo e o anel medem o DIA; atrasada tem linha propria e fica fora do denominador.
+    // Concluida de hoje continua entrando -- ela e o numerador do anel.
+    val todayTasks = remember(tasks, today) {
         tasks.filter { task ->
-            val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) }
-            offset == 0L || (offset != null && offset < 0L && !task.completed)
+            parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } == 0L
         }
     }
-    val pendingToday = agenda.count { !it.completed }
-    val doneToday = agenda.size - pendingToday
-    val overdue = remember(agenda, today) {
-        agenda.count { task ->
-            val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } ?: 0L
-            !task.completed && offset < 0L
+    val pendingToday = todayTasks.count { !it.completed }
+    val doneToday = todayTasks.size - pendingToday
+    // Atrasada ja concluida nao conta: e trabalho de outro dia, resolvido.
+    val overdue = remember(tasks, today) {
+        tasks.count { task ->
+            val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) }
+            !task.completed && offset != null && offset < 0L
         }
     }
     // A lista saia na ordem de armazenamento: as quatro primeiras eram as quatro primeiras a
@@ -901,7 +925,7 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
                 userName = userName,
                 pending = pendingToday,
                 completed = doneToday,
-                total = agenda.size,
+                total = todayTasks.size,
                 overdue = overdue,
                 hasFuture = upcoming.isNotEmpty(),
             )
@@ -958,10 +982,16 @@ private fun TodayHeroCard(
     hasFuture: Boolean,
 ) {
     val progress = if (total == 0) 0f else completed.toFloat() / total
+    // `total` conta so o que vence hoje. Como atrasada saiu dessa conta, os dois casos de "nao ha
+    // nada" precisam olhar tambem para `overdue`: dizer "Nada para hoje" ou "Tudo em dia" com a
+    // linha logo abaixo anunciando 348 fora do prazo seria o cartao se contradizendo em duas
+    // linhas seguidas -- que e exatamente o defeito que este conserto veio corrigir.
     val headline = when {
-        total == 0 && !hasFuture -> "Nada na agenda"
-        total == 0 -> "Nada para hoje"
-        pending == 0 -> "Tudo em dia"
+        total == 0 && overdue == 0 && !hasFuture -> "Nada na agenda"
+        total == 0 && overdue == 0 -> "Nada para hoje"
+        total == 0 -> "Nada vence hoje"
+        pending == 0 && overdue == 0 -> "Tudo em dia"
+        pending == 0 -> "Hoje está em dia"
         pending == 1 -> "1 tarefa para hoje"
         else -> "$pending tarefas para hoje"
     }
@@ -1245,11 +1275,17 @@ private fun TasksScreen(store: PopStore) {
  */
 @Composable
 private fun rememberMoveTargets(store: PopStore): List<AssignmentTarget> {
-    val company = store.selectedCompany
+    // `selectedCompany` significa "a ULTIMA empresa escolhida", nao "estamos numa empresa": ele
+    // continua apontando para ela dentro do Meu Espaco. Sem esta guarda, arrastar uma tarefa
+    // pessoal oferecia os funcionarios e os setores da empresa, e reatribuir gravava o id de uma
+    // pessoa de OUTRO espaco dentro da carga do espaco pessoal. Visto em aparelho em 27/08.
+    val company = store.selectedCompany.takeIf { store.state.workspace == WorkspaceKind.Company }
     // Reatribuir exige a permissao tasks.assign, resolvida pelo servidor.
     val canAssign = store.permissions.canAssignTasks
     return remember(company, canAssign) {
-        if (!canAssign) {
+        // Sem empresa nao ha para quem reatribuir, e lista com so "Sem responsavel" seria um gesto
+        // que nao leva a lugar nenhum. Lista vazia desliga o arraste inteiro (ver `podeReatribuir`).
+        if (!canAssign || company == null) {
             emptyList()
         } else {
             buildList {
@@ -1409,8 +1445,18 @@ private fun TaskDeleteDialog(
                 },
             )
         },
+        // As TRES acoes vao juntas no confirmButton, e o dismissButton fica de fora.
+        //
+        // O AlertDialog do Material 3 dispoe dismissButton e confirmButton lado a lado, na mesma
+        // linha. Com o confirmButton sendo uma Column de dois botoes, a linha alinhava o "Cancelar"
+        // pelo centro vertical da coluna -- e ele aterrissava POR CIMA do botao vermelho. Nao era
+        // margem apertada: era sobreposicao, com o texto de um lendo em cima do outro. Visto em
+        // aparelho em 27/08, no build 7.
         confirmButton = {
-            Column(horizontalAlignment = Alignment.End) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 if (isRecurring) {
                     TextButton(onClick = onDeleteOccurrence) { Text("Somente esta data") }
                 }
@@ -1420,10 +1466,8 @@ private fun TaskDeleteDialog(
                 ) {
                     Text(if (isRecurring) "Toda a recorrência" else "Excluir")
                 }
+                TextButton(onClick = onDismiss) { Text("Cancelar") }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
         },
     )
 }
@@ -2674,7 +2718,15 @@ private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
         item {
             OutlinedButton(onClick = store::signOut, modifier = Modifier.fillMaxWidth()) { Text("Sair da conta") }
         }
-        item { Text(store.message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+        // Havia aqui uma linha permanente com `store.message` -- o ultimo retorno de servidor, cru.
+        // Em 27/08 ela estava exibindo **"Lista de tarefas invalida."** logo abaixo de "Sair da
+        // conta", parada, sem contexto: parecia defeito da tela de Configuracoes quando na verdade
+        // era a sincronizacao de tarefas sendo recusada por um schema do servidor.
+        //
+        // Retirada, e nada se perde: o mesmo `store.message` ja aparece no snackbar do Scaffold
+        // (ver o LaunchedEffect la em cima), que e passageiro e aparece na hora do evento -- que e
+        // como recado de servidor deve se comportar. Mensagem de estado permanente pede um estado
+        // permanente atras dela, e nao existe um.
     }
 
     if (showDeleteConfirmation) {
@@ -2724,7 +2776,11 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     var assignment by remember { mutableStateOf(AssignmentTarget()) }
     var checklistText by remember { mutableStateOf("") }
     var recurrence by remember { mutableStateOf(RecurrenceKind.None) }
-    val company = store.selectedCompany
+    // Mesma armadilha do rememberMoveTargets: `selectedCompany` sobrevive a troca para o Meu
+    // Espaco. O dialogo "Nova tarefa" abria no espaco pessoal com "Atribuir para" listando as
+    // pessoas e os setores da SAO FRANCISCO -- e criar assim mandaria o id de alguem de outro
+    // espaco na carga. Encontrado em aparelho em 27/08.
+    val company = store.selectedCompany.takeIf { store.state.workspace == WorkspaceKind.Company }
     val assignmentOptions = when (assignmentKind) {
         AssignmentKind.None -> emptyList()
         AssignmentKind.Person -> company?.members.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }

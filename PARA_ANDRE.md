@@ -2,13 +2,43 @@
 
 Encaminhar as duas versões: a curta explica o efeito, a técnica explica a causa.
 
+> ## ⚠️ Atualização de 27/08/2026 — deixou de ser teoria
+>
+> Quando este documento foi escrito (26/08), o problema 1 era **dedução a partir do schema**. Hoje
+> ele foi **reproduzido em aparelho, no servidor de produção**, e a conclusão mudou de "provável"
+> para "é isto e está acontecendo agora".
+>
+> **Como foi provado, sem tocar em produção:**
+>
+> 1. No iPhone, num espaço **pessoal** com **uma** tarefa trivial ("teste", hoje, sem recorrência),
+>    a sincronização voltou `400 — "Lista de tarefas inválida."`.
+> 2. O JSON exato que o app manda nesse caso foi reconstruído e validado contra os dois schemas,
+>    com o zod do próprio projeto (3.25.76):
+>
+>    ```
+>    SERVIDOR ANTIGO (antes do d89358a)  -> ACEITA
+>    SERVIDOR NOVO   (origin/main)       -> RECUSA
+>       tasks.0.recurrenceTimes: Array must contain at least 2 element(s)
+>    ```
+>
+> Como a carga é recusada por um espaço com **uma tarefa mínima e válida**, a causa não são os
+> dados: é o schema. E como o aparelho recebeu a recusa do servidor **que está no ar**, o servidor
+> em produção roda o código do `d89358a`.
+>
+> **Efeito atual, medido:** nenhuma tarefa criada em celular nenhum sobe. Não é degradação, é
+> bloqueio total — iOS e Android, todos os espaços, todos os usuários. Enquanto o deploy não sair,
+> a tarefa fica presa no aparelho.
+>
+> O conserto continua sendo a mesma linha proposta abaixo.
+
 ---
 
 ## Versão curta
 
 > André, achamos dois problemas no `PUT /api/mobile/tasks` que fazem o app **recusar toda
-> sincronização de tarefas**. Um deles é do código de recorrência que você subiu hoje, e ele
-> derruba o Android também — não é só o iPhone.
+> sincronização de tarefas**. Um deles é do código de recorrência que você subiu no dia 26, e ele
+> derruba o Android também — não é só o iPhone. **Já reproduzimos no aparelho, contra o servidor de
+> produção**, então não é suspeita.
 >
 > **O que acontece na prática:** qualquer app que sincronize tarefas recebe de volta um erro 400
 > ("Lista de tarefas inválida"). Nenhuma tarefa sobe. E como o servidor valida a lista inteira de
@@ -109,6 +139,32 @@ Se preferir blindar os dois lados, `.nullish()` no lugar de `.optional()` nesses
 tornaria o schema tolerante — mas aí `authenticateMobileApple` e afins passam a receber `null`
 onde o tipo diz `string | undefined`, então exigiria normalizar com `?? undefined`. Fica a seu
 critério; do lado do app já está resolvido.
+
+---
+
+## Dois achados do painel web (27/08) — não são do endpoint móvel
+
+### `/tarefas` quebra por completo em produção
+
+Tela "Algo deu errado". No console: `Minified React error #310` — *"Rendered more hooks than during
+the previous render"*, violação das Rules of Hooks. Três ocorrências por carregamento.
+
+**Testado nos dois extremos:** espaço pessoal **vazio** (0 tarefas) e SÃO FRANCISCO com **361**.
+Quebra igual — não é caminho de estado vazio nem dependente de volume, é incondicional.
+
+A regra `react-hooks/rules-of-hooks` está ligada no `eslint.config.js` e o código passa com zero
+erros, então é algo que o eslint não vê estaticamente. Para achar o componente, vale um build **não
+minificado** — o nome aparece no stack.
+
+### Acentos corrompidos no banco
+
+`"Gest?o e opera??es da empresa SAO FRANCISCO"` na descrição da empresa e do setor Administrativo.
+Aparece igual na resposta de rede, ou seja, **está gravado assim**, não é erro de renderização. Não
+é global: "Alimentação dos Equinos" e "RECEPÇÃO" estão corretos — atinge os registros vindos de
+`tarefas_importar.xlsx` e os criados junto com a empresa. Aparece no iPhone também, no cabeçalho.
+
+Vale conferir se a conexão usa `utf8mb4`. O dado já gravado é um UPDATE pontual, são poucos
+registros.
 
 ---
 

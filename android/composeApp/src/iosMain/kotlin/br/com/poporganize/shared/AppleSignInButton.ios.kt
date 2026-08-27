@@ -23,8 +23,18 @@ import platform.AuthenticationServices.ASAuthorizationAppleIDButton
  *
  * Usa o inicializador padrao em vez de buttonWithType:style:. As constantes de estilo do
  * Objective-C nao resolveram no binding do Kotlin/Native, e cada tentativa de adivinhar o nome
- * custa um build inteiro; o padrao ja e o tipo "Iniciar sessao" no estilo branco. Em fundo claro
- * o branco se perde, entao a borda faz o papel do estilo WhiteOutline.
+ * custa um build inteiro.
+ *
+ * ATENCAO -- este comentario afirmava, ate 27/08/2026, que "o padrao ja e o tipo 'Iniciar sessao'
+ * no estilo branco". **Isso e falso.** O inicializador padrao do ASAuthorizationAppleIDButton usa
+ * o estilo **preto**. O erro tinha consequencia visivel: no tema escuro o botao e preto sobre um
+ * fundo quase preto, sem borda nenhuma, e nao se enxerga que ele e uma pilula -- le como um bloco
+ * quadrado ao lado da pilula azul do "Entrar com e-mail". O `cornerRadius` abaixo sempre esteve
+ * certo e sempre foi aplicado; o que faltava era contraste, nao raio.
+ *
+ * Por isso a borda existe nos DOIS temas: no claro ela impede que o botao se perca no branco, no
+ * escuro ela desenha a forma que o preto sozinho nao mostra. O caminho correto seria o estilo
+ * branco da Apple, e ele fica pendente do binding -- ver a skill `pre-push-ios`, secao 3.
  */
 @Composable
 actual fun AppleSignInButton(
@@ -48,7 +58,12 @@ actual fun AppleSignInButton(
                 // opcao. Este contorno fica FORA do alpha (ele e do Box; a transparencia e do
                 // UIKitView de dentro), entao a forma continua na tela com o miolo apagado.
                 !enabled -> Modifier.border(1.dp, Color.White.copy(alpha = .22f), RoundedCornerShape(radius.dp))
-                else -> Modifier
+                // Antes era `Modifier` -- sem borda. Em tema escuro, botao preto sobre fundo quase
+                // preto nao mostra a propria silhueta: o raio de 26 esta la, mas nao ha o que ver.
+                // Ao lado de uma pilula azul, isso le como um retangulo colado de outro app. Um
+                // pouco mais forte que o contorno do estado desabilitado, para os dois nao se
+                // confundirem quando o botao esta conectando.
+                else -> Modifier.border(1.dp, Color.White.copy(alpha = .38f), RoundedCornerShape(radius.dp))
             },
         ),
     ) {

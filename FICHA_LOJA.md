@@ -53,10 +53,13 @@ se responde com Não.
 ### Exclusão de conta: **Sim, dentro do app**
 
 A Apple exige desde a Review 5.1.1(v) e testa. Existe: `PopStore.kt` chama `DELETE account`. O
-caminho na interface é **Mais → Conta → Excluir conta**.
+caminho na interface é **Mais → Configurações → Excluir minha conta**.
 
-> Isto é o único item desta seção que **ainda não foi exercido em aparelho**. Está listado em
-> `PUBLICAR_IOS.md` §6 e continua valendo.
+> ✅ **Exercido em aparelho em 2026-08-27** (build 7) e funcionando. O teste foi feito com uma
+> **conta descartável**, criada por e-mail/código — não com a conta real, que seria irreversível.
+>
+> Esse mesmo caminho resolve a **conta de teste do revisor** exigida no envio: criar uma conta por
+> e-mail, deixá-la com dados reais dentro, e entregar as credenciais no App Store Connect.
 
 ---
 

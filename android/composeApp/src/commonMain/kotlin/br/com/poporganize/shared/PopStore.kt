@@ -241,6 +241,19 @@ class PopStore(private val platform: PopPlatformServices) {
     }
 
     fun toggleTask(taskId: String) {
+        val alvo = state.tasks.firstOrNull { it.id == taskId } ?: return
+        // Concluir ocorrencia FUTURA de serie recorrente e recusado pelo servidor com 409
+        // (mobile-api.server.ts:1702) -- e a recusa derruba a carga INTEIRA, nao so o item errado.
+        // O toque errado na agenda custava a sincronizacao do aparelho inteiro ate alguem perceber.
+        //
+        // A fonte fiel seria o flag `canComplete`, que o servidor ja manda e o app ignora; le-lo
+        // exige campo novo no ApiTask, e o item 7 do ACHADOS_IOS.md explica por que acrescentar
+        // campo ali e perigoso enquanto o `recurrenceTimes` do servidor estiver como esta. Quando
+        // aquilo sair, trocar esta regra pelo flag.
+        if (!alvo.completed && ocorrenciaFuturaDeSerie(alvo)) {
+            message = "Esta ocorrência ainda não chegou. Ela pode ser concluída no dia dela."
+            return
+        }
         update { copy(tasks = tasks.map { if (it.id == taskId) it.copy(completed = !it.completed) else it }) }
         platform.playActionSound()
     }
@@ -488,6 +501,16 @@ class PopStore(private val platform: PopPlatformServices) {
                 permissions = workspace.toPermissions(),
             )
         }
+        // O logout pode ter acontecido enquanto esta resposta viajava. Sem esta guarda, o copy
+        // abaixo repovoa `companies` e `personalWorkspaceId` numa sessao ja encerrada, e o
+        // `persist()` da linha seguinte GRAVA EM DISCO os nomes das empresas, os e-mails dos
+        // funcionarios e os setores da conta anterior -- num aparelho que pode ser compartilhado.
+        //
+        // O conserto do signOut (fazer o logout esperar o syncJob) nao cobria isto: o
+        // refreshFromServer e disparado por outros quatro caminhos e NAO e rastreado pelo syncJob.
+        // Comparar o token e mais preciso do que testar se ele existe: pega tambem a troca de
+        // conta, em que a resposta da conta antiga chegaria com uma sessao nova ja aberta.
+        if (state.apiToken != token) return
         state = state.copy(
             personalWorkspaceId = personalId,
             personalPermissions = remote.workspaces.firstOrNull { it.kind == "personal" }
@@ -512,6 +535,11 @@ class PopStore(private val platform: PopPlatformServices) {
             return
         }
         val remote = runCatching { json.decodeFromString<ApiTasksResponse>(response.body) }.getOrNull() ?: return
+        // Mesma corrida do refreshFromServer, e pela mesma razao: aqui tambem se grava em disco
+        // depois de uma ida ao servidor. O que vaza sao os titulos e os responsaveis das tarefas da
+        // empresa. Consertar so um dos dois deixaria metade do buraco aberto -- que foi exatamente
+        // o erro cometido no signOut.
+        if (state.apiToken != token) return
         val kind = state.workspace
         val companyId = state.selectedCompanyId.takeIf { kind == WorkspaceKind.Company }
         val otherTasks = state.tasks.filterNot {
@@ -543,9 +571,45 @@ class PopStore(private val platform: PopPlatformServices) {
             persist()
             refreshTasks()
         } else {
-            message = runCatching { json.decodeFromString<ApiError>(response.body).error }.getOrNull()
-                ?: "Alterações salvas no aparelho; sincronização pendente."
+            // 409 e a recusa especifica de "ocorrencia futura marcada como concluida". Sem
+            // desfazer, o item envenenado volta em TODA carga seguinte, nenhuma tarefa nova sobe,
+            // e o refreshTasks() do ciclo seguinte troca a lista pela do servidor e descarta as
+            // locais que ficaram presas. Era perda de dado silenciosa.
+            if (response.status == 409) reverterConclusoesFuturas()
+            // A mensagem crua do servidor ("Lista de tarefas invalida.") nao diz nada a quem usa o
+            // app, mas foi o que permitiu diagnosticar o bloqueio do recurrenceTimes em 27/08.
+            // Emoldurar em vez de esconder: fica legivel para o usuario e util para quem investiga.
+            val detalhe = runCatching { json.decodeFromString<ApiError>(response.body).error }.getOrNull()
+            message = if (detalhe.isNullOrBlank()) {
+                "Alterações salvas no aparelho; sincronização pendente."
+            } else {
+                "Sincronização recusada pelo servidor ($detalhe). As alterações estão salvas no aparelho."
+            }
         }
+    }
+
+    /**
+     * Verdadeiro para ocorrencia de serie recorrente cuja data ainda nao chegou.
+     *
+     * Espelha a guarda de `mobile-api.server.ts:1702`. Comparacao de String funciona porque as
+     * datas sao ISO `AAAA-MM-DD`, em que ordem lexicografica e ordem cronologica.
+     */
+    private fun ocorrenciaFuturaDeSerie(task: PopTask): Boolean =
+        task.recurrenceOccurrence > 1 && task.dueDate > todayIso()
+
+    /**
+     * Desfaz localmente as conclusoes que o servidor acabou de recusar com 409.
+     *
+     * Nao usa `update()` de proposito: `update()` dispara `syncTasks()`, e e o proprio `syncTasks()`
+     * quem chama esta funcao -- daria recursao. Grava direto e persiste.
+     */
+    private fun reverterConclusoesFuturas() {
+        val corrigidas = state.tasks.map { task ->
+            if (task.completed && ocorrenciaFuturaDeSerie(task)) task.copy(completed = false) else task
+        }
+        if (corrigidas == state.tasks) return
+        state = state.copy(tasks = corrigidas)
+        persist()
     }
 
     private fun persist() = platform.saveState(json.encodeToString(state))

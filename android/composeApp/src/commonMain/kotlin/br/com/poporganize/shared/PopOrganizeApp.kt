@@ -670,14 +670,26 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
             // reconhecivel de app Android que existe -- nenhum app de iPhone marca a aba assim.
             // Trocado por cor: item ativo em azul da marca, inativo apagado. Mesma informacao, sem
             // o sotaque errado.
+            // 49dp e a altura da barra de abas do iPhone. O padrao do Material 3 e 80dp, que e
+            // medida de Android -- e como a area segura entra POR BAIXO desse valor, a barra
+            // passou a ocupar ~114pt e a comecar alto demais na tela. Antes o defeito nao aparecia
+            // porque os 34pt de area segura ficavam pintados com a cor de FUNDO: era a faixa morta.
+            // Trocar uma coisa pela outra nao bastava; era preciso encolher o conteudo tambem.
+            //
+            // A area segura e lida e somada explicitamente porque a altura fixa do Modifier vale
+            // para a barra INTEIRA: sem somar, o recuo do indicador de home comeria o espaco dos
+            // icones em vez de se acrescentar a ele.
+            val insetsInferior = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
+            val areaSegura = with(LocalDensity.current) { insetsInferior.getBottom(this).toDp() }
             NavigationBar(
+                modifier = Modifier.height(49.dp + areaSegura),
                 containerColor = MaterialTheme.colorScheme.surface,
                 tonalElevation = 0.dp,
                 // A barra passa a desenhar ATE a borda inferior da tela e pinta a propria cor
                 // atras do indicador de home, em vez de parar antes e deixar a faixa aparecendo.
                 // Como `safeDrawing` inclui o teclado, e tambem esta linha que faz a barra subir
                 // quando o teclado abre -- por isso o Scaffold nao aplica mais nada embaixo.
-                windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
+                windowInsets = insetsInferior,
             ) {
                 MainTab.entries.forEach { item ->
                     val selected = tab == item

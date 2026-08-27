@@ -68,9 +68,27 @@ actual fun AppleSignInButton(
         ),
     ) {
         UIKitView(
+            // DOIS mecanismos independentes, de proposito. O build 8 ja tinha o `cornerRadius`
+            // aplicado aqui no factory, compilou verde, e mesmo assim o botao saiu QUADRADO no
+            // aparelho: a borda do Compose desenhava a pilula e por baixo dela sobrava um retangulo
+            // preto de cantos retos. Ou seja, atribuir a propriedade nao bastou.
+            //
+            // 1) `update` reaplica depois que a view entra na hierarquia e e medida. A hipotese e
+            //    que o botao refaca o proprio fundo no layout e perca o que foi posto no factory.
+            // 2) `clipsToBounds` cobre a outra possibilidade: o raio existir na camada e faltar a
+            //    mascara que recorta o desenho.
+            //
+            // Sao independentes porque nao sei qual e a causa -- nao ha compilador de iosMain nesta
+            // maquina, e a previa em desktop nao compila este arquivo. Se ainda assim sair quadrado,
+            // parar de insistir: o botao e componente do sistema e quem se adapta e o resto da tela.
+            update = { botao ->
+                botao.cornerRadius = radius
+                botao.clipsToBounds = true
+            },
             factory = {
                 ASAuthorizationAppleIDButton().apply {
                     userInteractionEnabled = false
+                    clipsToBounds = true
                     // Propriedade do proprio botao, e nao `layer.cornerRadius`.
                     //
                     // Nao ha compilador Kotlin/Native nesta maquina, entao a escolha e por

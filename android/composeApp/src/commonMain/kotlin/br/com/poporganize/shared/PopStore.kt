@@ -579,11 +579,20 @@ class PopStore(private val platform: PopPlatformServices) {
             // A mensagem crua do servidor ("Lista de tarefas invalida.") nao diz nada a quem usa o
             // app, mas foi o que permitiu diagnosticar o bloqueio do recurrenceTimes em 27/08.
             // Emoldurar em vez de esconder: fica legivel para o usuario e util para quem investiga.
-            val detalhe = runCatching { json.decodeFromString<ApiError>(response.body).error }.getOrNull()
+            //
+            // Dois pontos em vez de parenteses, e o ponto final do servidor aparado. A primeira
+            // versao usava parenteses e produzia "...pelo servidor (Lista de tarefas invalida.)."
+            // -- ponto dentro do parentese seguido de outro ponto fora. Com a mensagem do modo
+            // visitante da previa, que ja tem parentese propria, virava parentese dentro de
+            // parentese. Visto na previa em 27/08, depois de a redacao ja ter ido para o build 8.
+            val detalhe = runCatching { json.decodeFromString<ApiError>(response.body).error }
+                .getOrNull()
+                ?.trim()
+                ?.trimEnd('.')
             message = if (detalhe.isNullOrBlank()) {
                 "Alterações salvas no aparelho; sincronização pendente."
             } else {
-                "Sincronização recusada pelo servidor ($detalhe). As alterações estão salvas no aparelho."
+                "Servidor recusou a sincronização: $detalhe. As alterações estão salvas no aparelho."
             }
         }
     }

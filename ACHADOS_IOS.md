@@ -174,9 +174,8 @@ uma recorrência editada no painel voltar ao valor antigo quando o celular sincr
 `build_number` explicitamente reenvia um número já usado, e o App Store Connect recusa por
 duplicidade — sem explicar direito o porquê.
 
-**Último número enviado: 7** (2026-08-26, versão 1.0.3). O próximo tem de ser 8 ou maior — e o
-lote de 2026-08-27 foi preparado justamente para ir como **build 8**. Atualizar esta linha assim que
-ele subir.
+**Último número enviado: 8** (2026-08-27, versão 1.0.3, do branch `Gui` em `295533d`). O próximo tem
+de ser 9 ou maior.
 
 **Proposta:** fazer o workflow usar `github.run_number` como padrão quando a entrada vier vazia,
 ou ler o último build do App Store Connect pela API.

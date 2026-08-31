@@ -119,7 +119,7 @@ function RootShell({ children }: { children: ReactNode }) {
         <script
           dangerouslySetInnerHTML={{
             __html:
-              'try{var t=localStorage.getItem("pop-organize:theme-blue");if(t==="dark"){document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark"}}catch(e){}',
+              'try{var r=document.documentElement;r.classList.add(/android/i.test(navigator.userAgent)?"android-client":"desktop-client");var t=localStorage.getItem("pop-organize:theme-blue");if(t==="dark"){r.classList.add("dark");r.style.colorScheme="dark"}}catch(e){}',
           }}
         />
         <HeadContent />

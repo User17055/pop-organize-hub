@@ -26,7 +26,6 @@ import {
   Plus,
   Check,
   DoorOpen,
-  ListTree,
 } from "lucide-react";
 import {
   useEffect,
@@ -301,7 +300,7 @@ export function AppShell({
     document.documentElement.style.colorScheme = theme;
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute("content", isDark ? "#071727" : "#1687f8");
+      ?.setAttribute("content", isDark ? "#080808" : "#1687f8");
     try {
       localStorage.setItem(THEME_KEY, theme);
     } catch {
@@ -478,35 +477,45 @@ export function AppShell({
     mobile?: boolean;
   }) {
     const workspaceData = data!;
+    const activeWorkspace = workspaceData.workspaces.find(
+      (workspace) => workspace.id === workspaceData.company.id,
+    );
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
             className={cn(
-              "flex items-center rounded-xl text-left transition hover:bg-sidebar-accent focus:outline-none",
+              "flex items-center text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring/40",
               compact
-                ? "h-9 w-9 justify-center"
+                ? "h-10 w-10 justify-center rounded-xl hover:bg-sidebar-accent"
                 : mobile
-                  ? "h-9 max-w-[60vw] gap-1.5 px-2.5"
-                  : "w-full gap-2 px-3 py-2",
+                  ? "h-9 max-w-[60vw] gap-1.5 rounded-xl px-2.5 hover:bg-sidebar-accent"
+                  : "min-h-[58px] w-full gap-3 rounded-2xl border border-sidebar-border/70 bg-sidebar-accent/35 px-3 py-2.5 shadow-[0_1px_0_rgba(255,255,255,0.5)_inset] hover:border-primary/25 hover:bg-sidebar-accent/65",
             )}
             aria-label="Trocar espaço"
           >
-            <Building2 className="h-4 w-4 shrink-0 text-primary" />
+            <span
+              className={cn(
+                "flex shrink-0 items-center justify-center bg-primary/10 text-primary",
+                compact ? "h-9 w-9 rounded-xl" : "h-9 w-9 rounded-[13px]",
+              )}
+            >
+              <Building2 className="h-4 w-4" />
+            </span>
             {!compact && (
               <>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-sidebar-foreground">
+                  <span className="block truncate text-[13px] font-bold leading-5 tracking-[0.01em] text-sidebar-foreground">
                     {workspaceData.company.name}
                   </span>
-                  {!mobile &&
-                    workspaceData.company.kind === "company" &&
-                    workspaceData.company.description && (
-                      <span className="block truncate text-[10px] text-sidebar-foreground/55">
-                        {workspaceData.company.description}
-                      </span>
-                    )}
+                  {!mobile && (
+                    <span className="block truncate text-[10px] font-medium text-sidebar-foreground/55">
+                      {workspaceData.company.kind === "personal"
+                        ? "Espaço pessoal"
+                        : `Empresa${activeWorkspace?.role ? ` · ${activeWorkspace.role}` : ""}`}
+                    </span>
+                  )}
                 </span>
                 <ChevronDown className="h-4 w-4 shrink-0 text-sidebar-foreground/45" />
               </>
@@ -612,7 +621,7 @@ export function AppShell({
       {/* Sidebar (desktop/tablet only) */}
       <aside
         className={cn(
-          "sidebar-shell native-sidebar sticky top-0 hidden h-screen flex-col border-r text-sidebar-foreground soft-transition transition-[width,background-color] duration-300 lg:flex",
+          "sidebar-shell native-sidebar sticky top-0 hidden h-screen shrink-0 flex-col border-r text-sidebar-foreground soft-transition transition-[width,background-color] duration-300 lg:flex",
           collapsed ? "w-[84px]" : "w-72",
         )}
       >
@@ -639,23 +648,8 @@ export function AppShell({
           </button>
         </div>
 
-        <div className={cn("pb-3", collapsed ? "px-3.5" : "px-5")}>
+        <div className={cn("pb-4", collapsed ? "px-3.5" : "px-5")}>
           <WorkspaceSwitcher compact={collapsed} />
-        </div>
-
-        <div className={cn("pb-2", collapsed ? "px-3.5" : "px-5")}>
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen(true)}
-            title={collapsed ? "Grupos e listas" : undefined}
-            className={cn(
-              "flex w-full items-center rounded-2xl border border-primary/15 bg-primary/[0.07] text-sm font-semibold text-primary transition hover:bg-primary/12",
-              collapsed ? "justify-center px-0 py-3" : "gap-3.5 px-4 py-2.5",
-            )}
-          >
-            <ListTree className="h-[18px] w-[18px] shrink-0" />
-            {!collapsed && <span className="truncate">Grupos e listas</span>}
-          </button>
         </div>
 
         <nav
@@ -983,7 +977,7 @@ export function AppShell({
         </DialogContent>
       </Dialog>
 
-      <main className="app-main-shell flex min-w-0 flex-1 flex-col">
+      <main className="app-main-shell flex w-full min-w-0 max-w-full flex-1 flex-col overflow-x-clip">
         {/* Mobile header */}
         <header className="mobile-fixed-header glass-header safe-top relative z-[70] shrink-0 lg:hidden">
           <div className="relative mx-auto w-full max-w-[1600px] px-3 py-2.5 sm:px-5 sm:py-3 md:px-6">
@@ -1039,7 +1033,7 @@ export function AppShell({
         </header>
 
         {/* Main content */}
-        <header className="glass-header safe-top sticky top-0 z-30 hidden lg:block">
+        <header className="desktop-app-header glass-header safe-top sticky top-0 z-30 hidden lg:block">
           <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-4 px-8 py-4 xl:px-12">
             <div className="app-page-heading min-w-0 flex-1">
               <h1 className="truncate font-display text-[22px] font-semibold leading-tight text-foreground xl:text-2xl">
@@ -1049,7 +1043,7 @@ export function AppShell({
                 <p className="mt-1 truncate text-sm text-muted-foreground">{subtitle}</p>
               )}
             </div>
-            <div className="hidden h-9 w-64 items-center gap-2 rounded-xl border border-border bg-card px-3 shadow-[var(--shadow-xs)] soft-transition transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 lg:flex">
+            <div className="hidden h-9 w-64 items-center gap-2 rounded-xl border border-border bg-card px-3 shadow-[var(--shadow-xs)] soft-transition transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 xl:flex">
               <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 placeholder="Buscar tarefas, pessoas..."

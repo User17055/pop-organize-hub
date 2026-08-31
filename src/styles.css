@@ -422,38 +422,38 @@
 }
 
 .dark {
-  --background: #071727;
-  --foreground: #eff8ff;
-  --card: #0d2237;
-  --card-foreground: #eff8ff;
-  --popover: #0d2237;
-  --popover-foreground: #eff8ff;
-  --primary: #38a4ff;
-  --primary-foreground: #041a2d;
-  --primary-glow: #69c9ff;
-  --secondary: #173651;
-  --secondary-foreground: #eff8ff;
-  --muted: #132d46;
-  --muted-foreground: #9bb7cf;
-  --accent: #173b5c;
-  --accent-foreground: #eff8ff;
+  --background: #080808;
+  --foreground: #f5f5f5;
+  --card: #121212;
+  --card-foreground: #f5f5f5;
+  --popover: #161616;
+  --popover-foreground: #f5f5f5;
+  --primary: #2d8cff;
+  --primary-foreground: #ffffff;
+  --primary-glow: #65b8ff;
+  --secondary: #1d1d1d;
+  --secondary-foreground: #f5f5f5;
+  --muted: #1a1a1a;
+  --muted-foreground: #a3a3a3;
+  --accent: #232323;
+  --accent-foreground: #ffffff;
   --destructive: oklch(0.62 0.18 22);
   --destructive-foreground: oklch(0.95 0.005 250);
   --success: oklch(0.62 0.12 155);
   --success-foreground: oklch(0.16 0.015 260);
   --warning: oklch(0.75 0.13 75);
   --warning-foreground: oklch(0.2 0.04 75);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: #38a4ff;
-  --sidebar: #091d30;
-  --sidebar-foreground: #eaf6ff;
-  --sidebar-primary: #38a4ff;
-  --sidebar-primary-foreground: #041a2d;
-  --sidebar-accent: #153550;
-  --sidebar-accent-foreground: #f2f9ff;
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: #38a4ff;
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: #2d8cff;
+  --sidebar: #0b0b0b;
+  --sidebar-foreground: #f2f2f2;
+  --sidebar-primary: #2d8cff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1b1b1b;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: oklch(1 0 0 / 11%);
+  --sidebar-ring: #2d8cff;
   --shadow-glass: 0 18px 60px -32px oklch(0 0 0 / 0.8), 0 1px 0 oklch(1 0 0 / 0.08) inset;
 }
 
@@ -475,9 +475,7 @@
 
 .dark .sidebar-shell {
   border-color: oklch(1 0 0 / 0.07);
-  background:
-    radial-gradient(120% 46% at 0% 0%, rgb(56 164 255 / 0.12), transparent 62%),
-    linear-gradient(180deg, #091d30, #071727);
+  background: linear-gradient(180deg, #0d0d0d, #080808);
 }
 
 .dark .glass-icon-button {
@@ -511,6 +509,25 @@
   background: color-mix(in oklab, var(--card) 94%, transparent);
   color: var(--foreground);
   box-shadow: 0 1px 0 oklch(1 0 0 / 0.06) inset;
+}
+
+.dark .task-glass-row > td {
+  border-color: oklch(1 0 0 / 0.09);
+  background: rgb(18 18 18 / 0.94);
+}
+
+.dark .task-glass-row:hover > td {
+  background: rgb(27 27 27 / 0.96);
+}
+
+.dark .task-row-selected > td {
+  background: color-mix(in oklab, var(--primary) 9%, var(--card));
+}
+
+.dark .task-chip {
+  border-color: oklch(1 0 0 / 0.1);
+  background: #1c1c1c;
+  box-shadow: none;
 }
 
 @layer base {
@@ -579,6 +596,9 @@
   .native-viewport {
     min-height: 100vh;
     min-height: 100dvh;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: clip;
     background-color: var(--background);
     background-image: none;
   }
@@ -1273,6 +1293,100 @@
     }
   }
 
+  /*
+   * O site de desktop mantém a mesma arquitetura visual mesmo quando o zoom reduz a largura
+   * medida pelo navegador. A experiência responsiva continua exclusiva do cliente Android.
+   */
+  html.desktop-client,
+  html.desktop-client body {
+    height: 100%;
+    min-width: 1180px;
+  }
+
+  html.desktop-client body {
+    overflow: auto;
+  }
+
+  html.desktop-client .native-viewport {
+    width: 100%;
+    min-width: 1180px;
+    max-width: none;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  html.desktop-client .app-main-shell {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  html.desktop-client .app-scroll-content {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+    padding: 2rem;
+  }
+
+  html.desktop-client .sidebar-shell,
+  html.desktop-client .lg\:flex,
+  html.desktop-client .xl\:flex {
+    display: flex !important;
+  }
+
+  html.desktop-client .desktop-app-header,
+  html.desktop-client .lg\:block,
+  html.desktop-client .xl\:block {
+    display: block !important;
+  }
+
+  html.desktop-client .lg\:inline-flex,
+  html.desktop-client .xl\:inline-flex {
+    display: inline-flex !important;
+  }
+
+  html.desktop-client .lg\:grid,
+  html.desktop-client .xl\:grid {
+    display: grid !important;
+  }
+
+  html.desktop-client .mobile-fixed-header,
+  html.desktop-client .app-bottom-tabs,
+  html.desktop-client .lg\:hidden,
+  html.desktop-client .xl\:hidden {
+    display: none !important;
+  }
+
+  html.desktop-client .dashboard-stats-grid,
+  html.desktop-client .lg\:grid-cols-4,
+  html.desktop-client .xl\:grid-cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  html.desktop-client .dashboard-main-grid,
+  html.desktop-client .lg\:grid-cols-3,
+  html.desktop-client .xl\:grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  html.desktop-client .dashboard-status-grid,
+  html.desktop-client .xl\:grid-cols-6 {
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  }
+
+  html.desktop-client .dashboard-recent-card,
+  html.desktop-client .lg\:col-span-2,
+  html.desktop-client .xl\:col-span-2 {
+    grid-column: span 2 / span 2 !important;
+  }
+
+  html.desktop-client .lg\:col-span-3,
+  html.desktop-client .xl\:col-span-3 {
+    grid-column: span 3 / span 3 !important;
+  }
+
   @media (min-width: 1024px) {
     html,
     body {
@@ -1308,9 +1422,27 @@
     }
 
     .mobile-card {
-      box-shadow:
-        0 1px 0 oklch(1 0 0 / 0.72) inset,
-        0 16px 38px -34px color-mix(in oklab, var(--primary) 30%, transparent);
+      border-color: var(--border);
+      background: var(--card);
+      box-shadow: var(--shadow-card);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .app-surface,
+    .task-glass-panel,
+    .task-glass-control {
+      border-color: var(--border);
+      background: var(--card);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .glass-header {
+      border-bottom: 1px solid var(--border);
+      background: var(--background);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
     }
   }
 

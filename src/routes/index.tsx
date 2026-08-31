@@ -126,7 +126,7 @@ function Dashboard() {
       }
     >
       {/* Stats */}
-      <div className="mb-5 grid grid-cols-2 gap-2.5 sm:mb-6 sm:gap-3 lg:grid-cols-4 lg:gap-4">
+      <div className="dashboard-stats-grid mb-5 grid grid-cols-2 gap-2.5 sm:mb-6 sm:gap-3 xl:grid-cols-4 xl:gap-4">
         {stats.map((s) => {
           const Icon = s.icon;
           return (
@@ -171,9 +171,9 @@ function Dashboard() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="dashboard-main-grid grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-3">
         {/* Recent tasks */}
-        <div className="mobile-card min-w-0 rounded-[24px] p-4 sm:p-5 md:rounded-2xl lg:col-span-2">
+        <div className="dashboard-recent-card mobile-card min-w-0 rounded-[24px] p-4 sm:p-5 md:rounded-2xl xl:col-span-2">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className="text-base font-display font-semibold">Tarefas recentes</h2>
@@ -226,7 +226,7 @@ function Dashboard() {
         </div>
 
         {/* Side panel */}
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <div className="mobile-card hover-lift rounded-[24px] p-5 md:rounded-2xl">
             <h2 className="text-base font-display font-semibold mb-1">Tarefas por setor</h2>
             <p className="text-sm text-muted-foreground mb-4">Distribuição atual</p>
@@ -308,7 +308,7 @@ function Dashboard() {
       {/* Status legend at bottom */}
       <div className="mobile-card hover-lift mt-5 rounded-[24px] p-5 md:rounded-2xl">
         <h2 className="text-base font-display font-semibold mb-4">Distribuição por status</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="dashboard-status-grid grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           {(Object.keys(statusLabels) as Array<keyof typeof statusLabels>).map((k) => {
             const count = tasks.filter((t) => t.status === k).length;
             return (

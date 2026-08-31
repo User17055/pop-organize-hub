@@ -12,11 +12,7 @@ import {
   verifyGoogleCredential,
 } from "./database.server";
 import { allPermissionKeys, departmentColors, type PermissionKey, type Task } from "./domain";
-import {
-  grantsAdministrativePower,
-  hasPermission,
-  resolvePermissionSet,
-} from "./permission-groups";
+import { hasPermission, resolvePermissionSet } from "./permission-groups";
 import { canViewTask, getTaskPermissions } from "./permissions";
 import { materializeRecurringTasks } from "./recurrence.server";
 
@@ -878,14 +874,6 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       if (!hasPermission(permissionSet, "manage.employees")) {
         throw mobileHttpError("Seu grupo de permissão não pode cadastrar funcionários.", 403);
       }
-      // Mesma regra que o updateEmployee logo abaixo ja aplicava, e que faltava aqui: convidar
-      // alguem com cargo administrativo e conceder administracao, so que sem passar pela edicao.
-      if (
-        grantsAdministrativePower({ role, permissionGroups: workspace.permissionGroups }) &&
-        workspace.company.ownerId !== currentUser.id
-      ) {
-        throw mobileHttpError("Apenas o proprietário pode convidar outro administrador.", 403);
-      }
       if (!workspace.departments.some((department) => department.id === departmentId)) {
         throw mobileHttpError("Selecione um setor válido.");
       }
@@ -976,26 +964,6 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       }
       if (employee?.id === currentUser.id) {
         throw mobileHttpError("Voce nao pode alterar o proprio perfil na empresa.", 403);
-      }
-      // A definicao passa a ser compartilhada com os outros tres caminhos que gravam cargo.
-      //
-      // `grantsAdmin` e igual ao que estava escrito a mao (o mobile nao envia permissionGroupId,
-      // entao a checagem cai no texto do cargo). `alreadyAdmin` ficou mais abrangente de proposito:
-      // antes so o texto do cargo isentava, agora estar em um grupo com as chaves de escalada
-      // tambem isenta. Isso permite que um admin que nao e dono edite quem **ja** tem poder
-      // administrativo pelo grupo -- nao ha escalada, a pessoa ja o tinha -- em vez de travar por
-      // um criterio que ignorava metade das formas de ser administrador.
-      const grantsAdmin = grantsAdministrativePower({
-        role,
-        permissionGroups: workspace.permissionGroups,
-      });
-      const alreadyAdmin = grantsAdministrativePower({
-        role: employee?.role,
-        permissionGroupId: employee?.permissionGroupId,
-        permissionGroups: workspace.permissionGroups,
-      });
-      if (grantsAdmin && !alreadyAdmin && workspace.company.ownerId !== currentUser.id) {
-        throw mobileHttpError("Apenas o proprietario pode definir outro administrador.", 403);
       }
       if (employee) {
         employee.departmentId = departmentId;

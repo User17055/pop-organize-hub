@@ -29,12 +29,47 @@ import {
   updateEmployee,
 } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
+import { getAvatarGradient } from "@/lib/avatar-colors";
+import type { Employee } from "@/lib/domain";
 import { Check, Copy, Link2, Mail, Pencil, Plus, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/funcionarios")({
   head: () => ({ meta: [{ title: "Funcionários - Pop Organize" }] }),
   component: FuncionariosPage,
 });
+
+function EmployeeAvatar({ employee, compact = false }: { employee: Employee; compact?: boolean }) {
+  const initials = employee.name
+    .split(" ")
+    .map((name) => name[0])
+    .slice(0, 2)
+    .join("");
+
+  return (
+    <div
+      className={
+        compact
+          ? "relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-white"
+          : "relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-white"
+      }
+      style={{ background: getAvatarGradient(employee.id) }}
+    >
+      <span aria-hidden="true">{initials}</span>
+      {employee.avatar && (
+        <img
+          src={employee.avatar}
+          alt={`Foto de ${employee.name}`}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={(event) => {
+            event.currentTarget.style.display = "none";
+          }}
+        />
+      )}
+    </div>
+  );
+}
 
 function FuncionariosPage() {
   const queryClient = useQueryClient();
@@ -274,13 +309,7 @@ function FuncionariosPage() {
               className="rounded-2xl border border-border bg-card p-4 shadow-sm"
             >
               <div className="flex min-w-0 items-start gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                  {employee.name
-                    .split(" ")
-                    .map((name) => name[0])
-                    .slice(0, 2)
-                    .join("")}
-                </div>
+                <EmployeeAvatar employee={employee} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold">{employee.name}</div>
                   <div className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -362,13 +391,7 @@ function FuncionariosPage() {
                 <TableRow key={e.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-full flex items-center justify-center text-xs font-semibold text-primary-foreground bg-primary shrink-0">
-                        {e.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .slice(0, 2)
-                          .join("")}
-                      </div>
+                      <EmployeeAvatar employee={e} compact />
                       <div className="min-w-0">
                         <div className="font-medium text-sm truncate">{e.name}</div>
                         <div className="text-xs text-muted-foreground inline-flex items-center gap-1 truncate">

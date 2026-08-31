@@ -313,13 +313,13 @@ function TaskListImpl({
     <>
       {/* Desktop dense table */}
       {layout !== "mobile" && (
-        <div className="task-glass-panel hidden overflow-x-auto rounded-[24px] p-4 lg:block xl:p-5">
+        <div className="hidden overflow-x-auto lg:block">
           <Table
-            className="table-fixed border-separate border-spacing-y-3"
+            className="table-fixed border-collapse"
             style={{ minWidth: `${showResponsible ? 1160 : 970}px` }}
           >
             <colgroup>
-              <col style={{ width: 56 }} />
+              <col style={{ width: 76 }} />
               <col style={{ width: tablePreferences.titleWidth }} />
               {showResponsible && <col style={{ width: 190 }} />}
               <col style={{ width: 190 }} />
@@ -328,8 +328,8 @@ function TaskListImpl({
               <col style={{ width: 150 }} />
               <col style={{ width: 115 }} />
             </colgroup>
-            <TableHeader className="[&_th]:h-8 [&_th]:px-4 [&_th]:pb-1 [&_th]:text-[10px] [&_th]:font-bold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-foreground/38 [&_tr]:border-0">
-              <TableRow className="border-0 hover:bg-transparent">
+            <TableHeader className="[&_th]:h-11 [&_th]:px-4 [&_th]:text-[10px] [&_th]:font-bold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-foreground/45">
+              <TableRow className="border-b border-border/70 hover:bg-transparent">
                 <TableHead className="w-14"></TableHead>
                 <TableHead className="relative">
                   Atividade
@@ -353,7 +353,7 @@ function TaskListImpl({
                 <TableHead>Progresso</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody className="[&_tr:last-child]:border-0">
+            <TableBody className="[&_tr:last-child]:border-b">
               {tasks.map((task) => {
                 const emp = getEmployee(task.responsibleId);
                 const overdue = isOverdue(task);
@@ -383,7 +383,7 @@ function TaskListImpl({
                         onDragEnd={() => setDraggedTaskId(null)}
                         onClick={() => onOpen(task)}
                         className={cn(
-                          "task-glass-row group cursor-pointer border-0 transition-all duration-300 hover:text-foreground",
+                          "group cursor-pointer border-b border-border/70 bg-white transition-colors hover:bg-slate-50 hover:text-foreground dark:bg-card dark:hover:bg-slate-900",
                           movingTaskId === task.id && "translate-x-3 scale-[0.985] opacity-35",
                           draggedTaskId === task.id && "scale-[0.985] opacity-45",
                           tablePreferences.density === "compact" && "[&_td]:!py-2.5",
@@ -395,9 +395,9 @@ function TaskListImpl({
                           className="px-4 py-4"
                           onClick={(event) => event.stopPropagation()}
                         >
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center justify-center gap-2">
                             {onReorder && permissions.canMove && (
-                              <GripVertical className="h-4 w-4 cursor-grab text-primary/55 active:cursor-grabbing" />
+                              <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-slate-400 active:cursor-grabbing" />
                             )}
                             <button
                               type="button"
@@ -407,7 +407,7 @@ function TaskListImpl({
                               }}
                               disabled={!permissions.canChangeStatus || isCompleting}
                               className={cn(
-                                "flex h-6 w-6 items-center justify-center rounded-[9px] border-2 bg-white/72 transition-all duration-300 disabled:opacity-40",
+                                "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 bg-white transition-all duration-300 disabled:opacity-40",
                                 overdue
                                   ? "border-destructive/50 text-destructive hover:border-destructive hover:bg-destructive/15"
                                   : "border-primary/30 text-primary hover:border-primary hover:bg-primary/15",

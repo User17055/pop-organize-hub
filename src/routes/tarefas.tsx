@@ -927,7 +927,7 @@ function TasksPage() {
                       return next;
                     })
                   }
-                  className="mb-2 flex w-full items-center justify-between rounded-[16px] border border-border/60 bg-card/55 px-4 py-3 text-left transition hover:border-primary/25"
+                  className="mb-1 flex w-full items-center justify-between border-b border-border/70 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
                 >
                   <span className="font-display text-sm font-bold">{section.label}</span>
                   <span className="flex items-center gap-2 text-xs text-muted-foreground">

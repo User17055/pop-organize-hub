@@ -4,13 +4,17 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.uikit.LocalUIViewController
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.UIKitView
 import platform.AuthenticationServices.ASAuthorizationAppleIDButton
+import platform.UIKit.UIColor
 
 /**
  * O botao nativo entra so como aparencia, com o toque desligado, e quem recebe o clique e uma
@@ -49,6 +53,43 @@ actual fun AppleSignInButton(
     // aplicativo. Foi a primeira coisa que o Guilherme apontou ao ver a tela num iPhone.
     val radius = 26.0
 
+    // O QUADRADO ATRAS DO BOTAO NAO E DO BOTAO -- e o fundo do sistema aparecendo pelo buraco do
+    // interop. Terceira hipotese sobre o mesmo defeito; as duas primeiras (builds 8 e 9) mexeram no
+    // `cornerRadius`, que nunca esteve errado.
+    //
+    // O que provou: nos prints de 31/08 o quadrado e BRANCO no tema claro e PRETO no escuro. Isso e
+    // assinatura de `UIColor.systemBackground`, nao de nada que este arquivo desenhe. Se fosse raio
+    // faltando, a cor nao mudaria com o tema.
+    //
+    // O mecanismo: `UIKitView` poe uma UIView de verdade na hierarquia, e o Compose nao pinta por
+    // cima dela -- ele deixa um buraco RETANGULAR no proprio desenho. O botao desenha a pilula
+    // arredondada dentro desse retangulo, certinho. Nos cantos, fora da pilula e dentro do
+    // retangulo, ve-se o fundo do UIViewController por baixo.
+    //
+    // Corroborado lendo a API real da 1.8.2 nos .klib versionados em `android/.kotlin/` (sao zips):
+    // a versao ANTIGA de `UIKitView`, em `androidx.compose.ui.interop`, tinha um parametro
+    // `background: Color` -- existia exatamente para tapar este buraco. A atual o removeu, e
+    // `UIKitInteropProperties` so tem `interactionMode` e `isNativeAccessibilityEnabled`, nada
+    // sobre recorte; o holder rastreia apenas retangulos (`currentClippedRect`).
+    //
+    // Conserto: pintar o fundo do proprio UIViewController com a cor da pagina, para o que aparece
+    // pelo buraco ser igual ao que esta em volta. Vale para qualquer interop do app, nao so este
+    // botao. `LocalUIViewController` vive em `androidx.compose.ui.uikit` e NAO e experimental --
+    // conferido no mesmo klib, antes de escrever a linha.
+    //
+    // A cor e a da raiz do app (`Surface(color = colorScheme.background)`, PopOrganizeApp.kt:154),
+    // e a chave do LaunchedEffect acompanha a troca de tema.
+    val fundoDaPagina = MaterialTheme.colorScheme.background
+    val controlador = LocalUIViewController.current
+    LaunchedEffect(fundoDaPagina) {
+        controlador.view.backgroundColor = UIColor(
+            red = fundoDaPagina.red.toDouble(),
+            green = fundoDaPagina.green.toDouble(),
+            blue = fundoDaPagina.blue.toDouble(),
+            alpha = 1.0,
+        )
+    }
+
     Box(
         modifier.then(
             when {
@@ -68,19 +109,10 @@ actual fun AppleSignInButton(
         ),
     ) {
         UIKitView(
-            // DOIS mecanismos independentes, de proposito. O build 8 ja tinha o `cornerRadius`
-            // aplicado aqui no factory, compilou verde, e mesmo assim o botao saiu QUADRADO no
-            // aparelho: a borda do Compose desenhava a pilula e por baixo dela sobrava um retangulo
-            // preto de cantos retos. Ou seja, atribuir a propriedade nao bastou.
-            //
-            // 1) `update` reaplica depois que a view entra na hierarquia e e medida. A hipotese e
-            //    que o botao refaca o proprio fundo no layout e perca o que foi posto no factory.
-            // 2) `clipsToBounds` cobre a outra possibilidade: o raio existir na camada e faltar a
-            //    mascara que recorta o desenho.
-            //
-            // Sao independentes porque nao sei qual e a causa -- nao ha compilador de iosMain nesta
-            // maquina, e a previa em desktop nao compila este arquivo. Se ainda assim sair quadrado,
-            // parar de insistir: o botao e componente do sistema e quem se adapta e o resto da tela.
+            // O `update` reaplicando o raio veio do build 9, quando eu ainda achava que o problema
+            // era o `cornerRadius` nao pegar. Nao era -- ver o comentario grande la em cima. Fica
+            // porque e barato e cobre o caso de o botao refazer o proprio fundo ao ser medido, mas
+            // NAO e o conserto do quadrado.
             update = { botao ->
                 botao.cornerRadius = radius
                 botao.clipsToBounds = true

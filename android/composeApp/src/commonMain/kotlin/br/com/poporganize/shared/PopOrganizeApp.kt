@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -87,9 +88,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -632,7 +630,7 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
         }
     }
 
-    // A area segura de BAIXO nao entra aqui de proposito -- quem cuida dela e a NavigationBar.
+    // A area segura de BAIXO nao entra aqui de proposito -- quem cuida dela e a barra de abas.
     //
     // Com `safeDrawing` inteiro, o Scaffold empurrava tambem a barra de abas para dentro da area
     // segura: a barra terminava ACIMA do indicador de home, e a faixa que sobrava embaixo mostrava
@@ -640,7 +638,7 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
     // diferem nos dois temas, sobrava uma tira morta visivel -- escura no tema escuro, cinza-azulada
     // no claro. Apontado em aparelho em 27/08.
     //
-    // `safeDrawing` inclui o teclado (ime), entao NAO somar `imePadding()` junto: a NavigationBar
+    // `safeDrawing` inclui o teclado (ime), entao NAO somar `imePadding()` junto: a barra de abas
     // ja sobe sozinha quando o teclado abre, e as duas coisas juntas dobrariam o deslocamento.
     Scaffold(
         modifier = Modifier
@@ -681,37 +679,59 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
             // icones em vez de se acrescentar a ele.
             val insetsInferior = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
             val areaSegura = with(LocalDensity.current) { insetsInferior.getBottom(this).toDp() }
-            NavigationBar(
-                modifier = Modifier.height(49.dp + areaSegura),
-                containerColor = MaterialTheme.colorScheme.surface,
+            // A barra e montada a mao em vez de usar NavigationBar/NavigationBarItem do Material 3.
+            //
+            // O motivo: o NavigationBar nasce com 80.dp e o NavigationBarItem faz a propria conta de
+            // posicionamento em cima dessa altura. Forcar 49.dp -- que e o padrao do iPhone -- nao
+            // reposiciona nada, so espreme: no build 9 o icone ficou colado na borda de cima e o
+            // rotulo colado na de baixo, sem respiro nenhum. Visto em aparelho pelo Guilherme e
+            // confirmado na previa em 31/08.
+            //
+            // Uma Row com `Arrangement.Center` no eixo vertical resolve porque a altura passa a ser
+            // premissa, e nao restricao brigando com a conta interna do Material.
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 0.dp,
-                // A barra passa a desenhar ATE a borda inferior da tela e pinta a propria cor
-                // atras do indicador de home, em vez de parar antes e deixar a faixa aparecendo.
-                // Como `safeDrawing` inclui o teclado, e tambem esta linha que faz a barra subir
-                // quando o teclado abre -- por isso o Scaffold nao aplica mais nada embaixo.
-                windowInsets = insetsInferior,
             ) {
-                MainTab.entries.forEach { item ->
-                    val selected = tab == item
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = { tab = item; if (item != MainTab.More) morePage = MorePage.Menu },
-                        icon = { Icon(item.icon, item.label, modifier = Modifier.size(24.dp)) },
-                        label = {
+                Row(
+                    // O padding da area segura vai AQUI, dentro da Surface: assim a barra pinta a
+                    // propria cor ate a borda inferior, cobrindo a faixa atras do indicador de
+                    // home, enquanto o conteudo fica nos 49.dp de cima. Como `safeDrawing` inclui o
+                    // teclado, e tambem isto que faz a barra subir quando o teclado abre.
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(insetsInferior)
+                        .height(49.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    MainTab.entries.forEach { item ->
+                        val selected = tab == item
+                        val cor = if (selected) {
+                            PopBlue
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clickable {
+                                    tab = item
+                                    if (item != MainTab.More) morePage = MorePage.Menu
+                                },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(item.icon, item.label, tint = cor, modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 item.label,
                                 fontSize = 11.sp,
+                                color = cor,
                                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                             )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = PopBlue,
-                            selectedTextColor = PopBlue,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            indicatorColor = Color.Transparent,
-                        ),
-                    )
+                        }
+                    }
                 }
             }
         },

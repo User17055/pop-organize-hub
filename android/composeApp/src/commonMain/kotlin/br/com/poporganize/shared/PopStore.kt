@@ -540,7 +540,7 @@ class PopStore(private val platform: PopPlatformServices) {
         val workspaceId = if (state.workspace == WorkspaceKind.Company) state.selectedCompanyId else state.personalWorkspaceId
         if (workspaceId.isNullOrBlank()) return
         val payload = ApiTasksPayload(
-            tasks = visibleTasks.map { it.toApiTask() },
+            tasks = cargaAceitavel(visibleTasks).map { it.toApiTask() },
             deletedServerIds = state.pendingDeletedServerIds,
         )
         val response = platform.apiRequest(
@@ -555,11 +555,12 @@ class PopStore(private val platform: PopPlatformServices) {
             persist()
             refreshTasks()
         } else {
-            // 409 e a recusa especifica de "ocorrencia futura marcada como concluida". Sem
-            // desfazer, o item envenenado volta em TODA carga seguinte, nenhuma tarefa nova sobe,
-            // e o refreshTasks() do ciclo seguinte troca a lista pela do servidor e descarta as
-            // locais que ficaram presas. Era perda de dado silenciosa.
-            if (response.status == 409) reverterConclusoesFuturas()
+            // Nao ha mais tratamento especial de 409 aqui. O que impedia a carga de subir agora e
+            // filtrado ANTES de montar o payload, em `cargaAceitavel` -- ver o comentario dela.
+            //
+            // O build 8 tentava desfazer a conclusao ao receber 409. Nao funcionou em aparelho: o
+            // sync seguinte passava, o sucesso chamava refreshTasks(), o servidor devolvia a mesma
+            // conclusao e o ciclo recomecava. Prevenir na carga resolve; remediar na resposta, nao.
             // A mensagem crua do servidor ("Lista de tarefas invalida.") nao diz nada a quem usa o
             // app, mas foi o que permitiu diagnosticar o bloqueio do recurrenceTimes em 27/08.
             // Emoldurar em vez de esconder: fica legivel para o usuario e util para quem investiga.
@@ -591,19 +592,33 @@ class PopStore(private val platform: PopPlatformServices) {
         task.recurrenceOccurrence > 1 && task.dueDate > todayIso()
 
     /**
-     * Desfaz localmente as conclusoes que o servidor acabou de recusar com 409.
+     * O que NAO pode ir na carga, porque o servidor recusa a carga inteira por causa dele.
      *
-     * Nao usa `update()` de proposito: `update()` dispara `syncTasks()`, e e o proprio `syncTasks()`
-     * quem chama esta funcao -- daria recursao. Grava direto e persiste.
+     * Substitui a antiga `reverterConclusoesFuturas`, que desfazia a conclusao localmente ao
+     * receber 409. Aquela abordagem falhou em aparelho no dia 31/08 e o motivo importa:
+     *
+     *   1. sync falha com 409 -> reverte local -> a lista fica limpa
+     *   2. o sync seguinte passa -> e o sucesso chama `refreshTasks()`, que troca a lista pela do
+     *      servidor -- e o SERVIDOR ainda tem aquelas ocorrencias como concluidas
+     *   3. proximo sync falha com 409 de novo, e assim para sempre
+     *
+     * Ou seja: **o servidor guarda dado que a validacao dele mesmo recusa** (`mobile-api.server.ts`
+     * grava a conclusao por outro caminho e a recusa no PUT). Reverter local briga com isso
+     * eternamente -- e, pior, ALTERA dado do usuario para contornar bug de servidor.
+     *
+     * Omitir e melhor por tres razoes:
+     *
+     *   - nao destroi nada: `replaceMobileTasks` so apaga o que vem em `deletedServerIds`; tarefa
+     *     ausente da carga fica intocada;
+     *   - desbloqueia todo o resto -- era UM item impedindo qualquer tarefa nova de subir;
+     *   - a divergencia que sobra e estavel e honesta: o app mostra concluida porque o servidor diz
+     *     que esta, e o proximo `refreshTasks` confirma isso em vez de desfazer.
+     *
+     * Quando o servidor parar de aceitar essa conclusao por outro caminho, este filtro vira inocuo
+     * sozinho -- nao ha nada para desligar depois. Anotado em PARA_ANDRE.md.
      */
-    private fun reverterConclusoesFuturas() {
-        val corrigidas = state.tasks.map { task ->
-            if (task.completed && ocorrenciaFuturaDeSerie(task)) task.copy(completed = false) else task
-        }
-        if (corrigidas == state.tasks) return
-        state = state.copy(tasks = corrigidas)
-        persist()
-    }
+    private fun cargaAceitavel(tasks: List<PopTask>): List<PopTask> =
+        tasks.filterNot { it.completed && ocorrenciaFuturaDeSerie(it) }
 
     private fun persist() = platform.saveState(json.encodeToString(state))
 

@@ -865,6 +865,18 @@ export function AppShell({
               </div>
 
               {profileError && <div className="text-xs text-destructive">{profileError}</div>}
+
+              {data.accessMode === "team" && (
+                <button
+                  type="button"
+                  onClick={() => logoutMutation.mutate()}
+                  disabled={logoutMutation.isPending}
+                  className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-destructive/25 text-sm font-semibold text-destructive transition hover:bg-destructive/5 disabled:opacity-60"
+                >
+                  <LogOut className="h-4 w-4" />
+                  {logoutMutation.isPending ? "Saindo..." : "Sair da conta"}
+                </button>
+              )}
             </div>
 
             <DialogFooter className="mt-5">
@@ -1057,7 +1069,7 @@ export function AppShell({
                 currentUserId={data?.currentUser.id}
               />
               {actions}
-              {data.accessMode === "personal" ? (
+              {data.accessMode === "personal" && (
                 <Link
                   to="/login"
                   className="hidden h-9 items-center gap-2 rounded-xl border border-border bg-card px-3 text-sm font-medium text-foreground/75 shadow-[var(--shadow-xs)] transition hover:text-primary lg:inline-flex"
@@ -1065,36 +1077,6 @@ export function AppShell({
                   <UserRound className="h-4 w-4" />
                   Entrar
                 </Link>
-              ) : (
-                <button
-                  type="button"
-                  onClick={openProfile}
-                  className="glass-icon-button hidden h-9 w-9 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-primary-foreground lg:flex"
-                  title="Abrir perfil"
-                  aria-label="Abrir perfil"
-                >
-                  {avatar ? (
-                    <img src={avatar} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <span
-                      className="flex h-full w-full items-center justify-center"
-                      style={{ background: getAvatarGradient(currentUser.id) }}
-                    >
-                      {initials}
-                    </span>
-                  )}
-                </button>
-              )}
-              {data.accessMode === "team" && (
-                <button
-                  type="button"
-                  onClick={() => logoutMutation.mutate()}
-                  disabled={logoutMutation.isPending}
-                  className="glass-icon-button hidden h-9 w-9 items-center justify-center rounded-xl text-foreground/70 lg:flex"
-                  title="Sair"
-                >
-                  <LogOut className="h-4 w-4" />
-                </button>
               )}
             </div>
           </div>
@@ -1125,8 +1107,6 @@ export function AppShell({
         userName={currentUser.name}
         userRole={currentUserRole}
         onOpenProfile={openProfile}
-        onLogout={() => logoutMutation.mutate()}
-        showLogout={data.accessMode === "team"}
         showInstall={!isStandalone}
         onInstall={() => void installWebApp()}
       />

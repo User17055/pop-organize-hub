@@ -147,8 +147,9 @@ O app vai como **versão 1.0.3**, cobrindo **apenas iPhone** (decisão de 2026-0
 > **O número do build é manual e o projeto tem `4` fixo.** O workflow não incrementa
 > `CURRENT_PROJECT_VERSION` sozinho: quem disparar sem preencher `build_number` reenvia um número já
 > usado, e o App Store Connect recusa por duplicidade sem explicar direito o porquê. **Último
-> enviado: 8** (2026-08-27, versão 1.0.3). O próximo tem de ser 9 ou maior — **atualizar esta linha
-> a cada envio**, porque não há outro lugar que guarde esse número.
+> enviado: 9** (2026-08-31, versão 1.0.3, do `Gui` em `e162ccc`, run 33420907406). O próximo tem de
+> ser 10 ou maior — **atualizar esta linha a cada envio**, porque não há outro lugar que guarde
+> esse número.
 >
 > A correção definitiva seria o workflow usar `github.run_number` como padrão quando a entrada vier
 > vazia, ou consultar o último build pela API do App Store Connect.

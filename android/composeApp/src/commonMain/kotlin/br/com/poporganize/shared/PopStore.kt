@@ -4,10 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.datetime.Clock
-import kotlinx.datetime.DatePeriod
-import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -297,31 +294,16 @@ class PopStore(private val platform: PopPlatformServices) {
         platform.playActionSound()
     }
 
-    fun deleteRecurringOccurrence(taskId: String) {
-        update {
-            copy(
-                tasks = tasks.mapNotNull { task ->
-                    if (task.id != taskId) return@mapNotNull task
-                    val nextDate = nextRecurrenceDate(
-                        task.dueDate,
-                        task.recurrence,
-                        task.recurrenceInterval,
-                    )
-                    if (nextDate == null) null else task.copy(dueDate = nextDate, completed = false)
-                },
-            )
-        }
-        platform.playActionSound()
-    }
-
-    fun deleteTaskSeries(taskId: String) {
-        val task = state.tasks.firstOrNull { it.id == taskId } ?: return
-        val seriesId = task.recurrenceSeriesId ?: task.id
-        update {
-            copy(tasks = tasks.filterNot { (it.recurrenceSeriesId ?: it.id) == seriesId })
-        }
-        platform.playActionSound()
-    }
+    // `deleteRecurringOccurrence`, `deleteTaskSeries` e `nextRecurrenceDate` foram REMOVIDAS aqui.
+    // Nenhuma das duas exclusoes de tarefa recorrente funcionava, e a primeira estragava dado. O
+    // motivo completo, com os trechos do servidor, esta no TaskDeleteDialog, em PopOrganizeApp.kt
+    // -- que e onde alguem vai procurar ao perguntar por que o aplicativo nao exclui recorrente.
+    //
+    // Em resumo: o servidor RECRIA a ocorrencia apagada (materializeRecurringTasks) e o app nao tem
+    // como marcar data excluida nem identificar a serie, porque o contrato movel nao traz esses
+    // dois campos. Enquanto isso, o PUT faz `existing.dueDate = item.dueDate` -- adota a data do
+    // aparelho --, entao avancar a data localmente tirava a serie de fase de forma permanente, e
+    // tambem para o Android e o painel.
 
     fun addMember(name: String, email: String, role: String) {
         val sectorId = selectedCompany?.sectors?.firstOrNull()?.id
@@ -746,48 +728,6 @@ internal fun todayIso(): String = Clock.System.now()
     .toLocalDateTime(TimeZone.currentSystemDefault())
     .date
     .toString()
-
-/**
- * Proxima data de uma serie, usada por "excluir somente esta ocorrencia".
- *
- * O `intervalo` existe porque a recorrencia do servidor nao e so o tipo: ela tem um "de quantos em
- * quantos". Esta funcao avancava sempre UM periodo e ignorava isso, entao numa serie de duas em
- * duas semanas ela caia na semana errada -- a ocorrencia intermediaria, que nao deveria existir.
- *
- * O intervalo e limitado a no minimo 1: o campo vem do servidor como texto livre e um 0 faria a
- * data nunca avancar, transformando a exclusao de uma ocorrencia num laco parado.
- *
- * ATENCAO -- esta conta continua errada, e o efeito NAO e passageiro.
- *
- * Uma versao anterior deste comentario afirmava que "a sincronizacao seguinte traz a data
- * recalculada pelo servidor". E falso: mobile-api.server.ts faz `existing.dueDate = item.dueDate`,
- * ou seja, ADOTA a data que o aparelho manda, grava e devolve igual. A data errada e persistida, e
- * vale para o Android e para o painel tambem.
- *
- * O intervalo sozinho tampouco resolve os casos que a recorrencia por dias da semana trouxe:
- *
- *   - semanal com dias marcados: numa serie de segunda e quarta, o servidor avanca para a quarta
- *     (advanceRecurringDate, em recurrence.server.ts) e esta funcao avanca sete dias;
- *   - diaria com dias excluidos: pode cair justamente num dia que a serie nao tem;
- *   - mensal com dia do mes: o servidor usa o dia gravado, esta funcao preserva o dia da data atual.
- *
- * O conserto de verdade nao cabe no cliente: ou o servidor passa a expor a proxima data da serie,
- * ou "excluir somente esta ocorrencia" vira exclusao de verdade, via pendingDeletedServerIds, em
- * vez de aritmetica de data aqui. Enquanto isso o intervalo pelo menos acerta o caso simples.
- */
-private fun nextRecurrenceDate(value: String, recurrence: RecurrenceKind, intervalo: Int): String? {
-    if (recurrence == RecurrenceKind.None) return null
-    val date = runCatching { LocalDate.parse(value) }.getOrNull() ?: return null
-    val passos = intervalo.coerceAtLeast(1)
-    val period = when (recurrence) {
-        RecurrenceKind.Daily -> DatePeriod(days = passos)
-        RecurrenceKind.Weekly -> DatePeriod(days = 7 * passos)
-        RecurrenceKind.Monthly -> DatePeriod(months = passos)
-        RecurrenceKind.Yearly -> DatePeriod(years = passos)
-        RecurrenceKind.None -> return null
-    }
-    return date.plus(period).toString()
-}
 
 internal fun greetingForCurrentTime(): String = when (
     Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).hour

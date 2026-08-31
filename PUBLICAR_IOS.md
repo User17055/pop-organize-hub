@@ -1,7 +1,8 @@
 # Publicar o app iOS — o que falta e quem faz
 
-Situação em 2026-08-20: **o código não trava mais nada.** Todas as fases planejadas estão
-concluídas e compilando. O que falta para publicar não depende de programação.
+Situação em **2026-08-31**: o código não trava a publicação. O que trava é **um deploy na VPS** —
+sem ele a sincronização de tarefas está morta, e isso reprova na revisão da Apple — e depois a
+**ficha da loja** (capturas, descrição, conta do revisor).
 
 Este documento é a lista de tarefas até o app estar na App Store.
 
@@ -9,21 +10,37 @@ Este documento é a lista de tarefas até o app estar na App Store.
 
 ## Resumo: quem precisa fazer o quê
 
-| Quem | O quê | Por que trava |
+| Quem | O quê | Estado |
 | --- | --- | --- |
-| **Guilherme** | Conta no Apple Developer Program (US$ 99/ano) | Sem ela não existe certificado, nem TestFlight, nem envio. **Trava todo o resto.** |
-| **Guilherme** | 4 secrets no GitHub | É o que deixa o robô assinar e enviar o app sozinho. Só existem depois da conta. |
-| ~~**Guilherme**~~ | ~~Um iPhone de verdade~~ | ✅ **feito em 27/08**: login com Apple e exclusão de conta exercidos e funcionando. Ver §6. |
-| **André** | `APPLE_CLIENT_ID` publicado na VPS | Sem isso o login com Apple não fecha o ciclo no servidor. |
+| ~~Guilherme~~ | ~~Conta no Apple Developer Program~~ | ✅ **feito em 24/08** — Organização, Team `HK842S5TK9` |
+| ~~Guilherme~~ | ~~4 secrets no GitHub~~ | ✅ **feito em 24/08** — provado: os builds 7 e 8 foram assinados e enviados pela esteira |
+| ~~Guilherme~~ | ~~Um iPhone de verdade~~ | ✅ **feito em 27/08** — login com Apple e exclusão de conta exercidos. Ver §6 |
+| ~~André~~ | ~~`APPLE_CLIENT_ID` na VPS~~ | ✅ **feito** — provado: o login com Apple funcionou em aparelho em 27/08, e ele não fecha sem isso |
+| **André** | **Deploy da `main` na VPS** | 🔴 **PENDENTE — é o que trava agora.** Ver abaixo |
+| **Guilherme** | Ficha da loja | ⏳ capturas, descrição e conta do revisor. Ver §7 |
 
-Os passos 1 a 3 são uma corrente: cada um depende do anterior. O passo 4 (André) pode acontecer em
-paralelo, desde que o passo 2 já tenha criado o Service ID.
+> **Correção de 31/08:** até hoje esta tabela listava os quatro primeiros itens como pendentes, com
+> as caixas desmarcadas, muito depois de estarem prontos. Documento que envelhece sem aviso faz
+> perder tempo procurando trabalho que já foi feito.
+
+### O que trava de verdade hoje: o deploy
+
+A sincronização de tarefas está **morta** — nenhuma tarefa criada em celular sobe, iOS e Android. O
+conserto existe (`da2f6fa`, do André) e está no `main`; falta sair do GitHub e entrar na VPS.
+
+```bash
+cd /var/www/pop-organize && bash deploy/release.sh
+```
+
+**Isto bloqueia a submissão, não só o conforto:** a Apple exige conta de teste com dados reais, e um
+revisor que criar uma tarefa e vir a sincronização falhar rejeita por Review 2.1. Detalhes e o
+pedido pronto em [`PARA_ANDRE.md`](PARA_ANDRE.md).
 
 ---
 
-## 1. Conta Apple — só o Guilherme
+## 1. Conta Apple — ✅ FEITO em 24/08
 
-- [ ] developer.apple.com → Apple Developer Program → US$ 99/ano
+- [x] developer.apple.com → Apple Developer Program → US$ 99/ano
 
 Precisa de um Apple ID com verificação em duas etapas e os seus dados (pessoa física ou CNPJ).
 
@@ -32,11 +49,11 @@ primeiro passo, não o último** — todo o resto fica parado esperando.
 
 ---
 
-## 2. Identidade do app — dentro da conta, depois de aprovada
+## 2. Identidade do app — ✅ FEITO em 24/08
 
 Três coisas, nesta ordem:
 
-- [ ] Criar um **App ID** com o identificador exato:
+- [x] Criar um **App ID** com o identificador exato:
 
   ```
   br.com.poporganize.app
@@ -45,21 +62,21 @@ Três coisas, nesta ordem:
   É o que está gravado no projeto Xcode. **Não pode divergir nem por um caractere** — se divergir,
   a assinatura falha sem explicar direito o motivo.
 
-- [ ] Habilitar nesse App ID a capacidade **Sign in with Apple**
+- [x] Habilitar nesse App ID a capacidade **Sign in with Apple**
 
-- [ ] Criar um **Service ID** para o Sign in with Apple (é ele que vira o `APPLE_CLIENT_ID` do
+- [x] Criar um **Service ID** para o Sign in with Apple (é ele que vira o `APPLE_CLIENT_ID` do
       passo 4)
 
-- [ ] Criar o app no **App Store Connect** usando o mesmo identificador
+- [x] Criar o app no **App Store Connect** usando o mesmo identificador
 
 ---
 
-## 3. Chave de API → os 4 secrets no GitHub
+## 3. Chave de API → os 4 secrets no GitHub — ✅ FEITO em 24/08
 
 ### 3.1 Gerar a chave
 
-- [ ] App Store Connect → **Users and Access** → **Integrations** → **App Store Connect API**
-- [ ] Gerar uma chave com papel **App Manager** (ou Admin)
+- [x] App Store Connect → **Users and Access** → **Integrations** → **App Store Connect API**
+- [x] Gerar uma chave com papel **App Manager** (ou Admin)
 
 O papel importa: é o que permite ao Xcode criar e baixar sozinho o certificado de distribuição e o
 provisioning profile. Com papel menor, o build falha na assinatura.
@@ -100,23 +117,23 @@ Os nomes têm de bater **letra por letra** — são os que o workflow procura:
 | `APPSTORE_API_ISSUER_ID` | Issuer ID | App Store Connect, no topo da tela de chaves |
 | `APPSTORE_API_PRIVATE_KEY` | **o `.p8` em base64** (passo 3.2) | o texto gerado acima |
 
-- [ ] Os quatro cadastrados
+- [x] Os quatro cadastrados
 
 ---
 
-## 4. André, na VPS
+## 4. André, na VPS — ✅ APPLE_CLIENT_ID feito; falta o DEPLOY (ver o resumo no topo)
 
-- [ ] Publicar o `APPLE_CLIENT_ID` — o **Service ID** do Sign in with Apple, criado no passo 2
+- [x] Publicar o `APPLE_CLIENT_ID` — o **Service ID** do Sign in with Apple, criado no passo 2
 
 É o único item da lista que não passa pelo Guilherme nem pelo Claude.
 
 ---
 
-## 5. Primeiro envio
+## 5. Primeiro envio — ✅ FEITO; o último foi o build 8
 
 Aí é um botão.
 
-- [ ] GitHub → aba **Actions** → workflow **"iOS release (TestFlight)"** → *Run workflow*
+- [x] GitHub → aba **Actions** → workflow **"iOS release (TestFlight)"** → *Run workflow*
 
 Ele valida o ambiente, compila, assina, exporta o `.ipa` e envia ao App Store Connect sozinho.
 

@@ -1,187 +1,187 @@
-# Para o André — dois problemas no endpoint móvel de tarefas
+# Para o André
 
-Encaminhar as duas versões: a curta explica o efeito, a técnica explica a causa.
+Atualizado em **2026-08-31**.
 
-> ## ⚠️ Atualização de 27/08/2026 — deixou de ser teoria
->
-> Quando este documento foi escrito (26/08), o problema 1 era **dedução a partir do schema**. Hoje
-> ele foi **reproduzido em aparelho, no servidor de produção**, e a conclusão mudou de "provável"
-> para "é isto e está acontecendo agora".
->
-> **Como foi provado, sem tocar em produção:**
->
-> 1. No iPhone, num espaço **pessoal** com **uma** tarefa trivial ("teste", hoje, sem recorrência),
->    a sincronização voltou `400 — "Lista de tarefas inválida."`.
-> 2. O JSON exato que o app manda nesse caso foi reconstruído e validado contra os dois schemas,
->    com o zod do próprio projeto (3.25.76):
->
->    ```
->    SERVIDOR ANTIGO (antes do d89358a)  -> ACEITA
->    SERVIDOR NOVO   (origin/main)       -> RECUSA
->       tasks.0.recurrenceTimes: Array must contain at least 2 element(s)
->    ```
->
-> Como a carga é recusada por um espaço com **uma tarefa mínima e válida**, a causa não são os
-> dados: é o schema. E como o aparelho recebeu a recusa do servidor **que está no ar**, o servidor
-> em produção roda o código do `d89358a`.
->
-> **Efeito atual, medido:** nenhuma tarefa criada em celular nenhum sobe. Não é degradação, é
-> bloqueio total — iOS e Android, todos os espaços, todos os usuários. Enquanto o deploy não sair,
-> a tarefa fica presa no aparelho.
->
-> O conserto continua sendo a mesma linha proposta abaixo.
+O que mudou desde a versão anterior: **o problema do `recurrenceTimes` foi consertado por você em
+`da2f6fa` (28/08) e o conserto está certo** — conferido linha por linha contra o schema. A parte
+técnica dele saiu deste documento, junto com tudo o mais que já foi resolvido.
+
+Sobrou um pedido urgente, um conserto de dados e uma coisa para a fila.
 
 ---
 
-## Versão curta
+## 1. 🔴 URGENTE — falta o deploy. O conserto está no `main` e não está no ar.
 
-> André, achamos dois problemas no `PUT /api/mobile/tasks` que fazem o app **recusar toda
-> sincronização de tarefas**. Um deles é do código de recorrência que você subiu no dia 26, e ele
-> derruba o Android também — não é só o iPhone. **Já reproduzimos no aparelho, contra o servidor de
-> produção**, então não é suspeita.
->
-> **O que acontece na prática:** qualquer app que sincronize tarefas recebe de volta um erro 400
-> ("Lista de tarefas inválida"). Nenhuma tarefa sobe. E como o servidor valida a lista inteira de
-> uma vez, basta um item para reprovar tudo: se a pessoa tiver 40 tarefas e uma delas tropeçar,
-> as 40 ficam paradas no aparelho.
->
-> **A causa do lado novo:** o campo `recurrenceTimes` (tarefa que repete em vários horários) foi
-> declarado exigindo no mínimo 2 horários, mas com valor padrão de lista vazia. A lista vazia não
-> passa na própria exigência de "mínimo 2", então **até quem não manda o campo é recusado**. Como
-> o app hoje não manda esse campo, todo mundo cai nisso.
->
-> **A causa do lado antigo:** quatro campos que o app envia como "nulo" (`serverId`,
-> `assignmentType`, `assignmentTargetId`, `assignmentTargetLabel`) são declarados como opcionais
-> no servidor — e "opcional" aceita o campo faltando, mas recusa o campo presente valendo nulo.
-> Esse a gente já consertou do lado do app; não precisa de nada seu.
->
-> O primeiro só você consegue consertar, porque é o schema do servidor e depende de deploy. É uma
-> linha.
+**É o único item que trava alguém agora.** Não precisa de código novo: o seu conserto está pronto e
+correto, só não chegou no servidor.
+
+Enquanto não sair um deploy, **nenhuma tarefa criada em celular nenhum sobe** — iPhone e Android,
+todos os espaços, todos os usuários. A tarefa fica presa no aparelho.
+
+```bash
+cd /var/www/pop-organize && bash deploy/release.sh
+```
+
+> O `bash` na frente é porque o `deploy/release.sh` está versionado sem bit de execução
+> (modo `100644`). Vale corrigir com `git update-index --chmod=+x deploy/release.sh` quando sobrar
+> um minuto.
+
+**Antes de rodar, se puder, manda o que aparece aqui:**
+
+```bash
+cd /var/www/pop-organize && git log -1 --oneline && git branch --show-current
+```
+
+Serve para confirmar de que ponto o servidor saiu. Hoje não há outro jeito de perguntar isso: o
+`/api/health` devolve só `status`, `database` e `timestamp` — **não informa a versão**. Se quiser,
+dá para acrescentar o commit ali depois; ajudaria em toda investigação futura.
+
+### O mesmo deploy conserta a tela `/tarefas`, de brinde
+
+A tela quebrar em produção (`Minified React error #310`, *"Rendered more hooks than during the
+previous render"*) **não é bug aberto.** O conserto é o commit `14eb687`, de 21/08, e está no
+`main` desde o merge `74b062e`.
+
+O que mantém o erro no ar é a versão publicada:
+
+| Verificação | Resultado |
+| --- | --- |
+| `14eb687` (conserto do `/tarefas`) está em `d89358a`? | **não** |
+| `d89358a` (schema novo) está em `74b062e`? | sim |
+| `14eb687` está em `74b062e`? | sim |
+
+Os dois só se encontram no merge, de 26/08 16h52. O `d89358a` é de 26/08 13h58. E o servidor
+publicado tem o schema do `d89358a` (comprovado em aparelho no dia 27). Ou seja: **o que está no ar
+saiu da janela entre 13h58 e 16h52 daquele dia** — tem o schema novo e não tem o conserto da tela.
+
+Uma causa só explica os dois sintomas. Um `systemctl restart` resolve os dois, porque o endpoint
+móvel e o painel são o **mesmo processo Node**.
 
 ---
 
-## Versão técnica
+## 2. Acentos corrompidos — e duas correções ao que eu te mandei antes
 
-### Problema 1 — `recurrenceTimes` recusa o próprio valor padrão (introduzido hoje, quebra Android e iOS)
+`"Gest?o e opera??es da empresa SAO FRANCISCO"`, na descrição da empresa e na do setor
+Administrativo. Aparece igual na resposta de rede, então está gravado assim.
 
-**Arquivo:** `src/routes/api/mobile/tasks.ts`, linhas 21–25.
+**Desculpa: a versão anterior deste documento te deu duas pistas erradas.**
+
+### Errado #1 — "conferir se a conexão usa `utf8mb4`"
+
+Não é a conexão. No **mesmo banco** há texto acentuado correto — "Alimentação dos Equinos" e
+"RECEPÇÃO". Charset errado na conexão quebraria esses também. A corrupção entrou na importação da
+planilha, e o importador não está neste repositório, então só você consegue evitar que se repita na
+próxima importação.
+
+### Errado #2 — "é um UPDATE pontual, são poucos registros"
+
+Não existem "registros" no plural. A plataforma inteira é **uma linha só**: tabela `app_state`,
+`id = 'default'`, uma coluna `data JSON` (`src/lib/database.server.ts`, na criação do schema e nas
+quatro consultas que a usam).
+
+### E o principal: o dado original se perdeu
+
+`Gestão` virou `Gest?o` — o acento virou literalmente `?`. Isso é substituição, não codificação
+errada: **não dá para decodificar de volta.** Os textos precisam ser **redigitados**.
+
+### Dois cuidados na hora de corrigir
+
+- **Não faça leitura-e-gravação com o serviço no ar sem transação.** Se alguém salvar qualquer
+  coisa pelo painel entre a sua leitura e a sua gravação, você apaga o que a pessoa fez. Ou use
+  `SELECT ... FOR UPDATE` dentro de transação, como o `mutateDatabase` já faz, ou pare o serviço
+  durante a correção.
+- **Cuidado ao varrer por `?`** — é pontuação legítima em texto normal. Conferir cada ocorrência
+  antes de trocar.
+
+Conhecidos até agora: descrição da empresa e do setor Administrativo. Pode haver mais, vindos da
+mesma importação.
+
+---
+
+## 3. Para a fila — o app não consegue excluir tarefa recorrente
+
+Sem pressa, mas registro porque a causa foi confirmada e **não tem conserto possível do lado do
+app**.
+
+No iPhone, o menu de exclusão de uma tarefa recorrente oferece "Somente esta data" e "Toda a
+recorrência". **Nenhuma das duas funciona**, e a segunda ainda corrompe dado.
+
+### Por que "toda a recorrência" não funciona
+
+O `MobileTask` não expõe o id da série. O app não tem como saber quais tarefas pertencem à mesma
+série, então apaga uma linha só. O servidor **tem** o campo — `recurrenceParentId`, em
+`src/lib/domain.ts` — e o `src/lib/recurrence.server.ts` já usa exatamente
+`task.recurrenceParentId ?? task.id`.
+
+### Por que "somente esta data" também não funciona
+
+Esta é a parte que eu tinha entendido errado até hoje. Mesmo que o app mandasse o `serverId` da
+ocorrência em `deletedServerIds` e ela fosse apagada de verdade, **o `materializeRecurringTasks`
+recria a linha na chamada seguinte**: ele caminha da data do modelo até hoje e cria toda data que
+não esteja em `existingDates` **nem em `recurrenceExcludedDates`**.
+
+E `recurrenceExcludedDates` **não existe no contrato móvel** — zero ocorrências em
+`mobile-api.server.ts` e em `routes/api/mobile/tasks.ts`. O app não tem como dizer "exclua esta
+data".
+
+Some-se a isso que o PUT faz `existing.dueDate = item.dueDate`, ou seja, **adota** a data que o
+aparelho manda. Hoje o app avança a data localmente ao "excluir só esta ocorrência", o servidor
+grava essa data, e a série sai de fase — **de forma permanente, e também para o Android e o
+painel**.
+
+### O que destravaria
+
+Duas linhas, se você concordar com a forma:
 
 ```ts
-recurrenceTimes: z
-  .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
-  .min(2)
-  .max(12)
-  .optional()
-  .default([]),
+// em taskToMobileTask, e os campos correspondentes no schema de tasks.ts
+recurrenceSeriesId: task.recurrenceParentId ?? task.id,
+recurrenceExcludedDates: task.recurrenceExcludedDates ?? [],
 ```
 
-O zod **valida o valor que o `.default()` produz**. Quando a chave está ausente, ele substitui por
-`[]` e roda o schema interno em cima — e `[]` reprova no `.min(2)`. Resultado: a chave ausente é
-recusada.
+Do lado do app eu faço o resto. **Sem risco para quem já está no ar:** o `mobileTaskSchema` é um
+`z.object` sem `.strict()`, então campo desconhecido é descartado, não recusado — as duas pontas
+podem subir em ordem qualquer.
 
-Isolei o comportamento (zod 3.25.76, a versão do projeto):
-
-```js
-z.object({ t: z.array(z.string()).min(2).max(12).optional().default([]) }).safeParse({})
-// -> RECUSA: "Array must contain at least 2 element(s)"
-
-z.object({ t: z.array(z.string()).max(12).optional().default([]) }).safeParse({})
-// -> PASSA (default [] aplicado)
-```
-
-Como `mobileTasksPayloadSchema` valida `tasks` como array e a rota faz um `safeParse` só, **um
-item reprovado derruba a carga inteira** — `tasks.ts:87` devolve 400 "Lista de tarefas inválida."
-para todas as tarefas, não só a que tropeçou.
-
-**Correção sugerida** — tirar o `.min(2)` do schema e mover a regra para onde ela realmente vale,
-permitindo o vazio:
-
-```ts
-recurrenceTimes: z
-  .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
-  .max(12)
-  .optional()
-  .default([])
-  .refine((v) => v.length === 0 || v.length >= 2, {
-    message: "Informe pelo menos dois horários, ou nenhum.",
-  }),
-```
-
-Assim "nenhum horário" continua sendo estado válido (que é o que 100% dos clientes mandam hoje) e
-"um horário só" segue recusado, que era a intenção do `.min(2)`.
-
-### Problema 2 — nulos explícitos contra campos `.optional()` (antigo, já consertado no app)
-
-**Contexto, porque o padrão pode repetir:** o `ApiTask` do lado Kotlin tem quatro campos nuláveis
-com padrão `null` — `serverId`, `assignmentType`, `assignmentTargetId`, `assignmentTargetLabel`. O
-serializador estava configurado com `encodeDefaults = true`, que escrevia os quatro como `null`
-explícito no JSON. No `mobileTaskSchema` os quatro são `.optional()`, e em zod isso aceita a chave
-**ausente** e recusa `null`.
-
-Testado contra o schema real extraído de `tasks.ts`:
-
-```
-RECUSA  (nulls explicitos)
-  -> tasks.0.serverId: Expected string, received null
-  -> tasks.0.assignmentType: Expected 'company'|'department'|'group'|'user', received null
-  -> tasks.0.assignmentTargetId: Expected string, received null
-  -> tasks.0.assignmentTargetLabel: Expected string, received null
-```
-
-`assignmentTargetId` é nulo em toda tarefa "Sem responsável", então isso valia para quase toda
-carga.
-
-**Já corrigido do lado do app** (`PopStore.kt`), com `explicitNulls = false` somado ao
-`encodeDefaults = true`: os 18 campos obrigatórios do schema continuam sendo escritos e os nulos
-somem. Não precisa de nada no servidor.
-
-Se preferir blindar os dois lados, `.nullish()` no lugar de `.optional()` nesses quatro campos
-tornaria o schema tolerante — mas aí `authenticateMobileApple` e afins passam a receber `null`
-onde o tipo diz `string | undefined`, então exigiria normalizar com `?? undefined`. Fica a seu
-critério; do lado do app já está resolvido.
+Enquanto isso não existe, vou desligar no app a opção que corrompe a data, para parar o sangramento.
 
 ---
 
-## Dois achados do painel web (27/08) — não são do endpoint móvel
+## 4. Também na fila — campos que o app recebe, descarta e devolve como padrão
 
-### `/tarefas` quebra por completo em produção
+Continuam abertos, mesma mecânica: o `ApiTask` do lado Kotlin não tem esses campos, então o app os
+devolve com o valor padrão e o servidor grava por cima.
 
-Tela "Algo deu errado". No console: `Minified React error #310` — *"Rendered more hooks than during
-the previous render"*, violação das Rules of Hooks. Três ocorrências por carregamento.
+- **`assignees`** — o servidor manda a lista de responsáveis e no PUT faz
+  `item.assignees ? … : [item.assignee]`. Como o campo não existe no app, cai sempre no ramo de
+  trás — e o que o app manda em `assignee` é o rótulo do **alvo** (o setor), não as pessoas. Numa
+  tarefa de setor com dois responsáveis, sincronizar do celular zera os dois.
+- **`reminder`** — o pior do grupo, porque o servidor grava **sem nenhuma condição**. Marcar um
+  lembrete pelo painel e depois concluir uma tarefa qualquer no iPhone apaga os lembretes do
+  usuário no espaço inteiro.
+- **`attachmentName`** — zera o contador de anexos, e **não é por usuário**: atinge todo mundo.
+- **`duration`** e **`assignedBy`** — mesma família, efeito menor.
 
-**Testado nos dois extremos:** espaço pessoal **vazio** (0 tarefas) e SÃO FRANCISCO com **361**.
-Quebra igual — não é caminho de estado vazio nem dependente de volume, é incondicional.
+O conserto é do lado do app (carregar cru e devolver intacto, como já é feito com os campos de
+recorrência) e **eu faço**. Está aqui só para você saber que existe, e porque acrescentar campo ao
+`ApiTask` mexe com serialização — se algum deles for mudar de forma no servidor, é melhor eu saber
+antes.
 
-A regra `react-hooks/rules-of-hooks` está ligada no `eslint.config.js` e o código passa com zero
-erros, então é algo que o eslint não vê estaticamente. Para achar o componente, vale um build **não
-minificado** — o nome aparece no stack.
+### Um candidato, não confirmado
 
-### Acentos corrompidos no banco
-
-`"Gest?o e opera??es da empresa SAO FRANCISCO"` na descrição da empresa e do setor Administrativo.
-Aparece igual na resposta de rede, ou seja, **está gravado assim**, não é erro de renderização. Não
-é global: "Alimentação dos Equinos" e "RECEPÇÃO" estão corretos — atinge os registros vindos de
-`tarefas_importar.xlsx` e os criados junto com a empresa. Aparece no iPhone também, no cabeçalho.
-
-Vale conferir se a conexão usa `utf8mb4`. O dado já gravado é um UPDATE pontual, são poucos
-registros.
+`taskToMobileTask` lê `native?.recurrenceRule ?? recurrence.rule`, dando precedência ao
+`nativeData`. Se nenhum caminho do painel atualiza esse campo, uma recorrência editada no painel
+voltaria ao valor antigo quando o celular sincronizasse. **Não verifiquei** — fica como suspeita,
+não como fato.
 
 ---
 
-## Três achados menores, para a fila (não urgentes)
+## Já resolvido — não precisa de nada seu
 
-1. **`assignees` não faz o caminho de volta.** O servidor manda a lista de responsáveis e no PUT
-   faz `item.assignees ? … : [item.assignee]`. O `ApiTask` não tem esse campo, então cai sempre no
-   ramo de trás — e o que o app manda em `assignee` é o rótulo do **alvo** (o setor), não as
-   pessoas. Numa tarefa de setor com dois responsáveis, sincronizar do celular zera os dois.
-   Mesma família: `reminder`, `attachmentName`, `duration` e `assignedBy`.
-
-2. **`nativeData` tem precedência sobre a recorrência real** em `taskToMobileTask`
-   (`native?.recurrenceRule ?? recurrence.rule`), e nenhum caminho do painel web atualiza o
-   `nativeData`. Recorrência editada no painel volta para o valor antigo quando o celular
-   sincroniza.
-
-3. **`existing.dueDate = item.dueDate`** (`mobile-api.server.ts:1768`) adota a data que o celular
-   manda. Combinado com "excluir somente esta ocorrência", que no app é aritmética de data no
-   cliente, uma série com dias da semana marcados sai da fase. O conserto limpo seria o servidor
-   expor a próxima data da série.
+- **`recurrenceTimes` recusava o próprio valor padrão.** Consertado por você em `da2f6fa`, com
+  `.refine()` aceitando zero ou dois-ou-mais. Conferido: é exatamente o que faltava. **Falta só o
+  deploy** (item 1).
+- **Nulos explícitos contra campos `.optional()`** (`serverId`, `assignmentType`,
+  `assignmentTargetId`, `assignmentTargetLabel`). Era o serializador do app escrevendo `null`
+  explícito onde o zod aceita a chave ausente mas recusa `null`. Resolvido do lado do app com
+  `explicitNulls = false`.

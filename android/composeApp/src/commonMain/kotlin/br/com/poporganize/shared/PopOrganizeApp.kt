@@ -1260,18 +1260,8 @@ private fun TasksScreen(store: PopStore) {
         TaskDeleteDialog(
             task = task,
             onDismiss = { pendingDeleteTask = null },
-            onDeleteOccurrence = {
-                deleteWithAnimation(task) { store.deleteRecurringOccurrence(task.id) }
-            },
-            onDeleteAll = {
-                deleteWithAnimation(task) {
-                    if (task.recurrence == RecurrenceKind.None) {
-                        store.deleteTask(task.id)
-                    } else {
-                        store.deleteTaskSeries(task.id)
-                    }
-                }
-            },
+            // So chega aqui tarefa NAO recorrente: o dialogo nao oferece exclusao para serie.
+            onDeleteAll = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
         )
     }
 }
@@ -1426,17 +1416,17 @@ private fun TaskDetailsDialog(
 }
 
 /**
- * Confirmacao de exclusao. Numa tarefa recorrente oferece excluir so aquela data ou a serie
- * inteira; numa tarefa comum, so confirma.
+ * Confirmacao de exclusao. Numa tarefa comum, confirma e exclui. Numa tarefa RECORRENTE nao oferece
+ * exclusao nenhuma: explica que o aplicativo ainda nao consegue e manda usar o painel. O porque
+ * esta no comentario do `confirmButton`, abaixo.
  *
- * Recebe as duas acoes prontas em vez do store porque quem chama e que sabe animar a saida da
- * linha antes de a tarefa sumir de fato.
+ * Recebe a acao pronta em vez do store porque quem chama e que sabe animar a saida da linha antes
+ * de a tarefa sumir de fato.
  */
 @Composable
 private fun TaskDeleteDialog(
     task: PopTask,
     onDismiss: () -> Unit,
-    onDeleteOccurrence: () -> Unit,
     onDeleteAll: () -> Unit,
 ) {
     val isRecurring = task.recurrence != RecurrenceKind.None
@@ -1444,41 +1434,63 @@ private fun TaskDeleteDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                if (isRecurring) "Excluir atividade recorrente" else "Excluir atividade",
+                if (isRecurring) "Atividade recorrente" else "Excluir atividade",
                 fontWeight = FontWeight.ExtraBold,
             )
         },
         text = {
             Text(
                 if (isRecurring) {
-                    "Deseja excluir somente esta data ou toda a recorrência?"
+                    "Excluir atividades que se repetem ainda não funciona pelo aplicativo — nem " +
+                        "uma data só, nem a série inteira. Use o painel web."
                 } else {
                     "Confirma a exclusão de “${task.title}”?"
                 },
             )
         },
-        // As TRES acoes vao juntas no confirmButton, e o dismissButton fica de fora.
+        // As acoes vao juntas no confirmButton, e o dismissButton fica de fora.
         //
         // O AlertDialog do Material 3 dispoe dismissButton e confirmButton lado a lado, na mesma
         // linha. Com o confirmButton sendo uma Column de dois botoes, a linha alinhava o "Cancelar"
         // pelo centro vertical da coluna -- e ele aterrissava POR CIMA do botao vermelho. Nao era
         // margem apertada: era sobreposicao, com o texto de um lendo em cima do outro. Visto em
         // aparelho em 27/08, no build 7.
+        //
+        // TAREFA RECORRENTE NAO OFERECE EXCLUSAO, e isto nao e escolha de produto -- o aplicativo
+        // nao consegue. Ate 31/08/2026 havia dois botoes aqui, "Somente esta data" e "Toda a
+        // recorrencia", e NENHUM dos dois funcionava:
+        //
+        // 1. O servidor RECRIA a ocorrencia apagada. `materializeRecurringTasks`
+        //    (src/lib/recurrence.server.ts) caminha da data do modelo ate hoje e cria toda data que
+        //    nao esteja entre as existentes nem em `recurrenceExcludedDates`. Esse campo nao existe
+        //    no contrato movel, entao nao ha como dizer "pule esta data": apagar de verdade, por
+        //    `pendingDeletedServerIds`, seria desfeito na chamada seguinte.
+        // 2. Nao ha id de serie deste lado. O servidor tem (`recurrenceParentId`) e nao envia, e o
+        //    `toPopTask` nao preenche `recurrenceSeriesId` -- toda tarefa vinda do servidor tem
+        //    null ali. "Toda a recorrencia" casava exatamente UMA tarefa e parecia ter acertado.
+        // 3. Pior: "Somente esta data" avancava a `dueDate` localmente, e como todo `update`
+        //    reenvia a lista visivel inteira, o servidor gravava essa data -- o PUT faz
+        //    `existing.dueDate = item.dueDate`, ADOTA o que o aparelho manda. A serie saia de fase
+        //    de forma PERMANENTE, tambem para o Android e para o painel.
+        //
+        // Religar depende de o servidor expor `recurrenceSeriesId` e `recurrenceExcludedDates`. O
+        // pedido esta em PARA_ANDRE.md. Ate la, dizer a verdade custa menos que estragar dado.
         confirmButton = {
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 if (isRecurring) {
-                    TextButton(onClick = onDeleteOccurrence) { Text("Somente esta data") }
+                    TextButton(onClick = onDismiss) { Text("Entendi") }
+                } else {
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        onClick = onDeleteAll,
+                    ) {
+                        Text("Excluir")
+                    }
+                    TextButton(onClick = onDismiss) { Text("Cancelar") }
                 }
-                Button(
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    onClick = onDeleteAll,
-                ) {
-                    Text(if (isRecurring) "Toda a recorrência" else "Excluir")
-                }
-                TextButton(onClick = onDismiss) { Text("Cancelar") }
             }
         },
     )
@@ -2165,18 +2177,8 @@ private fun CalendarScreen(store: PopStore) {
         TaskDeleteDialog(
             task = task,
             onDismiss = { pendingDeleteTask = null },
-            onDeleteOccurrence = {
-                deleteWithAnimation(task) { store.deleteRecurringOccurrence(task.id) }
-            },
-            onDeleteAll = {
-                deleteWithAnimation(task) {
-                    if (task.recurrence == RecurrenceKind.None) {
-                        store.deleteTask(task.id)
-                    } else {
-                        store.deleteTaskSeries(task.id)
-                    }
-                }
-            },
+            // So chega aqui tarefa NAO recorrente: o dialogo nao oferece exclusao para serie.
+            onDeleteAll = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
         )
     }
 }

@@ -1137,30 +1137,94 @@ private fun ProgressRing(progress: Float) {
     }
 }
 
+private data class GrupoDeTarefas(
+    val titulo: String,
+    val tarefas: List<PopTask>,
+    val abreFechado: Boolean,
+)
+
+/**
+ * Agrupa a lista de Tarefas por ONDE a tarefa mora, nao por quem responde.
+ *
+ * O agrupamento antigo perguntava so `kind == Sector` e jogava TODO o resto num balde chamado
+ * "Sem setor". Isso produziu o mesmo defeito duas vezes:
+ *
+ *  - em 27/08, no Meu espaco, onde nao existe setor: tudo caia no balde unico, que aparecia
+ *    fechado e escondia a lista inteira, com "8 pendentes" escrito logo acima;
+ *  - em 01/09, numa empresa que tem setores: a tarefa atribuida a uma PESSOA caia no mesmo balde,
+ *    que entao virava cabecalho fechado no fim da ordem alfabetica. Nao dava para editar nem
+ *    excluir, porque a aba Tarefas e onde essas operacoes acontecem.
+ *
+ * O conserto de 27/08 (`flatList`) tratou so o caso em que TUDO cai no balde. Este trata a classe:
+ * **nao existe mais balde.** Todo alvo vira um grupo com nome verdadeiro, e nenhum nome mente
+ * sobre o que ha dentro.
+ *
+ * A ordem coloca setores e grupos primeiro, e o que e de pessoa por ultimo -- pedido do Guilherme,
+ * que preferiu o fim ao topo. O que conserta o defeito nao e a posicao e sim `abreFechado`: os
+ * grupos de pessoa e de empresa nascem **abertos**. Setor continua nascendo fechado, que era uma
+ * decisao anterior e boa quando ha varios.
+ *
+ * No Meu espaco nao ha alvo nenhum para agrupar, entao volta uma lista so, sem cabecalho.
+ */
+private fun agruparTarefas(
+    tasks: List<PopTask>,
+    espaco: WorkspaceKind,
+    meuNome: String,
+): List<GrupoDeTarefas> {
+    if (espaco == WorkspaceKind.Personal) {
+        return listOf(GrupoDeTarefas("", tasks.sortedWith(taskListOrder), abreFechado = false))
+    }
+    fun souEu(task: PopTask) =
+        meuNome.isNotBlank() && task.assignment.label.equals(meuNome, ignoreCase = true)
+    fun titulo(task: PopTask) = when (task.assignment.kind) {
+        AssignmentKind.Sector, AssignmentKind.Group -> task.assignment.label
+        AssignmentKind.None -> "Toda a empresa"
+        AssignmentKind.Person -> if (souEu(task)) "Minhas tarefas" else task.assignment.label
+    }
+    // Setores e grupos (0) antes da empresa (1), das outras pessoas (2) e das minhas (3).
+    fun ordem(task: PopTask) = when (task.assignment.kind) {
+        AssignmentKind.Sector, AssignmentKind.Group -> 0
+        AssignmentKind.None -> 1
+        AssignmentKind.Person -> if (souEu(task)) 3 else 2
+    }
+    return tasks.groupBy { ordem(it) to titulo(it) }
+        .toList()
+        // toSortedMap() vem de java.util e nao existe no commonMain; ordenar a lista de pares
+        // pela ordem e depois pelo nome da o mesmo resultado.
+        .sortedWith(compareBy({ it.first.first }, { it.first.second }))
+        .map { (chave, doGrupo) ->
+            GrupoDeTarefas(
+                titulo = chave.second,
+                tarefas = doGrupo.sortedWith(taskListOrder),
+                abreFechado = chave.first == 0,
+            )
+        }
+}
+
 @Composable
 private fun TasksScreen(store: PopStore) {
     val tasks = store.visibleTasks
     var removingId by remember { mutableStateOf<String?>(null) }
     var selectedTask by remember { mutableStateOf<PopTask?>(null) }
     var pendingDeleteTask by remember { mutableStateOf<PopTask?>(null) }
-    // Guardar os expandidos, e nao os recolhidos, para que os setores comecem fechados e um setor
-    // criado depois tambem entre fechado, sem precisar ser descoberto e adicionado ao conjunto.
-    var expandedSectors by remember { mutableStateOf(emptySet<String>()) }
+    // Guarda quem o usuario ALTERNOU, nao quem esta aberto.
+    //
+    // Antes guardava os expandidos, o que so funcionava porque todo grupo nascia fechado. Agora
+    // nem todo grupo nasce fechado -- os de pessoa e de empresa nascem abertos --, e um conjunto
+    // de "abertos" nao consegue representar "este, que nasce aberto, o usuario fechou".
+    // Guardando o desvio em relacao ao padrao, um conjunto so cobre os dois casos, e um grupo
+    // criado depois continua entrando com o padrao dele sem precisar ser descoberto.
+    var alternados by remember { mutableStateOf(emptySet<String>()) }
     val scope = rememberCoroutineScope()
     // Pessoas entram junto de setores e grupos: AssignmentKind.Person ja existia e ja e convertido
     // nos dois sentidos (toApiTask/toPopTask), mas nunca tinha sido oferecido na interface.
     val moveTargets = rememberMoveTargets(store)
-    // toSortedMap() vem de java.util e nao existe no commonMain; a lista de pares ordenada
-    // preserva a mesma ordenacao natural por nome de setor.
-    val groupedTasks = remember(tasks) {
-        tasks.groupBy {
-            if (it.assignment.kind == AssignmentKind.Sector) it.assignment.label else "Sem setor"
-        }.toList()
-            .sortedBy { it.first }
-            .map { (sector, sectorTasks) -> sector to sectorTasks.sortedWith(taskListOrder) }
-    }
-    // Um unico grupo, e chamado "Sem setor", significa que nao ha setor nenhum para agrupar.
-    val flatList = groupedTasks.size == 1 && groupedTasks[0].first == "Sem setor"
+    val meuNome = store.state.currentUser?.name.orEmpty()
+    val espaco = store.state.workspace
+    val groupedTasks = remember(tasks, espaco, meuNome) { agruparTarefas(tasks, espaco, meuNome) }
+    // Grupo unico e sem titulo e o Meu espaco: nao ha alvo nenhum para agrupar, entao a lista sai
+    // plana, sem cabecalho.
+    val flatList = groupedTasks.size == 1 && groupedTasks[0].titulo.isEmpty()
 
     fun deleteWithAnimation(task: PopTask, action: () -> Unit) {
         pendingDeleteTask = null
@@ -1200,13 +1264,10 @@ private fun TasksScreen(store: PopStore) {
         if (tasks.isEmpty()) {
             item { EmptyState("Seu espaço está livre", "Toque em + para criar a primeira tarefa.") }
         }
-        groupedTasks.forEach { (sector, sectorTasks) ->
+        groupedTasks.forEach { grupo ->
+            val sector = grupo.titulo
+            val sectorTasks = grupo.tarefas
             // Sem agrupamento real, nao ha cabecalho de grupo.
-            //
-            // Os setores comecam fechados de proposito -- decisao anterior, e certa quando existem
-            // varios. Mas no Meu espaco nao existe setor nenhum: tudo cai num unico "Sem setor",
-            // que entao aparecia fechado e escondia a lista inteira. Abrir a aba Tarefas mostrava
-            // uma tela vazia dizendo "8 pendentes" logo acima. Encontrado rodando a previa.
             if (flatList) {
                 items(sectorTasks, key = { it.id }) { task ->
                     AnimatedVisibility(
@@ -1226,15 +1287,16 @@ private fun TasksScreen(store: PopStore) {
                 }
                 return@forEach
             }
+            // Aberto = o padrao do grupo, invertido se o usuario tiver alternado este.
+            val expanded = if (grupo.abreFechado) sector in alternados else sector !in alternados
             item(key = "sector-$sector") {
-                val expanded = sector in expandedSectors
                 val pending = sectorTasks.count { !it.completed }
                 Surface(
                     modifier = Modifier.fillMaxWidth().clickable {
-                        expandedSectors = if (expanded) {
-                            expandedSectors - sector
+                        alternados = if (sector in alternados) {
+                            alternados - sector
                         } else {
-                            expandedSectors + sector
+                            alternados + sector
                         }
                     },
                     shape = RoundedCornerShape(14.dp),
@@ -1259,7 +1321,7 @@ private fun TasksScreen(store: PopStore) {
                     }
                 }
             }
-            if (sector in expandedSectors) {
+            if (expanded) {
                 items(sectorTasks, key = { it.id }) { task ->
                     AnimatedVisibility(
                         visible = removingId != task.id,
@@ -1385,9 +1447,45 @@ private fun TaskDetailsDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // Isto dizia "Responsável" e mostrava o ALVO: numa tarefa de setor saia
+                // "Responsável: Comercial", que e um setor e nao uma pessoa. Sao dois campos
+                // distintos no servidor (`target` e `responsibleIds`), e a partir do build 12 os
+                // dois chegam ate aqui.
                 if (task.assignment.label != "Sem responsável") {
                     Text(
-                        "Responsável: ${task.assignment.label}",
+                        if (task.assignment.kind == AssignmentKind.Person) {
+                            "Responsável: ${task.assignment.label}"
+                        } else {
+                            "Em: ${task.assignment.label}"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (task.assignment.kind != AssignmentKind.Person) {
+                    val daLista = task.assignees.orEmpty().filter { it.isNotBlank() }
+                    val responsaveis = if (daLista.isNotEmpty()) {
+                        daLista
+                    } else if (task.assignee.isNotBlank()) {
+                        listOf(task.assignee)
+                    } else {
+                        emptyList()
+                    }
+                    if (responsaveis.isNotEmpty()) {
+                        Text(
+                            "Responsável: ${responsaveis.joinToString(", ")}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (task.reminder.isNotBlank() && task.reminder != "Sem lembrete") {
+                    Text(
+                        "Lembrete: ${task.reminder}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (task.duration.isNotBlank() && task.duration != "Sem duração") {
+                    Text(
+                        "Duração: ${task.duration}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1619,6 +1717,28 @@ private fun TaskRow(
                             tint = dateTint,
                             modifier = Modifier.size(13.dp),
                         )
+                        // Qual ocorrencia da serie -- e o que faz duas linhas com o MESMO titulo
+                        // pararem de parecer tarefa duplicada.
+                        //
+                        // No servidor cada ocorrencia e uma linha propria (cloneOccurrence, ligadas
+                        // por recurrenceParentId), e o materializeRecurringTasks cria as que
+                        // faltam caminhando ate hoje -- em toda leitura E em toda escrita. Entao a
+                        // ocorrencia nova aparece de repente, colada a uma acao sem relacao
+                        // nenhuma, e a lista mostrava dois cartoes iguais distinguidos so por
+                        // "Ontem"/"Hoje" em corpo 11. Foi lido como "a tarefa que eu concluí
+                        // voltou", em 01/09.
+                        //
+                        // O numero ja vinha no cofre da recorrencia desde o build 8; so nunca
+                        // tinha sido mostrado.
+                        if (task.recurrenceOccurrence > 1) {
+                            Spacer(Modifier.width(3.dp))
+                            Text(
+                                "${task.recurrenceOccurrence}ª",
+                                color = dateTint,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 }
             }

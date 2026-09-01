@@ -147,6 +147,23 @@ data class PopTask(
     val recurrenceEndMode: String = "Nunca",
     val recurrenceEndValue: String = "",
     val recurrenceOccurrence: Int = 1,
+
+    // Segundo cofre, mesma ideia do de cima e pelo mesmo motivo: o PUT reescreve sem condicao, e o
+    // que o iPhone nao carregar volta como default do construtor e apaga o que estava la -- para o
+    // Android e para o painel tambem.
+    //
+    // A diferenca em relacao a recorrencia e que estes CINCO CAMPOS JA EXISTIAM no ApiTask. Nunca
+    // faltaram no fio: faltavam aqui. O toApiTask() os reconstruia do zero a cada sincronizacao,
+    // entao o app vinha mandando "Sem lembrete", "" e "Sem duracao" por cima do que o servidor
+    // guardava, sem nunca ter lido o valor real.
+    //
+    // O iPhone nao interpreta nenhum deles. So carrega e devolve.
+    val assignee: String = "",
+    val assignees: List<String>? = null,
+    val assignedBy: String = "",
+    val reminder: String = "Sem lembrete",
+    val attachmentName: String = "",
+    val duration: String = "Sem duração",
 )
 
 @Serializable
@@ -268,6 +285,13 @@ data class ApiTask(
     val completed: Boolean = false,
     val description: String = "",
     val assignee: String = "",
+    // NULO de proposito, e nunca lista vazia. O servidor faz
+    // `Array.isArray(item.assignees) ? item.assignees : [item.assignee]`, e `Array.isArray([])` e
+    // `true` -- mandar `[]` entraria no primeiro ramo com zero nomes e gravaria
+    // `responsibleIds = []`, apagando os responsaveis de toda tarefa sincronizada. Com nulo e
+    // `explicitNulls = false` a chave sai do JSON, o `.optional()` do zod aceita a ausencia, e o
+    // servidor cai no ramo de tras, que e o comportamento que ja existia.
+    val assignees: List<String>? = null,
     val assignedBy: String = "",
     val createdBy: String = "",
     val recurrence: String = "Não repetir",

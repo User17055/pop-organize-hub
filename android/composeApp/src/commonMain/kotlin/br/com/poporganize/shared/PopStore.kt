@@ -287,9 +287,34 @@ class PopStore(private val platform: PopPlatformServices) {
         platform.playActionSound()
     }
 
+    /**
+     * Reatribuir mexe em ONDE a tarefa mora, e so mexe em QUEM responde quando o novo destino e
+     * uma pessoa.
+     *
+     * O servidor guarda os dois separados -- `task.target` e `task.responsibleIds` -- e e por isso
+     * que uma tarefa pode viver no setor Comercial tendo a Ana como responsavel. Mover para um
+     * setor, um grupo ou a empresa **preserva** os responsaveis: mudar de lugar nao e motivo para
+     * apagar quem estava encarregado, e o app nao deve destruir o que nao sabe exibir.
+     *
+     * Mover para uma pessoa e o unico caso em que a resposta e obvia: quem responde passa a ser
+     * ela. O nome vai nos dois campos porque o `assignees` tem precedencia no servidor -- deixar o
+     * antigo ali faria a lista antiga vencer o alvo novo.
+     */
     fun moveTask(taskId: String, assignment: AssignmentTarget) {
         update {
-            copy(tasks = tasks.map { if (it.id == taskId) it.copy(assignment = assignment) else it })
+            copy(
+                tasks = tasks.map { task ->
+                    when {
+                        task.id != taskId -> task
+                        assignment.kind == AssignmentKind.Person -> task.copy(
+                            assignment = assignment,
+                            assignee = assignment.label,
+                            assignees = listOf(assignment.label),
+                        )
+                        else -> task.copy(assignment = assignment)
+                    }
+                },
+            )
         }
         platform.playActionSound()
     }
@@ -679,6 +704,12 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     recurrenceEndMode = recurrenceEndMode,
     recurrenceEndValue = recurrenceEndValue,
     recurrenceOccurrence = recurrenceOccurrence,
+    assignee = assignee,
+    assignees = assignees,
+    assignedBy = assignedBy,
+    reminder = reminder,
+    attachmentName = attachmentName,
+    duration = duration,
 )
 
 private fun PopTask.toApiTask() = ApiTask(
@@ -691,7 +722,24 @@ private fun PopTask.toApiTask() = ApiTask(
     dueDate = dueDate,
     completed = completed,
     description = description,
-    assignee = assignment.label,
+    // O `assignee` do servidor e o NOME DE UMA PESSOA -- ele resolve com
+    // `employees.find(name === assignee || email === assignee)`. Ate aqui o app mandava
+    // `assignment.label`, que numa tarefa de setor e o nome do SETOR: o servidor procurava um
+    // funcionario chamado "Comercial", nao achava, e gravava `responsibleIds = []`. Concluir uma
+    // tarefa qualquer no iPhone tirava Ana e Bruno de todas as tarefas de setor do espaco.
+    //
+    // Agora vai o valor cru que veio do servidor. O `ifBlank` cobre o unico caso em que nao ha
+    // valor cru: tarefa criada aqui. Se o alvo dela for uma pessoa, o label E o nome dela e o
+    // servidor resolve; para setor, grupo ou empresa vai vazio, que o `mobileResponsibleId` trata
+    // como "sem responsavel" em vez de inventar um.
+    assignee = assignee.ifBlank {
+        if (assignment.kind == AssignmentKind.Person) assignment.label else ""
+    },
+    assignees = assignees,
+    assignedBy = assignedBy,
+    reminder = reminder,
+    attachmentName = attachmentName,
+    duration = duration,
     createdBy = createdBy,
     recurrence = wireRule(),
     dueTime = dueTime,

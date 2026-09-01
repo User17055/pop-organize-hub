@@ -13,6 +13,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,10 +25,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -85,9 +89,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -630,8 +631,22 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
         }
     }
 
+    // A area segura de BAIXO nao entra aqui de proposito -- quem cuida dela e a barra de abas.
+    //
+    // Com `safeDrawing` inteiro, o Scaffold empurrava tambem a barra de abas para dentro da area
+    // segura: a barra terminava ACIMA do indicador de home, e a faixa que sobrava embaixo mostrava
+    // a cor de fundo do Scaffold (`background`) enquanto a barra usa `surface`. Como as duas cores
+    // diferem nos dois temas, sobrava uma tira morta visivel -- escura no tema escuro, cinza-azulada
+    // no claro. Apontado em aparelho em 27/08.
+    //
+    // `safeDrawing` inclui o teclado (ime), entao NAO somar `imePadding()` junto: a barra de abas
+    // ja sobe sozinha quando o teclado abre, e as duas coisas juntas dobrariam o deslocamento.
     Scaffold(
-        modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+            ),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             if (tab == MainTab.More && morePage != MorePage.Menu) {
@@ -654,31 +669,82 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
             // reconhecivel de app Android que existe -- nenhum app de iPhone marca a aba assim.
             // Trocado por cor: item ativo em azul da marca, inativo apagado. Mesma informacao, sem
             // o sotaque errado.
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
+            // 49dp e a altura da barra de abas do iPhone. O padrao do Material 3 e 80dp, que e
+            // medida de Android -- e como a area segura entra POR BAIXO desse valor, a barra
+            // passou a ocupar ~114pt e a comecar alto demais na tela. Antes o defeito nao aparecia
+            // porque os 34pt de area segura ficavam pintados com a cor de FUNDO: era a faixa morta.
+            // Trocar uma coisa pela outra nao bastava; era preciso encolher o conteudo tambem.
+            //
+            // A area segura e lida e somada explicitamente porque a altura fixa do Modifier vale
+            // para a barra INTEIRA: sem somar, o recuo do indicador de home comeria o espaco dos
+            // icones em vez de se acrescentar a ele.
+            val insetsInferior = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
+            val areaSegura = with(LocalDensity.current) { insetsInferior.getBottom(this).toDp() }
+            // A barra e montada a mao em vez de usar NavigationBar/NavigationBarItem do Material 3.
+            //
+            // O motivo: o NavigationBar nasce com 80.dp e o NavigationBarItem faz a propria conta de
+            // posicionamento em cima dessa altura. Forcar 49.dp -- que e o padrao do iPhone -- nao
+            // reposiciona nada, so espreme: no build 9 o icone ficou colado na borda de cima e o
+            // rotulo colado na de baixo, sem respiro nenhum. Visto em aparelho pelo Guilherme e
+            // confirmado na previa em 31/08.
+            //
+            // Uma Row com `Arrangement.Center` no eixo vertical resolve porque a altura passa a ser
+            // premissa, e nao restricao brigando com a conta interna do Material.
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 0.dp,
             ) {
-                MainTab.entries.forEach { item ->
-                    val selected = tab == item
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = { tab = item; if (item != MainTab.More) morePage = MorePage.Menu },
-                        icon = { Icon(item.icon, item.label, modifier = Modifier.size(24.dp)) },
-                        label = {
+                Row(
+                    // O padding da area segura vai AQUI, dentro da Surface: assim a barra pinta a
+                    // propria cor ate a borda inferior, cobrindo a faixa atras do indicador de
+                    // home, enquanto o conteudo fica nos 49.dp de cima. Como `safeDrawing` inclui o
+                    // teclado, e tambem isto que faz a barra subir quando o teclado abre.
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(insetsInferior)
+                        .height(49.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    MainTab.entries.forEach { item ->
+                        val selected = tab == item
+                        val cor = if (selected) {
+                            PopBlue
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                // `indication = null` tira a onda do Material. Barra de abas do
+                                // iPhone nao tem esse efeito: o item so troca de cor.
+                                //
+                                // Com a onda ligada, o toque desenhava um retangulo do tamanho da
+                                // celula inteira, e era isso que denunciava a barra montada a mao
+                                // -- o Guilherme descreveu como "da pra ver que foi feito uma
+                                // gambiarra, sao 2 elementos distintos", porque o retangulo revela
+                                // que o icone e o rotulo estao dentro de uma area clicavel maior
+                                // em vez de formarem uma peca so.
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) {
+                                    tab = item
+                                    if (item != MainTab.More) morePage = MorePage.Menu
+                                },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(item.icon, item.label, tint = cor, modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 item.label,
                                 fontSize = 11.sp,
+                                color = cor,
                                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                             )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = PopBlue,
-                            selectedTextColor = PopBlue,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            indicatorColor = Color.Transparent,
-                        ),
-                    )
+                        }
+                    }
                 }
             }
         },
@@ -858,31 +924,34 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
     val userName = store.state.currentUser?.firstName ?: "você"
     val shown = 4
 
-    // "Para hoje" precisa contar o que e de hoje. Contava tudo que estivesse pendente no espaco:
-    // com 8 pendentes e 4 vencendo hoje, o maior texto da tela anunciava "8 tarefas para hoje".
-    // Atrasada entra na conta porque atrasada tambem e para hoje.
+    // "Hoje" e "atrasada" sao contas SEPARADAS, e a separacao custou caro para ser aprendida.
     //
-    // O filtro era `offset <= 0`, sem piso, e isso pegava TODA tarefa datada de hoje ou de
-    // qualquer dia passado, concluida ou nao. `pending` saia certo, mas `completed` e `total`
-    // viravam o acumulado de vida inteira, e o anel so subia. Com tres semanas de uso -- 30
-    // tarefas concluidas no periodo e 3 abertas hoje -- a tela mostrava "3 tarefas para hoje" ao
-    // lado de um anel marcando 90%, sem a pessoa ter feito nada hoje. Em dois meses ele travaria
-    // perto de 97% e deixaria de significar coisa alguma.
+    // Primeiro erro (corrigido em 26/08): o filtro era `offset <= 0`, sem piso, e pegava TODA
+    // tarefa de hoje ou de qualquer dia passado, concluida ou nao. `completed` e `total` viravam o
+    // acumulado de vida inteira e o anel so subia -- em dois meses ele travaria perto de 97% e
+    // deixaria de significar coisa alguma.
     //
-    // Concluida de hoje entra (e o numerador do anel); atrasada so entra enquanto estiver aberta,
-    // porque atrasada ja concluida e trabalho de outro dia e nao pertence ao progresso deste.
-    val agenda = remember(tasks, today) {
+    // Segundo erro (este, corrigido em 27/08): o conserto anterior juntou hoje + atrasadas em
+    // aberto numa lista so, com o argumento de que "atrasada tambem e para hoje". Defensavel no
+    // papel, desmentido pelo primeiro contato com dado real. No iPhone, na SAO FRANCISCO, o cartao
+    // anunciou **"349 tarefas para hoje"** com o anel em **0%**: eram 348 atrasadas de uma
+    // importacao de planilha e UMA tarefa vencendo no dia. O maior texto da tela virou um numero
+    // sem uso, e o anel, um enfeite travado em zero.
+    //
+    // Agora o titulo e o anel medem o DIA; atrasada tem linha propria e fica fora do denominador.
+    // Concluida de hoje continua entrando -- ela e o numerador do anel.
+    val todayTasks = remember(tasks, today) {
         tasks.filter { task ->
-            val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) }
-            offset == 0L || (offset != null && offset < 0L && !task.completed)
+            parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } == 0L
         }
     }
-    val pendingToday = agenda.count { !it.completed }
-    val doneToday = agenda.size - pendingToday
-    val overdue = remember(agenda, today) {
-        agenda.count { task ->
-            val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } ?: 0L
-            !task.completed && offset < 0L
+    val pendingToday = todayTasks.count { !it.completed }
+    val doneToday = todayTasks.size - pendingToday
+    // Atrasada ja concluida nao conta: e trabalho de outro dia, resolvido.
+    val overdue = remember(tasks, today) {
+        tasks.count { task ->
+            val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) }
+            !task.completed && offset != null && offset < 0L
         }
     }
     // A lista saia na ordem de armazenamento: as quatro primeiras eram as quatro primeiras a
@@ -901,7 +970,7 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
                 userName = userName,
                 pending = pendingToday,
                 completed = doneToday,
-                total = agenda.size,
+                total = todayTasks.size,
                 overdue = overdue,
                 hasFuture = upcoming.isNotEmpty(),
             )
@@ -958,10 +1027,16 @@ private fun TodayHeroCard(
     hasFuture: Boolean,
 ) {
     val progress = if (total == 0) 0f else completed.toFloat() / total
+    // `total` conta so o que vence hoje. Como atrasada saiu dessa conta, os dois casos de "nao ha
+    // nada" precisam olhar tambem para `overdue`: dizer "Nada para hoje" ou "Tudo em dia" com a
+    // linha logo abaixo anunciando 348 fora do prazo seria o cartao se contradizendo em duas
+    // linhas seguidas -- que e exatamente o defeito que este conserto veio corrigir.
     val headline = when {
-        total == 0 && !hasFuture -> "Nada na agenda"
-        total == 0 -> "Nada para hoje"
-        pending == 0 -> "Tudo em dia"
+        total == 0 && overdue == 0 && !hasFuture -> "Nada na agenda"
+        total == 0 && overdue == 0 -> "Nada para hoje"
+        total == 0 -> "Nada vence hoje"
+        pending == 0 && overdue == 0 -> "Tudo em dia"
+        pending == 0 -> "Hoje está em dia"
         pending == 1 -> "1 tarefa para hoje"
         else -> "$pending tarefas para hoje"
     }
@@ -1218,18 +1293,8 @@ private fun TasksScreen(store: PopStore) {
         TaskDeleteDialog(
             task = task,
             onDismiss = { pendingDeleteTask = null },
-            onDeleteOccurrence = {
-                deleteWithAnimation(task) { store.deleteRecurringOccurrence(task.id) }
-            },
-            onDeleteAll = {
-                deleteWithAnimation(task) {
-                    if (task.recurrence == RecurrenceKind.None) {
-                        store.deleteTask(task.id)
-                    } else {
-                        store.deleteTaskSeries(task.id)
-                    }
-                }
-            },
+            // So chega aqui tarefa NAO recorrente: o dialogo nao oferece exclusao para serie.
+            onDeleteAll = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
         )
     }
 }
@@ -1245,11 +1310,17 @@ private fun TasksScreen(store: PopStore) {
  */
 @Composable
 private fun rememberMoveTargets(store: PopStore): List<AssignmentTarget> {
-    val company = store.selectedCompany
+    // `selectedCompany` significa "a ULTIMA empresa escolhida", nao "estamos numa empresa": ele
+    // continua apontando para ela dentro do Meu Espaco. Sem esta guarda, arrastar uma tarefa
+    // pessoal oferecia os funcionarios e os setores da empresa, e reatribuir gravava o id de uma
+    // pessoa de OUTRO espaco dentro da carga do espaco pessoal. Visto em aparelho em 27/08.
+    val company = store.selectedCompany.takeIf { store.state.workspace == WorkspaceKind.Company }
     // Reatribuir exige a permissao tasks.assign, resolvida pelo servidor.
     val canAssign = store.permissions.canAssignTasks
     return remember(company, canAssign) {
-        if (!canAssign) {
+        // Sem empresa nao ha para quem reatribuir, e lista com so "Sem responsavel" seria um gesto
+        // que nao leva a lugar nenhum. Lista vazia desliga o arraste inteiro (ver `podeReatribuir`).
+        if (!canAssign || company == null) {
             emptyList()
         } else {
             buildList {
@@ -1378,17 +1449,17 @@ private fun TaskDetailsDialog(
 }
 
 /**
- * Confirmacao de exclusao. Numa tarefa recorrente oferece excluir so aquela data ou a serie
- * inteira; numa tarefa comum, so confirma.
+ * Confirmacao de exclusao. Numa tarefa comum, confirma e exclui. Numa tarefa RECORRENTE nao oferece
+ * exclusao nenhuma: explica que o aplicativo ainda nao consegue e manda usar o painel. O porque
+ * esta no comentario do `confirmButton`, abaixo.
  *
- * Recebe as duas acoes prontas em vez do store porque quem chama e que sabe animar a saida da
- * linha antes de a tarefa sumir de fato.
+ * Recebe a acao pronta em vez do store porque quem chama e que sabe animar a saida da linha antes
+ * de a tarefa sumir de fato.
  */
 @Composable
 private fun TaskDeleteDialog(
     task: PopTask,
     onDismiss: () -> Unit,
-    onDeleteOccurrence: () -> Unit,
     onDeleteAll: () -> Unit,
 ) {
     val isRecurring = task.recurrence != RecurrenceKind.None
@@ -1396,34 +1467,67 @@ private fun TaskDeleteDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                if (isRecurring) "Excluir atividade recorrente" else "Excluir atividade",
+                if (isRecurring) "Atividade recorrente" else "Excluir atividade",
                 fontWeight = FontWeight.ExtraBold,
             )
         },
         text = {
             Text(
                 if (isRecurring) {
-                    "Deseja excluir somente esta data ou toda a recorrência?"
+                    "Excluir atividades que se repetem ainda não funciona pelo aplicativo — nem " +
+                        "uma data só, nem a série inteira. Use o painel web."
                 } else {
                     "Confirma a exclusão de “${task.title}”?"
                 },
             )
         },
+        // As acoes vao juntas no confirmButton, e o dismissButton fica de fora.
+        //
+        // O AlertDialog do Material 3 dispoe dismissButton e confirmButton lado a lado, na mesma
+        // linha. Com o confirmButton sendo uma Column de dois botoes, a linha alinhava o "Cancelar"
+        // pelo centro vertical da coluna -- e ele aterrissava POR CIMA do botao vermelho. Nao era
+        // margem apertada: era sobreposicao, com o texto de um lendo em cima do outro. Visto em
+        // aparelho em 27/08, no build 7.
+        //
+        // TAREFA RECORRENTE NAO OFERECE EXCLUSAO, e isto nao e escolha de produto -- o aplicativo
+        // nao consegue. Ate 31/08/2026 havia dois botoes aqui, "Somente esta data" e "Toda a
+        // recorrencia", e NENHUM dos dois funcionava:
+        //
+        // 1. O servidor RECRIA a ocorrencia apagada. `materializeRecurringTasks`
+        //    (src/lib/recurrence.server.ts) caminha da data do modelo ate hoje e cria toda data que
+        //    nao esteja entre as existentes nem em `recurrenceExcludedDates`. Esse campo nao existe
+        //    no contrato movel, entao nao ha como dizer "pule esta data": apagar de verdade, por
+        //    `pendingDeletedServerIds`, seria desfeito na chamada seguinte.
+        // 2. Nao ha id de serie deste lado. O servidor tem (`recurrenceParentId`) e nao envia, e o
+        //    `toPopTask` nao preenche `recurrenceSeriesId` -- toda tarefa vinda do servidor tem
+        //    null ali. "Toda a recorrencia" casava exatamente UMA tarefa e parecia ter acertado.
+        // 3. Pior: "Somente esta data" avancava a `dueDate` localmente, e como todo `update`
+        //    reenvia a lista visivel inteira, o servidor gravava essa data -- o PUT faz
+        //    `existing.dueDate = item.dueDate`, ADOTA o que o aparelho manda. A serie saia de fase
+        //    de forma PERMANENTE, tambem para o Android e para o painel.
+        //
+        // Religar depende de o servidor expor dois campos no `MobileTask`: `recurrenceSeriesId`
+        // (que seria `task.recurrenceParentId ?? task.id`, como o proprio recurrence.server.ts ja
+        // calcula) e `recurrenceExcludedDates`. Sem risco de ordem entre as pontas: o
+        // `mobileTaskSchema` e um `z.object` sem `.strict()`, entao campo desconhecido e
+        // descartado, nao recusado. Ate la, dizer a verdade custa menos que estragar dado.
         confirmButton = {
-            Column(horizontalAlignment = Alignment.End) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 if (isRecurring) {
-                    TextButton(onClick = onDeleteOccurrence) { Text("Somente esta data") }
-                }
-                Button(
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    onClick = onDeleteAll,
-                ) {
-                    Text(if (isRecurring) "Toda a recorrência" else "Excluir")
+                    TextButton(onClick = onDismiss) { Text("Entendi") }
+                } else {
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        onClick = onDeleteAll,
+                    ) {
+                        Text("Excluir")
+                    }
+                    TextButton(onClick = onDismiss) { Text("Cancelar") }
                 }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
         },
     )
 }
@@ -2109,18 +2213,8 @@ private fun CalendarScreen(store: PopStore) {
         TaskDeleteDialog(
             task = task,
             onDismiss = { pendingDeleteTask = null },
-            onDeleteOccurrence = {
-                deleteWithAnimation(task) { store.deleteRecurringOccurrence(task.id) }
-            },
-            onDeleteAll = {
-                deleteWithAnimation(task) {
-                    if (task.recurrence == RecurrenceKind.None) {
-                        store.deleteTask(task.id)
-                    } else {
-                        store.deleteTaskSeries(task.id)
-                    }
-                }
-            },
+            // So chega aqui tarefa NAO recorrente: o dialogo nao oferece exclusao para serie.
+            onDeleteAll = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
         )
     }
 }
@@ -2674,7 +2768,15 @@ private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
         item {
             OutlinedButton(onClick = store::signOut, modifier = Modifier.fillMaxWidth()) { Text("Sair da conta") }
         }
-        item { Text(store.message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+        // Havia aqui uma linha permanente com `store.message` -- o ultimo retorno de servidor, cru.
+        // Em 27/08 ela estava exibindo **"Lista de tarefas invalida."** logo abaixo de "Sair da
+        // conta", parada, sem contexto: parecia defeito da tela de Configuracoes quando na verdade
+        // era a sincronizacao de tarefas sendo recusada por um schema do servidor.
+        //
+        // Retirada, e nada se perde: o mesmo `store.message` ja aparece no snackbar do Scaffold
+        // (ver o LaunchedEffect la em cima), que e passageiro e aparece na hora do evento -- que e
+        // como recado de servidor deve se comportar. Mensagem de estado permanente pede um estado
+        // permanente atras dela, e nao existe um.
     }
 
     if (showDeleteConfirmation) {
@@ -2724,7 +2826,11 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     var assignment by remember { mutableStateOf(AssignmentTarget()) }
     var checklistText by remember { mutableStateOf("") }
     var recurrence by remember { mutableStateOf(RecurrenceKind.None) }
-    val company = store.selectedCompany
+    // Mesma armadilha do rememberMoveTargets: `selectedCompany` sobrevive a troca para o Meu
+    // Espaco. O dialogo "Nova tarefa" abria no espaco pessoal com "Atribuir para" listando as
+    // pessoas e os setores da SAO FRANCISCO -- e criar assim mandaria o id de alguem de outro
+    // espaco na carga. Encontrado em aparelho em 27/08.
+    val company = store.selectedCompany.takeIf { store.state.workspace == WorkspaceKind.Company }
     val assignmentOptions = when (assignmentKind) {
         AssignmentKind.None -> emptyList()
         AssignmentKind.Person -> company?.members.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }

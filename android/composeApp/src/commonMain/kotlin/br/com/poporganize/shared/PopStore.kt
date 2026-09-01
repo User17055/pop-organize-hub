@@ -4,10 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.datetime.Clock
-import kotlinx.datetime.DatePeriod
-import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -241,6 +238,21 @@ class PopStore(private val platform: PopPlatformServices) {
     }
 
     fun toggleTask(taskId: String) {
+        val alvo = state.tasks.firstOrNull { it.id == taskId } ?: return
+        // Concluir ocorrencia FUTURA de serie recorrente e recusado pelo servidor com 409
+        // (mobile-api.server.ts:1702) -- e a recusa derruba a carga INTEIRA, nao so o item errado.
+        // O toque errado na agenda custava a sincronizacao do aparelho inteiro ate alguem perceber.
+        //
+        // A fonte fiel seria o flag `canComplete`, que o servidor ja manda e o app ignora. Le-lo
+        // exige campo novo no ApiTask, e ISSO E PERIGOSO HOJE: o `json` daqui usa
+        // `encodeDefaults = true` -- que e obrigatorio, porque o schema movel tem 18 campos
+        // estritamente exigidos que no ApiTask tem valor padrao -- entao todo campo novo passa a
+        // ser enviado sempre, com o proprio padrao. Foi assim que `recurrenceTimes` travou tudo do
+        // lado do servidor. Quando o schema do servidor for afrouxado, trocar esta regra pelo flag.
+        if (!alvo.completed && ocorrenciaFuturaDeSerie(alvo)) {
+            message = "Esta ocorrência ainda não chegou. Ela pode ser concluída no dia dela."
+            return
+        }
         update { copy(tasks = tasks.map { if (it.id == taskId) it.copy(completed = !it.completed) else it }) }
         platform.playActionSound()
     }
@@ -282,31 +294,16 @@ class PopStore(private val platform: PopPlatformServices) {
         platform.playActionSound()
     }
 
-    fun deleteRecurringOccurrence(taskId: String) {
-        update {
-            copy(
-                tasks = tasks.mapNotNull { task ->
-                    if (task.id != taskId) return@mapNotNull task
-                    val nextDate = nextRecurrenceDate(
-                        task.dueDate,
-                        task.recurrence,
-                        task.recurrenceInterval,
-                    )
-                    if (nextDate == null) null else task.copy(dueDate = nextDate, completed = false)
-                },
-            )
-        }
-        platform.playActionSound()
-    }
-
-    fun deleteTaskSeries(taskId: String) {
-        val task = state.tasks.firstOrNull { it.id == taskId } ?: return
-        val seriesId = task.recurrenceSeriesId ?: task.id
-        update {
-            copy(tasks = tasks.filterNot { (it.recurrenceSeriesId ?: it.id) == seriesId })
-        }
-        platform.playActionSound()
-    }
+    // `deleteRecurringOccurrence`, `deleteTaskSeries` e `nextRecurrenceDate` foram REMOVIDAS aqui.
+    // Nenhuma das duas exclusoes de tarefa recorrente funcionava, e a primeira estragava dado. O
+    // motivo completo, com os trechos do servidor, esta no TaskDeleteDialog, em PopOrganizeApp.kt
+    // -- que e onde alguem vai procurar ao perguntar por que o aplicativo nao exclui recorrente.
+    //
+    // Em resumo: o servidor RECRIA a ocorrencia apagada (materializeRecurringTasks) e o app nao tem
+    // como marcar data excluida nem identificar a serie, porque o contrato movel nao traz esses
+    // dois campos. Enquanto isso, o PUT faz `existing.dueDate = item.dueDate` -- adota a data do
+    // aparelho --, entao avancar a data localmente tirava a serie de fase de forma permanente, e
+    // tambem para o Android e o painel.
 
     fun addMember(name: String, email: String, role: String) {
         val sectorId = selectedCompany?.sectors?.firstOrNull()?.id
@@ -488,6 +485,16 @@ class PopStore(private val platform: PopPlatformServices) {
                 permissions = workspace.toPermissions(),
             )
         }
+        // O logout pode ter acontecido enquanto esta resposta viajava. Sem esta guarda, o copy
+        // abaixo repovoa `companies` e `personalWorkspaceId` numa sessao ja encerrada, e o
+        // `persist()` da linha seguinte GRAVA EM DISCO os nomes das empresas, os e-mails dos
+        // funcionarios e os setores da conta anterior -- num aparelho que pode ser compartilhado.
+        //
+        // O conserto do signOut (fazer o logout esperar o syncJob) nao cobria isto: o
+        // refreshFromServer e disparado por outros quatro caminhos e NAO e rastreado pelo syncJob.
+        // Comparar o token e mais preciso do que testar se ele existe: pega tambem a troca de
+        // conta, em que a resposta da conta antiga chegaria com uma sessao nova ja aberta.
+        if (state.apiToken != token) return
         state = state.copy(
             personalWorkspaceId = personalId,
             personalPermissions = remote.workspaces.firstOrNull { it.kind == "personal" }
@@ -512,6 +519,11 @@ class PopStore(private val platform: PopPlatformServices) {
             return
         }
         val remote = runCatching { json.decodeFromString<ApiTasksResponse>(response.body) }.getOrNull() ?: return
+        // Mesma corrida do refreshFromServer, e pela mesma razao: aqui tambem se grava em disco
+        // depois de uma ida ao servidor. O que vaza sao os titulos e os responsaveis das tarefas da
+        // empresa. Consertar so um dos dois deixaria metade do buraco aberto -- que foi exatamente
+        // o erro cometido no signOut.
+        if (state.apiToken != token) return
         val kind = state.workspace
         val companyId = state.selectedCompanyId.takeIf { kind == WorkspaceKind.Company }
         val otherTasks = state.tasks.filterNot {
@@ -528,7 +540,7 @@ class PopStore(private val platform: PopPlatformServices) {
         val workspaceId = if (state.workspace == WorkspaceKind.Company) state.selectedCompanyId else state.personalWorkspaceId
         if (workspaceId.isNullOrBlank()) return
         val payload = ApiTasksPayload(
-            tasks = visibleTasks.map { it.toApiTask() },
+            tasks = cargaAceitavel(visibleTasks).map { it.toApiTask() },
             deletedServerIds = state.pendingDeletedServerIds,
         )
         val response = platform.apiRequest(
@@ -543,10 +555,74 @@ class PopStore(private val platform: PopPlatformServices) {
             persist()
             refreshTasks()
         } else {
-            message = runCatching { json.decodeFromString<ApiError>(response.body).error }.getOrNull()
-                ?: "Alterações salvas no aparelho; sincronização pendente."
+            // Nao ha mais tratamento especial de 409 aqui. O que impedia a carga de subir agora e
+            // filtrado ANTES de montar o payload, em `cargaAceitavel` -- ver o comentario dela.
+            //
+            // O build 8 tentava desfazer a conclusao ao receber 409. Nao funcionou em aparelho: o
+            // sync seguinte passava, o sucesso chamava refreshTasks(), o servidor devolvia a mesma
+            // conclusao e o ciclo recomecava. Prevenir na carga resolve; remediar na resposta, nao.
+            // A mensagem crua do servidor ("Lista de tarefas invalida.") nao diz nada a quem usa o
+            // app, mas foi o que permitiu diagnosticar o bloqueio do recurrenceTimes em 27/08.
+            // Emoldurar em vez de esconder: fica legivel para o usuario e util para quem investiga.
+            //
+            // Dois pontos em vez de parenteses, e o ponto final do servidor aparado. A primeira
+            // versao usava parenteses e produzia "...pelo servidor (Lista de tarefas invalida.)."
+            // -- ponto dentro do parentese seguido de outro ponto fora. Com a mensagem do modo
+            // visitante da previa, que ja tem parentese propria, virava parentese dentro de
+            // parentese. Visto na previa em 27/08, depois de a redacao ja ter ido para o build 8.
+            val detalhe = runCatching { json.decodeFromString<ApiError>(response.body).error }
+                .getOrNull()
+                ?.trim()
+                ?.trimEnd('.')
+            message = if (detalhe.isNullOrBlank()) {
+                "Alterações salvas no aparelho; sincronização pendente."
+            } else {
+                "Servidor recusou a sincronização: $detalhe. As alterações estão salvas no aparelho."
+            }
         }
     }
+
+    /**
+     * Verdadeiro para ocorrencia de serie recorrente cuja data ainda nao chegou.
+     *
+     * Espelha a guarda de `mobile-api.server.ts:1702`. Comparacao de String funciona porque as
+     * datas sao ISO `AAAA-MM-DD`, em que ordem lexicografica e ordem cronologica.
+     */
+    private fun ocorrenciaFuturaDeSerie(task: PopTask): Boolean =
+        task.recurrenceOccurrence > 1 && task.dueDate > todayIso()
+
+    /**
+     * O que NAO pode ir na carga, porque o servidor recusa a carga inteira por causa dele.
+     *
+     * Substitui a antiga `reverterConclusoesFuturas`, que desfazia a conclusao localmente ao
+     * receber 409. Aquela abordagem falhou em aparelho no dia 31/08 e o motivo importa:
+     *
+     *   1. sync falha com 409 -> reverte local -> a lista fica limpa
+     *   2. o sync seguinte passa -> e o sucesso chama `refreshTasks()`, que troca a lista pela do
+     *      servidor -- e o SERVIDOR ainda tem aquelas ocorrencias como concluidas
+     *   3. proximo sync falha com 409 de novo, e assim para sempre
+     *
+     * Ou seja: **o servidor guarda dado que a validacao dele mesmo recusa** (`mobile-api.server.ts`
+     * grava a conclusao por outro caminho e a recusa no PUT). Reverter local briga com isso
+     * eternamente -- e, pior, ALTERA dado do usuario para contornar bug de servidor.
+     *
+     * Omitir e melhor por tres razoes:
+     *
+     *   - nao destroi nada: `replaceMobileTasks` so apaga o que vem em `deletedServerIds`; tarefa
+     *     ausente da carga fica intocada;
+     *   - desbloqueia todo o resto -- era UM item impedindo qualquer tarefa nova de subir;
+     *   - a divergencia que sobra e estavel e honesta: o app mostra concluida porque o servidor diz
+     *     que esta, e o proximo `refreshTasks` confirma isso em vez de desfazer.
+     *
+     * Quando o servidor parar de aceitar essa conclusao por outro caminho, este filtro vira inocuo
+     * sozinho -- nao ha nada para desligar depois.
+     *
+     * O conserto de raiz e do servidor e tem duas partes: aplicar a mesma checagem nos caminhos que
+     * hoje gravam a conclusao sem passar por ela (painel e Android sao os candidatos), e limpar as
+     * ocorrencias ja gravadas assim.
+     */
+    private fun cargaAceitavel(tasks: List<PopTask>): List<PopTask> =
+        tasks.filterNot { it.completed && ocorrenciaFuturaDeSerie(it) }
 
     private fun persist() = platform.saveState(json.encodeToString(state))
 
@@ -671,48 +747,6 @@ internal fun todayIso(): String = Clock.System.now()
     .toLocalDateTime(TimeZone.currentSystemDefault())
     .date
     .toString()
-
-/**
- * Proxima data de uma serie, usada por "excluir somente esta ocorrencia".
- *
- * O `intervalo` existe porque a recorrencia do servidor nao e so o tipo: ela tem um "de quantos em
- * quantos". Esta funcao avancava sempre UM periodo e ignorava isso, entao numa serie de duas em
- * duas semanas ela caia na semana errada -- a ocorrencia intermediaria, que nao deveria existir.
- *
- * O intervalo e limitado a no minimo 1: o campo vem do servidor como texto livre e um 0 faria a
- * data nunca avancar, transformando a exclusao de uma ocorrencia num laco parado.
- *
- * ATENCAO -- esta conta continua errada, e o efeito NAO e passageiro.
- *
- * Uma versao anterior deste comentario afirmava que "a sincronizacao seguinte traz a data
- * recalculada pelo servidor". E falso: mobile-api.server.ts faz `existing.dueDate = item.dueDate`,
- * ou seja, ADOTA a data que o aparelho manda, grava e devolve igual. A data errada e persistida, e
- * vale para o Android e para o painel tambem.
- *
- * O intervalo sozinho tampouco resolve os casos que a recorrencia por dias da semana trouxe:
- *
- *   - semanal com dias marcados: numa serie de segunda e quarta, o servidor avanca para a quarta
- *     (advanceRecurringDate, em recurrence.server.ts) e esta funcao avanca sete dias;
- *   - diaria com dias excluidos: pode cair justamente num dia que a serie nao tem;
- *   - mensal com dia do mes: o servidor usa o dia gravado, esta funcao preserva o dia da data atual.
- *
- * O conserto de verdade nao cabe no cliente: ou o servidor passa a expor a proxima data da serie,
- * ou "excluir somente esta ocorrencia" vira exclusao de verdade, via pendingDeletedServerIds, em
- * vez de aritmetica de data aqui. Enquanto isso o intervalo pelo menos acerta o caso simples.
- */
-private fun nextRecurrenceDate(value: String, recurrence: RecurrenceKind, intervalo: Int): String? {
-    if (recurrence == RecurrenceKind.None) return null
-    val date = runCatching { LocalDate.parse(value) }.getOrNull() ?: return null
-    val passos = intervalo.coerceAtLeast(1)
-    val period = when (recurrence) {
-        RecurrenceKind.Daily -> DatePeriod(days = passos)
-        RecurrenceKind.Weekly -> DatePeriod(days = 7 * passos)
-        RecurrenceKind.Monthly -> DatePeriod(months = passos)
-        RecurrenceKind.Yearly -> DatePeriod(years = passos)
-        RecurrenceKind.None -> return null
-    }
-    return date.plus(period).toString()
-}
 
 internal fun greetingForCurrentTime(): String = when (
     Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).hour

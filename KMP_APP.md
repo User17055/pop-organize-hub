@@ -7,9 +7,20 @@ Android ---- Compose KMP ------/
 iOS -------- Compose KMP -----/
 ```
 
-O painel web continua em `src/`. Android e iOS compartilham interface, modelos e regras em `android/composeApp/src/commonMain`. Código que depende do aparelho fica em `androidMain`/`iosMain` ou no host Android.
+O painel web continua em `src/`.
 
-Funcionalidades presentes no Compose compartilhado:
+> **Correção de 2026-08-27.** Este documento dizia que "Android e iOS compartilham interface,
+> modelos e regras". **A interface não é compartilhada.** O que os dois aplicativos compartilham de
+> verdade é o **servidor** (`src/lib/mobile-api.server.ts`) e o contrato de dados.
+>
+> - `android/composeApp/src/commonMain` — a interface do **iPhone**, e só dele na prática.
+> - `android/app/src/main/java/.../ui/PopOrganizeApp.kt` — o app **Android** nativo do André, cerca
+>   de 10.900 linhas, escrito e mantido em separado.
+>
+> As divergências deliberadas entre os dois estão em `IOS_DIVERGENCIAS.md`. Código que depende do
+> aparelho continua em `androidMain`/`iosMain` ou no host Android.
+
+Funcionalidades presentes no módulo Compose (`commonMain`, que hoje serve o iPhone):
 
 - onboarding, conta Google/Apple/e-mail e modo sem conta;
 - Meu espaço e lista suspensa de empresas;

@@ -1728,8 +1728,7 @@ export async function replaceMobileTasks(
           [account.id]: item.reminder,
         };
         if (
-          completed !==
-          (existing.status === "completed" || existing.status === "waiting_review")
+          completed !== (existing.status === "completed" || existing.status === "waiting_review")
         ) {
           if (completed && permissions.canComplete)
             existing.status = existing.requiresReview ? "waiting_review" : "completed";

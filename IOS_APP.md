@@ -1,7 +1,24 @@
 # Pop Organize no iPhone com KMP
 
-O iPhone usa a mesma interface Compose e o mesmo estado Kotlin do Android. O Xcode mantém apenas
-`AppDelegate.swift`, que é o host mínimo obrigatório para abrir `ComposeApp.framework`.
+> **Correção de 2026-08-27 — este documento afirmava algo falso.** A frase original dizia que "o
+> iPhone usa a mesma interface Compose e o mesmo estado Kotlin do Android". **Não usa.** São dois
+> aplicativos separados:
+>
+> - o **iPhone** roda a interface de `android/composeApp/src/commonMain` (KMP + Compose
+>   Multiplatform);
+> - o **Android** roda `android/app/src/main/java/.../ui/PopOrganizeApp.kt`, um app nativo próprio
+>   do André, com cerca de 10.900 linhas.
+>
+> As duas interfaces são escritas e mantidas em separado, e divergem de propósito em vários pontos
+> — a lista está em `IOS_DIVERGENCIAS.md`. Elas compartilham o **servidor**
+> (`src/lib/mobile-api.server.ts`), não a tela.
+>
+> **Cuidado com o acoplamento de build:** `android/app/build.gradle:69` faz
+> `implementation project(':composeApp')`. Em execução o André não usa a interface compartilhada,
+> mas na compilação ele compila o módulo — erro no `commonMain` quebra o build dele também.
+
+O Xcode mantém apenas `AppDelegate.swift`, que é o host mínimo obrigatório para abrir
+`ComposeApp.framework`.
 
 ## Estrutura
 

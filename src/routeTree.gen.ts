@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as V2RouteImport } from './routes/v2'
 import { Route as TermosRouteImport } from './routes/termos'
 import { Route as TarefasRouteImport } from './routes/tarefas'
 import { Route as SetoresRouteImport } from './routes/setores'
@@ -35,6 +36,11 @@ import { Route as ApiMobileAuthAppleRouteImport } from './routes/api/mobile/auth
 import { Route as ApiMobileAuthEmailVerifyCodeRouteImport } from './routes/api/mobile/auth/email/verify-code'
 import { Route as ApiMobileAuthEmailRequestCodeRouteImport } from './routes/api/mobile/auth/email/request-code'
 
+const V2Route = V2RouteImport.update({
+  id: '/v2',
+  path: '/v2',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TermosRoute = TermosRouteImport.update({
   id: '/termos',
   path: '/termos',
@@ -178,6 +184,7 @@ export interface FileRoutesByFullPath {
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
   '/termos': typeof TermosRoute
+  '/v2': typeof V2Route
   '/api/health': typeof ApiHealthRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
@@ -205,6 +212,7 @@ export interface FileRoutesByTo {
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
   '/termos': typeof TermosRoute
+  '/v2': typeof V2Route
   '/api/health': typeof ApiHealthRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
@@ -233,6 +241,7 @@ export interface FileRoutesById {
   '/setores': typeof SetoresRoute
   '/tarefas': typeof TarefasRoute
   '/termos': typeof TermosRoute
+  '/v2': typeof V2Route
   '/api/health': typeof ApiHealthRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
@@ -262,6 +271,7 @@ export interface FileRouteTypes {
     | '/setores'
     | '/tarefas'
     | '/termos'
+    | '/v2'
     | '/api/health'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
@@ -289,6 +299,7 @@ export interface FileRouteTypes {
     | '/setores'
     | '/tarefas'
     | '/termos'
+    | '/v2'
     | '/api/health'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
@@ -316,6 +327,7 @@ export interface FileRouteTypes {
     | '/setores'
     | '/tarefas'
     | '/termos'
+    | '/v2'
     | '/api/health'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
@@ -344,6 +356,7 @@ export interface RootRouteChildren {
   SetoresRoute: typeof SetoresRoute
   TarefasRoute: typeof TarefasRoute
   TermosRoute: typeof TermosRoute
+  V2Route: typeof V2Route
   ApiHealthRoute: typeof ApiHealthRoute
   ApiMobileAccountRoute: typeof ApiMobileAccountRoute
   ApiMobileInvitationsRoute: typeof ApiMobileInvitationsRoute
@@ -359,6 +372,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/v2': {
+      id: '/v2'
+      path: '/v2'
+      fullPath: '/v2'
+      preLoaderRoute: typeof V2RouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/termos': {
       id: '/termos'
       path: '/termos'
@@ -552,6 +572,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetoresRoute: SetoresRoute,
   TarefasRoute: TarefasRoute,
   TermosRoute: TermosRoute,
+  V2Route: V2Route,
   ApiHealthRoute: ApiHealthRoute,
   ApiMobileAccountRoute: ApiMobileAccountRoute,
   ApiMobileInvitationsRoute: ApiMobileInvitationsRoute,

@@ -13,6 +13,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -715,7 +716,19 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .clickable {
+                                // `indication = null` tira a onda do Material. Barra de abas do
+                                // iPhone nao tem esse efeito: o item so troca de cor.
+                                //
+                                // Com a onda ligada, o toque desenhava um retangulo do tamanho da
+                                // celula inteira, e era isso que denunciava a barra montada a mao
+                                // -- o Guilherme descreveu como "da pra ver que foi feito uma
+                                // gambiarra, sao 2 elementos distintos", porque o retangulo revela
+                                // que o icone e o rotulo estao dentro de uma area clicavel maior
+                                // em vez de formarem uma peca so.
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) {
                                     tab = item
                                     if (item != MainTab.More) morePage = MorePage.Menu
                                 },
@@ -1493,8 +1506,11 @@ private fun TaskDeleteDialog(
         //    `existing.dueDate = item.dueDate`, ADOTA o que o aparelho manda. A serie saia de fase
         //    de forma PERMANENTE, tambem para o Android e para o painel.
         //
-        // Religar depende de o servidor expor `recurrenceSeriesId` e `recurrenceExcludedDates`. O
-        // pedido esta em PARA_ANDRE.md. Ate la, dizer a verdade custa menos que estragar dado.
+        // Religar depende de o servidor expor dois campos no `MobileTask`: `recurrenceSeriesId`
+        // (que seria `task.recurrenceParentId ?? task.id`, como o proprio recurrence.server.ts ja
+        // calcula) e `recurrenceExcludedDates`. Sem risco de ordem entre as pontas: o
+        // `mobileTaskSchema` e um `z.object` sem `.strict()`, entao campo desconhecido e
+        // descartado, nao recusado. Ate la, dizer a verdade custa menos que estragar dado.
         confirmButton = {
             Column(
                 horizontalAlignment = Alignment.End,

@@ -615,7 +615,11 @@ class PopStore(private val platform: PopPlatformServices) {
      *     que esta, e o proximo `refreshTasks` confirma isso em vez de desfazer.
      *
      * Quando o servidor parar de aceitar essa conclusao por outro caminho, este filtro vira inocuo
-     * sozinho -- nao ha nada para desligar depois. Anotado em PARA_ANDRE.md.
+     * sozinho -- nao ha nada para desligar depois.
+     *
+     * O conserto de raiz e do servidor e tem duas partes: aplicar a mesma checagem nos caminhos que
+     * hoje gravam a conclusao sem passar por ela (painel e Android sao os candidatos), e limpar as
+     * ocorrencias ja gravadas assim.
      */
     private fun cargaAceitavel(tasks: List<PopTask>): List<PopTask> =
         tasks.filterNot { it.completed && ocorrenciaFuturaDeSerie(it) }

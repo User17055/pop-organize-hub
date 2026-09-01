@@ -6,11 +6,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.uikit.LocalUIViewController
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.UIKitView
 import platform.AuthenticationServices.ASAuthorizationAppleIDButton
@@ -72,23 +70,39 @@ actual fun AppleSignInButton(
     // `UIKitInteropProperties` so tem `interactionMode` e `isNativeAccessibilityEnabled`, nada
     // sobre recorte; o holder rastreia apenas retangulos (`currentClippedRect`).
     //
-    // Conserto: pintar o fundo do proprio UIViewController com a cor da pagina, para o que aparece
-    // pelo buraco ser igual ao que esta em volta. Vale para qualquer interop do app, nao so este
-    // botao. `LocalUIViewController` vive em `androidx.compose.ui.uikit` e NAO e experimental --
-    // conferido no mesmo klib, antes de escrever a linha.
+    // TENTATIVA 4, e a diferenca dela para a 3 e DE QUEM E A VIEW que recebe a cor.
     //
-    // A cor e a da raiz do app (`Surface(color = colorScheme.background)`, PopOrganizeApp.kt:154),
-    // e a chave do LaunchedEffect acompanha a troca de tema.
+    // A tentativa 3 (build 10) pintou o fundo do proprio UIViewController, via
+    // LocalUIViewController, dentro de um LaunchedEffect. E ela FUNCIONOU -- por alguns segundos.
+    // O Guilherme relatou em 31/08: "ate funciona momentaneamente, mas se der alguns cliques na
+    // tela ou sair e voltar do app volta a ficar errado".
+    //
+    // Isso e a melhor evidencia que este defeito ja produziu: **funcionar por um instante prova
+    // que o diagnostico do buraco esta certo.** O que falha e a durabilidade -- a view raiz e do
+    // sistema, e o sistema a repinta (mudanca de trait, ciclo de vida, volta do segundo plano), e
+    // o LaunchedEffect so dispara de novo se a COR mudar, o que nao acontece nesses eventos.
+    //
+    // Agora a cor vai na view que e MINHA: o proprio botao, criado aqui no factory. Ninguem de
+    // fora a repinta. Aplicada nos dois lugares -- factory para o primeiro desenho, update para
+    // sobreviver a recomposicao e a troca de tema.
+    //
+    // Perfil de risco desta linha, de proposito: se o `cornerRadius` do botao for so um parametro
+    // de desenho, o `backgroundColor` preenche o retangulo inteiro e os cantos passam a ter a cor
+    // da pagina -- resolvido. Se ele mexer no `layer.cornerRadius`, o fundo sai recortado junto e
+    // esta linha nao faz nada. **Ou conserta, ou e inofensiva.** Nao ha caminho em que piore.
+    //
+    // Se ainda assim ficar quadrado, o proximo passo NAO e uma quinta tentativa aqui: e desenhar o
+    // botao em Compose. Mas isso reverte a decisao registrada no KDoc do `expect`
+    // (AppleSignInButton.kt) sobre a Review 4.8, e essa reversao e decisao do Guilherme, nao minha.
+    //
+    // A cor e a da raiz do app: `Surface(color = colorScheme.background)`, em PopOrganizeApp.kt.
     val fundoDaPagina = MaterialTheme.colorScheme.background
-    val controlador = LocalUIViewController.current
-    LaunchedEffect(fundoDaPagina) {
-        controlador.view.backgroundColor = UIColor(
-            red = fundoDaPagina.red.toDouble(),
-            green = fundoDaPagina.green.toDouble(),
-            blue = fundoDaPagina.blue.toDouble(),
-            alpha = 1.0,
-        )
-    }
+    val fundoUIKit = UIColor(
+        red = fundoDaPagina.red.toDouble(),
+        green = fundoDaPagina.green.toDouble(),
+        blue = fundoDaPagina.blue.toDouble(),
+        alpha = 1.0,
+    )
 
     Box(
         modifier.then(
@@ -116,11 +130,13 @@ actual fun AppleSignInButton(
             update = { botao ->
                 botao.cornerRadius = radius
                 botao.clipsToBounds = true
+                botao.backgroundColor = fundoUIKit
             },
             factory = {
                 ASAuthorizationAppleIDButton().apply {
                     userInteractionEnabled = false
                     clipsToBounds = true
+                    backgroundColor = fundoUIKit
                     // Propriedade do proprio botao, e nao `layer.cornerRadius`.
                     //
                     // Nao ha compilador Kotlin/Native nesta maquina, entao a escolha e por

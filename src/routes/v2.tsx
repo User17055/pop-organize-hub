@@ -9,6 +9,7 @@ import {
   createTask,
   deleteTask,
   logout,
+  switchWorkspace,
   updateTaskDetails,
   updateTaskStatus,
 } from "@/lib/api/pop-organize.functions";
@@ -45,6 +46,7 @@ type BridgeMessage = {
   id?: string;
   to?: string;
   projectId?: string;
+  companyId?: string;
   status?: OrbitaStatus;
   priority?: OrbitaPriority;
   task?: OrbitaTaskPayload;
@@ -156,6 +158,12 @@ function PopOrganizeV2() {
         await logout();
         queryClient.removeQueries({ queryKey: workspaceQueryKey });
         navigate({ to: "/login" });
+        return;
+      }
+      if (message.type === "workspace:switch" && message.companyId) {
+        setFrameReady(false);
+        await switchWorkspace({ data: { companyId: message.companyId } });
+        await refreshWorkspace();
         return;
       }
 

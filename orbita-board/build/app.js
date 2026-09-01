@@ -748,6 +748,21 @@ function openProjectForm() {
         });
     });
 }
+function openWorkspaceSwitcher() {
+    if (!popBridgeActive || !POP_WORKSPACES.length)
+        return;
+    const anchor = $(".topright .me").getBoundingClientRect();
+    const left = Math.max(12, Math.min(anchor.right - 280, window.innerWidth - 292));
+    openLayer(`<div class="scrim" style="background:transparent;backdrop-filter:none;display:block">` +
+        `<div class="pop" style="top:${anchor.bottom + 9}px;left:${left}px;width:280px" ` +
+        `role="dialog" aria-label="Trocar empresa"><h4>Trocar empresa</h4>` +
+        POP_WORKSPACES.map(workspace => `<button class="menu" data-workspace="${esc(workspace.id)}"` +
+            (workspace.id === POP_COMPANY_ID ? ' aria-current="true"' : "") + `>` +
+            `<b style="display:block;color:var(--tx)">${esc(workspace.name)}</b>` +
+            `<span style="display:block;margin-top:2px;font-size:11px;color:var(--tx3)">` +
+            `${workspace.kind === "personal" ? "Espaço pessoal" : esc(workspace.role)}` +
+            (workspace.id === POP_COMPANY_ID ? " · Atual" : "") + `</span></button>`).join("") + `</div></div>`);
+}
 /* ============================ popovers ============================ */
 function openFilters(anchor) {
     const b = (anchor ?? $("#filterBtn")).getBoundingClientRect();
@@ -880,6 +895,20 @@ document.addEventListener("click", e => {
     }
     if (at(".railbtn.out")) {
         popPost("logout");
+        return;
+    }
+    if (at(".topright .me")) {
+        openWorkspaceSwitcher();
+        return;
+    }
+    const workspace = at("[data-workspace]");
+    if (workspace) {
+        const companyId = workspace.dataset["workspace"];
+        if (companyId !== POP_COMPANY_ID) {
+            popPost("workspace:switch", { companyId });
+            toast("Trocando de empresa…");
+        }
+        closeLayer();
         return;
     }
     const del = at("[data-del]");
@@ -1994,6 +2023,8 @@ document.addEventListener("keydown", e => {
     }
 });
 let popBridgeActive = false;
+let POP_WORKSPACES = [];
+let POP_COMPANY_ID = "";
 function popPost(type, payload = {}) {
     if (!popBridgeActive || window.parent === window)
         return;
@@ -2023,6 +2054,8 @@ function hueFrom(value) {
 }
 function hydratePopWorkspace(data) {
     popBridgeActive = true;
+    POP_WORKSPACES = data.workspaces;
+    POP_COMPANY_ID = data.company.id;
     TODAY = new Date(`${data.today}T00:00:00`);
     ME = data.currentUser.id;
     SCHEDULE.splice(0, SCHEDULE.length);
@@ -2089,8 +2122,12 @@ function hydratePopWorkspace(data) {
     state.priorities.clear();
     const me = document.querySelector(".topright .me .av");
     if (me) {
-        me.textContent = initials(ME);
+        const photo = data.employees.find(employee => employee.id === ME)?.avatar;
+        me.textContent = photo ? "" : initials(ME);
         me.style.setProperty("--h", String(PEOPLE[ME]?.hue ?? 220));
+        me.style.backgroundImage = photo ? `url(${JSON.stringify(photo)})` : "";
+        me.style.backgroundSize = photo ? "cover" : "";
+        me.style.backgroundPosition = photo ? "center" : "";
         me.title = PEOPLE[ME]?.name ?? data.currentUser.name;
     }
     document.title = `Pop Organize — ${data.company.name}`;

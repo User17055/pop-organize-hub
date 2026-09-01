@@ -32,6 +32,6 @@ npm run typecheck
 npm run build
 
 sudo systemctl restart "$SERVICE_NAME"
-curl --fail --silent --show-error --retry 6 --retry-delay 2 \
+curl --fail --silent --show-error --retry 6 --retry-delay 2 --retry-connrefused \
   "http://127.0.0.1:${PORT:-3000}/api/health"
 echo

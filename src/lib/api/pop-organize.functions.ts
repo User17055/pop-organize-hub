@@ -28,12 +28,7 @@ import {
   type Task,
   type TargetType,
 } from "../domain";
-import {
-  grantsAdministrativePower,
-  hasPermission,
-  isAdminUser,
-  resolvePermissionSet,
-} from "../permission-groups";
+import { hasPermission, isAdminUser, resolvePermissionSet } from "../permission-groups";
 import { canViewTask, getTaskPermissions } from "../permissions";
 import { materializeRecurringTasks } from "../recurrence.server";
 
@@ -1155,6 +1150,7 @@ export const askPop = createServerFn({ method: "POST" })
           canCreateChecklist: isAdminUser({
             currentUser,
             employees: workspace.employees,
+            permissionGroups: workspace.permissionGroups,
           }),
         },
         messages: data.messages,
@@ -1250,6 +1246,7 @@ export const createTask = createServerFn({ method: "POST" })
         !isAdminUser({
           currentUser: db.employees.find((employee) => employee.id === currentUserId),
           employees: db.employees,
+          permissionGroups: db.permissionGroups,
         })
       ) {
         throw createHttpError("Somente administradores podem criar o checklist da tarefa.", 403);
@@ -1784,18 +1781,6 @@ export const createEmployee = createServerFn({ method: "POST" })
         "manage.employees",
         "Seu grupo de permissão não pode cadastrar funcionários.",
       );
-      // Convidar alguem com cargo ou grupo administrativo e conceder administracao sem passar pela
-      // edicao de funcionario -- por isso a mesma trava do updateEmployee vale aqui.
-      if (
-        grantsAdministrativePower({
-          role: data.role,
-          permissionGroupId: data.permissionGroupId,
-          permissionGroups: db.permissionGroups,
-        }) &&
-        db.company.ownerId !== currentUserId
-      ) {
-        throw createHttpError("Apenas o proprietário pode convidar outro administrador.", 403);
-      }
       if (!db.departments.some((department) => department.id === data.departmentId)) {
         throw createHttpError("Setor não encontrado.");
       }
@@ -1899,19 +1884,6 @@ export const updateEmployee = createServerFn({ method: "POST" })
         !db.permissionGroups.some((group) => group.id === data.permissionGroupId)
       ) {
         throw createHttpError("Grupo de permissão não encontrado.");
-      }
-      const grantsAdmin = grantsAdministrativePower({
-        role: data.role,
-        permissionGroupId: data.permissionGroupId,
-        permissionGroups: db.permissionGroups,
-      });
-      const alreadyAdmin = grantsAdministrativePower({
-        role: employee.role,
-        permissionGroupId: employee.permissionGroupId,
-        permissionGroups: db.permissionGroups,
-      });
-      if (grantsAdmin && !alreadyAdmin && db.company.ownerId !== currentUserId) {
-        throw createHttpError("Apenas o proprietário pode definir outro administrador.", 403);
       }
       // Auto-promocao e o caminho mais curto: quem tem "manage.employees.edit" abria a propria
       // ficha e se dava o grupo pg1. Editar a si mesmo continua permitido (a tela de funcionarios

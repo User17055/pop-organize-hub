@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { Download, MoreHorizontal, Settings, LogOut } from "lucide-react";
+import { Download, MoreHorizontal, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -25,8 +25,6 @@ export function BottomTabBar({
   userName,
   userRole,
   onOpenProfile,
-  onLogout,
-  showLogout = true,
   showInstall = false,
   onInstall,
   menuOpen,
@@ -38,8 +36,6 @@ export function BottomTabBar({
   userName: string;
   userRole: string;
   onOpenProfile: () => void;
-  onLogout: () => void;
-  showLogout?: boolean;
   showInstall?: boolean;
   onInstall?: () => void;
   menuOpen?: boolean;
@@ -194,19 +190,6 @@ export function BottomTabBar({
               </div>
               <Settings className="h-4 w-4 text-muted-foreground" />
             </button>
-            {showLogout && (
-              <button
-                type="button"
-                onClick={() => {
-                  setMoreOpen(false);
-                  onLogout();
-                }}
-                className="pressable mt-1 flex w-full items-center gap-3 rounded-2xl p-2 text-left text-destructive hover:bg-destructive/5"
-              >
-                <LogOut className="h-4 w-4" />
-                <span className="text-sm font-medium">Sair</span>
-              </button>
-            )}
           </div>
         </SheetContent>
       </Sheet>

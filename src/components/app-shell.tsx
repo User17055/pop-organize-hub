@@ -26,7 +26,7 @@ import {
   Plus,
   Check,
   DoorOpen,
-  ListTree,
+  Sparkles,
 } from "lucide-react";
 import {
   useEffect,
@@ -244,7 +244,11 @@ export function AppShell({
     employees: data?.employees ?? [],
     permissionGroups: data?.permissionGroups ?? [],
   });
-  const isAdmin = isAdminUser({ currentUser, employees: data?.employees ?? [] });
+  const isAdmin = isAdminUser({
+    currentUser,
+    employees: data?.employees ?? [],
+    permissionGroups: data?.permissionGroups ?? [],
+  });
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
   const visibleNav = nav.filter((item) => {
     if (data?.company.kind === "personal" && companyOnlyPaths.includes(item.to)) {
@@ -301,7 +305,7 @@ export function AppShell({
     document.documentElement.style.colorScheme = theme;
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute("content", isDark ? "#071727" : "#1687f8");
+      ?.setAttribute("content", isDark ? "#080808" : "#1687f8");
     try {
       localStorage.setItem(THEME_KEY, theme);
     } catch {
@@ -478,35 +482,41 @@ export function AppShell({
     mobile?: boolean;
   }) {
     const workspaceData = data!;
+    const activeWorkspace = workspaceData.workspaces.find(
+      (workspace) => workspace.id === workspaceData.company.id,
+    );
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
             className={cn(
-              "flex items-center rounded-xl text-left transition hover:bg-sidebar-accent focus:outline-none",
+              "flex items-center text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring/40",
               compact
-                ? "h-9 w-9 justify-center"
+                ? "h-10 w-10 justify-center rounded-xl hover:bg-sidebar-accent"
                 : mobile
-                  ? "h-9 max-w-[60vw] gap-1.5 px-2.5"
-                  : "w-full gap-2 px-3 py-2",
+                  ? "h-9 max-w-[60vw] gap-1.5 rounded-xl px-2.5 hover:bg-sidebar-accent"
+                  : "min-h-[56px] w-full gap-3 border-b border-sidebar-border/70 px-1 py-2.5 hover:bg-sidebar-accent/45",
             )}
             aria-label="Trocar espaço"
           >
-            <Building2 className="h-4 w-4 shrink-0 text-primary" />
+            <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary font-display font-black text-white shadow-sm">
+              <span className="text-sm leading-none">P</span>
+              <Sparkles className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full bg-white p-0.5 text-primary" />
+            </span>
             {!compact && (
               <>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-sidebar-foreground">
+                  <span className="block truncate text-[13px] font-bold leading-5 tracking-[0.01em] text-sidebar-foreground">
                     {workspaceData.company.name}
                   </span>
-                  {!mobile &&
-                    workspaceData.company.kind === "company" &&
-                    workspaceData.company.description && (
-                      <span className="block truncate text-[10px] text-sidebar-foreground/55">
-                        {workspaceData.company.description}
-                      </span>
-                    )}
+                  {!mobile && (
+                    <span className="block truncate text-[10px] font-medium text-sidebar-foreground/55">
+                      {workspaceData.company.kind === "personal"
+                        ? "Espaço pessoal"
+                        : `Empresa${activeWorkspace?.role ? ` · ${activeWorkspace.role}` : ""}`}
+                    </span>
+                  )}
                 </span>
                 <ChevronDown className="h-4 w-4 shrink-0 text-sidebar-foreground/45" />
               </>
@@ -612,7 +622,7 @@ export function AppShell({
       {/* Sidebar (desktop/tablet only) */}
       <aside
         className={cn(
-          "sidebar-shell native-sidebar sticky top-0 hidden h-screen flex-col border-r text-sidebar-foreground soft-transition transition-[width,background-color] duration-300 lg:flex",
+          "sidebar-shell native-sidebar sticky top-0 hidden h-screen shrink-0 flex-col border-r text-sidebar-foreground soft-transition transition-[width,background-color] duration-300 lg:flex",
           collapsed ? "w-[84px]" : "w-72",
         )}
       >
@@ -639,23 +649,8 @@ export function AppShell({
           </button>
         </div>
 
-        <div className={cn("pb-3", collapsed ? "px-3.5" : "px-5")}>
+        <div className={cn("pb-4", collapsed ? "px-3.5" : "px-5")}>
           <WorkspaceSwitcher compact={collapsed} />
-        </div>
-
-        <div className={cn("pb-2", collapsed ? "px-3.5" : "px-5")}>
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen(true)}
-            title={collapsed ? "Grupos e listas" : undefined}
-            className={cn(
-              "flex w-full items-center rounded-2xl border border-primary/15 bg-primary/[0.07] text-sm font-semibold text-primary transition hover:bg-primary/12",
-              collapsed ? "justify-center px-0 py-3" : "gap-3.5 px-4 py-2.5",
-            )}
-          >
-            <ListTree className="h-[18px] w-[18px] shrink-0" />
-            {!collapsed && <span className="truncate">Grupos e listas</span>}
-          </button>
         </div>
 
         <nav
@@ -871,6 +866,18 @@ export function AppShell({
               </div>
 
               {profileError && <div className="text-xs text-destructive">{profileError}</div>}
+
+              {data.accessMode === "team" && (
+                <button
+                  type="button"
+                  onClick={() => logoutMutation.mutate()}
+                  disabled={logoutMutation.isPending}
+                  className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-destructive/25 text-sm font-semibold text-destructive transition hover:bg-destructive/5 disabled:opacity-60"
+                >
+                  <LogOut className="h-4 w-4" />
+                  {logoutMutation.isPending ? "Saindo..." : "Sair da conta"}
+                </button>
+              )}
             </div>
 
             <DialogFooter className="mt-5">
@@ -983,7 +990,7 @@ export function AppShell({
         </DialogContent>
       </Dialog>
 
-      <main className="app-main-shell flex min-w-0 flex-1 flex-col">
+      <main className="app-main-shell flex w-full min-w-0 max-w-full flex-1 flex-col overflow-x-clip">
         {/* Mobile header */}
         <header className="mobile-fixed-header glass-header safe-top relative z-[70] shrink-0 lg:hidden">
           <div className="relative mx-auto w-full max-w-[1600px] px-3 py-2.5 sm:px-5 sm:py-3 md:px-6">
@@ -1039,7 +1046,7 @@ export function AppShell({
         </header>
 
         {/* Main content */}
-        <header className="glass-header safe-top sticky top-0 z-30 hidden lg:block">
+        <header className="desktop-app-header glass-header safe-top sticky top-0 z-30 hidden lg:block">
           <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-4 px-8 py-4 xl:px-12">
             <div className="app-page-heading min-w-0 flex-1">
               <h1 className="truncate font-display text-[22px] font-semibold leading-tight text-foreground xl:text-2xl">
@@ -1049,7 +1056,7 @@ export function AppShell({
                 <p className="mt-1 truncate text-sm text-muted-foreground">{subtitle}</p>
               )}
             </div>
-            <div className="hidden h-9 w-64 items-center gap-2 rounded-xl border border-border bg-card px-3 shadow-[var(--shadow-xs)] soft-transition transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 lg:flex">
+            <div className="hidden h-9 w-64 items-center gap-2 rounded-xl border border-border bg-card px-3 shadow-[var(--shadow-xs)] soft-transition transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 xl:flex">
               <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 placeholder="Buscar tarefas, pessoas..."
@@ -1063,7 +1070,7 @@ export function AppShell({
                 currentUserId={data?.currentUser.id}
               />
               {actions}
-              {data.accessMode === "personal" ? (
+              {data.accessMode === "personal" && (
                 <Link
                   to="/login"
                   className="hidden h-9 items-center gap-2 rounded-xl border border-border bg-card px-3 text-sm font-medium text-foreground/75 shadow-[var(--shadow-xs)] transition hover:text-primary lg:inline-flex"
@@ -1071,36 +1078,6 @@ export function AppShell({
                   <UserRound className="h-4 w-4" />
                   Entrar
                 </Link>
-              ) : (
-                <button
-                  type="button"
-                  onClick={openProfile}
-                  className="glass-icon-button hidden h-9 w-9 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-primary-foreground lg:flex"
-                  title="Abrir perfil"
-                  aria-label="Abrir perfil"
-                >
-                  {avatar ? (
-                    <img src={avatar} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <span
-                      className="flex h-full w-full items-center justify-center"
-                      style={{ background: getAvatarGradient(currentUser.id) }}
-                    >
-                      {initials}
-                    </span>
-                  )}
-                </button>
-              )}
-              {data.accessMode === "team" && (
-                <button
-                  type="button"
-                  onClick={() => logoutMutation.mutate()}
-                  disabled={logoutMutation.isPending}
-                  className="glass-icon-button hidden h-9 w-9 items-center justify-center rounded-xl text-foreground/70 lg:flex"
-                  title="Sair"
-                >
-                  <LogOut className="h-4 w-4" />
-                </button>
               )}
             </div>
           </div>
@@ -1131,8 +1108,6 @@ export function AppShell({
         userName={currentUser.name}
         userRole={currentUserRole}
         onOpenProfile={openProfile}
-        onLogout={() => logoutMutation.mutate()}
-        showLogout={data.accessMode === "team"}
         showInstall={!isStandalone}
         onInstall={() => void installWebApp()}
       />
@@ -1147,12 +1122,30 @@ export function AppShell({
 
 export function StatusBadge({ status }: { status: TaskStatus }) {
   const map = {
-    pending: { label: "Pendente", cls: "bg-slate-500/10 text-slate-600" },
-    in_progress: { label: "Em andamento", cls: "bg-primary/14 text-primary" },
-    waiting_review: { label: "Aguardando revisão", cls: "bg-warning/22 text-warning-foreground" },
-    reopened: { label: "Reaberta", cls: "bg-destructive/14 text-destructive" },
-    completed: { label: "Concluída", cls: "bg-success/18 text-success" },
-    canceled: { label: "Cancelada", cls: "bg-muted text-muted-foreground line-through" },
+    pending: {
+      label: "Pendente",
+      cls: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+    },
+    in_progress: {
+      label: "Em andamento",
+      cls: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+    },
+    waiting_review: {
+      label: "Aguardando revisão",
+      cls: "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300",
+    },
+    reopened: {
+      label: "Reaberta",
+      cls: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
+    },
+    completed: {
+      label: "Concluída",
+      cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+    },
+    canceled: {
+      label: "Cancelada",
+      cls: "bg-slate-100 text-slate-500 line-through dark:bg-slate-800 dark:text-slate-400",
+    },
   } as const;
   const it = map[status];
   return (
@@ -1170,10 +1163,22 @@ export function StatusBadge({ status }: { status: TaskStatus }) {
 
 export function PriorityBadge({ priority }: { priority: Priority }) {
   const map = {
-    low: { label: "Baixa", cls: "bg-slate-500/10 text-slate-600" },
-    medium: { label: "Média", cls: "bg-primary/14 text-primary" },
-    high: { label: "Alta", cls: "bg-warning/22 text-warning-foreground" },
-    urgent: { label: "Urgente", cls: "bg-destructive/10 text-destructive" },
+    low: {
+      label: "Baixa",
+      cls: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+    },
+    medium: {
+      label: "Média",
+      cls: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+    },
+    high: {
+      label: "Alta",
+      cls: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+    },
+    urgent: {
+      label: "Urgente",
+      cls: "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300",
+    },
   } as const;
   const it = map[priority];
   return (

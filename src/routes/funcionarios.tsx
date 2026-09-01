@@ -29,12 +29,47 @@ import {
   updateEmployee,
 } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
-import { Check, Copy, Link2, Mail, Pencil, Plus, Trash2 } from "lucide-react";
+import { getAvatarGradient } from "@/lib/avatar-colors";
+import type { Employee } from "@/lib/domain";
+import { Check, Copy, Link2, Mail, Plus, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/funcionarios")({
   head: () => ({ meta: [{ title: "Funcionários - Pop Organize" }] }),
   component: FuncionariosPage,
 });
+
+function EmployeeAvatar({ employee, compact = false }: { employee: Employee; compact?: boolean }) {
+  const initials = employee.name
+    .split(" ")
+    .map((name) => name[0])
+    .slice(0, 2)
+    .join("");
+
+  return (
+    <div
+      className={
+        compact
+          ? "relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-white"
+          : "relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-white"
+      }
+      style={{ background: getAvatarGradient(employee.id) }}
+    >
+      <span aria-hidden="true">{initials}</span>
+      {employee.avatar && (
+        <img
+          src={employee.avatar}
+          alt={`Foto de ${employee.name}`}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={(event) => {
+            event.currentTarget.style.display = "none";
+          }}
+        />
+      )}
+    </div>
+  );
+}
 
 function FuncionariosPage() {
   const queryClient = useQueryClient();
@@ -93,7 +128,11 @@ function FuncionariosPage() {
   });
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteEmployee({ data: { id } }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: workspaceQueryKey }),
+    onSuccess: () => {
+      setShowForm(false);
+      setEditingEmployeeId("");
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
   });
 
   if (isLoading) {
@@ -124,11 +163,14 @@ function FuncionariosPage() {
   const canManage = hasPermission(permissionSet, "manage.employees");
   const canEdit = hasPermission(permissionSet, "manage.employees.edit");
   const canDelete = hasPermission(permissionSet, "manage.employees.delete");
+  const ownerId = data.company.ownerId;
 
   const getDepartment = (id: string) => departments.find((department) => department.id === id);
   const getPermissionGroup = (id?: string) => permissionGroups.find((group) => group.id === id);
   const mutationError = createMutation.error instanceof Error ? createMutation.error.message : null;
   const resendError = resendMutation.error instanceof Error ? resendMutation.error.message : null;
+  const editingEmployee = employees.find((employee) => employee.id === editingEmployeeId);
+  const employeeFormReadOnly = Boolean(editingEmployeeId) && !canEdit;
 
   function openForm() {
     setForm({
@@ -150,6 +192,7 @@ function FuncionariosPage() {
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (editingEmployeeId) {
+      if (!canEdit) return;
       updateMutation.mutate({
         id: editingEmployeeId,
         name: form.name,
@@ -164,6 +207,9 @@ function FuncionariosPage() {
   }
 
   function openEdit(employee: (typeof employees)[number]) {
+    if (employee.id === ownerId || (!canEdit && !canDelete)) return;
+    updateMutation.reset();
+    deleteMutation.reset();
     setEditingEmployeeId(employee.id);
     setInviteLink("");
     setForm({
@@ -263,24 +309,21 @@ function FuncionariosPage() {
           </div>
         </div>
       )}
-      <div className="grid grid-cols-1 gap-3 md:hidden">
+      <div className="md:hidden">
         {employees.map((employee) => {
           const department = getDepartment(employee.departmentId);
           const taskCount = tasks.filter((task) => task.responsibleId === employee.id).length;
-          const isOwner = employee.id === data.company.ownerId;
+          const isOwner = employee.id === ownerId;
           return (
-            <article
+            <button
+              type="button"
               key={employee.id}
-              className="rounded-2xl border border-border bg-card p-4 shadow-sm"
+              onClick={() => openEdit(employee)}
+              disabled={isOwner || (!canEdit && !canDelete)}
+              className="w-full border-b border-border/70 px-1 py-4 text-left transition enabled:hover:bg-muted/30 disabled:cursor-default"
             >
               <div className="flex min-w-0 items-start gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                  {employee.name
-                    .split(" ")
-                    .map((name) => name[0])
-                    .slice(0, 2)
-                    .join("")}
-                </div>
+                <EmployeeAvatar employee={employee} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold">{employee.name}</div>
                   <div className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -313,34 +356,12 @@ function FuncionariosPage() {
                   {taskCount} {taskCount === 1 ? "tarefa" : "tarefas"}
                 </span>
               </div>
-              {!isOwner && (canEdit || canDelete) && (
-                <div className="mt-3 flex justify-end gap-2">
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => openEdit(employee)}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 font-semibold"
-                    >
-                      <Pencil className="h-3.5 w-3.5" /> Editar
-                    </button>
-                  )}
-                  {canDelete && (
-                    <button
-                      type="button"
-                      onClick={() => removeEmployee(employee)}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-destructive/25 px-3 font-semibold text-destructive"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> Excluir
-                    </button>
-                  )}
-                </div>
-              )}
-            </article>
+            </button>
           );
         })}
       </div>
 
-      <div className="hidden overflow-x-auto rounded-2xl border border-border bg-card md:block">
+      <div className="hidden overflow-x-auto md:block">
         <Table className="min-w-[820px]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
@@ -350,25 +371,33 @@ function FuncionariosPage() {
               <TableHead>Permissões</TableHead>
               <TableHead className="text-right">Tarefas</TableHead>
               <TableHead>Status</TableHead>
-              {(canEdit || canDelete) && <TableHead className="text-right">Ações</TableHead>}
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className="[&_tr:last-child]:border-b">
             {employees.map((e) => {
               const dept = getDepartment(e.departmentId);
               const count = tasks.filter((t) => t.responsibleId === e.id).length;
-              const isOwner = e.id === data.company.ownerId;
+              const isOwner = e.id === ownerId;
               return (
-                <TableRow key={e.id}>
+                <TableRow
+                  key={e.id}
+                  tabIndex={!isOwner && (canEdit || canDelete) ? 0 : undefined}
+                  onClick={() => openEdit(e)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openEdit(e);
+                    }
+                  }}
+                  className={
+                    !isOwner && (canEdit || canDelete)
+                      ? "cursor-pointer border-border/70 hover:bg-muted/30"
+                      : "border-border/70 hover:bg-transparent"
+                  }
+                >
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-full flex items-center justify-center text-xs font-semibold text-primary-foreground bg-primary shrink-0">
-                        {e.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .slice(0, 2)
-                          .join("")}
-                      </div>
+                      <EmployeeAvatar employee={e} compact />
                       <div className="min-w-0">
                         <div className="font-medium text-sm truncate">{e.name}</div>
                         <div className="text-xs text-muted-foreground inline-flex items-center gap-1 truncate">
@@ -405,34 +434,6 @@ function FuncionariosPage() {
                       {e.status === "active" ? "Ativo" : "Inativo"}
                     </span>
                   </TableCell>
-                  {(canEdit || canDelete) && (
-                    <TableCell className="text-right">
-                      {!isOwner && (
-                        <div className="inline-flex gap-1">
-                          {canEdit && (
-                            <button
-                              type="button"
-                              onClick={() => openEdit(e)}
-                              className="glass-icon-button inline-flex h-8 w-8 items-center justify-center rounded-lg"
-                              aria-label={`Editar ${e.name}`}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          {canDelete && (
-                            <button
-                              type="button"
-                              onClick={() => removeEmployee(e)}
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-destructive hover:bg-destructive/10"
-                              aria-label={`Excluir ${e.name}`}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </TableCell>
-                  )}
                 </TableRow>
               );
             })}
@@ -490,6 +491,7 @@ function FuncionariosPage() {
                     onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
                     className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
                     required
+                    disabled={employeeFormReadOnly}
                   />
                 </Field>
                 <Field label="E-mail">
@@ -508,6 +510,7 @@ function FuncionariosPage() {
                       value={form.role}
                       onChange={(e) => setForm((current) => ({ ...current, role: e.target.value }))}
                       className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                      disabled={employeeFormReadOnly}
                       required
                     />
                   </Field>
@@ -518,6 +521,7 @@ function FuncionariosPage() {
                         setForm((current) => ({ ...current, departmentId: e.target.value }))
                       }
                       className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                      disabled={employeeFormReadOnly}
                     >
                       {departments.map((department) => (
                         <option key={department.id} value={department.id}>
@@ -538,6 +542,7 @@ function FuncionariosPage() {
                         }))
                       }
                       className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                      disabled={employeeFormReadOnly}
                     >
                       <option value="active">Ativo</option>
                       <option value="inactive">Inativo</option>
@@ -551,6 +556,7 @@ function FuncionariosPage() {
                       setForm((current) => ({ ...current, permissionGroupId: e.target.value }))
                     }
                     className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                    disabled={employeeFormReadOnly}
                   >
                     <option value="">Padrão (sem restrições)</option>
                     {permissionGroups.map((group) => (
@@ -561,32 +567,53 @@ function FuncionariosPage() {
                   </select>
                 </Field>
                 {mutationError && <div className="text-sm text-destructive">{mutationError}</div>}
+                {updateMutation.error instanceof Error && (
+                  <div className="text-sm text-destructive">{updateMutation.error.message}</div>
+                )}
+                {deleteMutation.error instanceof Error && (
+                  <div className="text-sm text-destructive">{deleteMutation.error.message}</div>
+                )}
               </div>
             )}
-            <DialogFooter className="mt-6">
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="h-9 px-4 rounded-md border border-border text-sm font-medium hover:bg-muted transition"
-              >
-                Cancelar
-              </button>
-              {!inviteLink && (
+            <DialogFooter className="mt-6 sm:justify-between">
+              <div>
+                {editingEmployee && canDelete && (
+                  <button
+                    type="button"
+                    onClick={() => removeEmployee(editingEmployee)}
+                    disabled={deleteMutation.isPending}
+                    className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/25 px-4 text-sm font-medium text-destructive transition hover:bg-destructive/5 disabled:opacity-60"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {deleteMutation.isPending ? "Excluindo..." : "Excluir funcionário"}
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row">
                 <button
-                  type="submit"
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                  style={{ background: "var(--gradient-primary)" }}
-                  className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
+                  type="button"
+                  onClick={() => setShowForm(false)}
+                  className="h-9 px-4 rounded-md border border-border text-sm font-medium hover:bg-muted transition"
                 >
-                  {updateMutation.isPending
-                    ? "Salvando..."
-                    : editingEmployeeId
-                      ? "Salvar alterações"
-                      : createMutation.isPending
-                        ? "Enviando convite..."
-                        : "Criar e enviar convite"}
+                  Cancelar
                 </button>
-              )}
+                {!inviteLink && (!editingEmployeeId || canEdit) && (
+                  <button
+                    type="submit"
+                    disabled={createMutation.isPending || updateMutation.isPending}
+                    style={{ background: "var(--gradient-primary)" }}
+                    className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
+                  >
+                    {updateMutation.isPending
+                      ? "Salvando..."
+                      : editingEmployeeId
+                        ? "Salvar alterações"
+                        : createMutation.isPending
+                          ? "Enviando convite..."
+                          : "Criar e enviar convite"}
+                  </button>
+                )}
+              </div>
             </DialogFooter>
           </form>
         </DialogContent>

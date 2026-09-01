@@ -12,11 +12,7 @@ import {
   verifyGoogleCredential,
 } from "./database.server";
 import { allPermissionKeys, departmentColors, type PermissionKey, type Task } from "./domain";
-import {
-  grantsAdministrativePower,
-  hasPermission,
-  resolvePermissionSet,
-} from "./permission-groups";
+import { hasPermission, isAdminUser, resolvePermissionSet } from "./permission-groups";
 import { canViewTask, getTaskPermissions } from "./permissions";
 import { materializeRecurringTasks } from "./recurrence.server";
 
@@ -878,14 +874,6 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       if (!hasPermission(permissionSet, "manage.employees")) {
         throw mobileHttpError("Seu grupo de permissão não pode cadastrar funcionários.", 403);
       }
-      // Mesma regra que o updateEmployee logo abaixo ja aplicava, e que faltava aqui: convidar
-      // alguem com cargo administrativo e conceder administracao, so que sem passar pela edicao.
-      if (
-        grantsAdministrativePower({ role, permissionGroups: workspace.permissionGroups }) &&
-        workspace.company.ownerId !== currentUser.id
-      ) {
-        throw mobileHttpError("Apenas o proprietário pode convidar outro administrador.", 403);
-      }
       if (!workspace.departments.some((department) => department.id === departmentId)) {
         throw mobileHttpError("Selecione um setor válido.");
       }
@@ -976,26 +964,6 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       }
       if (employee?.id === currentUser.id) {
         throw mobileHttpError("Voce nao pode alterar o proprio perfil na empresa.", 403);
-      }
-      // A definicao passa a ser compartilhada com os outros tres caminhos que gravam cargo.
-      //
-      // `grantsAdmin` e igual ao que estava escrito a mao (o mobile nao envia permissionGroupId,
-      // entao a checagem cai no texto do cargo). `alreadyAdmin` ficou mais abrangente de proposito:
-      // antes so o texto do cargo isentava, agora estar em um grupo com as chaves de escalada
-      // tambem isenta. Isso permite que um admin que nao e dono edite quem **ja** tem poder
-      // administrativo pelo grupo -- nao ha escalada, a pessoa ja o tinha -- em vez de travar por
-      // um criterio que ignorava metade das formas de ser administrador.
-      const grantsAdmin = grantsAdministrativePower({
-        role,
-        permissionGroups: workspace.permissionGroups,
-      });
-      const alreadyAdmin = grantsAdministrativePower({
-        role: employee?.role,
-        permissionGroupId: employee?.permissionGroupId,
-        permissionGroups: workspace.permissionGroups,
-      });
-      if (grantsAdmin && !alreadyAdmin && workspace.company.ownerId !== currentUser.id) {
-        throw mobileHttpError("Apenas o proprietario pode definir outro administrador.", 403);
       }
       if (employee) {
         employee.departmentId = departmentId;
@@ -1226,7 +1194,11 @@ function visibleMobileTasks(workspace: Database, account: PlatformDatabase["acco
   if (!currentUser) return [];
   const isAdministrator =
     workspace.company.ownerId === currentUser.id ||
-    currentUser.role.toLocaleLowerCase("pt-BR").includes("admin");
+    isAdminUser({
+      currentUser,
+      employees: workspace.employees,
+      permissionGroups: workspace.permissionGroups,
+    });
   const currentGroupIds = new Set(
     workspace.groups
       .filter(
@@ -1655,6 +1627,11 @@ export async function replaceMobileTasks(
       permissionGroups: workspace.permissionGroups,
     });
     const canCreateTasks = hasPermission(permissionSet, "tasks.create");
+    const isAdministrator = isAdminUser({
+      currentUser,
+      employees: workspace.employees,
+      permissionGroups: workspace.permissionGroups,
+    });
     const today = new Intl.DateTimeFormat("sv-SE", {
       timeZone: "America/Sao_Paulo",
     }).format(new Date());
@@ -1700,17 +1677,14 @@ export async function replaceMobileTasks(
     }
 
     for (const item of tasks) {
-      if (
+      const isFutureRecurringCompletion =
         item.completed &&
         item.recurrenceOccurrence > 1 &&
         /^\d{4}-\d{2}-\d{2}$/.test(item.dueDate) &&
-        item.dueDate > today
-      ) {
-        throw Object.assign(
-          new Error("Uma ocorrência recorrente só pode ser concluída quando chegar a sua data."),
-          { statusCode: 409 },
-        );
-      }
+        item.dueDate > today;
+      // Uma ocorrência futura continua pendente no servidor, mas não pode
+      // cancelar a sincronização inteira (inclusive exclusões já solicitadas).
+      const completed = item.completed && !isFutureRecurringCompletion;
       const existing = workspace.tasks.find((rawTask) => {
         const task = rawTask as NativeTask;
         return (
@@ -1754,12 +1728,12 @@ export async function replaceMobileTasks(
           [account.id]: item.reminder,
         };
         if (
-          item.completed !==
+          completed !==
           (existing.status === "completed" || existing.status === "waiting_review")
         ) {
-          if (item.completed && permissions.canComplete)
+          if (completed && permissions.canComplete)
             existing.status = existing.requiresReview ? "waiting_review" : "completed";
-          if (!item.completed && permissions.canReopen) existing.status = "reopened";
+          if (!completed && permissions.canReopen) existing.status = "reopened";
         }
         if (permissions.canEditContent || existing.nativeOwnerId === account.id) {
           existing.title = normalizeMobileTaskTitle(item.title);
@@ -1773,7 +1747,7 @@ export async function replaceMobileTasks(
           existing.recurrence = mobileTaskRecurrence(item);
           existing.attachments = item.attachmentName ? 1 : 0;
         }
-        if (currentUser.role.toLocaleLowerCase("pt-BR").includes("admin")) {
+        if (isAdministrator) {
           existing.subtasks = (item.checklist ?? []).map((checklistItem, index) => ({
             id: checklistItem.id || `ts${index + 1}`,
             title: checklistItem.title,
@@ -1785,6 +1759,7 @@ export async function replaceMobileTasks(
         if (existing.nativeSource === NATIVE_SOURCE && existing.nativeOwnerId === account.id) {
           existing.nativeData = {
             ...item,
+            completed,
             title: normalizeMobileTaskTitle(item.title),
             serverId: existing.id,
           };
@@ -1805,7 +1780,7 @@ export async function replaceMobileTasks(
         title: normalizeMobileTaskTitle(item.title),
         description: item.description.trim(),
         priority: priority(item.priority),
-        status: item.completed ? "completed" : "pending",
+        status: completed ? "completed" : "pending",
         dueDate: item.dueDate,
         createdAt: new Date().toISOString().slice(0, 10),
         target: mobileTaskTarget(workspace, account.id, item),
@@ -1817,7 +1792,7 @@ export async function replaceMobileTasks(
         comments: 0,
         attachments: item.attachmentName ? 1 : 0,
         recurrence: mobileTaskRecurrence(item),
-        subtasks: currentUser.role.toLocaleLowerCase("pt-BR").includes("admin")
+        subtasks: isAdministrator
           ? (item.checklist ?? []).map((checklistItem, index) => ({
               id: checklistItem.id || `ts${index + 1}`,
               title: checklistItem.title,
@@ -1830,6 +1805,7 @@ export async function replaceMobileTasks(
         nativeOwnerId: account.id,
         nativeData: {
           ...item,
+          completed,
           title: normalizeMobileTaskTitle(item.title),
         },
       };

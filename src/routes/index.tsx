@@ -4,6 +4,7 @@ import { ErrorState, LoadingState } from "@/components/data-state";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
 import { getAvatarGradient } from "@/lib/avatar-colors";
 import { statusLabels, type PermissionKey } from "@/lib/domain";
+import { EmployeeAvatar } from "@/components/tasks/employee-avatar";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { Plus, TrendingUp, Clock, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -51,7 +52,7 @@ function Dashboard() {
   const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
   const canSeePeopleContext =
-    isAdminUser({ currentUser, employees }) ||
+    isAdminUser({ currentUser, employees, permissionGroups }) ||
     (["pages.employees", "pages.reports", "manage.employees"] as PermissionKey[]).some((key) =>
       hasPermission(permissionSet, key),
     );
@@ -60,7 +61,7 @@ function Dashboard() {
   today.setHours(0, 0, 0, 0);
   const total = tasks.length;
   const completed = tasks.filter((t) => t.status === "completed").length;
-  const pending = tasks.filter((t) => t.status === "pending" || t.status === "in_progress").length;
+  const inProgress = tasks.filter((t) => t.status === "in_progress").length;
   const review = tasks.filter((t) => t.status === "waiting_review").length;
   const overdue = tasks.filter(
     (t) => new Date(`${t.dueDate}T00:00:00`) < today && t.status !== "completed",
@@ -73,24 +74,28 @@ function Dashboard() {
       icon: TrendingUp,
       chip: "bg-white/20 text-white",
       featured: true,
+      search: { status: "all" as const, escopo: "all" as const },
     },
     {
       label: "Concluídas",
       value: completed,
       icon: CheckCircle2,
       chip: "bg-emerald-500/12 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-400",
+      search: { status: "completed" as const, escopo: "all" as const },
     },
     {
       label: "Em andamento",
-      value: pending,
+      value: inProgress,
       icon: Clock,
       chip: "bg-primary/10 text-primary",
+      search: { status: "in_progress" as const, escopo: "all" as const },
     },
     {
       label: "Atrasadas",
       value: overdue,
       icon: AlertTriangle,
       chip: "bg-rose-500/12 text-rose-600 dark:bg-rose-400/15 dark:text-rose-400",
+      search: { status: "all" as const, escopo: "overdue" as const },
     },
   ];
 
@@ -126,14 +131,17 @@ function Dashboard() {
       }
     >
       {/* Stats */}
-      <div className="mb-5 grid grid-cols-2 gap-2.5 sm:mb-6 sm:gap-3 lg:grid-cols-4 lg:gap-4">
+      <div className="dashboard-stats-grid mb-5 grid grid-cols-2 gap-2.5 sm:mb-6 sm:gap-3 xl:grid-cols-4 xl:gap-4">
         {stats.map((s) => {
           const Icon = s.icon;
           return (
-            <div
+            <Link
               key={s.label}
+              to="/tarefas"
+              search={{ lista: undefined, ...s.search }}
+              aria-label={`Ver ${s.label.toLowerCase()}`}
               className={cn(
-                "hover-lift min-w-0 rounded-[20px] p-3.5 sm:rounded-[24px] sm:p-4 md:rounded-2xl",
+                "hover-lift pressable min-w-0 rounded-[20px] p-3.5 outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:rounded-[24px] sm:p-4 md:rounded-2xl",
                 s.featured ? "text-white shadow-[var(--shadow-elegant)]" : "mobile-card",
               )}
               style={s.featured ? { background: "var(--gradient-primary)" } : undefined}
@@ -166,14 +174,14 @@ function Dashboard() {
                   <Icon className="h-5 w-5" strokeWidth={2.25} />
                 </span>
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="dashboard-main-grid grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-3">
         {/* Recent tasks */}
-        <div className="mobile-card min-w-0 rounded-[24px] p-4 sm:p-5 md:rounded-2xl lg:col-span-2">
+        <div className="dashboard-recent-card mobile-card min-w-0 rounded-[24px] p-4 sm:p-5 md:rounded-2xl xl:col-span-2">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className="text-base font-display font-semibold">Tarefas recentes</h2>
@@ -195,18 +203,17 @@ function Dashboard() {
                   key={t.id}
                   className="pressable -mx-2 flex items-center gap-3 rounded-2xl px-2 py-3 hover:bg-muted/40"
                 >
-                  {canSeePeopleContext && (
-                    <div
-                      className="h-9 w-9 rounded-xl flex items-center justify-center text-primary-foreground font-semibold text-xs shrink-0"
-                      style={{ background: getAvatarGradient(emp?.id ?? t.responsibleId) }}
-                    >
-                      {emp?.name
-                        .split(" ")
-                        .map((n) => n[0])
-                        .slice(0, 2)
-                        .join("") ?? "ST"}
-                    </div>
-                  )}
+                  {canSeePeopleContext &&
+                    (emp ? (
+                      <EmployeeAvatar employee={emp} departments={departments} />
+                    ) : (
+                      <div
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-primary-foreground"
+                        style={{ background: getAvatarGradient(t.responsibleId) }}
+                      >
+                        ST
+                      </div>
+                    ))}
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm truncate">{t.title}</div>
                     <div className="text-xs text-muted-foreground truncate">
@@ -226,7 +233,7 @@ function Dashboard() {
         </div>
 
         {/* Side panel */}
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <div className="mobile-card hover-lift rounded-[24px] p-5 md:rounded-2xl">
             <h2 className="text-base font-display font-semibold mb-1">Tarefas por setor</h2>
             <p className="text-sm text-muted-foreground mb-4">Distribuição atual</p>
@@ -266,7 +273,7 @@ function Dashboard() {
             </p>
             <Link
               to="/tarefas"
-              search={{ lista: undefined }}
+              search={{ lista: undefined, status: "waiting_review", escopo: "all" }}
               className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium bg-white/15 hover:bg-white/25 transition-colors px-3 py-1.5 rounded-xl"
             >
               Revisar agora <ArrowRight className="h-3.5 w-3.5" />
@@ -280,19 +287,13 @@ function Dashboard() {
                 {employees.length} funcionários • {groups.length} grupos
               </p>
               <div className="flex -space-x-2">
-                {employees.slice(0, 6).map((e) => (
-                  <div
-                    key={e.id}
-                    className="h-8 w-8 rounded-full ring-2 ring-card flex items-center justify-center text-[11px] font-semibold text-primary-foreground"
-                    style={{ background: getAvatarGradient(e.id) }}
-                    title={e.name}
-                  >
-                    {e.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .slice(0, 2)
-                      .join("")}
-                  </div>
+                {employees.slice(0, 6).map((employee) => (
+                  <EmployeeAvatar
+                    key={employee.id}
+                    employee={employee}
+                    departments={departments}
+                    size="xs"
+                  />
                 ))}
                 {employees.length > 6 && (
                   <div className="h-8 w-8 rounded-full ring-2 ring-card bg-muted text-muted-foreground flex items-center justify-center text-[11px] font-semibold">
@@ -308,14 +309,19 @@ function Dashboard() {
       {/* Status legend at bottom */}
       <div className="mobile-card hover-lift mt-5 rounded-[24px] p-5 md:rounded-2xl">
         <h2 className="text-base font-display font-semibold mb-4">Distribuição por status</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="dashboard-status-grid grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           {(Object.keys(statusLabels) as Array<keyof typeof statusLabels>).map((k) => {
             const count = tasks.filter((t) => t.status === k).length;
             return (
-              <div key={k} className="p-3 rounded-xl bg-muted/40 border border-border">
+              <Link
+                key={k}
+                to="/tarefas"
+                search={{ lista: undefined, status: k, escopo: "all" }}
+                className="pressable rounded-xl border border-border bg-muted/40 p-3 transition hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+              >
                 <div className="text-xs text-muted-foreground">{statusLabels[k]}</div>
                 <div className="text-xl font-display font-bold mt-1">{count}</div>
-              </div>
+              </Link>
             );
           })}
         </div>

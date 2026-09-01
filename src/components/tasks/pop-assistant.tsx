@@ -850,7 +850,7 @@ export function PopAssistant({
         inert={!open}
         className={cn(
           "fixed inset-y-0 right-0 z-[220] grid h-dvh w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-l bg-background shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:inset-y-3 sm:right-3 sm:h-[calc(100dvh-1.5rem)] sm:w-[440px] sm:rounded-[26px] sm:border md:w-[480px]",
-          open ? "translate-x-0" : "translate-x-full",
+          open ? "translate-x-0" : "translate-x-[calc(100%+1.5rem)]",
         )}
         aria-label="Conversa com a Pop"
       >

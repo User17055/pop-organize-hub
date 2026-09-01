@@ -18,6 +18,7 @@ import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permissi
 import {
   Archive,
   ArrowLeft,
+  Check,
   ChevronDown,
   Columns3,
   Eye,
@@ -27,7 +28,9 @@ import {
   Repeat,
   Search,
   Settings2,
+  SlidersHorizontal,
   Sparkles,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskCreateDrawer } from "@/components/tasks/task-create-drawer";
@@ -38,6 +41,7 @@ import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialo
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
 import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import { PriorityBadge } from "@/components/app-shell";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   getDefaultDueDate,
   getDefaultRecurrence,
@@ -49,10 +53,18 @@ import {
   type TaskFormState,
 } from "@/components/tasks/task-form-types";
 
+type TasksSearch = {
+  lista?: string;
+  status?: TaskStatus | "all";
+  escopo?: "today" | "overdue" | "upcoming" | "mine" | "department" | "group" | "all";
+};
+
 export const Route = createFileRoute("/tarefas")({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): TasksSearch => ({
     lista:
       typeof search.lista === "string" && search.lista.trim() ? search.lista.trim() : undefined,
+    status: isTaskStatusFilter(search.status) ? search.status : undefined,
+    escopo: isTaskScope(search.escopo) ? search.escopo : undefined,
   }),
   head: () => ({
     meta: [
@@ -69,9 +81,11 @@ const statusFilters: Array<{ key: TaskStatus | "all"; label: string }> = [
   { key: "in_progress", label: "Em andamento" },
   { key: "waiting_review", label: "Aguardando revisão" },
   { key: "reopened", label: "Reabertas" },
+  { key: "completed", label: "Concluídas" },
+  { key: "canceled", label: "Canceladas" },
 ];
 
-type TaskScope = "today" | "overdue" | "upcoming" | "mine" | "department" | "group" | "all";
+type TaskScope = NonNullable<TasksSearch["escopo"]>;
 
 const adminScopeFilters: Array<{ key: TaskScope; label: string }> = [
   { key: "today", label: "Hoje" },
@@ -82,6 +96,17 @@ const adminScopeFilters: Array<{ key: TaskScope; label: string }> = [
   { key: "group", label: "Grupo" },
   { key: "all", label: "Todas" },
 ];
+
+const taskStatusFilterKeys = new Set(statusFilters.map((filter) => filter.key));
+const taskScopeKeys = new Set(adminScopeFilters.map((filter) => filter.key));
+
+function isTaskStatusFilter(value: unknown): value is TaskStatus | "all" {
+  return typeof value === "string" && taskStatusFilterKeys.has(value as TaskStatus | "all");
+}
+
+function isTaskScope(value: unknown): value is TaskScope {
+  return typeof value === "string" && taskScopeKeys.has(value as TaskScope);
+}
 
 function taskMatchesAdminScope(task: Task, scope: TaskScope, data: WorkspaceData) {
   if (scope === "all") return true;
@@ -130,11 +155,11 @@ const defaultLayoutPreferences: TaskLayoutPreferences = {
 };
 
 function TasksPage() {
-  const { lista: organizerListId } = Route.useSearch();
+  const { lista: organizerListId, status: initialStatus, escopo: initialScope } = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data, isLoading, error } = useWorkspaceData();
-  const [active, setActive] = useState<TaskStatus | "all">("all");
-  const [taskScope, setTaskScope] = useState<TaskScope>("all");
+  const [active, setActive] = useState<TaskStatus | "all">(initialStatus ?? "all");
+  const [taskScope, setTaskScope] = useState<TaskScope>(initialScope ?? "all");
   const [search, setSearch] = useState("");
   const filters = emptyTaskFilters;
   const [isMounted, setIsMounted] = useState(false);
@@ -178,6 +203,28 @@ function TasksPage() {
     };
   });
 
+  const applyStatusFilter = (status: TaskStatus | "all") => {
+    setActive(status);
+    navigate({
+      search: (current) => ({
+        ...current,
+        status: status === "all" ? undefined : status,
+      }),
+      replace: true,
+    });
+  };
+
+  const applyScopeFilter = (scope: TaskScope) => {
+    setTaskScope(scope);
+    navigate({
+      search: (current) => ({
+        ...current,
+        escopo: scope === "all" ? undefined : scope,
+      }),
+      replace: true,
+    });
+  };
+
   const {
     createTaskMutation,
     statusMutation,
@@ -204,6 +251,11 @@ function TasksPage() {
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    setActive(initialStatus ?? "all");
+    setTaskScope(initialScope ?? "all");
+  }, [initialScope, initialStatus]);
 
   useEffect(() => {
     if (!isMounted) return;
@@ -267,8 +319,9 @@ function TasksPage() {
     () =>
       taskRows.filter(
         (t) =>
-          t.status !== "completed" &&
-          (active === "all" || t.status === active) &&
+          (active === "completed"
+            ? t.status === "completed"
+            : t.status !== "completed" && (active === "all" || t.status === active)) &&
           (normalizedSearch === "" ||
             t.title.toLowerCase().includes(normalizedSearch) ||
             t.description.toLowerCase().includes(normalizedSearch)) &&
@@ -280,15 +333,17 @@ function TasksPage() {
   );
   const completedTasks = useMemo(
     () =>
-      taskRows.filter(
-        (task) =>
-          task.status === "completed" &&
-          (normalizedSearch === "" ||
-            task.title.toLowerCase().includes(normalizedSearch) ||
-            task.description.toLowerCase().includes(normalizedSearch)) &&
-          (!data || taskMatchesAdminScope(task, taskScope, data)),
-      ),
-    [normalizedSearch, taskRows, taskScope, data],
+      active === "completed"
+        ? []
+        : taskRows.filter(
+            (task) =>
+              task.status === "completed" &&
+              (normalizedSearch === "" ||
+                task.title.toLowerCase().includes(normalizedSearch) ||
+                task.description.toLowerCase().includes(normalizedSearch)) &&
+              (!data || taskMatchesAdminScope(task, taskScope, data)),
+          ),
+    [active, normalizedSearch, taskRows, taskScope, data],
   );
 
   // Estes dois useMemo ficavam depois dos returns de carregamento e de erro logo abaixo. Enquanto
@@ -349,19 +404,19 @@ function TasksPage() {
     );
   }
 
-  const { company, currentUser, departments, employees, groups, tasks } = data;
+  const { company, currentUser, departments, employees, groups, permissionGroups, tasks } = data;
   const permissionSet = resolvePermissionSet({
     currentUser,
     employees,
-    permissionGroups: data.permissionGroups,
+    permissionGroups,
   });
   const canSeePeopleContext =
-    isAdminUser({ currentUser, employees }) ||
+    isAdminUser({ currentUser, employees, permissionGroups }) ||
     (["pages.employees", "pages.reports", "manage.employees"] as PermissionKey[]).some((key) =>
       hasPermission(permissionSet, key),
     );
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
-  const currentUserIsAdmin = isAdminUser({ currentUser, employees });
+  const currentUserIsAdmin = isAdminUser({ currentUser, employees, permissionGroups });
   const isPersonalWorkspace = company.kind === "personal";
   const showResponsible = canSeePeopleContext && !isPersonalWorkspace;
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
@@ -686,7 +741,7 @@ function TasksPage() {
               <button
                 key={scope}
                 type="button"
-                onClick={() => setTaskScope(scope)}
+                onClick={() => applyScopeFilter(scope)}
                 className={cn(
                   "rounded-2xl border px-3 py-3 text-left transition",
                   taskScope === scope
@@ -735,66 +790,117 @@ function TasksPage() {
         )}
       </div>
 
-      <div className="mobile-horizontal-scroll mb-5 flex gap-2 overflow-x-auto pb-1">
-        {statusFilters.map((f) => {
-          const count =
-            f.key === "all"
-              ? activeTaskRows.length
-              : activeTaskRows.filter((t) => t.status === f.key).length;
-          const isActive = active === f.key;
-          return (
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Popover>
+          <PopoverTrigger asChild>
             <button
-              key={f.key}
-              onClick={() => setActive(f.key)}
+              type="button"
               className={cn(
-                "pressable inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-all",
-                isActive
-                  ? "border border-primary/18 bg-primary/10 text-primary"
-                  : "task-glass-control text-foreground/70 hover:border-primary/50 hover:text-primary",
+                "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
+                (active !== "all" || taskScope !== "all") &&
+                  "border-primary/25 bg-primary/8 text-primary",
               )}
             >
-              {f.label}
-              <span
-                className={cn(
-                  "rounded-md px-1.5 text-[11px]",
-                  isActive ? "bg-white/60 text-primary" : "task-vivid-chip",
-                )}
-              >
-                {count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {currentUserIsAdmin && !isPersonalWorkspace && (
-        <div className="mobile-horizontal-scroll mb-5 flex gap-2 overflow-x-auto pb-1">
-          {adminScopeFilters.map((filter) => {
-            const count = activeTaskRows.filter((task) =>
-              taskMatchesAdminScope(task, filter.key, data),
-            ).length;
-            const isActive = taskScope === filter.key;
-            return (
-              <button
-                key={filter.key}
-                type="button"
-                onClick={() => setTaskScope(filter.key)}
-                className={cn(
-                  "pressable inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-all",
-                  isActive
-                    ? "border border-primary/18 bg-primary/10 text-primary"
-                    : "task-glass-control text-foreground/70 hover:border-primary/50 hover:text-primary",
-                )}
-              >
-                {filter.label}
-                <span className="rounded-md bg-white/60 px-1.5 text-[11px] text-primary">
-                  {count}
+              <SlidersHorizontal className="h-4 w-4" />
+              Filtros
+              {(active !== "all" || taskScope !== "all") && (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground">
+                  {Number(active !== "all") + Number(taskScope !== "all")}
                 </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+              )}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-3">
+            <div>
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                Status
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {statusFilters.map((filter) => {
+                  const count =
+                    filter.key === "all"
+                      ? taskRows.length
+                      : taskRows.filter((task) => task.status === filter.key).length;
+                  return (
+                    <button
+                      key={filter.key}
+                      type="button"
+                      onClick={() => applyStatusFilter(filter.key)}
+                      className={cn(
+                        "flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
+                        active === filter.key && "bg-primary/10 text-primary",
+                      )}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <Check
+                          className={cn(
+                            "h-3.5 w-3.5",
+                            active === filter.key ? "opacity-100" : "opacity-0",
+                          )}
+                        />
+                        {filter.label}
+                      </span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {currentUserIsAdmin && !isPersonalWorkspace && (
+              <div className="mt-3 border-t border-border/60 pt-3">
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                  Prazo e atribuição
+                </p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {adminScopeFilters.map((filter) => (
+                    <button
+                      key={filter.key}
+                      type="button"
+                      onClick={() => applyScopeFilter(filter.key)}
+                      className={cn(
+                        "flex items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
+                        taskScope === filter.key && "bg-primary/10 text-primary",
+                      )}
+                    >
+                      <Check
+                        className={cn(
+                          "h-3.5 w-3.5",
+                          taskScope === filter.key ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
+
+        {active !== "all" && (
+          <button
+            type="button"
+            onClick={() => applyStatusFilter("all")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
+          >
+            {statusFilters.find((filter) => filter.key === active)?.label}
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {taskScope !== "all" && (
+          <button
+            type="button"
+            onClick={() => applyScopeFilter("all")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
+          >
+            {adminScopeFilters.find((filter) => filter.key === taskScope)?.label}
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">
@@ -927,7 +1033,7 @@ function TasksPage() {
                       return next;
                     })
                   }
-                  className="mb-2 flex w-full items-center justify-between rounded-[16px] border border-border/60 bg-card/55 px-4 py-3 text-left transition hover:border-primary/25"
+                  className="mb-1 flex w-full items-center justify-between border-b border-border/70 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
                 >
                   <span className="font-display text-sm font-bold">{section.label}</span>
                   <span className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1079,7 +1185,7 @@ function TasksPage() {
         employees={employees}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}
-        canCreateChecklist={isAdminUser({ currentUser, employees })}
+        canCreateChecklist={isAdminUser({ currentUser, employees, permissionGroups })}
       />
     </AppShell>
   );

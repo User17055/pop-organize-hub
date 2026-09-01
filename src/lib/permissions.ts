@@ -1,5 +1,5 @@
 import type { CurrentUser, Department, Employee, Group, PermissionGroup, Task } from "./domain";
-import { hasPermission, resolvePermissionSet } from "./permission-groups";
+import { hasPermission, isAdminUser, resolvePermissionSet } from "./permission-groups";
 
 type PermissionEmployee =
   | Pick<Employee, "id" | "role" | "departmentId" | "permissionGroupId">
@@ -29,18 +29,21 @@ type PermissionInput = {
   permissionGroups?: PermissionGroup[];
 };
 
-function isAdmin(role?: string) {
-  return role?.toLowerCase().includes("admin") ?? false;
+function isAdmin(input: PermissionInput) {
+  return isAdminUser({
+    currentUser: input.currentUser,
+    employees: input.employees,
+    permissionGroups: input.permissionGroups,
+  });
 }
 
 export function canViewTask(input: PermissionInput) {
   const userId = input.currentUser?.id;
   if (!userId) return false;
 
-  if (isAdmin(input.currentUser?.role)) return true;
+  if (isAdmin(input)) return true;
 
   const currentEmployee = input.employees.find((item) => item.id === userId);
-  if (isAdmin(currentEmployee?.role)) return true;
   if (input.permissionGroups) {
     const set = resolvePermissionSet({
       currentUser: input.currentUser,
@@ -108,7 +111,7 @@ function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
     };
   }
 
-  if (isAdmin(input.currentUser?.role)) {
+  if (isAdmin(input)) {
     return {
       canEditContent: true,
       canChangeStatus: true,

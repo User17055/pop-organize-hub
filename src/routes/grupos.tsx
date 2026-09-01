@@ -88,7 +88,7 @@ function GruposPage() {
     );
   }
   const canManageGroups =
-    isAdminUser({ currentUser, employees }) ||
+    isAdminUser({ currentUser, employees, permissionGroups }) ||
     (["manage.groups", "pages.employees", "pages.reports"] as PermissionKey[]).some((key) =>
       hasPermission(permissionSet, key),
     );

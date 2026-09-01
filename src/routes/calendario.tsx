@@ -502,7 +502,7 @@ function CalendarPage() {
         employees={employees}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}
-        canCreateChecklist={isAdminUser({ currentUser, employees })}
+        canCreateChecklist={isAdminUser({ currentUser, employees, permissionGroups })}
       />
 
       {taskDetailLayer}

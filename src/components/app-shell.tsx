@@ -244,7 +244,11 @@ export function AppShell({
     employees: data?.employees ?? [],
     permissionGroups: data?.permissionGroups ?? [],
   });
-  const isAdmin = isAdminUser({ currentUser, employees: data?.employees ?? [] });
+  const isAdmin = isAdminUser({
+    currentUser,
+    employees: data?.employees ?? [],
+    permissionGroups: data?.permissionGroups ?? [],
+  });
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
   const visibleNav = nav.filter((item) => {
     if (data?.company.kind === "personal" && companyOnlyPaths.includes(item.to)) {

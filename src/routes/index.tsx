@@ -52,7 +52,7 @@ function Dashboard() {
   const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
   const canSeePeopleContext =
-    isAdminUser({ currentUser, employees }) ||
+    isAdminUser({ currentUser, employees, permissionGroups }) ||
     (["pages.employees", "pages.reports", "manage.employees"] as PermissionKey[]).some((key) =>
       hasPermission(permissionSet, key),
     );

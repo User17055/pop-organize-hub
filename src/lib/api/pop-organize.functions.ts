@@ -1150,6 +1150,7 @@ export const askPop = createServerFn({ method: "POST" })
           canCreateChecklist: isAdminUser({
             currentUser,
             employees: workspace.employees,
+            permissionGroups: workspace.permissionGroups,
           }),
         },
         messages: data.messages,
@@ -1245,6 +1246,7 @@ export const createTask = createServerFn({ method: "POST" })
         !isAdminUser({
           currentUser: db.employees.find((employee) => employee.id === currentUserId),
           employees: db.employees,
+          permissionGroups: db.permissionGroups,
         })
       ) {
         throw createHttpError("Somente administradores podem criar o checklist da tarefa.", 403);

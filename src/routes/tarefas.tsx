@@ -404,19 +404,19 @@ function TasksPage() {
     );
   }
 
-  const { company, currentUser, departments, employees, groups, tasks } = data;
+  const { company, currentUser, departments, employees, groups, permissionGroups, tasks } = data;
   const permissionSet = resolvePermissionSet({
     currentUser,
     employees,
-    permissionGroups: data.permissionGroups,
+    permissionGroups,
   });
   const canSeePeopleContext =
-    isAdminUser({ currentUser, employees }) ||
+    isAdminUser({ currentUser, employees, permissionGroups }) ||
     (["pages.employees", "pages.reports", "manage.employees"] as PermissionKey[]).some((key) =>
       hasPermission(permissionSet, key),
     );
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
-  const currentUserIsAdmin = isAdminUser({ currentUser, employees });
+  const currentUserIsAdmin = isAdminUser({ currentUser, employees, permissionGroups });
   const isPersonalWorkspace = company.kind === "personal";
   const showResponsible = canSeePeopleContext && !isPersonalWorkspace;
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
@@ -1185,7 +1185,7 @@ function TasksPage() {
         employees={employees}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}
-        canCreateChecklist={isAdminUser({ currentUser, employees })}
+        canCreateChecklist={isAdminUser({ currentUser, employees, permissionGroups })}
       />
     </AppShell>
   );

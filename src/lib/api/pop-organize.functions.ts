@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import {
   defaultDueDate,
+  formatDepartmentName,
   nextId,
   sanitizeDatabase,
   today,
@@ -1765,7 +1766,7 @@ export const createDepartment = createServerFn({ method: "POST" })
 
       const department = {
         id: nextId("d", db.departments),
-        name: data.name.toLocaleLowerCase("pt-BR"),
+        name: formatDepartmentName(data.name),
         description: data.description,
         managerId: data.managerId,
         color: data.color ?? departmentColors[db.departments.length % departmentColors.length],

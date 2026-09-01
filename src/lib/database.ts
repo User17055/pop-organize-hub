@@ -134,6 +134,11 @@ export function toCurrentUser(employee: Employee): CurrentUser {
   };
 }
 
+export function formatDepartmentName(name: string) {
+  const normalized = name.trim().toLocaleLowerCase("pt-BR");
+  return normalized ? normalized[0]!.toLocaleUpperCase("pt-BR") + normalized.slice(1) : "";
+}
+
 export function sanitizeDatabase(
   db: Database,
   currentUserId: string,
@@ -148,7 +153,7 @@ export function sanitizeDatabase(
     throw Object.assign(new Error("Usuário da sessão não encontrado."), { statusCode: 401 });
   }
   const departmentNames = new Map(
-    db.departments.map((department) => [department.id, department.name.toLocaleLowerCase("pt-BR")]),
+    db.departments.map((department) => [department.id, formatDepartmentName(department.name)]),
   );
   const departments = db.departments.map((department) => ({
     ...department,
@@ -171,8 +176,7 @@ export function sanitizeDatabase(
             ...task,
             target: {
               ...task.target,
-              label:
-                departmentNames.get(task.target.id) ?? task.target.label.toLocaleLowerCase("pt-BR"),
+              label: departmentNames.get(task.target.id) ?? formatDepartmentName(task.target.label),
             },
           }
         : task,

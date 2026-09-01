@@ -2189,6 +2189,11 @@ function hueFrom(value: string): number {
   return Math.abs(hash);
 }
 
+function formatSectorName(name: string): string {
+  const normalized = name.trim().toLocaleLowerCase("pt-BR");
+  return normalized ? normalized[0]!.toLocaleUpperCase("pt-BR") + normalized.slice(1) : "";
+}
+
 function hydratePopWorkspace(data: PopWorkspacePayload): void {
   popBridgeActive = true;
   POP_WORKSPACES = data.workspaces;
@@ -2216,8 +2221,8 @@ function hydratePopWorkspace(data: PopWorkspacePayload): void {
   const sectorProjectId = `_sectors:${data.company.id}`;
   const sectorSections: Section[] = data.departments.map(department => ({
     id: department.id,
-    name: department.name.toLocaleLowerCase("pt-BR"),
-    desc: department.description || `Visão consolidada das tarefas do setor ${department.name.toLocaleLowerCase("pt-BR")}.`,
+    name: formatSectorName(department.name),
+    desc: department.description || `Visão consolidada das tarefas do setor ${formatSectorName(department.name)}.`,
     hours: "Dados do Pop Organize", from: "—", to: "—",
   }));
   if (needsGeneralSection || !sectorSections.length) sectorSections.push({

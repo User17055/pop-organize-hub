@@ -1,4 +1,5 @@
 import {
+  formatDepartmentName,
   nextId,
   toCurrentUser,
   transferInvitationAssignments,
@@ -112,6 +113,10 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         permissionGroups: workspace.permissionGroups,
       });
       const isCompany = (workspace.company.kind ?? "company") === "company";
+      const departmentName = (id: string) =>
+        formatDepartmentName(
+          workspace.departments.find((department) => department.id === id)?.name ?? "",
+        );
       return {
         id: workspace.company.id,
         name: workspace.company.name,
@@ -145,10 +150,7 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
                   : employee.role,
               isOwner: isCompany && employee.id === workspace.company.ownerId,
               sectorId: employee.departmentId,
-              sector:
-                workspace.departments
-                  .find((department) => department.id === employee.departmentId)
-                  ?.name.toLocaleLowerCase("pt-BR") ?? "",
+              sector: departmentName(employee.departmentId),
               groupIds: workspace.groups
                 .filter((group) => group.memberIds.includes(employee.id))
                 .map((group) => group.id),
@@ -164,17 +166,14 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             role: invitation.role,
             isOwner: false,
             sectorId: invitation.departmentId,
-            sector:
-              workspace.departments
-                .find((department) => department.id === invitation.departmentId)
-                ?.name.toLocaleLowerCase("pt-BR") ?? "",
+            sector: departmentName(invitation.departmentId),
             groupIds: invitation.groupIds ?? [],
             pending: true,
           })),
         ],
         sectors: workspace.departments.map((department) => ({
           id: department.id,
-          name: department.name.toLocaleLowerCase("pt-BR"),
+          name: formatDepartmentName(department.name),
           description: department.description ?? "",
         })),
         groups: workspace.groups.map((group) => ({
@@ -712,7 +711,7 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
   const workspaceId = authorizedWorkspace.company.id;
 
   if (action === "createDepartment") {
-    const name = requiredText(input.name, "O nome").toLocaleLowerCase("pt-BR");
+    const name = formatDepartmentName(requiredText(input.name, "O nome"));
     const description = requiredText(input.description, "A descrição", 3);
     await mutateDatabase((platform) => {
       const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);

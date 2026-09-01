@@ -2057,6 +2057,10 @@ function hueFrom(value) {
         hash = (hash * 31 + char.charCodeAt(0)) % 360;
     return Math.abs(hash);
 }
+function formatSectorName(name) {
+    const normalized = name.trim().toLocaleLowerCase("pt-BR");
+    return normalized ? normalized[0].toLocaleUpperCase("pt-BR") + normalized.slice(1) : "";
+}
 function hydratePopWorkspace(data) {
     popBridgeActive = true;
     POP_WORKSPACES = data.workspaces;
@@ -2083,8 +2087,8 @@ function hydratePopWorkspace(data) {
     const sectorProjectId = `_sectors:${data.company.id}`;
     const sectorSections = data.departments.map(department => ({
         id: department.id,
-        name: department.name.toLocaleLowerCase("pt-BR"),
-        desc: department.description || `Visão consolidada das tarefas do setor ${department.name.toLocaleLowerCase("pt-BR")}.`,
+        name: formatSectorName(department.name),
+        desc: department.description || `Visão consolidada das tarefas do setor ${formatSectorName(department.name)}.`,
         hours: "Dados do Pop Organize", from: "—", to: "—",
     }));
     if (needsGeneralSection || !sectorSections.length)

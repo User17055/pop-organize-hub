@@ -15,6 +15,7 @@ import {
   sanitizeDatabase,
   today,
   toCurrentUser,
+  transferInvitationAssignments,
   type AccountRecord,
   type Database,
   type PlatformDatabase,
@@ -512,7 +513,12 @@ function resolveTargetLabel(type: TargetType, id: string, db: Database) {
   if (type === "company" && db.company.id === id) return "Empresa inteira";
   if (type === "department") return db.departments.find((department) => department.id === id)?.name;
   if (type === "group") return db.groups.find((group) => group.id === id)?.name;
-  if (type === "user") return db.employees.find((employee) => employee.id === id)?.name;
+  if (type === "user") {
+    return (
+      db.employees.find((employee) => employee.id === id)?.name ??
+      db.invitations.find((invitation) => invitation.id === id)?.name
+    );
+  }
   return undefined;
 }
 
@@ -991,6 +997,7 @@ export const loginWithGoogle = createServerFn({ method: "POST" })
             }
           });
         }
+        transferInvitationAssignments(workspace, invitation.id, account.id);
         workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
         invitedWorkspace ??= workspace;
       }
@@ -1228,14 +1235,19 @@ export const createTask = createServerFn({ method: "POST" })
       }
 
       const responsible = data.responsibleId
-        ? db.employees.find((employee) => employee.id === data.responsibleId)
+        ? (db.employees.find((employee) => employee.id === data.responsibleId) ??
+          db.invitations.find((invitation) => invitation.id === data.responsibleId))
         : undefined;
       if (data.responsibleId && !responsible) {
         throw createHttpError("Responsável não encontrado.");
       }
 
       const reviewerId = data.requiresReview ? data.reviewerId : undefined;
-      if (reviewerId && !db.employees.some((employee) => employee.id === reviewerId)) {
+      if (
+        reviewerId &&
+        !db.employees.some((employee) => employee.id === reviewerId) &&
+        !db.invitations.some((invitation) => invitation.id === reviewerId)
+      ) {
         throw createHttpError("Revisor não encontrado.");
       }
 
@@ -1355,7 +1367,8 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       if (!targetLabel) throw createHttpError("Destino da tarefa não encontrado.");
       if (
         data.responsibleId &&
-        !db.employees.some((employee) => employee.id === data.responsibleId)
+        !db.employees.some((employee) => employee.id === data.responsibleId) &&
+        !db.invitations.some((invitation) => invitation.id === data.responsibleId)
       ) {
         throw createHttpError("Responsável não encontrado.");
       }
@@ -2091,6 +2104,7 @@ export const acceptInvitation = createServerFn({ method: "POST" })
           group.memberIds = Array.from(new Set([...group.memberIds, employee.id]));
         }
       });
+      transferInvitationAssignments(workspace, invitation.id, employee.id);
       workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
       platform.sessions.push({
         id: nextId("s", platform.sessions),

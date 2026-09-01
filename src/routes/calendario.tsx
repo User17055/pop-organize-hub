@@ -187,7 +187,20 @@ function CalendarPage() {
     );
   }
 
-  const { currentUser, departments, employees, groups, permissionGroups, tasks } = data;
+  const { currentUser, departments, employees, groups, invitations, permissionGroups, tasks } =
+    data;
+  const assignmentMembers = [
+    ...employees,
+    ...invitations.map((invitation) => ({
+      id: invitation.id,
+      name: invitation.name,
+      email: invitation.email,
+      role: "Convite pendente",
+      departmentId: invitation.departmentId,
+      status: invitation.status,
+      permissionGroupId: invitation.permissionGroupId,
+    })),
+  ];
   const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
   if (!hasPermission(permissionSet, "pages.calendar")) {
     return (
@@ -221,9 +234,9 @@ function CalendarPage() {
           label: `Setor: ${department.name}`,
         })),
         ...groups.map((group) => ({ value: `group:${group.id}`, label: `Grupo: ${group.name}` })),
-        ...employees.map((employee) => ({
+        ...assignmentMembers.map((employee) => ({
           value: `user:${employee.id}`,
-          label: `Pessoa: ${employee.name}`,
+          label: `Pessoa: ${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
         })),
       ];
 
@@ -368,7 +381,7 @@ function CalendarPage() {
               <TaskDetailDrawer
                 task={selectedTask}
                 permissions={selectedPermissions}
-                employees={employees}
+                employees={assignmentMembers}
                 departments={departments}
                 groups={groups}
                 company={data.company}
@@ -474,7 +487,7 @@ function CalendarPage() {
       <DaySheet
         day={selectedDay}
         tasks={dayTasks}
-        employees={employees}
+        employees={assignmentMembers}
         departments={departments}
         onOpenChange={(open) => {
           if (!open) setSelectedDay(null);
@@ -499,7 +512,7 @@ function CalendarPage() {
         errorMessage={
           createTaskMutation.error instanceof Error ? createTaskMutation.error.message : null
         }
-        employees={employees}
+        employees={assignmentMembers}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}
         canCreateChecklist={isAdminUser({ currentUser, employees, permissionGroups })}

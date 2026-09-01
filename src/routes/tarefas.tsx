@@ -404,7 +404,28 @@ function TasksPage() {
     );
   }
 
-  const { company, currentUser, departments, employees, groups, permissionGroups, tasks } = data;
+  const {
+    company,
+    currentUser,
+    departments,
+    employees,
+    groups,
+    invitations,
+    permissionGroups,
+    tasks,
+  } = data;
+  const assignmentMembers = [
+    ...employees,
+    ...invitations.map((invitation) => ({
+      id: invitation.id,
+      name: invitation.name,
+      email: invitation.email,
+      role: "Convite pendente",
+      departmentId: invitation.departmentId,
+      status: invitation.status,
+      permissionGroupId: invitation.permissionGroupId,
+    })),
+  ];
   const permissionSet = resolvePermissionSet({
     currentUser,
     employees,
@@ -442,9 +463,9 @@ function TasksPage() {
           value: `group:${group.id}`,
           label: `Grupo: ${group.name}`,
         })),
-        ...employees.map((employee) => ({
+        ...assignmentMembers.map((employee) => ({
           value: `user:${employee.id}`,
-          label: `Pessoa: ${employee.name}`,
+          label: `Pessoa: ${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
         })),
       ];
 
@@ -607,7 +628,7 @@ function TasksPage() {
               <TaskDetailDrawer
                 task={selectedTask}
                 permissions={selectedPermissions}
-                employees={employees}
+                employees={assignmentMembers}
                 departments={departments}
                 groups={groups}
                 company={company}
@@ -1047,7 +1068,7 @@ function TasksPage() {
               {!collapsed && (
                 <TaskList
                   tasks={section.tasks}
-                  employees={employees}
+                  employees={assignmentMembers}
                   departments={departments}
                   groups={groups}
                   permissionGroups={data.permissionGroups}
@@ -1182,7 +1203,7 @@ function TasksPage() {
         onSubmit={handleSubmit}
         isSubmitting={createTaskMutation.isPending}
         errorMessage={mutationError}
-        employees={employees}
+        employees={assignmentMembers}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}
         canCreateChecklist={isAdminUser({ currentUser, employees, permissionGroups })}

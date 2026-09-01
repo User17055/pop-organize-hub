@@ -84,6 +84,42 @@ export type PlatformDatabase = {
   emailChallenges: EmailChallengeRecord[];
 };
 
+type TaskWithNativeAssignment = Task & {
+  nativeData?: {
+    assignmentTargetId?: string;
+    assignees?: string[];
+    [key: string]: unknown;
+  };
+};
+
+/**
+ * Convites usam um id provisório enquanto a pessoa ainda não possui vínculo
+ * com a empresa. Ao aceitar, todas as referências passam para o id real da
+ * conta para que as tarefas já atribuídas apareçam imediatamente.
+ */
+export function transferInvitationAssignments(
+  workspace: Database,
+  invitationId: string,
+  employeeId: string,
+) {
+  for (const rawTask of workspace.tasks) {
+    const task = rawTask as TaskWithNativeAssignment;
+    if (task.target.type === "user" && task.target.id === invitationId) {
+      task.target.id = employeeId;
+    }
+    if (task.responsibleId === invitationId) task.responsibleId = employeeId;
+    if (task.responsibleIds?.includes(invitationId)) {
+      task.responsibleIds = Array.from(
+        new Set(task.responsibleIds.map((id) => (id === invitationId ? employeeId : id))),
+      );
+    }
+    if (task.reviewerId === invitationId) task.reviewerId = employeeId;
+    if (task.nativeData?.assignmentTargetId === invitationId) {
+      task.nativeData.assignmentTargetId = employeeId;
+    }
+  }
+}
+
 export function withoutPassword(employee: EmployeeRecord): Employee {
   const { passwordHash, googleSubject, ...safeEmployee } = employee;
   return safeEmployee;

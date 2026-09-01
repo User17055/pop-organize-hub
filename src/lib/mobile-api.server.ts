@@ -1,6 +1,11 @@
-import type { Database, PlatformDatabase } from "./database";
+import {
+  nextId,
+  toCurrentUser,
+  transferInvitationAssignments,
+  type Database,
+  type PlatformDatabase,
+} from "./database";
 import { createPublicKey, createVerify, randomInt, type JsonWebKey } from "node:crypto";
-import { nextId, toCurrentUser } from "./database";
 import {
   createCompanyWorkspace,
   createPersonalWorkspace,
@@ -1179,6 +1184,7 @@ export async function respondToMobileInvitation(
         }
       });
     }
+    if (accept) transferInvitationAssignments(workspace, invitation.id, account.id);
     workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
     return {
       ok: true,
@@ -1397,7 +1403,11 @@ function taskToMobileTask(
     new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean)),
   ).slice(0, 3);
   const assignees = responsibleIds
-    .map((id) => workspace.employees.find((employee) => employee.id === id)?.name)
+    .map(
+      (id) =>
+        workspace.employees.find((employee) => employee.id === id)?.name ??
+        workspace.invitations.find((invitation) => invitation.id === id)?.name,
+    )
     .filter((name): name is string => Boolean(name));
   const assignee = assignees.join(", ") || "Sem responsável";
   const assignedBy =
@@ -1470,7 +1480,13 @@ function mobileResponsibleId(workspace: Database, accountId: string, assignee: s
       (employee) =>
         employee.name.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR") ||
         employee.email.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR"),
-    )?.id ?? ""
+    )?.id ??
+    workspace.invitations.find(
+      (invitation) =>
+        invitation.name.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR") ||
+        invitation.email.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR"),
+    )?.id ??
+    ""
   );
 }
 
@@ -1511,6 +1527,12 @@ function mobileTaskTarget(
         candidate.name.toLocaleLowerCase("pt-BR") === label.toLocaleLowerCase("pt-BR"),
     );
     if (employee) return { type: "user", id: employee.id, label: employee.name };
+    const invitation = workspace.invitations.find(
+      (candidate) =>
+        candidate.id === id ||
+        candidate.name.toLocaleLowerCase("pt-BR") === label.toLocaleLowerCase("pt-BR"),
+    );
+    if (invitation) return { type: "user", id: invitation.id, label: invitation.name };
   }
   if (workspace.company.kind === "company") {
     return {

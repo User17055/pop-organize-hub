@@ -137,7 +137,10 @@ export function TaskDetailDrawer({
           : employees.map((employee) => ({
               id: employee.id,
               label: employee.name,
-              description: employee.role,
+              description:
+                employee.role === "Convite pendente"
+                  ? "Aguardando aceite do convite"
+                  : employee.role,
             }));
 
   useEffect(
@@ -467,7 +470,7 @@ export function TaskDetailDrawer({
                         { value: "", label: "Sem responsável" },
                         ...employees.map((employee) => ({
                           value: employee.id,
-                          label: employee.name,
+                          label: `${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
                         })),
                       ]}
                       onChange={(responsibleId) =>

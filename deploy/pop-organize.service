@@ -2,7 +2,10 @@
 Description=Pop Organize web application
 After=network-online.target mysql.service
 Wants=network-online.target
-Requires=mysql.service
+# MySQL may be restarted independently by unattended upgrades. Requiring the
+# unit propagates that stop to this service without starting it again when the
+# database returns, leaving Nginx with no upstream and producing a 502.
+Wants=mysql.service
 
 [Service]
 Type=simple
@@ -11,7 +14,9 @@ Group=deploy
 WorkingDirectory=/var/www/pop-organize
 EnvironmentFile=/etc/pop-organize.env
 ExecStart=/usr/local/bin/node /var/www/pop-organize/.output/server/index.mjs
-Restart=on-failure
+# Recover even if the Node process exits cleanly without a deliberate
+# `systemctl stop`; explicit systemd stops are never restarted.
+Restart=always
 RestartSec=5
 TimeoutStopSec=20
 KillSignal=SIGTERM

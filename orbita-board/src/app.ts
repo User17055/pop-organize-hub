@@ -16,6 +16,8 @@ interface Person {
   role: string;
   /** Matiz HSL usada no avatar. */
   hue: number;
+  /** Foto cadastrada no Pop Organize. */
+  avatar?: string;
 }
 
 interface Section {
@@ -280,7 +282,10 @@ const initials = (key: string): string => {
 function avatar(key: string, cls = ""): string {
   const p = PEOPLE[key];
   if (!p) return "";
-  return `<span class="av ${cls}" style="--h:${p.hue}" title="${esc(p.name + " · " + p.role)}">${initials(key)}</span>`;
+  const photoStyle = p.avatar
+    ? `;background-image:url(${JSON.stringify(p.avatar)});background-size:cover;background-position:center`
+    : "";
+  return `<span class="av ${cls}" style="${esc(`--h:${p.hue}${photoStyle}`)}" title="${esc(p.name + " · " + p.role)}">${p.avatar ? "" : initials(key)}</span>`;
 }
 function avatarStack(keys: string[], max = 3): string {
   const head = keys.slice(0, max).map(k => avatar(k)).join("");
@@ -802,7 +807,9 @@ function openTaskForm(existing?: Task, presetStatus?: StatusId): void {
         } else {
           const temporaryId = "pending-" + ++seq;
           TASKS.push({ id: temporaryId, project: state.project, section: state.section, comments: 0, ...patch });
-          popPost("task:create", { temporaryId, projectId: state.project, task: patch });
+          popPost("task:create", {
+            temporaryId, projectId: state.project, sectionId: state.section, task: patch,
+          });
           toast(`Tarefa criada em ${statusOf(patch.status).name}.`);
         }
         closeLayer(); renderScreen();
@@ -2193,45 +2200,44 @@ function hydratePopWorkspace(data: PopWorkspacePayload): void {
   REMINDERS.splice(0, REMINDERS.length);
 
   PEOPLE = Object.fromEntries(data.employees.map(employee => [employee.id, {
-    name: employee.name, role: employee.role, hue: hueFrom(employee.id),
+    name: employee.name, role: employee.role, hue: hueFrom(employee.id), avatar: employee.avatar,
   }]));
   if (!PEOPLE[ME]) PEOPLE[ME] = {
     name: data.currentUser.name, role: data.currentUser.role, hue: hueFrom(ME),
   };
 
-  const departments = data.departments.map((department, index): Project => ({
-    id: department.id, name: department.name, favorite: index < 2,
-    group: "clientes", hue: hueFrom(department.id),
-    sections: [{
-      id: "overview", name: "Visão geral",
-      desc: department.description || `Visão consolidada das tarefas do setor ${department.name}.`,
-      hours: "Dados do Pop Organize", from: "—", to: "—",
-    }],
-  }));
-
   const employeeDepartment = new Map(data.employees.map(employee => [employee.id, employee.departmentId]));
   const departmentIds = new Set(data.departments.map(department => department.id));
-  const needsCompanyProject = data.tasks.some(item =>
-    item.target.type !== "department" && !employeeDepartment.get(item.responsibleId));
-  if (needsCompanyProject || !departments.length) departments.push({
-    id: `_company:${data.company.id}`, name: data.company.name,
-    favorite: !departments.length, group: "clientes", hue: hueFrom(data.company.id),
-    sections: [{
-      id: "overview", name: "Visão geral",
-      desc: data.company.description || "Tarefas gerais da empresa.",
-      hours: "Dados do Pop Organize", from: "—", to: "—",
-    }],
+  const needsGeneralSection = data.tasks.some(item => {
+    const targetDepartment = item.target.type === "department" && departmentIds.has(item.target.id);
+    const responsibleDepartment = employeeDepartment.get(item.responsibleId);
+    return !targetDepartment && !(responsibleDepartment && departmentIds.has(responsibleDepartment));
   });
-  PROJECTS = departments;
+  const sectorProjectId = `_sectors:${data.company.id}`;
+  const sectorSections: Section[] = data.departments.map(department => ({
+    id: department.id,
+    name: department.name.toLocaleLowerCase("pt-BR"),
+    desc: department.description || `Visão consolidada das tarefas do setor ${department.name.toLocaleLowerCase("pt-BR")}.`,
+    hours: "Dados do Pop Organize", from: "—", to: "—",
+  }));
+  if (needsGeneralSection || !sectorSections.length) sectorSections.push({
+    id: `_company:${data.company.id}`, name: "geral",
+    desc: data.company.description || "Tarefas gerais da empresa.",
+    hours: "Dados do Pop Organize", from: "—", to: "—",
+  });
+  PROJECTS = [{
+    id: sectorProjectId, name: "Setor", favorite: true,
+    group: "clientes", hue: hueFrom(data.company.id), sections: sectorSections,
+  }];
 
   TASKS = data.tasks.map(item => {
     const responsibleDepartment = employeeDepartment.get(item.responsibleId);
-    const projectId = item.target.type === "department" && departmentIds.has(item.target.id)
+    const sectionId = item.target.type === "department" && departmentIds.has(item.target.id)
       ? item.target.id
       : responsibleDepartment && departmentIds.has(responsibleDepartment)
         ? responsibleDepartment : `_company:${data.company.id}`;
     return {
-      id: item.id, project: projectId, section: "overview", status: popStatus(item.status),
+      id: item.id, project: sectorProjectId, section: sectionId, status: popStatus(item.status),
       tag: item.tags[0] || "Geral", title: item.title, desc: item.description,
       who: [...new Set([item.responsibleId, ...(item.responsibleIds ?? [])].filter(Boolean))],
       links: item.attachments, comments: item.comments, due: item.dueDate,
@@ -2246,7 +2252,8 @@ function hydratePopWorkspace(data: PopWorkspacePayload): void {
   const currentProject = PROJECTS.find(item => item.id === state.project) ?? PROJECTS[0];
   if (currentProject) {
     state.project = currentProject.id;
-    state.section = currentProject.sections[0]!.id;
+    state.section = currentProject.sections.find(item => item.id === state.section)?.id
+      ?? currentProject.sections[0]!.id;
   }
   state.week = weekStart(TODAY);
   state.calDate = new Date(TODAY.getTime());
@@ -2261,6 +2268,8 @@ function hydratePopWorkspace(data: PopWorkspacePayload): void {
     me.style.backgroundImage = photo ? `url(${JSON.stringify(photo)})` : "";
     me.style.backgroundSize = photo ? "cover" : "";
     me.style.backgroundPosition = photo ? "center" : "";
+    me.style.width = "40px";
+    me.style.height = "40px";
     me.title = PEOPLE[ME]?.name ?? data.currentUser.name;
   }
   document.title = `Pop Organize — ${data.company.name}`;

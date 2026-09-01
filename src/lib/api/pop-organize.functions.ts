@@ -1765,7 +1765,7 @@ export const createDepartment = createServerFn({ method: "POST" })
 
       const department = {
         id: nextId("d", db.departments),
-        name: data.name,
+        name: data.name.toLocaleLowerCase("pt-BR"),
         description: data.description,
         managerId: data.managerId,
         color: data.color ?? departmentColors[db.departments.length % departmentColors.length],

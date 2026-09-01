@@ -46,6 +46,7 @@ type BridgeMessage = {
   id?: string;
   to?: string;
   projectId?: string;
+  sectionId?: string;
   companyId?: string;
   status?: OrbitaStatus;
   priority?: OrbitaPriority;
@@ -189,10 +190,11 @@ function PopOrganizeV2() {
       } else if (message.type === "task:update" && task && message.task) {
         await updateFromOrbita(task, message.task);
       } else if (message.type === "task:create" && message.task && message.projectId) {
-        const isCompany = message.projectId.startsWith("_company:");
+        const targetId = message.sectionId ?? message.projectId;
+        const isCompany = targetId.startsWith("_company:");
         const target: { type: TargetType; id: string } = isCompany
-          ? { type: "company", id: data?.company.id ?? message.projectId.slice(9) }
-          : { type: "department", id: message.projectId };
+          ? { type: "company", id: data?.company.id ?? targetId.slice(9) }
+          : { type: "department", id: targetId };
         const created = await createTask({
           data: {
             title: message.task.title,

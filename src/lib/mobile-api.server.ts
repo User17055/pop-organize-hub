@@ -146,8 +146,9 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
               isOwner: isCompany && employee.id === workspace.company.ownerId,
               sectorId: employee.departmentId,
               sector:
-                workspace.departments.find((department) => department.id === employee.departmentId)
-                  ?.name ?? "",
+                workspace.departments
+                  .find((department) => department.id === employee.departmentId)
+                  ?.name.toLocaleLowerCase("pt-BR") ?? "",
               groupIds: workspace.groups
                 .filter((group) => group.memberIds.includes(employee.id))
                 .map((group) => group.id),
@@ -164,15 +165,16 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             isOwner: false,
             sectorId: invitation.departmentId,
             sector:
-              workspace.departments.find((department) => department.id === invitation.departmentId)
-                ?.name ?? "",
+              workspace.departments
+                .find((department) => department.id === invitation.departmentId)
+                ?.name.toLocaleLowerCase("pt-BR") ?? "",
             groupIds: invitation.groupIds ?? [],
             pending: true,
           })),
         ],
         sectors: workspace.departments.map((department) => ({
           id: department.id,
-          name: department.name,
+          name: department.name.toLocaleLowerCase("pt-BR"),
           description: department.description ?? "",
         })),
         groups: workspace.groups.map((group) => ({
@@ -710,7 +712,7 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
   const workspaceId = authorizedWorkspace.company.id;
 
   if (action === "createDepartment") {
-    const name = requiredText(input.name, "O nome");
+    const name = requiredText(input.name, "O nome").toLocaleLowerCase("pt-BR");
     const description = requiredText(input.description, "A descrição", 3);
     await mutateDatabase((platform) => {
       const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);

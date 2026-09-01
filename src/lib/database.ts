@@ -147,22 +147,42 @@ export function sanitizeDatabase(
   if (!currentEmployee) {
     throw Object.assign(new Error("Usuário da sessão não encontrado."), { statusCode: 401 });
   }
-  const visibleTasks = db.tasks.filter((task) =>
-    canViewTask({
-      task,
-      currentUser: currentEmployee,
-      employees,
-      departments: db.departments,
-      groups: db.groups,
-      permissionGroups: db.permissionGroups,
-    }),
+  const departmentNames = new Map(
+    db.departments.map((department) => [department.id, department.name.toLocaleLowerCase("pt-BR")]),
   );
+  const departments = db.departments.map((department) => ({
+    ...department,
+    name: departmentNames.get(department.id)!,
+  }));
+  const visibleTasks = db.tasks
+    .filter((task) =>
+      canViewTask({
+        task,
+        currentUser: currentEmployee,
+        employees,
+        departments: db.departments,
+        groups: db.groups,
+        permissionGroups: db.permissionGroups,
+      }),
+    )
+    .map((task) =>
+      task.target.type === "department"
+        ? {
+            ...task,
+            target: {
+              ...task.target,
+              label:
+                departmentNames.get(task.target.id) ?? task.target.label.toLocaleLowerCase("pt-BR"),
+            },
+          }
+        : task,
+    );
 
   return {
     accessMode: db.accessMode,
     company: db.company,
     currentUser: toCurrentUser(currentEmployee),
-    departments: db.departments,
+    departments,
     employees,
     groups: db.groups,
     tasks: visibleTasks,

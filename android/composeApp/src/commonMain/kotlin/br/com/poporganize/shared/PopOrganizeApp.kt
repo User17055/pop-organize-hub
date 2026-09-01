@@ -885,9 +885,9 @@ private fun WorkspaceHeader(store: PopStore) {
                     }
                 }
             }
-            // Sem este respiro o nome do espaco encostava no logotipo: com "Clinica Sao Francisco"
-            // no cabecalho, o chevron de trocar de espaco ficava colado no "P" da marca e os dois
-            // liam como um bloco so.
+            // Sem este respiro o nome do espaco encostava no logotipo: com um nome de empresa
+            // longo no cabecalho, o chevron de trocar de espaco ficava colado no "P" da marca e os
+            // dois liam como um bloco so.
             Spacer(Modifier.width(12.dp))
             // Reduzido de 24sp para 16sp. Em 24 o logotipo era o MAIOR texto do cabecalho -- maior
             // que o nome do espaco, que e a informacao que a pessoa precisa ler ali. Marca nao
@@ -933,7 +933,7 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
     //
     // Segundo erro (este, corrigido em 27/08): o conserto anterior juntou hoje + atrasadas em
     // aberto numa lista so, com o argumento de que "atrasada tambem e para hoje". Defensavel no
-    // papel, desmentido pelo primeiro contato com dado real. No iPhone, na SAO FRANCISCO, o cartao
+    // papel, desmentido pelo primeiro contato com dado real. No iPhone, num espaco real, o cartao
     // anunciou **"349 tarefas para hoje"** com o anel em **0%**: eram 348 atrasadas de uma
     // importacao de planilha e UMA tarefa vencendo no dia. O maior texto da tela virou um numero
     // sem uso, e o anel, um enfeite travado em zero.
@@ -2828,7 +2828,7 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     var recurrence by remember { mutableStateOf(RecurrenceKind.None) }
     // Mesma armadilha do rememberMoveTargets: `selectedCompany` sobrevive a troca para o Meu
     // Espaco. O dialogo "Nova tarefa" abria no espaco pessoal com "Atribuir para" listando as
-    // pessoas e os setores da SAO FRANCISCO -- e criar assim mandaria o id de alguem de outro
+    // pessoas e os setores da empresa -- e criar assim mandaria o id de alguem de outro
     // espaco na carga. Encontrado em aparelho em 27/08.
     val company = store.selectedCompany.takeIf { store.state.workspace == WorkspaceKind.Company }
     val assignmentOptions = when (assignmentKind) {

@@ -94,7 +94,7 @@ interface State {
 
 /* ============================ dados ============================ */
 
-const PEOPLE: Record<string, Person> = {
+let PEOPLE: Record<string, Person> = {
   ar: { name: "André R.",  role: "Design lead",           hue: 32  },
   mc: { name: "Marina C.", role: "UX researcher",         hue: 168 },
   lf: { name: "Lucas F.",  role: "Designer de produto",   hue: 262 },
@@ -105,7 +105,7 @@ const PEOPLE: Record<string, Person> = {
   cv: { name: "Caio V.",   role: "Mídia paga",            hue: 96  },
 };
 
-const TAGS: Record<string, number> = {
+let TAGS: Record<string, number> = {
   "UI Design": 18, "UX Research": 344, "Marketing": 142, "Web Design": 212,
   "3D": 262, "Copywriting": 74, "Motion": 14, "Dev": 186, "QA": 38,
 };
@@ -119,7 +119,7 @@ const STATUS: StatusDef[] = [
 
 const PRIO_NAME: Record<Priority, string> = { alta: "Alta", media: "Média", baixa: "Baixa" };
 
-const PROJECTS: Project[] = [
+let PROJECTS: Project[] = [
   { id: "nebula", name: "Nébula: app de streaming", favorite: true, group: "clientes", hue: 145, sections: [
     { id: "visao",    name: "Visão geral",     desc: "Painel de status do contrato, escopo fechado e pontos de decisão com o cliente.", hours: "41d, 6h, 12min", from: "03.02.2026", to: "30.10.2026" },
     { id: "branding", name: "Branding",        desc: "Identidade do Nébula: marca, sistema de cor, tipografia e o mascote que aparece nos estados vazios.", hours: "19d, 4h, 40min", from: "03.02.2026", to: "22.04.2026" },
@@ -215,9 +215,9 @@ let TASKS: Task[] = [
 
 /* ============================ utilidades ============================ */
 
-const TODAY = new Date("2026-09-01T00:00:00");
+let TODAY = new Date("2026-09-01T00:00:00");
 /** A pessoa logada — as tarefas dela alimentam "Atribuído a mim". */
-const ME = "ar";
+let ME = "ar";
 const MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
 const MES_CURTO = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
 
@@ -438,7 +438,8 @@ function renderSidebar(): void {
   // Só em Favoritos a bolinha usa a cor do projeto; nos outros grupos ela segue o tema.
   if (favs.length) html += groupBlock("fav", "Favoritos", favs, true, false);
   html += groupBlock("clientes", "Todos os projetos", PROJECTS.filter(p => p.group === "clientes"), false, true);
-  html += groupBlock("estudio", "Coisas do estúdio", PROJECTS.filter(p => p.group === "estudio"), false, true);
+  const studioProjects = PROJECTS.filter(p => p.group === "estudio");
+  if (studioProjects.length) html += groupBlock("estudio", "Coisas do estúdio", studioProjects, false, true);
   $("#sideScroll").innerHTML = html;
   $("#sideScroll").querySelectorAll<HTMLElement>(".pitem").forEach((el, i) => {
     el.style.animationDelay = `${Math.min(i, 12) * 22}ms`;
@@ -519,7 +520,7 @@ function renderMineHeader(): void {
   $("#headLeft").innerHTML =
     `<h1 class="ptitle"><span class="dotm"></span>Atribuído a mim</h1>` +
     `<div class="dashsub" style="padding-left:22px">` +
-    `${esc(PEOPLE[ME]!.name)} · ${DIA_LONGO[weekdayOf(TODAY)]}, ${fmtLong("2026-09-01")}</div>`;
+    `${esc(PEOPLE[ME]!.name)} · ${DIA_LONGO[weekdayOf(TODAY)]}, ${fmtLong(isoOf(TODAY))}</div>`;
 
   $("#brief").innerHTML =
     `<div class="brief-h"><h2>${state.mineRange === "hoje" ? "Para fazer hoje"
@@ -718,11 +719,13 @@ function openTask(id: string): void {
     () => {
       $<HTMLSelectElement>("#mvSel").addEventListener("change", e => {
         t.status = (e.target as HTMLSelectElement).value as StatusId;
+        popPost("task:status", { id: t.id, status: t.status });
         renderScreen();
         toast(`“${t.title}” → ${statusOf(t.status).name}`);
       });
       $<HTMLSelectElement>("#prSel").addEventListener("change", e => {
         t.priority = (e.target as HTMLSelectElement).value as Priority;
+        popPost("task:priority", { id: t.id, priority: t.priority });
         renderScreen();
         toast(`Prioridade ${PRIO_NAME[t.priority].toLowerCase()}.`);
       });
@@ -735,7 +738,7 @@ function openTaskForm(existing?: Task, presetStatus?: StatusId): void {
   const edit = !!existing;
   const d: Pick<Task, "title" | "desc" | "tag" | "status" | "due" | "who" | "links" | "priority"> = existing ?? {
     title: "", desc: "", tag: "UI Design", status: presetStatus ?? "todo",
-    due: "2026-09-30", who: [], links: 0, priority: "media",
+    due: isoOf(addDays(TODAY, 7)), who: [], links: 0, priority: "media",
   };
 
   openLayer(
@@ -794,9 +797,12 @@ function openTaskForm(existing?: Task, presetStatus?: StatusId): void {
         };
         if (existing) {
           Object.assign(existing, patch);
+          popPost("task:update", { id: existing.id, task: patch });
           toast("Tarefa atualizada.");
         } else {
-          TASKS.push({ id: "t" + ++seq, project: state.project, section: state.section, comments: 0, ...patch });
+          const temporaryId = "pending-" + ++seq;
+          TASKS.push({ id: temporaryId, project: state.project, section: state.section, comments: 0, ...patch });
+          popPost("task:create", { temporaryId, projectId: state.project, task: patch });
           toast(`Tarefa criada em ${statusOf(patch.status).name}.`);
         }
         closeLayer(); renderScreen();
@@ -809,6 +815,7 @@ function deleteTask(id: string): void {
   if (i < 0) return;
   const name = TASKS[i]!.title;
   TASKS.splice(i, 1);
+  popPost("task:delete", { id });
   closeLayer(); renderScreen();
   toast(`“${name}” foi excluída.`);
 }
@@ -977,6 +984,7 @@ document.addEventListener("drop", e => {
   const moved = t.id;
   TASKS = TASKS.filter(x => x.id !== t.id);
   t.status = status;
+  popPost("task:status", { id: t.id, status });
   if (before && before.dataset["id"] !== t.id) {
     const i = TASKS.findIndex(x => x.id === before.dataset["id"]);
     TASKS.splice(i < 0 ? TASKS.length : i, 0, t);
@@ -996,6 +1004,8 @@ document.addEventListener("click", e => {
   const at = (sel: string) => target.closest<HTMLElement>(sel);
 
   if (at("[data-close]")) { closeLayer(); return; }
+
+  if (at(".railbtn.out")) { popPost("logout"); return; }
 
   const del = at("[data-del]");
   if (del) { deleteTask(del.dataset["del"]!); return; }
@@ -1031,7 +1041,11 @@ document.addEventListener("click", e => {
   const add = at("[data-add]");
   if (add) { openTaskForm(undefined, add.dataset["add"] as StatusId); return; }
   if (at("#newBtn")) { openTaskForm(); return; }
-  if (at("#newProjBtn")) { openProjectForm(); return; }
+  if (at("#newProjBtn")) {
+    if (popBridgeActive) popPost("navigate", { to: "/setores" });
+    else openProjectForm();
+    return;
+  }
   if (at("[data-edit-section]")) { closeLayer(); openSectionForm(); return; }
 
   const more = at("[data-more]");
@@ -2085,5 +2099,146 @@ document.addEventListener("keydown", e => {
   const id = el?.dataset?.["open"];
   if (id) { e.preventDefault(); openTask(id); }
 });
+
+/* ============================ integração Pop Organize ============================ */
+
+interface PopWorkspacePayload {
+  company: { id: string; name: string; description?: string };
+  currentUser: { id: string; name: string; role: string };
+  departments: Array<{ id: string; name: string; description: string; color: string }>;
+  employees: Array<{ id: string; name: string; role: string; departmentId: string }>;
+  tasks: Array<{
+    id: string; title: string; description: string;
+    priority: "low" | "medium" | "high" | "urgent";
+    status: "pending" | "in_progress" | "waiting_review" | "reopened" | "completed" | "canceled";
+    dueDate: string;
+    target: { type: "company" | "department" | "group" | "user"; id: string; label: string };
+    responsibleId: string; responsibleIds?: string[]; tags: string[];
+    comments: number; attachments: number;
+  }>;
+  today: string;
+}
+
+let popBridgeActive = false;
+
+function popPost(type: string, payload: Record<string, unknown> = {}): void {
+  if (!popBridgeActive || window.parent === window) return;
+  window.parent.postMessage({ source: "pop-orbita", type, ...payload }, "*");
+}
+
+function popStatus(status: PopWorkspacePayload["tasks"][number]["status"]): StatusId {
+  if (status === "in_progress") return "doing";
+  if (status === "waiting_review") return "review";
+  if (status === "completed" || status === "canceled") return "done";
+  return "todo";
+}
+
+function popPriority(priority: PopWorkspacePayload["tasks"][number]["priority"]): Priority {
+  if (priority === "urgent" || priority === "high") return "alta";
+  if (priority === "low") return "baixa";
+  return "media";
+}
+
+function hueFrom(value: string): number {
+  let hash = 0;
+  for (const char of value) hash = (hash * 31 + char.charCodeAt(0)) % 360;
+  return Math.abs(hash);
+}
+
+function hydratePopWorkspace(data: PopWorkspacePayload): void {
+  popBridgeActive = true;
+  TODAY = new Date(`${data.today}T00:00:00`);
+  ME = data.currentUser.id;
+  SCHEDULE.splice(0, SCHEDULE.length);
+  MEETINGS.splice(0, MEETINGS.length);
+  REMINDERS.splice(0, REMINDERS.length);
+
+  PEOPLE = Object.fromEntries(data.employees.map(employee => [employee.id, {
+    name: employee.name, role: employee.role, hue: hueFrom(employee.id),
+  }]));
+  if (!PEOPLE[ME]) PEOPLE[ME] = {
+    name: data.currentUser.name, role: data.currentUser.role, hue: hueFrom(ME),
+  };
+
+  const departments = data.departments.map((department, index): Project => ({
+    id: department.id, name: department.name, favorite: index < 2,
+    group: "clientes", hue: hueFrom(department.id),
+    sections: [{
+      id: "overview", name: "Visão geral",
+      desc: department.description || `Visão consolidada das tarefas do setor ${department.name}.`,
+      hours: "Dados do Pop Organize", from: "—", to: "—",
+    }],
+  }));
+
+  const employeeDepartment = new Map(data.employees.map(employee => [employee.id, employee.departmentId]));
+  const departmentIds = new Set(data.departments.map(department => department.id));
+  const needsCompanyProject = data.tasks.some(item =>
+    item.target.type !== "department" && !employeeDepartment.get(item.responsibleId));
+  if (needsCompanyProject || !departments.length) departments.push({
+    id: `_company:${data.company.id}`, name: data.company.name,
+    favorite: !departments.length, group: "clientes", hue: hueFrom(data.company.id),
+    sections: [{
+      id: "overview", name: "Visão geral",
+      desc: data.company.description || "Tarefas gerais da empresa.",
+      hours: "Dados do Pop Organize", from: "—", to: "—",
+    }],
+  });
+  PROJECTS = departments;
+
+  TASKS = data.tasks.map(item => {
+    const responsibleDepartment = employeeDepartment.get(item.responsibleId);
+    const projectId = item.target.type === "department" && departmentIds.has(item.target.id)
+      ? item.target.id
+      : responsibleDepartment && departmentIds.has(responsibleDepartment)
+        ? responsibleDepartment : `_company:${data.company.id}`;
+    return {
+      id: item.id, project: projectId, section: "overview", status: popStatus(item.status),
+      tag: item.tags[0] || "Geral", title: item.title, desc: item.description,
+      who: [...new Set([item.responsibleId, ...(item.responsibleIds ?? [])].filter(Boolean))],
+      links: item.attachments, comments: item.comments, due: item.dueDate,
+      priority: popPriority(item.priority),
+    };
+  });
+
+  const tags = [...new Set(TASKS.map(item => item.tag))];
+  TAGS = Object.fromEntries(tags.map((tag, index) => [tag, (index * 47 + 18) % 360]));
+  if (!Object.keys(TAGS).length) TAGS = { Geral: 212 };
+
+  const currentProject = PROJECTS.find(item => item.id === state.project) ?? PROJECTS[0];
+  if (currentProject) {
+    state.project = currentProject.id;
+    state.section = currentProject.sections[0]!.id;
+  }
+  state.week = weekStart(TODAY);
+  state.calDate = new Date(TODAY.getTime());
+  state.calMonth = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
+  state.tags.clear(); state.who.clear(); state.priorities.clear();
+
+  const me = document.querySelector<HTMLElement>(".topright .me .av");
+  if (me) {
+    me.textContent = initials(ME);
+    me.style.setProperty("--h", String(PEOPLE[ME]?.hue ?? 220));
+    me.title = PEOPLE[ME]?.name ?? data.currentUser.name;
+  }
+  document.title = `Pop Organize — ${data.company.name}`;
+  renderAll();
+  popPost("workspace:ready");
+}
+
+window.addEventListener("message", event => {
+  const message = event.data as {
+    source?: string; type?: string; workspace?: PopWorkspacePayload; message?: string;
+  };
+  if (message?.source !== "pop-organize") return;
+  if (message.type === "action:error") {
+    toast(message.message || "Não foi possível concluir a ação.");
+    return;
+  }
+  if (message.type === "workspace" && message.workspace) hydratePopWorkspace(message.workspace);
+});
+
+if (window.parent !== window) {
+  window.parent.postMessage({ source: "pop-orbita", type: "frame:ready" }, "*");
+}
 
 renderAll();

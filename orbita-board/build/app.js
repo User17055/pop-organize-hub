@@ -4,7 +4,7 @@
  * Todos os dados são fictícios e vivem em memória: recarregar volta ao estado inicial.
  */
 /* ============================ dados ============================ */
-const PEOPLE = {
+let PEOPLE = {
     ar: { name: "André R.", role: "Design lead", hue: 32 },
     mc: { name: "Marina C.", role: "UX researcher", hue: 168 },
     lf: { name: "Lucas F.", role: "Designer de produto", hue: 262 },
@@ -14,7 +14,7 @@ const PEOPLE = {
     rg: { name: "Rafa G.", role: "Motion designer", hue: 18 },
     cv: { name: "Caio V.", role: "Mídia paga", hue: 96 },
 };
-const TAGS = {
+let TAGS = {
     "UI Design": 18, "UX Research": 344, "Marketing": 142, "Web Design": 212,
     "3D": 262, "Copywriting": 74, "Motion": 14, "Dev": 186, "QA": 38,
 };
@@ -25,7 +25,7 @@ const STATUS = [
     { id: "done", name: "Concluído", color: "var(--s-done)", fill: "var(--f-done)" },
 ];
 const PRIO_NAME = { alta: "Alta", media: "Média", baixa: "Baixa" };
-const PROJECTS = [
+let PROJECTS = [
     { id: "nebula", name: "Nébula: app de streaming", favorite: true, group: "clientes", hue: 145, sections: [
             { id: "visao", name: "Visão geral", desc: "Painel de status do contrato, escopo fechado e pontos de decisão com o cliente.", hours: "41d, 6h, 12min", from: "03.02.2026", to: "30.10.2026" },
             { id: "branding", name: "Branding", desc: "Identidade do Nébula: marca, sistema de cor, tipografia e o mascote que aparece nos estados vazios.", hours: "19d, 4h, 40min", from: "03.02.2026", to: "22.04.2026" },
@@ -112,9 +112,9 @@ let TASKS = [
     task("manual", "v1", "doing", "Copywriting", "Capítulo de voz e tom", "Como o estúdio escreve, com exemplo do que fazer e do que evitar.", ["bs"], 2, 11, "2026-10-08", "media"),
 ];
 /* ============================ utilidades ============================ */
-const TODAY = new Date("2026-09-01T00:00:00");
+let TODAY = new Date("2026-09-01T00:00:00");
 /** A pessoa logada — as tarefas dela alimentam "Atribuído a mim". */
-const ME = "ar";
+let ME = "ar";
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const MES_CURTO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 function weekStart(d) {
@@ -319,7 +319,9 @@ function renderSidebar() {
     if (favs.length)
         html += groupBlock("fav", "Favoritos", favs, true, false);
     html += groupBlock("clientes", "Todos os projetos", PROJECTS.filter(p => p.group === "clientes"), false, true);
-    html += groupBlock("estudio", "Coisas do estúdio", PROJECTS.filter(p => p.group === "estudio"), false, true);
+    const studioProjects = PROJECTS.filter(p => p.group === "estudio");
+    if (studioProjects.length)
+        html += groupBlock("estudio", "Coisas do estúdio", studioProjects, false, true);
     $("#sideScroll").innerHTML = html;
     $("#sideScroll").querySelectorAll(".pitem").forEach((el, i) => {
         el.style.animationDelay = `${Math.min(i, 12) * 22}ms`;
@@ -391,7 +393,7 @@ function renderMineHeader() {
     $("#headLeft").innerHTML =
         `<h1 class="ptitle"><span class="dotm"></span>Atribuído a mim</h1>` +
             `<div class="dashsub" style="padding-left:22px">` +
-            `${esc(PEOPLE[ME].name)} · ${DIA_LONGO[weekdayOf(TODAY)]}, ${fmtLong("2026-09-01")}</div>`;
+            `${esc(PEOPLE[ME].name)} · ${DIA_LONGO[weekdayOf(TODAY)]}, ${fmtLong(isoOf(TODAY))}</div>`;
     $("#brief").innerHTML =
         `<div class="brief-h"><h2>${state.mineRange === "hoje" ? "Para fazer hoje"
             : state.mineRange === "semana" ? "Para fazer nesta semana" : "Tudo que é meu"}</h2>` +
@@ -575,11 +577,13 @@ function openTask(id) {
         `</div></div></div>`, () => {
         $("#mvSel").addEventListener("change", e => {
             t.status = e.target.value;
+            popPost("task:status", { id: t.id, status: t.status });
             renderScreen();
             toast(`“${t.title}” → ${statusOf(t.status).name}`);
         });
         $("#prSel").addEventListener("change", e => {
             t.priority = e.target.value;
+            popPost("task:priority", { id: t.id, priority: t.priority });
             renderScreen();
             toast(`Prioridade ${PRIO_NAME[t.priority].toLowerCase()}.`);
         });
@@ -590,7 +594,7 @@ function openTaskForm(existing, presetStatus) {
     const edit = !!existing;
     const d = existing ?? {
         title: "", desc: "", tag: "UI Design", status: presetStatus ?? "todo",
-        due: "2026-09-30", who: [], links: 0, priority: "media",
+        due: isoOf(addDays(TODAY, 7)), who: [], links: 0, priority: "media",
     };
     openLayer(`<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="${edit ? "Editar tarefa" : "Nova tarefa"}">` +
         `<div class="sheet-h"><div class="grow"><div class="crumb">${esc(project().name)} · ${esc(section().name)}</div>` +
@@ -648,10 +652,13 @@ function openTaskForm(existing, presetStatus) {
             };
             if (existing) {
                 Object.assign(existing, patch);
+                popPost("task:update", { id: existing.id, task: patch });
                 toast("Tarefa atualizada.");
             }
             else {
-                TASKS.push({ id: "t" + ++seq, project: state.project, section: state.section, comments: 0, ...patch });
+                const temporaryId = "pending-" + ++seq;
+                TASKS.push({ id: temporaryId, project: state.project, section: state.section, comments: 0, ...patch });
+                popPost("task:create", { temporaryId, projectId: state.project, task: patch });
                 toast(`Tarefa criada em ${statusOf(patch.status).name}.`);
             }
             closeLayer();
@@ -665,6 +672,7 @@ function deleteTask(id) {
         return;
     const name = TASKS[i].title;
     TASKS.splice(i, 1);
+    popPost("task:delete", { id });
     closeLayer();
     renderScreen();
     toast(`“${name}” foi excluída.`);
@@ -849,6 +857,7 @@ document.addEventListener("drop", e => {
     const moved = t.id;
     TASKS = TASKS.filter(x => x.id !== t.id);
     t.status = status;
+    popPost("task:status", { id: t.id, status });
     if (before && before.dataset["id"] !== t.id) {
         const i = TASKS.findIndex(x => x.id === before.dataset["id"]);
         TASKS.splice(i < 0 ? TASKS.length : i, 0, t);
@@ -867,6 +876,10 @@ document.addEventListener("click", e => {
     const at = (sel) => target.closest(sel);
     if (at("[data-close]")) {
         closeLayer();
+        return;
+    }
+    if (at(".railbtn.out")) {
+        popPost("logout");
         return;
     }
     const del = at("[data-del]");
@@ -941,7 +954,10 @@ document.addEventListener("click", e => {
         return;
     }
     if (at("#newProjBtn")) {
-        openProjectForm();
+        if (popBridgeActive)
+            popPost("navigate", { to: "/setores" });
+        else
+            openProjectForm();
         return;
     }
     if (at("[data-edit-section]")) {
@@ -1977,4 +1993,122 @@ document.addEventListener("keydown", e => {
         openTask(id);
     }
 });
+let popBridgeActive = false;
+function popPost(type, payload = {}) {
+    if (!popBridgeActive || window.parent === window)
+        return;
+    window.parent.postMessage({ source: "pop-orbita", type, ...payload }, "*");
+}
+function popStatus(status) {
+    if (status === "in_progress")
+        return "doing";
+    if (status === "waiting_review")
+        return "review";
+    if (status === "completed" || status === "canceled")
+        return "done";
+    return "todo";
+}
+function popPriority(priority) {
+    if (priority === "urgent" || priority === "high")
+        return "alta";
+    if (priority === "low")
+        return "baixa";
+    return "media";
+}
+function hueFrom(value) {
+    let hash = 0;
+    for (const char of value)
+        hash = (hash * 31 + char.charCodeAt(0)) % 360;
+    return Math.abs(hash);
+}
+function hydratePopWorkspace(data) {
+    popBridgeActive = true;
+    TODAY = new Date(`${data.today}T00:00:00`);
+    ME = data.currentUser.id;
+    SCHEDULE.splice(0, SCHEDULE.length);
+    MEETINGS.splice(0, MEETINGS.length);
+    REMINDERS.splice(0, REMINDERS.length);
+    PEOPLE = Object.fromEntries(data.employees.map(employee => [employee.id, {
+            name: employee.name, role: employee.role, hue: hueFrom(employee.id),
+        }]));
+    if (!PEOPLE[ME])
+        PEOPLE[ME] = {
+            name: data.currentUser.name, role: data.currentUser.role, hue: hueFrom(ME),
+        };
+    const departments = data.departments.map((department, index) => ({
+        id: department.id, name: department.name, favorite: index < 2,
+        group: "clientes", hue: hueFrom(department.id),
+        sections: [{
+                id: "overview", name: "Visão geral",
+                desc: department.description || `Visão consolidada das tarefas do setor ${department.name}.`,
+                hours: "Dados do Pop Organize", from: "—", to: "—",
+            }],
+    }));
+    const employeeDepartment = new Map(data.employees.map(employee => [employee.id, employee.departmentId]));
+    const departmentIds = new Set(data.departments.map(department => department.id));
+    const needsCompanyProject = data.tasks.some(item => item.target.type !== "department" && !employeeDepartment.get(item.responsibleId));
+    if (needsCompanyProject || !departments.length)
+        departments.push({
+            id: `_company:${data.company.id}`, name: data.company.name,
+            favorite: !departments.length, group: "clientes", hue: hueFrom(data.company.id),
+            sections: [{
+                    id: "overview", name: "Visão geral",
+                    desc: data.company.description || "Tarefas gerais da empresa.",
+                    hours: "Dados do Pop Organize", from: "—", to: "—",
+                }],
+        });
+    PROJECTS = departments;
+    TASKS = data.tasks.map(item => {
+        const responsibleDepartment = employeeDepartment.get(item.responsibleId);
+        const projectId = item.target.type === "department" && departmentIds.has(item.target.id)
+            ? item.target.id
+            : responsibleDepartment && departmentIds.has(responsibleDepartment)
+                ? responsibleDepartment : `_company:${data.company.id}`;
+        return {
+            id: item.id, project: projectId, section: "overview", status: popStatus(item.status),
+            tag: item.tags[0] || "Geral", title: item.title, desc: item.description,
+            who: [...new Set([item.responsibleId, ...(item.responsibleIds ?? [])].filter(Boolean))],
+            links: item.attachments, comments: item.comments, due: item.dueDate,
+            priority: popPriority(item.priority),
+        };
+    });
+    const tags = [...new Set(TASKS.map(item => item.tag))];
+    TAGS = Object.fromEntries(tags.map((tag, index) => [tag, (index * 47 + 18) % 360]));
+    if (!Object.keys(TAGS).length)
+        TAGS = { Geral: 212 };
+    const currentProject = PROJECTS.find(item => item.id === state.project) ?? PROJECTS[0];
+    if (currentProject) {
+        state.project = currentProject.id;
+        state.section = currentProject.sections[0].id;
+    }
+    state.week = weekStart(TODAY);
+    state.calDate = new Date(TODAY.getTime());
+    state.calMonth = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
+    state.tags.clear();
+    state.who.clear();
+    state.priorities.clear();
+    const me = document.querySelector(".topright .me .av");
+    if (me) {
+        me.textContent = initials(ME);
+        me.style.setProperty("--h", String(PEOPLE[ME]?.hue ?? 220));
+        me.title = PEOPLE[ME]?.name ?? data.currentUser.name;
+    }
+    document.title = `Pop Organize — ${data.company.name}`;
+    renderAll();
+    popPost("workspace:ready");
+}
+window.addEventListener("message", event => {
+    const message = event.data;
+    if (message?.source !== "pop-organize")
+        return;
+    if (message.type === "action:error") {
+        toast(message.message || "Não foi possível concluir a ação.");
+        return;
+    }
+    if (message.type === "workspace" && message.workspace)
+        hydratePopWorkspace(message.workspace);
+});
+if (window.parent !== window) {
+    window.parent.postMessage({ source: "pop-orbita", type: "frame:ready" }, "*");
+}
 renderAll();

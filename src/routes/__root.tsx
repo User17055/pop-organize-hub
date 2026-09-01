@@ -119,7 +119,7 @@ function RootShell({ children }: { children: ReactNode }) {
         <script
           dangerouslySetInnerHTML={{
             __html:
-              'try{var r=document.documentElement;r.classList.add(/android/i.test(navigator.userAgent)?"android-client":"desktop-client");var t=localStorage.getItem("pop-organize:theme-blue");if(t==="dark"){r.classList.add("dark");r.style.colorScheme="dark"}}catch(e){}',
+              'try{var r=document.documentElement,u=navigator.userAgent,a=/android/i.test(u),i=/iphone|ipad|ipod/i.test(u)||(/macintosh/i.test(u)&&navigator.maxTouchPoints>1);r.classList.add(a?"android-client":i?"ios-client":"desktop-client");var t=localStorage.getItem("pop-organize:theme-blue");if(t==="dark"){r.classList.add("dark");r.style.colorScheme="dark"}}catch(e){}',
           }}
         />
         <HeadContent />

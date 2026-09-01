@@ -1293,7 +1293,7 @@
 
   /*
    * O site de desktop mantém a mesma arquitetura visual mesmo quando o zoom reduz a largura
-   * medida pelo navegador. A experiência responsiva continua exclusiva do cliente Android.
+   * medida pelo navegador. Clientes Android e iOS seguem os breakpoints responsivos normais.
    */
   html.desktop-client,
   html.desktop-client body {

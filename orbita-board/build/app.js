@@ -1011,7 +1011,7 @@ document.addEventListener("click", e => {
         return;
     }
     if (at("[data-focus-search]")) {
-        $("#side").classList.remove("collapsed");
+        setSidebarCollapsed(false);
         $("#q").focus();
         return;
     }
@@ -1053,20 +1053,38 @@ $("#q").addEventListener("input", e => {
     state.query = e.target.value.trim();
     renderScreen();
 });
-$("#collapseBtn").addEventListener("click", e => {
-    const collapsed = $("#side").classList.toggle("collapsed");
-    const button = e.currentTarget;
+function setSidebarCollapsed(collapsed) {
+    $("#side").classList.toggle("collapsed", collapsed);
+    const button = $("#collapseBtn");
     button.classList.toggle("is-collapsed", collapsed);
     button.setAttribute("aria-expanded", String(!collapsed));
     button.setAttribute("aria-label", collapsed ? "Exibir painel lateral" : "Ocultar painel lateral");
     button.title = collapsed ? "Exibir painel lateral" : "Ocultar painel lateral";
+}
+$("#collapseBtn").addEventListener("click", () => {
+    setSidebarCollapsed(!$("#side").classList.contains("collapsed"));
 });
+const THEME_STORAGE_KEY = "pop-organize:v2-theme";
+function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    [...$("#themePill").children].forEach(x => x.setAttribute("aria-current", String(x.dataset["themeSet"] === theme)));
+}
+try {
+    applyTheme(localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark");
+}
+catch {
+    applyTheme("dark");
+}
 $("#themePill").addEventListener("click", e => {
     const b = e.target.closest("[data-theme-set]");
     if (!b)
         return;
-    document.documentElement.setAttribute("data-theme", b.dataset["themeSet"]);
-    [...$("#themePill").children].forEach(x => x.setAttribute("aria-current", String(x === b)));
+    const theme = b.dataset["themeSet"] === "light" ? "light" : "dark";
+    applyTheme(theme);
+    try {
+        localStorage.setItem(THEME_STORAGE_KEY, theme);
+    }
+    catch { /* armazenamento indisponível */ }
 });
 $("#mic").addEventListener("click", e => {
     const b = e.currentTarget;

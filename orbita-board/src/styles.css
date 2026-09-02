@@ -86,7 +86,6 @@ button{background:none;border:0;cursor:pointer}
 
 /* ---------- trilho ---------- */
 .rail{width:74px;background:var(--rail);display:flex;flex-direction:column;align-items:center;gap:3px;padding:18px 0 14px;flex:none}
-.side-toggle{margin-bottom:22px}
 .side-toggle svg{transition:transform .2s ease}
 .side-toggle.is-collapsed svg{transform:rotate(180deg)}
 .mark{width:36px;height:36px;border-radius:11px;background:var(--acc);display:grid;place-items:center;margin-bottom:22px;flex:none;
@@ -111,9 +110,15 @@ button{background:none;border:0;cursor:pointer}
 .railbtn.out:hover{background:color-mix(in oklab,var(--red) 14%,transparent);color:var(--red)}
 
 /* ---------- barra lateral ---------- */
-.side{width:222px;background:var(--side);display:flex;flex-direction:column;overflow:hidden;flex:none;
+.side{width:222px;background:var(--side);display:flex;flex-direction:column;overflow:hidden;flex:none;position:relative;
   transition:width .26s cubic-bezier(.3,.8,.3,1),opacity .2s}
-.side.collapsed{width:0;opacity:0}
+.side.collapsed{width:0;overflow:visible}
+.side.collapsed .side-top{position:absolute;top:0;left:0;width:222px;z-index:4;pointer-events:none}
+.side.collapsed .side-top .mag,
+.side.collapsed .side-top input{visibility:hidden}
+.side.collapsed .side-toggle{pointer-events:auto;background:var(--panel);box-shadow:var(--shadow)}
+.side.collapsed .side-scroll,
+.side.collapsed .side-foot{visibility:hidden}
 .side-top{padding:19px 14px 6px;display:flex;align-items:center;gap:9px}
 .side-top .mag{width:17px;height:17px;color:var(--tx3);flex:none;transition:color .16s}
 .side-top:focus-within .mag{color:var(--acc-2)}

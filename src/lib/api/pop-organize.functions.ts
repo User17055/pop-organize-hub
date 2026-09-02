@@ -69,7 +69,6 @@ const recurrenceSchema = z
     excludedWeekDays: z.array(z.coerce.number().int().min(1).max(7)).max(6).optional(),
     times: z
       .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
-      .min(1)
       .max(12)
       .optional(),
     interval: z.coerce.number().int().min(1).max(120).optional(),

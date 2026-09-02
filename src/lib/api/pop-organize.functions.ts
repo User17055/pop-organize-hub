@@ -69,7 +69,7 @@ const recurrenceSchema = z
     excludedWeekDays: z.array(z.coerce.number().int().min(1).max(7)).max(6).optional(),
     times: z
       .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
-      .min(2)
+      .min(1)
       .max(12)
       .optional(),
     interval: z.coerce.number().int().min(1).max(120).optional(),
@@ -100,6 +100,7 @@ const createTaskSchema = z.object({
   dueDate: z.string().min(10).default(defaultDueDate()),
   target: targetSchema,
   responsibleId: z.string().default(""),
+  responsibleIds: z.array(z.string().min(1)).max(100).default([]),
   reviewerId: z.string().optional(),
   requiresReview: z.boolean().default(false),
   tags: z.array(z.string().trim().min(1)).default([]),
@@ -222,6 +223,7 @@ const updateTaskDetailsSchema = z.object({
   dueDate: z.string().min(10),
   target: targetSchema,
   responsibleId: z.string().default(""),
+  responsibleIds: z.array(z.string().min(1)).max(100).optional(),
   tags: z.array(z.string().trim().min(1)).default([]),
   recurrence: recurrenceSchema,
 });
@@ -541,7 +543,7 @@ function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["rec
     weekDays:
       value.frequency === "weekly" || value.frequency === "biweekly" ? value.weekDays : undefined,
     excludedWeekDays: value.frequency === "daily" ? value.excludedWeekDays : undefined,
-    times: value.frequency === "daily" ? value.times : undefined,
+    times: value.frequency === "daily" && (value.times?.length ?? 0) >= 2 ? value.times : undefined,
     interval,
     intervalDays: value.frequency === "custom" && customUnit === "days" ? interval : undefined,
     customUnit,
@@ -549,6 +551,10 @@ function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["rec
     monthOfYear: usesYearlyAnchor ? value.monthOfYear : undefined,
     endDate: value.endDate,
   };
+}
+
+function normalizeResponsibleIds(responsibleId: string, responsibleIds: string[] = []) {
+  return [...new Set([responsibleId, ...responsibleIds].filter(Boolean))];
 }
 
 function getDateParts(dateValue: string) {
@@ -1221,11 +1227,12 @@ export const createTask = createServerFn({ method: "POST" })
         "Seu grupo de permissão não pode criar tarefas.",
       );
 
+      const responsibleIds = normalizeResponsibleIds(data.responsibleId, data.responsibleIds);
       if (
         db.company.kind === "personal" &&
         (data.target.type !== "user" ||
           data.target.id !== currentUserId ||
-          (data.responsibleId !== "" && data.responsibleId !== currentUserId) ||
+          responsibleIds.some((id) => id !== currentUserId) ||
           data.requiresReview ||
           Boolean(data.reviewerId))
       ) {
@@ -1235,11 +1242,12 @@ export const createTask = createServerFn({ method: "POST" })
         );
       }
 
-      const responsible = data.responsibleId
-        ? (db.employees.find((employee) => employee.id === data.responsibleId) ??
-          db.invitations.find((invitation) => invitation.id === data.responsibleId))
-        : undefined;
-      if (data.responsibleId && !responsible) {
+      const invalidResponsible = responsibleIds.find(
+        (id) =>
+          !db.employees.some((employee) => employee.id === id) &&
+          !db.invitations.some((invitation) => invitation.id === id),
+      );
+      if (invalidResponsible) {
         throw createHttpError("Responsável não encontrado.");
       }
 
@@ -1275,6 +1283,7 @@ export const createTask = createServerFn({ method: "POST" })
         createdAt: today(),
         target: { ...data.target, label: targetLabel },
         responsibleId: data.responsibleId,
+        responsibleIds: responsibleIds.length ? responsibleIds : undefined,
         assignedById: currentUserId,
         assignedAt: new Date().toISOString(),
         reviewerId,
@@ -1354,30 +1363,39 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       if (targetChanged && !permissions.canMove && !permissions.canAssign) {
         throw createHttpError("Você não tem permissão para mover ou alterar o destino.", 403);
       }
-      if (task.responsibleId !== data.responsibleId && !permissions.canAssign) {
+      const nextResponsibleIds = normalizeResponsibleIds(
+        data.responsibleId,
+        data.responsibleIds ?? task.responsibleIds,
+      );
+      const responsibleChanged =
+        JSON.stringify(normalizeResponsibleIds(task.responsibleId, task.responsibleIds).sort()) !==
+        JSON.stringify([...nextResponsibleIds].sort());
+      if (responsibleChanged && !permissions.canAssign) {
         throw createHttpError("Você não tem permissão para alterar o responsável.", 403);
       }
       const nextRecurrence = normalizeRecurrence(data.recurrence);
       if (
-        JSON.stringify(task.recurrence ?? null) !== JSON.stringify(nextRecurrence ?? null) &&
+        JSON.stringify(normalizeRecurrence(task.recurrence) ?? null) !==
+          JSON.stringify(nextRecurrence ?? null) &&
         !permissions.canManageRecurrence
       ) {
         throw createHttpError("Você não tem permissão para alterar a recorrência.", 403);
       }
       const targetLabel = resolveTargetLabel(data.target.type, data.target.id, db);
       if (!targetLabel) throw createHttpError("Destino da tarefa não encontrado.");
-      if (
-        data.responsibleId &&
-        !db.employees.some((employee) => employee.id === data.responsibleId) &&
-        !db.invitations.some((invitation) => invitation.id === data.responsibleId)
-      ) {
+      const invalidResponsible = nextResponsibleIds.find(
+        (id) =>
+          !db.employees.some((employee) => employee.id === id) &&
+          !db.invitations.some((invitation) => invitation.id === id),
+      );
+      if (invalidResponsible) {
         throw createHttpError("Responsável não encontrado.");
       }
       if (
         db.company.kind === "personal" &&
         (data.target.type !== "user" ||
           data.target.id !== currentUserId ||
-          (data.responsibleId !== "" && data.responsibleId !== currentUserId))
+          nextResponsibleIds.some((id) => id !== currentUserId))
       ) {
         throw createHttpError(
           "O Meu espaço é pessoal. Para atribuir ou compartilhar tarefas, crie uma empresa.",
@@ -1391,6 +1409,7 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       task.dueDate = data.dueDate;
       task.target = { ...data.target, label: targetLabel };
       task.responsibleId = data.responsibleId;
+      task.responsibleIds = nextResponsibleIds.length ? nextResponsibleIds : undefined;
       task.tags = data.tags;
       task.recurrence = nextRecurrence;
       return task;

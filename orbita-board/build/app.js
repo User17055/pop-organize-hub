@@ -417,7 +417,7 @@ function renderMineHeader() {
     renderWeek();
 }
 function cardHTML(t, i) {
-    return `<article class="card${t.priority === "alta" ? " p-alta" : ""}" draggable="${popBridgeActive ? "false" : "true"}" data-id="${t.id}" ` +
+    return `<article class="card${t.priority === "alta" ? " p-alta" : ""}" draggable="true" data-id="${t.id}" ` +
         `style="--i:${Math.min(i, 8)}" tabindex="0" role="button">` +
         `<div class="cbody">` +
         `<div class="crow">${tagChip(t.tag)}<span class="push"></span>${prioChip(t.priority)}</div>` +
@@ -1053,7 +1053,14 @@ $("#q").addEventListener("input", e => {
     state.query = e.target.value.trim();
     renderScreen();
 });
-$("#collapseBtn").addEventListener("click", () => $("#side").classList.toggle("collapsed"));
+$("#collapseBtn").addEventListener("click", e => {
+    const collapsed = $("#side").classList.toggle("collapsed");
+    const button = e.currentTarget;
+    button.classList.toggle("is-collapsed", collapsed);
+    button.setAttribute("aria-expanded", String(!collapsed));
+    button.setAttribute("aria-label", collapsed ? "Exibir painel lateral" : "Ocultar painel lateral");
+    button.title = collapsed ? "Exibir painel lateral" : "Ocultar painel lateral";
+});
 $("#themePill").addEventListener("click", e => {
     const b = e.target.closest("[data-theme-set]");
     if (!b)

@@ -136,6 +136,10 @@ export function TaskCreateDrawer({
         <form
           onSubmit={(event: FormEvent) => {
             event.preventDefault();
+            if (!isLastStep) {
+              nextStep();
+              return;
+            }
             onSubmit(draft);
           }}
           className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg"

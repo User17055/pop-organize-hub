@@ -146,6 +146,14 @@ const state = {
     calFilter: "tarefas",
     calView: "dia",
 };
+let SECTOR_MEMBERS = {};
+let REQUIRED_SECTOR_MEMBERS = {};
+function sectorPeople(extra = []) {
+    if (!popBridgeActive || state.section.startsWith("_company:"))
+        return Object.keys(PEOPLE);
+    return [...new Set([...(SECTOR_MEMBERS[state.section] ?? []), ...extra])]
+        .filter(id => Boolean(PEOPLE[id]));
+}
 function $(sel, root = document) {
     const el = root.querySelector(sel);
     if (!el)
@@ -254,7 +262,7 @@ function isMine(t, range = state.mineRange) {
         || (d >= 0 && d <= 6) || (open && d < 0);
 }
 function isVisible(t) {
-    if (state.mine ? !isMine(t) : !inSection(t))
+    if (state.mine ? !isMine(t) : !state.query && !inSection(t))
         return false;
     if (state.tags.size && !state.tags.has(t.tag))
         return false;
@@ -269,7 +277,8 @@ function isVisible(t) {
     }
     if (state.query) {
         const q = state.query.toLowerCase();
-        if (!`${t.title} ${t.desc} ${t.tag}`.toLowerCase().includes(q))
+        const sectorName = project(t.project).sections.find(s => s.id === t.section)?.name ?? "";
+        if (!`${t.title} ${t.desc} ${t.tag} ${sectorName}`.toLowerCase().includes(q))
             return false;
     }
     return true;
@@ -294,8 +303,8 @@ function projectRow(p, expand, colored) {
     const cls = `pitem${colored ? " hue" : ""}`;
     let html = `<button class="${cls}" data-project="${p.id}" style="--dh:${p.hue}"${active ? ' aria-current="true"' : ""}>` +
         `<span class="dotm"></span><span class="nm">${esc(p.name)}</span>` +
-        `<span class="star${p.favorite ? " on" : ""}" data-fav="${p.id}" role="button" tabindex="0" ` +
-        `aria-label="Favoritar ${esc(p.name)}">${p.favorite ? I.starOn : I.star}</span></button>`;
+        (popBridgeActive ? "" : `<span class="star${p.favorite ? " on" : ""}" data-fav="${p.id}" role="button" tabindex="0" ` +
+            `aria-label="Favoritar ${esc(p.name)}">${p.favorite ? I.starOn : I.star}</span>`) + `</button>`;
     if (active && expand) {
         html += `<div class="subs">`;
         for (const s of p.sections) {
@@ -319,7 +328,18 @@ function renderSidebar() {
         `${I.mytasks}<span class="nm">Atribuído a mim</span>` +
         (hoje ? `<span class="cnt2">${hoje}</span>` : "") + `</button>`;
     // Só em Favoritos a bolinha usa a cor do projeto; nos outros grupos ela segue o tema.
-    if (favs.length)
+    if (popBridgeActive) {
+        const favoriteSections = project().sections.filter(section => section.favorite);
+        if (favoriteSections.length) {
+            const rows = favoriteSections.map(section => `<button class="pitem hue" data-section="${section.id}" style="--dh:${project().hue}"` +
+                `${section.id === state.section ? ' aria-current="true"' : ""}>` +
+                `<span class="dotm"></span><span class="nm">${esc(section.name)}</span></button>`).join("");
+            html += `<div class="grp${state.open["fav"] ? "" : " closed"}">` +
+                `<button class="grp-h" data-group="fav">${I.chev}Favoritos</button>` +
+                `<div class="grp-body"><div>${rows}</div></div></div>`;
+        }
+    }
+    else if (favs.length)
         html += groupBlock("fav", "Favoritos", favs, true, false);
     html += groupBlock("clientes", "Todos os projetos", PROJECTS.filter(p => p.group === "clientes"), false, true);
     const studioProjects = PROJECTS.filter(p => p.group === "estudio");
@@ -355,14 +375,17 @@ function renderHeader() {
     const done = all.filter(t => t.status === "done").length;
     const pct = all.length ? Math.round((done / all.length) * 100) : 0;
     const late = all.filter(isLate).length;
-    const team = [...new Set(all.flatMap(t => t.who))];
+    const team = sectorPeople();
     $("#brief").innerHTML =
         `<div class="brief-h"><h2>${esc(s.name)}</h2>` +
             `<button class="ed" data-edit-section="1" title="Editar esta frente" aria-label="Editar esta frente">${I.pen}</button>` +
             `<div class="brief-tools">` +
             `<button data-focus-search="1" title="Buscar nesta frente" aria-label="Buscar nesta frente">${I.mag}</button>` +
-            `<button data-fav="${p.id}" title="Favoritar projeto" aria-label="Favoritar projeto"` +
-            `${p.favorite ? ' style="color:#C6CAD1"' : ""}>${p.favorite ? I.starOn : I.star}</button>` +
+            (popBridgeActive
+                ? `<button data-fav-section="${s.id}" title="Favoritar setor" aria-label="Favoritar setor"` +
+                    `${s.favorite ? ' style="color:#C6CAD1"' : ""}>${s.favorite ? I.starOn : I.star}</button>`
+                : `<button data-fav="${p.id}" title="Favoritar projeto" aria-label="Favoritar projeto"` +
+                    `${p.favorite ? ' style="color:#C6CAD1"' : ""}>${p.favorite ? I.starOn : I.star}</button>`) +
             `<button data-more="1" title="Mais ações" aria-label="Mais ações">${I.dots}</button>` +
             `</div></div>` +
             `<p>${esc(s.desc)}</p>` +
@@ -422,7 +445,7 @@ function cardHTML(t, i) {
         `<div class="cbody">` +
         `<div class="crow">${tagChip(t.tag)}<span class="push"></span>${prioChip(t.priority)}</div>` +
         `<h3>${esc(t.title)}</h3>` +
-        (state.mine ? `<span class="cproj">${esc(project(t.project).name)}</span>` : "") +
+        (state.mine || state.query ? `<span class="cproj">${esc(project(t.project).sections.find(s => s.id === t.section)?.name ?? project(t.project).name)}</span>` : "") +
         (t.desc ? `<p>${esc(t.desc)}</p>` : "") +
         `</div>` +
         `<div class="cfoot">${avatarStack(t.who)}<span class="push"></span>` +
@@ -476,6 +499,7 @@ function renderTable(list) {
         `</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function renderView() {
+    document.querySelectorAll("#viewSeg button").forEach(button => button.setAttribute("aria-current", String(button.dataset["view"] === state.view)));
     const view = $("#view");
     const list = visibleTasks();
     if (state.view === "kanban") {
@@ -597,7 +621,7 @@ function openTask(id) {
 function openTaskForm(existing, presetStatus) {
     const edit = !!existing;
     const d = existing ?? {
-        title: "", desc: "", tag: "UI Design", status: presetStatus ?? "todo",
+        title: "", desc: "", tag: Object.keys(TAGS)[0] ?? "Geral", status: presetStatus ?? "todo",
         due: isoOf(addDays(TODAY, 7)), who: [], links: 0, priority: "media",
     };
     openLayer(`<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="${edit ? "Editar tarefa" : "Nova tarefa"}">` +
@@ -610,8 +634,9 @@ function openTaskForm(existing, presetStatus) {
         `<div class="field"><label for="fD">Descrição</label><textarea id="fD" maxlength="400" ` +
         `placeholder="O que precisa acontecer e por quê.">${esc(d.desc)}</textarea></div>` +
         `<div class="three">` +
-        `<div class="field"><label for="fG">Etiqueta</label><select id="fG">` +
-        Object.keys(TAGS).map(k => `<option${k === d.tag ? " selected" : ""}>${k}</option>`).join("") + `</select></div>` +
+        `<div class="field"><label for="fG">Etiqueta (digite para cadastrar)</label><input id="fG" type="text" list="tagOptions" maxlength="40" ` +
+        `value="${esc(d.tag)}" placeholder="Digite para cadastrar"><datalist id="tagOptions">` +
+        Object.keys(TAGS).map(k => `<option value="${esc(k)}"></option>`).join("") + `</datalist></div>` +
         `<div class="field"><label for="fS">Status</label><select id="fS">` +
         STATUS.map(x => `<option value="${x.id}"${x.id === d.status ? " selected" : ""}>${x.name}</option>`).join("") + `</select></div>` +
         `<div class="field"><label for="fP">Prioridade</label><select id="fP">` +
@@ -622,7 +647,7 @@ function openTaskForm(existing, presetStatus) {
         `<div class="field"><label for="fL">Links anexados</label><input id="fL" type="text" inputmode="numeric" value="${d.links}"></div>` +
         `</div>` +
         `<div class="field"><label>Responsáveis</label><div class="people" id="fW">` +
-        Object.keys(PEOPLE).map(k => `<button type="button" class="pbtn" data-p="${k}" aria-pressed="${d.who.includes(k)}">` +
+        sectorPeople(d.who).map(k => `<button type="button" class="pbtn" data-p="${k}" aria-pressed="${d.who.includes(k)}">` +
             `${avatar(k)}${esc(PEOPLE[k].name)}</button>`).join("") +
         `</div></div>` +
         `<div class="acts">` +
@@ -645,10 +670,13 @@ function openTaskForm(existing, presetStatus) {
             }
             const who = [...layer.querySelectorAll('.pbtn[aria-pressed="true"]')].map(b => b.dataset["p"]);
             const links = Math.max(0, parseInt($("#fL").value, 10) || 0);
+            const tag = $("#fG").value.trim() || "Geral";
+            if (!(tag in TAGS))
+                TAGS[tag] = hueFrom(tag);
             const patch = {
                 title,
                 desc: $("#fD").value.trim(),
-                tag: $("#fG").value,
+                tag,
                 status: $("#fS").value,
                 priority: $("#fP").value,
                 due: $("#fDue").value || d.due,
@@ -769,6 +797,41 @@ function openWorkspaceSwitcher() {
             `${workspace.kind === "personal" ? "Espaço pessoal" : esc(workspace.role)}` +
             (workspace.id === POP_COMPANY_ID ? " · Atual" : "") + `</span></button>`).join("") + `</div></div>`);
 }
+function openSectorMembers() {
+    if (!popBridgeActive || state.section.startsWith("_company:")) {
+        toast("O setor Geral inclui toda a empresa.");
+        return;
+    }
+    const selected = new Set(SECTOR_MEMBERS[state.section] ?? []);
+    const required = new Set(REQUIRED_SECTOR_MEMBERS[state.section] ?? []);
+    openLayer(`<div class="scrim"><div class="sheet" style="width:min(560px,100%)" role="dialog" aria-modal="true" aria-label="Membros do setor">` +
+        `<div class="sheet-h"><div class="grow"><div class="crumb">Setor</div><h2>Membros de ${esc(section().name)}</h2></div>` +
+        `<button class="iconbtn" data-close="1" aria-label="Fechar">${I.x}</button></div>` +
+        `<form class="sheet-b" id="sectorMembersForm"><p style="margin:0;color:var(--tx2)">` +
+        `Estas pessoas poderão acessar as tarefas e aparecerão nos filtros deste setor.</p>` +
+        `<div class="people" id="sectorMembers">` + Object.keys(PEOPLE).map(id => `<button type="button" class="pbtn" data-member="${id}" aria-pressed="${selected.has(id)}"` +
+        `${required.has(id) ? " disabled" : ""}>${avatar(id)}${esc(PEOPLE[id].name)}` +
+        `${required.has(id) ? ' <small style="color:var(--tx3)">Setor principal</small>' : ""}</button>`).join("") +
+        `</div><div class="acts"><span class="push"></span><button type="button" class="btn" data-close="1">Cancelar</button>` +
+        `<button type="submit" class="btn solid">Salvar acessos</button></div></form></div></div>`, () => {
+        $("#sectorMembers").addEventListener("click", event => {
+            const button = event.target.closest("[data-member]");
+            if (!button || button.disabled)
+                return;
+            button.setAttribute("aria-pressed", String(button.getAttribute("aria-pressed") !== "true"));
+        });
+        $("#sectorMembersForm").addEventListener("submit", event => {
+            event.preventDefault();
+            const memberIds = [...layer.querySelectorAll('[data-member][aria-pressed="true"]')]
+                .map(button => button.dataset["member"]);
+            SECTOR_MEMBERS[state.section] = [...new Set([...required, ...memberIds])];
+            popPost("sector:members", { sectionId: state.section, memberIds: SECTOR_MEMBERS[state.section] });
+            closeLayer();
+            renderHeader();
+            toast("Acessos do setor atualizados.");
+        });
+    });
+}
 /* ============================ popovers ============================ */
 function openFilters(anchor) {
     const b = (anchor ?? $("#filterBtn")).getBoundingClientRect();
@@ -780,7 +843,7 @@ function openFilters(anchor) {
         `</div><h4>Etiquetas</h4><div class="chips">` +
         Object.keys(TAGS).map(k => `<button class="chip" data-tag="${esc(k)}" aria-pressed="${state.tags.has(k)}">${esc(k)}</button>`).join("") +
         `</div><h4>Pessoas</h4><div class="chips">` +
-        Object.keys(PEOPLE).map(k => `<button class="chip" data-who="${k}" aria-pressed="${state.who.has(k)}">${esc(PEOPLE[k].name)}</button>`).join("") +
+        sectorPeople().map(k => `<button class="chip" data-who="${k}" aria-pressed="${state.who.has(k)}">${esc(PEOPLE[k].name)}</button>`).join("") +
         `</div><button class="clear" data-clear="1">Limpar filtros</button></div></div>`, () => {
         $(".pop", layer).addEventListener("click", e => {
             const el = e.target;
@@ -930,6 +993,19 @@ document.addEventListener("click", e => {
             openTaskForm(t);
         return;
     }
+    const favoriteSection = at("[data-fav-section]");
+    if (favoriteSection) {
+        e.stopPropagation();
+        const item = project().sections.find(section => section.id === favoriteSection.dataset["favSection"]);
+        if (!item)
+            return;
+        item.favorite = !item.favorite;
+        savePopPreferences();
+        renderSidebar();
+        renderHeader();
+        toast(item.favorite ? `${item.name} adicionado aos favoritos.` : `${item.name} removido dos favoritos.`);
+        return;
+    }
     const fav = at("[data-fav]");
     if (fav) {
         e.stopPropagation();
@@ -962,8 +1038,10 @@ document.addEventListener("click", e => {
     if (proj) {
         const p = project(proj.dataset["project"]);
         state.mine = false;
+        if (state.project !== p.id)
+            state.section = p.sections[0].id;
         state.project = p.id;
-        state.section = p.sections[0].id;
+        savePopPreferences();
         setScreen("board");
         return;
     }
@@ -971,6 +1049,9 @@ document.addEventListener("click", e => {
     if (sec) {
         state.mine = false;
         state.section = sec.dataset["section"];
+        state.tags.clear();
+        state.who.clear();
+        savePopPreferences();
         setScreen("board");
         return;
     }
@@ -1016,7 +1097,7 @@ document.addEventListener("click", e => {
         return;
     }
     if (at("[data-invite]")) {
-        toast("Convite enviado para o time do projeto.");
+        openSectorMembers();
         return;
     }
     if (at("#bellBtn")) {
@@ -1033,6 +1114,7 @@ document.addEventListener("click", e => {
     if (seg) {
         state.view = seg.dataset["view"];
         [...$("#viewSeg").children].forEach(b => b.setAttribute("aria-current", String(b === seg)));
+        savePopPreferences();
         renderView();
         return;
     }
@@ -1297,13 +1379,17 @@ function todayTasksCard() {
         `<button class="dlink" data-screen="board">Gerenciar ${I.right}</button></div>` +
         `<div class="tlist">` + list.map(t => {
         const live = state.running === t.id;
+        const taskSection = project(t.project).sections.find(section => section.id === t.section);
         return `<div class="trow${live ? " live" : ""}">` +
             `<button class="pbtn2" data-task="${t.id}" title="${live ? "Pausar" : "Iniciar"}" ` +
             `aria-label="${live ? "Pausar apontamento" : "Iniciar apontamento"}">${live ? I.pause : I.play}</button>` +
             `<span class="bd" data-open="${t.id}" role="button" tabindex="0"><b>${esc(t.title)}</b>` +
             `<span>${esc(project(t.project).name)}</span></span>` +
-            `<button class="st${project(t.project).favorite ? " on" : ""}" data-fav="${t.project}" ` +
-            `aria-label="Favoritar projeto">${project(t.project).favorite ? I.starOn : I.star}</button></div>`;
+            (popBridgeActive
+                ? `<button class="st${taskSection?.favorite ? " on" : ""}" data-fav-section="${t.section}" ` +
+                    `aria-label="Favoritar setor">${taskSection?.favorite ? I.starOn : I.star}</button>`
+                : `<button class="st${project(t.project).favorite ? " on" : ""}" data-fav="${t.project}" ` +
+                    `aria-label="Favoritar projeto">${project(t.project).favorite ? I.starOn : I.star}</button>`) + `</div>`;
     }).join("") + `</div></section>`;
 }
 function meetingsCard() {
@@ -2039,6 +2125,7 @@ document.addEventListener("click", e => {
             return;
         state.project = t.project;
         state.section = t.section;
+        savePopPreferences();
         setScreen("board");
         openTask(t.id);
     }
@@ -2056,6 +2143,30 @@ document.addEventListener("keydown", e => {
 let popBridgeActive = false;
 let POP_WORKSPACES = [];
 let POP_COMPANY_ID = "";
+function preferencesKey(companyId = POP_COMPANY_ID) {
+    return `pop-organize:v2-state:${companyId}`;
+}
+function readPopPreferences(companyId) {
+    try {
+        const value = JSON.parse(localStorage.getItem(preferencesKey(companyId)) ?? "{}");
+        return value && typeof value === "object" ? value : {};
+    }
+    catch {
+        return {};
+    }
+}
+function savePopPreferences() {
+    if (!popBridgeActive || !POP_COMPANY_ID)
+        return;
+    try {
+        localStorage.setItem(preferencesKey(), JSON.stringify({
+            sectionId: state.section,
+            view: state.view,
+            favoriteSectionIds: project().sections.filter(section => section.favorite).map(section => section.id),
+        }));
+    }
+    catch { /* armazenamento indisponível */ }
+}
 function popPost(type, payload = {}) {
     if (!popBridgeActive || window.parent === window)
         return;
@@ -2092,6 +2203,8 @@ function hydratePopWorkspace(data) {
     document.documentElement.dataset["popBridge"] = "true";
     POP_WORKSPACES = data.workspaces;
     POP_COMPANY_ID = data.company.id;
+    const preferences = readPopPreferences(data.company.id);
+    const favoriteSectionIds = new Set(preferences.favoriteSectionIds ?? []);
     TODAY = new Date(`${data.today}T00:00:00`);
     ME = data.currentUser.id;
     SCHEDULE.splice(0, SCHEDULE.length);
@@ -2106,6 +2219,20 @@ function hydratePopWorkspace(data) {
         };
     const employeeDepartment = new Map(data.employees.map(employee => [employee.id, employee.departmentId]));
     const departmentIds = new Set(data.departments.map(department => department.id));
+    REQUIRED_SECTOR_MEMBERS = Object.fromEntries(data.departments.map(department => [
+        department.id,
+        [...new Set([
+                department.managerId,
+                ...data.employees.filter(employee => employee.departmentId === department.id).map(employee => employee.id),
+            ].filter(Boolean))],
+    ]));
+    SECTOR_MEMBERS = Object.fromEntries(data.departments.map(department => [
+        department.id,
+        [...new Set([
+                ...(REQUIRED_SECTOR_MEMBERS[department.id] ?? []),
+                ...(department.memberIds ?? []),
+            ])],
+    ]));
     const needsGeneralSection = data.tasks.some(item => {
         const targetDepartment = item.target.type === "department" && departmentIds.has(item.target.id);
         const responsibleDepartment = employeeDepartment.get(item.responsibleId);
@@ -2115,17 +2242,19 @@ function hydratePopWorkspace(data) {
     const sectorSections = data.departments.map(department => ({
         id: department.id,
         name: formatSectorName(department.name),
+        favorite: favoriteSectionIds.has(department.id),
         desc: department.description || `Visão consolidada das tarefas do setor ${formatSectorName(department.name)}.`,
         hours: "Dados do Pop Organize", from: "—", to: "—",
     }));
     if (needsGeneralSection || !sectorSections.length)
         sectorSections.push({
-            id: `_company:${data.company.id}`, name: "geral",
+            id: `_company:${data.company.id}`, name: "Geral",
+            favorite: favoriteSectionIds.has(`_company:${data.company.id}`),
             desc: data.company.description || "Tarefas gerais da empresa.",
             hours: "Dados do Pop Organize", from: "—", to: "—",
         });
     PROJECTS = [{
-            id: sectorProjectId, name: "Setor", favorite: true,
+            id: sectorProjectId, name: "Setor", favorite: false,
             group: "clientes", hue: hueFrom(data.company.id), sections: sectorSections,
         }];
     TASKS = data.tasks.map(item => {
@@ -2149,8 +2278,12 @@ function hydratePopWorkspace(data) {
     const currentProject = PROJECTS.find(item => item.id === state.project) ?? PROJECTS[0];
     if (currentProject) {
         state.project = currentProject.id;
-        state.section = currentProject.sections.find(item => item.id === state.section)?.id
+        state.section = currentProject.sections.find(item => item.id === preferences.sectionId)?.id
+            ?? currentProject.sections.find(item => item.id === state.section)?.id
             ?? currentProject.sections[0].id;
+    }
+    if (preferences.view === "kanban" || preferences.view === "lista" || preferences.view === "tabela") {
+        state.view = preferences.view;
     }
     state.week = weekStart(TODAY);
     state.calDate = new Date(TODAY.getTime());

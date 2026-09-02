@@ -24,7 +24,7 @@ type PermissionInput = {
   task: Task;
   currentUser?: PermissionEmployee | null;
   employees: Array<Pick<Employee, "id" | "role" | "departmentId" | "permissionGroupId">>;
-  departments: Array<Pick<Department, "id" | "managerId">>;
+  departments: Array<Pick<Department, "id" | "managerId" | "memberIds">>;
   groups: Array<Pick<Group, "id" | "leaderId" | "memberIds">>;
   permissionGroups?: PermissionGroup[];
 };
@@ -60,7 +60,13 @@ export function canViewTask(input: PermissionInput) {
   if (input.task.target.type === "company") return true;
   if (input.task.target.type === "user") return input.task.target.id === userId;
   if (input.task.target.type === "department") {
-    return input.task.target.id === currentEmployee?.departmentId;
+    const department = input.departments.find((item) => item.id === input.task.target.id);
+    return (
+      input.task.target.id === currentEmployee?.departmentId ||
+      department?.managerId === userId ||
+      department?.memberIds?.includes(userId) ||
+      false
+    );
   }
   if (input.task.target.type === "group") {
     const group = input.groups.find((item) => item.id === input.task.target.id);

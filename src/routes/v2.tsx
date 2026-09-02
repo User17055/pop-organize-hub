@@ -10,6 +10,7 @@ import {
   deleteTask,
   logout,
   switchWorkspace,
+  updateDepartmentMembers,
   updateTaskDetails,
   updateTaskStatus,
 } from "@/lib/api/pop-organize.functions";
@@ -51,6 +52,7 @@ type BridgeMessage = {
   status?: OrbitaStatus;
   priority?: OrbitaPriority;
   task?: OrbitaTaskPayload;
+  memberIds?: string[];
 };
 
 function todayIso() {
@@ -165,6 +167,13 @@ function PopOrganizeV2() {
       if (message.type === "workspace:switch" && message.companyId) {
         setFrameReady(false);
         await switchWorkspace({ data: { companyId: message.companyId } });
+        await refreshWorkspace();
+        return;
+      }
+      if (message.type === "sector:members" && message.sectionId && message.memberIds) {
+        await updateDepartmentMembers({
+          data: { departmentId: message.sectionId, memberIds: message.memberIds },
+        });
         await refreshWorkspace();
         return;
       }

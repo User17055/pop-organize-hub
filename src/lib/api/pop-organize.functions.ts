@@ -139,6 +139,11 @@ const createDepartmentSchema = z.object({
   color: z.string().min(3).optional(),
 });
 
+const updateDepartmentMembersSchema = z.object({
+  departmentId: z.string().min(1),
+  memberIds: z.array(z.string().min(1)).max(500),
+});
+
 const createEmployeeSchema = z.object({
   name: z.string().trim().min(2),
   email: z.string().trim().email(),
@@ -836,6 +841,7 @@ export const leaveCompany = createServerFn({ method: "POST" }).handler(async () 
     }
     for (const department of workspace.departments) {
       if (department.managerId === account.id) department.managerId = owner.id;
+      department.memberIds = department.memberIds?.filter((id) => id !== account.id);
     }
     for (const group of workspace.groups) {
       group.memberIds = group.memberIds.filter((id) => id !== account.id);
@@ -1795,6 +1801,41 @@ export const createDepartment = createServerFn({ method: "POST" })
     });
   });
 
+export const updateDepartmentMembers = createServerFn({ method: "POST" })
+  .validator((data) => updateDepartmentMembersSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const department = db.departments.find((item) => item.id === data.departmentId);
+      if (!department) throw createHttpError("Setor não encontrado.", 404);
+
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: db.employees,
+        permissionGroups: db.permissionGroups,
+      });
+      if (
+        department.managerId !== currentUserId &&
+        !hasPermission(permissionSet, "manage.departments")
+      ) {
+        throw createHttpError("Você não pode gerenciar os membros deste setor.", 403);
+      }
+
+      const memberIds = [...new Set(data.memberIds)];
+      if (memberIds.some((id) => !db.employees.some((employee) => employee.id === id))) {
+        throw createHttpError("Uma das pessoas selecionadas não foi encontrada.");
+      }
+
+      const requiredIds = db.employees
+        .filter((employee) => employee.departmentId === department.id)
+        .map((employee) => employee.id);
+      department.memberIds = [
+        ...new Set([department.managerId, ...requiredIds, ...memberIds]),
+      ].filter(Boolean);
+      return department;
+    });
+  });
+
 export const createEmployee = createServerFn({ method: "POST" })
   .validator((data) => createEmployeeSchema.parse(data))
   .handler(async ({ data }) => {
@@ -1958,6 +1999,7 @@ export const deleteEmployee = createServerFn({ method: "POST" })
       });
       db.departments.forEach((department) => {
         if (department.managerId === data.id) department.managerId = "";
+        department.memberIds = department.memberIds?.filter((memberId) => memberId !== data.id);
       });
       db.tasks.forEach((task) => {
         if (task.responsibleId === data.id) task.responsibleId = "";

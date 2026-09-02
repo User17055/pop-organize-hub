@@ -113,7 +113,7 @@ button{background:none;border:0;cursor:pointer}
 .side{width:222px;background:var(--side);display:flex;flex-direction:column;overflow:hidden;flex:none;position:relative;
   transition:width .26s cubic-bezier(.3,.8,.3,1),opacity .2s}
 .side.collapsed{width:0;overflow:visible}
-.side.collapsed .side-top{position:absolute;top:0;left:0;width:222px;z-index:4;pointer-events:none}
+.side.collapsed .side-top{position:absolute;top:0;left:0;width:42px;padding:19px 8px 6px;z-index:4;pointer-events:none}
 .side.collapsed .side-top .mag,
 .side.collapsed .side-top input{visibility:hidden}
 .side.collapsed .side-toggle{pointer-events:auto;background:var(--panel);box-shadow:var(--shadow)}
@@ -378,6 +378,7 @@ td.num{color:var(--tx2);font-size:12.5px;white-space:nowrap}
   color:var(--tx2);transition:.16s}
 .pbtn:hover{border-color:var(--tx3);transform:translateY(-1px)}
 .pbtn[aria-pressed="true"]{border-color:var(--acc);background:var(--acc-soft);color:var(--tx);font-weight:500}
+.pbtn:disabled{cursor:default;transform:none;opacity:.82}
 .pbtn .av{width:21px;height:21px;font-size:8.5px}
 .readout{display:flex;flex-wrap:wrap;gap:13px 28px;padding:15px 17px;background:var(--panel2);border-radius:13px}
 .readout div{display:flex;flex-direction:column;gap:4px}

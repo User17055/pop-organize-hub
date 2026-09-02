@@ -232,6 +232,7 @@ export interface Department {
   name: string;
   description: string;
   managerId: string;
+  memberIds?: string[];
   color: string;
 }
 

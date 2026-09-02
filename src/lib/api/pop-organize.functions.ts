@@ -94,7 +94,7 @@ const recurrenceSchema = z
 
 const createTaskSchema = z.object({
   title: z.string().trim().min(3, "Informe um título"),
-  description: z.string().trim().min(3, "Informe uma descrição"),
+  description: z.string().trim().max(4_000).default(""),
   priority: prioritySchema.default("medium"),
   dueDate: z.string().min(10).default(defaultDueDate()),
   target: targetSchema,
@@ -232,7 +232,7 @@ const updateTaskStatusSchema = z.object({
 const updateTaskDetailsSchema = z.object({
   id: z.string().min(1),
   title: z.string().trim().min(3, "Informe um título"),
-  description: z.string().trim().min(3, "Informe uma descrição"),
+  description: z.string().trim().max(4_000).default(""),
   priority: prioritySchema,
   dueDate: z.string().min(10),
   target: targetSchema,

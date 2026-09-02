@@ -322,7 +322,6 @@ export function TaskDetailDrawer({
             rows={8}
             placeholder="Adicionar uma nota..."
             className="min-h-[240px] w-full resize-y rounded-md border border-border/60 bg-muted/30 px-4 py-3.5 text-sm leading-relaxed outline-none transition focus:border-primary focus:bg-background disabled:opacity-60"
-            required
           />
         </div>
 

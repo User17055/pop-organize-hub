@@ -30,6 +30,7 @@ import {
   Settings2,
   SlidersHorizontal,
   Sparkles,
+  Users,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,8 @@ type TasksSearch = {
   lista?: string;
   status?: TaskStatus | "all";
   escopo?: "today" | "overdue" | "upcoming" | "mine" | "department" | "group" | "all";
+  setor?: string;
+  colaborador?: string;
 };
 
 export const Route = createFileRoute("/tarefas")({
@@ -65,6 +68,12 @@ export const Route = createFileRoute("/tarefas")({
       typeof search.lista === "string" && search.lista.trim() ? search.lista.trim() : undefined,
     status: isTaskStatusFilter(search.status) ? search.status : undefined,
     escopo: isTaskScope(search.escopo) ? search.escopo : undefined,
+    setor:
+      typeof search.setor === "string" && search.setor.trim() ? search.setor.trim() : undefined,
+    colaborador:
+      typeof search.colaborador === "string" && search.colaborador.trim()
+        ? search.colaborador.trim()
+        : undefined,
   }),
   head: () => ({
     meta: [
@@ -140,6 +149,27 @@ function taskMatchesAdminScope(task: Task, scope: TaskScope, data: WorkspaceData
   return task.target.type === "group" && currentGroupIds.has(task.target.id);
 }
 
+function taskResponsibleIds(task: Task) {
+  return new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean));
+}
+
+function taskMatchesCollaborator(task: Task, employeeId: string) {
+  return task.target.type === "user" && task.target.id === employeeId
+    ? true
+    : taskResponsibleIds(task).has(employeeId);
+}
+
+function taskMatchesDepartment(task: Task, departmentId: string, data: WorkspaceData) {
+  if (task.target.type === "department" && task.target.id === departmentId) return true;
+  const memberIds = new Set(
+    [...data.employees, ...data.invitations]
+      .filter((employee) => employee.departmentId === departmentId)
+      .map((employee) => employee.id),
+  );
+  if (task.target.type === "user" && memberIds.has(task.target.id)) return true;
+  return [...taskResponsibleIds(task)].some((id) => memberIds.has(id));
+}
+
 type TaskLayoutPreferences = {
   layoutMode: "list" | "department";
   titleWidth: number;
@@ -155,12 +185,21 @@ const defaultLayoutPreferences: TaskLayoutPreferences = {
 };
 
 function TasksPage() {
-  const { lista: organizerListId, status: initialStatus, escopo: initialScope } = Route.useSearch();
+  const {
+    lista: organizerListId,
+    status: initialStatus,
+    escopo: initialScope,
+    setor: selectedDepartmentId,
+    colaborador: selectedCollaboratorId,
+  } = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data, isLoading, error } = useWorkspaceData();
   const [active, setActive] = useState<TaskStatus | "all">(initialStatus ?? "all");
   const [taskScope, setTaskScope] = useState<TaskScope>(initialScope ?? "all");
   const [search, setSearch] = useState("");
+  const [directoryMode, setDirectoryMode] = useState<"departments" | "collaborators">(
+    selectedCollaboratorId ? "collaborators" : "departments",
+  );
   const filters = emptyTaskFilters;
   const [isMounted, setIsMounted] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -306,10 +345,20 @@ function TasksPage() {
     () => new Set(selectedOrganizerList?.taskIds ?? []),
     [selectedOrganizerList?.taskIds],
   );
-  const taskRows = useMemo(
+  const organizerTaskRows = useMemo(
     () =>
       (data?.tasks ?? []).filter((task) => !selectedOrganizerList || organizerTaskIds.has(task.id)),
     [data?.tasks, organizerTaskIds, selectedOrganizerList],
+  );
+  const taskRows = useMemo(
+    () =>
+      organizerTaskRows.filter((task) => {
+        if (!data) return true;
+        if (selectedDepartmentId) return taskMatchesDepartment(task, selectedDepartmentId, data);
+        if (selectedCollaboratorId) return taskMatchesCollaborator(task, selectedCollaboratorId);
+        return true;
+      }),
+    [data, organizerTaskRows, selectedCollaboratorId, selectedDepartmentId],
   );
   const activeTaskRows = useMemo(
     () => taskRows.filter((task) => task.status !== "completed"),
@@ -476,7 +525,7 @@ function TasksPage() {
       description: "",
       priority: "medium",
       dueDate,
-      targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : `company:${company.id}`,
+      targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : "",
       responsibleId: "",
       reviewerId: "",
       requiresReview: false,
@@ -774,6 +823,162 @@ function TasksPage() {
                 <span className="text-xs font-semibold">{label}</span>
               </button>
             ))}
+          </div>
+        </section>
+      )}
+
+      {!isPersonalWorkspace && (
+        <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+                Organizar tarefas
+              </p>
+              <h2 className="mt-1 font-display text-lg font-bold">Setores ou colaboradores</h2>
+            </div>
+            {(selectedDepartmentId || selectedCollaboratorId) && (
+              <button
+                type="button"
+                onClick={() =>
+                  navigate({
+                    search: (current) => ({
+                      ...current,
+                      setor: undefined,
+                      colaborador: undefined,
+                    }),
+                  })
+                }
+                className="task-glass-control inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
+              >
+                <X className="h-3.5 w-3.5" /> Mostrar todas
+              </button>
+            )}
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setDirectoryMode("departments");
+                navigate({
+                  search: (current) => ({
+                    ...current,
+                    setor: undefined,
+                    colaborador: undefined,
+                  }),
+                });
+              }}
+              className={cn(
+                "rounded-2xl border px-4 py-3 text-left transition",
+                directoryMode === "departments"
+                  ? "border-primary/30 bg-primary/10 text-primary"
+                  : "border-border/65 bg-background/55 hover:border-primary/25",
+              )}
+            >
+              <Layers3 className="mb-2 h-4 w-4" />
+              <span className="block text-sm font-bold">Setores</span>
+              <span className="text-[11px] text-muted-foreground">
+                {departments.length} cadastrados
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDirectoryMode("collaborators");
+                navigate({
+                  search: (current) => ({
+                    ...current,
+                    setor: undefined,
+                    colaborador: undefined,
+                  }),
+                });
+              }}
+              className={cn(
+                "rounded-2xl border px-4 py-3 text-left transition",
+                directoryMode === "collaborators"
+                  ? "border-primary/30 bg-primary/10 text-primary"
+                  : "border-border/65 bg-background/55 hover:border-primary/25",
+              )}
+            >
+              <Users className="mb-2 h-4 w-4" />
+              <span className="block text-sm font-bold">Colaboradores</span>
+              <span className="text-[11px] text-muted-foreground">
+                {assignmentMembers.length} cadastrados
+              </span>
+            </button>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {directoryMode === "departments"
+              ? departments.map((department) => {
+                  const count = tasks.filter((task) =>
+                    taskMatchesDepartment(task, department.id, data),
+                  ).length;
+                  const selected = selectedDepartmentId === department.id;
+                  return (
+                    <button
+                      key={department.id}
+                      type="button"
+                      onClick={() =>
+                        navigate({
+                          search: (current) => ({
+                            ...current,
+                            setor: department.id,
+                            colaborador: undefined,
+                          }),
+                        })
+                      }
+                      className={cn(
+                        "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                        selected
+                          ? "border-primary/30 bg-primary/10 text-primary"
+                          : "border-border/60 bg-background/55 hover:border-primary/25",
+                      )}
+                    >
+                      <span className="truncate text-xs font-bold">{department.name}</span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })
+              : assignmentMembers.map((employee) => {
+                  const count = tasks.filter((task) =>
+                    taskMatchesCollaborator(task, employee.id),
+                  ).length;
+                  const selected = selectedCollaboratorId === employee.id;
+                  return (
+                    <button
+                      key={employee.id}
+                      type="button"
+                      onClick={() =>
+                        navigate({
+                          search: (current) => ({
+                            ...current,
+                            setor: undefined,
+                            colaborador: employee.id,
+                          }),
+                        })
+                      }
+                      className={cn(
+                        "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                        selected
+                          ? "border-primary/30 bg-primary/10 text-primary"
+                          : "border-border/60 bg-background/55 hover:border-primary/25",
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-bold">{employee.name}</span>
+                        <span className="block truncate text-[10px] text-muted-foreground">
+                          {employee.role}
+                        </span>
+                      </span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
           </div>
         </section>
       )}

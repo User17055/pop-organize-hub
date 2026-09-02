@@ -247,7 +247,7 @@ function CalendarPage() {
       description: "",
       priority: "medium",
       dueDate,
-      targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : `company:${company.id}`,
+      targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : "",
       responsibleId: "",
       reviewerId: "",
       requiresReview: false,

@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, ListChecks, X } from "lucide-react";
+import { Building2, Check, Layers3, ListChecks, Network, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { priorityLabels, type Employee, type Priority } from "@/lib/domain";
+import { priorityLabels, type Employee, type Priority, type TargetType } from "@/lib/domain";
 import { Field } from "@/components/form-field";
 import { GlassDatePicker } from "./glass-date-picker";
 import { GlassSelect, RecurrenceFields } from "./recurrence-fields";
@@ -43,12 +43,26 @@ export function TaskCreateDrawer({
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState(form);
+  const [assignmentType, setAssignmentType] = useState<TargetType | "">("");
   const steps = personalMode ? personalSteps : companySteps;
   const isLastStep = step === steps.length - 1;
   const isDepartmentTarget = draft.targetKey.startsWith("department:");
   const isUserTarget = draft.targetKey.startsWith("user:");
+  const selectedDepartmentId = isDepartmentTarget
+    ? draft.targetKey.slice("department:".length)
+    : "";
+  const availableEmployees = isDepartmentTarget
+    ? employees.filter((employee) => employee.departmentId === selectedDepartmentId)
+    : employees;
+  const filteredTargetOptions = assignmentType
+    ? targetOptions.filter((option) => option.value.startsWith(`${assignmentType}:`))
+    : [];
   const canContinue =
-    step !== 0 || Boolean(draft.title.trim() && draft.description.trim() && draft.dueDate);
+    step === 0
+      ? Boolean(draft.title.trim() && draft.dueDate)
+      : step === 1 && !personalMode
+        ? Boolean(draft.targetKey)
+        : true;
 
   useEffect(() => {
     setMounted(true);
@@ -57,9 +71,12 @@ export function TaskCreateDrawer({
   useEffect(() => {
     if (open) {
       setDraft(form);
+      setAssignmentType(
+        personalMode ? "user" : ((form.targetKey.split(":")[0] as TargetType | undefined) ?? ""),
+      );
       setStep(0);
     }
-  }, [form, open]);
+  }, [form, open, personalMode]);
 
   useEffect(() => {
     if (!open || !mounted) return;
@@ -158,7 +175,7 @@ export function TaskCreateDrawer({
                     required
                   />
                 </Field>
-                <Field label="Descrição">
+                <Field label="Descrição (opcional)">
                   <textarea
                     value={draft.description}
                     onChange={(event) =>
@@ -169,7 +186,7 @@ export function TaskCreateDrawer({
                     }
                     rows={3}
                     className={textareaClass}
-                    required
+                    placeholder="Adicione detalhes se precisar"
                   />
                 </Field>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -225,46 +242,107 @@ export function TaskCreateDrawer({
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <Field label="Visível para">
-                      <GlassSelect
-                        value={draft.targetKey}
-                        options={targetOptions}
-                        onChange={(targetKey) =>
-                          setDraft((current) => ({
-                            ...current,
-                            targetKey,
-                            responsibleId: targetKey.startsWith("user:")
-                              ? ""
-                              : current.responsibleId,
-                          }))
-                        }
-                      />
-                    </Field>
-                    {!isUserTarget && (
-                      <Field label={isDepartmentTarget ? "Responsável (opcional)" : "Responsável"}>
-                        <GlassSelect
-                          value={draft.responsibleId}
-                          options={[
-                            {
-                              value: "",
-                              label: isDepartmentTarget
-                                ? "Sem responsável — setor inteiro"
-                                : "Sem responsável",
-                            },
-                            ...employees.map((employee) => ({
-                              value: employee.id,
-                              label: `${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
-                            })),
-                          ]}
-                          onChange={(responsibleId) =>
-                            setDraft((current) => ({
-                              ...current,
-                              responsibleId,
-                            }))
+                  <div className="space-y-4">
+                    <div>
+                      <p className="mb-2 text-xs font-bold text-foreground">
+                        Para quem é esta tarefa?
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(
+                          [
+                            ["department", "Setor", Layers3],
+                            ["user", "Colaborador", UserRound],
+                            ["company", "Empresa", Building2],
+                            ["group", "Grupo", Network],
+                          ] as const
+                        ).map(([type, label, Icon]) => {
+                          const available = targetOptions.some((option) =>
+                            option.value.startsWith(`${type}:`),
+                          );
+                          return (
+                            <button
+                              key={type}
+                              type="button"
+                              disabled={!available}
+                              onClick={() => {
+                                const options = targetOptions.filter((option) =>
+                                  option.value.startsWith(`${type}:`),
+                                );
+                                setAssignmentType(type);
+                                setDraft((current) => ({
+                                  ...current,
+                                  targetKey: options.length === 1 ? options[0]!.value : "",
+                                  responsibleId: "",
+                                }));
+                              }}
+                              className={cn(
+                                "task-create-card pressable flex items-center gap-2 rounded-xl border px-3 py-3 text-left text-xs font-bold transition disabled:opacity-40",
+                                assignmentType === type &&
+                                  "border-primary/35 bg-primary/10 text-primary",
+                              )}
+                            >
+                              <Icon className="h-4 w-4" /> {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {assignmentType && filteredTargetOptions.length > 0 && (
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <Field
+                          label={
+                            assignmentType === "department"
+                              ? "Escolha o setor"
+                              : assignmentType === "user"
+                                ? "Escolha o colaborador"
+                                : assignmentType === "group"
+                                  ? "Escolha o grupo"
+                                  : "Destino"
                           }
-                        />
-                      </Field>
+                        >
+                          <GlassSelect
+                            value={draft.targetKey}
+                            options={[
+                              ...(filteredTargetOptions.length > 1
+                                ? [{ value: "", label: "Selecione uma opção" }]
+                                : []),
+                              ...filteredTargetOptions,
+                            ]}
+                            onChange={(targetKey) =>
+                              setDraft((current) => ({
+                                ...current,
+                                targetKey,
+                                responsibleId: "",
+                              }))
+                            }
+                          />
+                        </Field>
+                        {!isUserTarget && draft.targetKey && (
+                          <Field
+                            label={
+                              isDepartmentTarget ? "Responsável do setor (opcional)" : "Responsável"
+                            }
+                          >
+                            <GlassSelect
+                              value={draft.responsibleId}
+                              options={[
+                                {
+                                  value: "",
+                                  label: isDepartmentTarget ? "Setor inteiro" : "Sem responsável",
+                                },
+                                ...availableEmployees.map((employee) => ({
+                                  value: employee.id,
+                                  label: `${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
+                                })),
+                              ]}
+                              onChange={(responsibleId) =>
+                                setDraft((current) => ({ ...current, responsibleId }))
+                              }
+                            />
+                          </Field>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -385,7 +463,12 @@ export function TaskCreateDrawer({
               {isLastStep ? (
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={
+                    isSubmitting ||
+                    !draft.title.trim() ||
+                    !draft.dueDate ||
+                    (!personalMode && !draft.targetKey)
+                  }
                   className="task-create-primary-button pressable h-12 flex-1 rounded-2xl text-sm font-bold transition disabled:opacity-60"
                 >
                   {isSubmitting ? "Criando..." : "Criar tarefa"}

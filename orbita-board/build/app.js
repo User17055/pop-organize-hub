@@ -878,7 +878,12 @@ function openFilters(anchor) {
         });
     });
 }
-function toggle(set, v) { set.has(v) ? set.delete(v) : set.add(v); }
+function toggle(set, v) {
+    if (set.has(v))
+        set.delete(v);
+    else
+        set.add(v);
+}
 function openMore(anchor) {
     const b = anchor.getBoundingClientRect();
     const left = Math.min(b.right - 210, window.innerWidth - 222);
@@ -1185,7 +1190,12 @@ $("#weekLab").addEventListener("click", () => {
     renderScreen();
     toast(state.weekOn ? "Mostrando só o que vence nesta semana." : "Filtro de semana desligado.");
 });
-$("#filterBtn").addEventListener("click", () => { layer.innerHTML ? closeLayer() : openFilters(); });
+$("#filterBtn").addEventListener("click", () => {
+    if (layer.innerHTML)
+        closeLayer();
+    else
+        openFilters();
+});
 const openTasks = () => TASKS.filter(t => t.status !== "done");
 const pct = (v, total) => (total ? (v / total) * 100 : 0);
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -2014,7 +2024,10 @@ document.addEventListener("click", e => {
     }
     const df = el.closest("#dashFilter");
     if (df) {
-        layer.innerHTML ? closeLayer() : openFilters(df);
+        if (layer.innerHTML)
+            closeLayer();
+        else
+            openFilters(df);
         return;
     }
     const cv = el.closest("[data-calview]");
@@ -2054,7 +2067,10 @@ document.addEventListener("click", e => {
     }
     const cfb = el.closest("#calFilter");
     if (cfb) {
-        layer.innerHTML ? closeLayer() : openFilters(cfb);
+        if (layer.innerHTML)
+            closeLayer();
+        else
+            openFilters(cfb);
         return;
     }
     if (el.closest("[data-newmeeting]")) {

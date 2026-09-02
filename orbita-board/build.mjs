@@ -3,9 +3,9 @@
 // e dist/artifact.html (só o conteúdo, para publicar como Artifact).
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 
-const css  = readFileSync("src/styles.css", "utf8");
+const css = readFileSync("src/styles.css", "utf8");
 const html = readFileSync("src/index.html", "utf8");
-const js   = readFileSync("build/app.js", "utf8");
+const js = readFileSync("build/app.js", "utf8");
 
 const head = `<title>Órbita Board</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -34,6 +34,6 @@ ${head}
 ${body}
 </body>
 </html>
-`
+`,
 );
 console.log("dist/artifact.html e dist/Orbita-Board.html gerados");

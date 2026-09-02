@@ -1020,7 +1020,10 @@ function openFilters(anchor?: HTMLElement): void {
     });
 }
 
-function toggle<T>(set: Set<T>, v: T): void { set.has(v) ? set.delete(v) : set.add(v); }
+function toggle<T>(set: Set<T>, v: T): void {
+  if (set.has(v)) set.delete(v);
+  else set.add(v);
+}
 
 function openMore(anchor: HTMLElement): void {
   const b = anchor.getBoundingClientRect();
@@ -1271,7 +1274,10 @@ $("#weekLab").addEventListener("click", () => {
   toast(state.weekOn ? "Mostrando só o que vence nesta semana." : "Filtro de semana desligado.");
 });
 
-$("#filterBtn").addEventListener("click", () => { layer.innerHTML ? closeLayer() : openFilters(); });
+$("#filterBtn").addEventListener("click", () => {
+  if (layer.innerHTML) closeLayer();
+  else openFilters();
+});
 
 /* ============================ painel ============================ */
 
@@ -2184,7 +2190,11 @@ document.addEventListener("click", e => {
   if (openBtn) { openTask(openBtn.dataset["open"]!); return; }
 
   const df = el.closest<HTMLElement>("#dashFilter");
-  if (df) { layer.innerHTML ? closeLayer() : openFilters(df); return; }
+  if (df) {
+    if (layer.innerHTML) closeLayer();
+    else openFilters(df);
+    return;
+  }
 
   const cv = el.closest<HTMLElement>("[data-calview]");
   if (cv) { state.calView = cv.dataset["calview"] as State["calView"]; renderCalHead(); renderCalendar(); return; }
@@ -2211,7 +2221,11 @@ document.addEventListener("click", e => {
   }
 
   const cfb = el.closest<HTMLElement>("#calFilter");
-  if (cfb) { layer.innerHTML ? closeLayer() : openFilters(cfb); return; }
+  if (cfb) {
+    if (layer.innerHTML) closeLayer();
+    else openFilters(cfb);
+    return;
+  }
 
   if (el.closest("[data-newmeeting]")) { openMeetingForm(); return; }
 

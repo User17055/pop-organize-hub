@@ -67,7 +67,8 @@ export function PopDock() {
             monthOfYear: draft.recurrence.monthOfYear ?? undefined,
             endDate: draft.recurrence.endDate || undefined,
           };
-    const responsibleId = draft.targetType === "user" ? "" : (draft.responsibleId ?? "");
+    const responsibleId =
+      draft.targetType === "user" ? draft.targetId : (draft.responsibleId ?? "");
 
     await createTaskMutation.mutateAsync({
       title: draft.title,

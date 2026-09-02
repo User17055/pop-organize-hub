@@ -118,7 +118,10 @@ export function TaskDetailDrawer({
   const [isCelebrating, setIsCelebrating] = useState(false);
   const [destinationOpen, setDestinationOpen] = useState(false);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [selectedTargetType] = editForm.targetKey.split(":") as [TargetType, string];
+  const [selectedTargetType, selectedTargetId] = editForm.targetKey.split(":") as [
+    TargetType,
+    string,
+  ];
   const destinationOptions =
     selectedTargetType === "company"
       ? [{ id: company.id, label: company.name, description: "Toda a empresa" }]
@@ -451,41 +454,42 @@ export function TaskDetailDrawer({
               )}
             </button>
 
-            {/* A pessoa escolhida como destino já é a destinatária da atividade. */}
-            {selectedTargetType !== "user" && (
-              <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
-                <EmployeeAvatar
-                  employee={getEmployee(task.responsibleId)}
-                  departments={departments}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                    Responsável
-                  </div>
-                  {permissions.canEditContent ? (
-                    <GlassSelect
-                      value={editForm.responsibleId}
-                      options={[
-                        { value: "", label: "Sem responsável" },
-                        ...employees.map((employee) => ({
-                          value: employee.id,
-                          label: `${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
-                        })),
-                      ]}
-                      onChange={(responsibleId) =>
-                        onEditFormChange((current) => ({ ...current, responsibleId }))
-                      }
-                      compact
-                    />
-                  ) : (
-                    <div className="mt-0.5 truncate text-xs font-semibold text-foreground">
-                      {getEmployee(task.responsibleId)?.name ??
-                        (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
-                    </div>
-                  )}
+            <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
+              <EmployeeAvatar
+                employee={getEmployee(
+                  selectedTargetType === "user" ? selectedTargetId : task.responsibleId,
+                )}
+                departments={departments}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Responsável
                 </div>
+                {permissions.canEditContent && selectedTargetType !== "user" ? (
+                  <GlassSelect
+                    value={editForm.responsibleId}
+                    options={[
+                      { value: "", label: "Sem responsável" },
+                      ...employees.map((employee) => ({
+                        value: employee.id,
+                        label: `${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
+                      })),
+                    ]}
+                    onChange={(responsibleId) =>
+                      onEditFormChange((current) => ({ ...current, responsibleId }))
+                    }
+                    compact
+                  />
+                ) : (
+                  <div className="mt-0.5 truncate text-xs font-semibold text-foreground">
+                    {getEmployee(
+                      selectedTargetType === "user" ? selectedTargetId : task.responsibleId,
+                    )?.name ??
+                      (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
+                  </div>
+                )}
               </div>
-            )}
+            </div>
 
             {/* Reviewer */}
             {task.reviewerId && (

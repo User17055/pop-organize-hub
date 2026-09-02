@@ -1245,7 +1245,10 @@ export const createTask = createServerFn({ method: "POST" })
         "Seu grupo de permissão não pode criar tarefas.",
       );
 
-      const responsibleIds = normalizeResponsibleIds(data.responsibleId, data.responsibleIds);
+      const responsibleIds =
+        data.target.type === "user"
+          ? [data.target.id]
+          : normalizeResponsibleIds(data.responsibleId, data.responsibleIds);
       if (
         db.company.kind === "personal" &&
         (data.target.type !== "user" ||
@@ -1301,7 +1304,7 @@ export const createTask = createServerFn({ method: "POST" })
         dueDate: data.dueDate,
         createdAt: today(),
         target: { ...data.target, label: targetLabel },
-        responsibleId: data.responsibleId,
+        responsibleId: responsibleIds[0] ?? "",
         responsibleIds: responsibleIds.length ? responsibleIds : undefined,
         assignedById: currentUserId,
         assignedAt: new Date().toISOString(),
@@ -1382,10 +1385,10 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       if (targetChanged && !permissions.canMove && !permissions.canAssign) {
         throw createHttpError("Você não tem permissão para mover ou alterar o destino.", 403);
       }
-      const nextResponsibleIds = normalizeResponsibleIds(
-        data.responsibleId,
-        data.responsibleIds ?? task.responsibleIds,
-      );
+      const nextResponsibleIds =
+        data.target.type === "user"
+          ? [data.target.id]
+          : normalizeResponsibleIds(data.responsibleId, data.responsibleIds ?? task.responsibleIds);
       const responsibleChanged =
         JSON.stringify(normalizeResponsibleIds(task.responsibleId, task.responsibleIds).sort()) !==
         JSON.stringify([...nextResponsibleIds].sort());
@@ -1427,7 +1430,7 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       task.priority = data.priority;
       task.dueDate = data.dueDate;
       task.target = { ...data.target, label: targetLabel };
-      task.responsibleId = data.responsibleId;
+      task.responsibleId = nextResponsibleIds[0] ?? "";
       task.responsibleIds = nextResponsibleIds.length ? nextResponsibleIds : undefined;
       task.tags = data.tags;
       task.recurrence = nextRecurrence;

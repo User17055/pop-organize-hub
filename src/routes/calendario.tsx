@@ -266,7 +266,7 @@ function CalendarPage() {
     const [selectedType, selectedId] = submittedForm.targetKey.split(":") as [TargetType, string];
     const type = isPersonalWorkspace ? "user" : selectedType;
     const id = isPersonalWorkspace ? currentUser.id : selectedId;
-    const responsibleId = type === "user" ? "" : submittedForm.responsibleId;
+    const responsibleId = type === "user" ? id : submittedForm.responsibleId;
     createTaskMutation.mutate({
       title: submittedForm.title,
       description: submittedForm.description,
@@ -321,7 +321,7 @@ function CalendarPage() {
       priority: editForm.priority,
       dueDate: editForm.dueDate,
       target: { type: selectedType, id: selectedId },
-      responsibleId: editForm.responsibleId,
+      responsibleId: selectedType === "user" ? selectedId : editForm.responsibleId,
       tags: editForm.tags
         .split(",")
         .map((tag) => tag.trim())

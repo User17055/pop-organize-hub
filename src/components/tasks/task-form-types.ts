@@ -133,10 +133,10 @@ export function isOverdue(task: Task) {
 
 export function taskTargetLabel(target: Task["target"]) {
   if (target.type === "company") return target.label;
+  if (target.type === "user") return target.label;
   const prefix = {
     department: "Setor",
     group: "Grupo",
-    user: "Pessoa",
   }[target.type];
   return `${prefix}: ${target.label}`;
 }

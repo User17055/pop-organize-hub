@@ -355,7 +355,9 @@ function TaskListImpl({
             </TableHeader>
             <TableBody className="[&_tr:last-child]:border-b">
               {tasks.map((task) => {
-                const emp = getEmployee(task.responsibleId);
+                const emp = getEmployee(
+                  task.responsibleId || (task.target.type === "user" ? task.target.id : ""),
+                );
                 const overdue = isOverdue(task);
                 const permissions = permissionsByTaskId.get(task.id)!;
                 const progress = subtaskProgress(task);
@@ -452,23 +454,15 @@ function TaskListImpl({
                         </TableCell>
                         {showResponsible && (
                           <TableCell className="px-4 py-4">
-                            {task.target.type !== "user" ? (
-                              <div className="flex items-center gap-2">
-                                <EmployeeAvatar
-                                  employee={emp}
-                                  departments={departments}
-                                  size="sm"
-                                />
-                                <span className="truncate text-sm font-medium text-foreground/75">
-                                  {emp?.name ??
-                                    (task.target.type === "department"
-                                      ? "Setor inteiro"
-                                      : "Sem responsável")}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-xs text-muted-foreground/45">—</span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              <EmployeeAvatar employee={emp} departments={departments} size="sm" />
+                              <span className="truncate text-sm font-medium text-foreground/75">
+                                {emp?.name ??
+                                  (task.target.type === "department"
+                                    ? "Setor inteiro"
+                                    : "Sem responsável")}
+                              </span>
+                            </div>
                           </TableCell>
                         )}
                         <TableCell className="px-4 py-4">
@@ -550,7 +544,9 @@ function TaskListImpl({
         <div className="flex flex-col gap-3 lg:hidden">
           <AnimatePresence initial={false}>
             {tasks.map((task, index) => {
-              const emp = getEmployee(task.responsibleId);
+              const emp = getEmployee(
+                task.responsibleId || (task.target.type === "user" ? task.target.id : ""),
+              );
               const overdue = isOverdue(task);
               const permissions = permissionsByTaskId.get(task.id)!;
               const progress = subtaskProgress(task);
@@ -706,7 +702,7 @@ function TaskListImpl({
                     </div>
                   </div>
 
-                  {showResponsible && task.target.type !== "user" && (
+                  {showResponsible && (
                     <div
                       className="shrink-0"
                       title={

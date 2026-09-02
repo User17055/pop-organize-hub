@@ -600,6 +600,14 @@ function normalizeDatabase(value: Database): Database {
     value.company?.ownerId ??
     employees.find((employee) => employee.role.toLowerCase().includes("admin"))?.id ??
     employees[0]?.id;
+  const tasks = (value.tasks ?? []).map((task) => {
+    if (task.target.type !== "user") return task;
+    return {
+      ...task,
+      responsibleId: task.target.id,
+      responsibleIds: [task.target.id],
+    };
+  });
   return {
     ...value,
     accessMode: "team",
@@ -612,7 +620,7 @@ function normalizeDatabase(value: Database): Database {
     employees,
     departments,
     groups,
-    tasks: value.tasks ?? [],
+    tasks,
     taskFolders: value.taskFolders ?? [],
     taskLists: value.taskLists ?? [],
     permissionGroups,

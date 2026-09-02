@@ -21,8 +21,6 @@ import {
   Check,
   ChevronDown,
   Columns3,
-  Eye,
-  EyeOff,
   Layers3,
   Plus,
   Repeat,
@@ -490,6 +488,15 @@ function TasksPage() {
   const isPersonalWorkspace = company.kind === "personal";
   const showResponsible = canSeePeopleContext && !isPersonalWorkspace;
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
+  const selectedDirectoryDepartment = selectedDepartmentId
+    ? departments.find((department) => department.id === selectedDepartmentId)
+    : null;
+  const selectedDirectoryCollaborator = selectedCollaboratorId
+    ? assignmentMembers.find((employee) => employee.id === selectedCollaboratorId)
+    : null;
+  const hasDirectorySelection = Boolean(
+    selectedDirectoryDepartment || selectedDirectoryCollaborator,
+  );
   const selectedPermissions = selectedTask
     ? getTaskPermissions({
         task: selectedTask,
@@ -827,7 +834,7 @@ function TasksPage() {
         </section>
       )}
 
-      {!isPersonalWorkspace && (
+      {!isPersonalWorkspace && !hasDirectorySelection && !selectedOrganizerList && (
         <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -983,405 +990,429 @@ function TasksPage() {
         </section>
       )}
 
-      <div className="mb-4 flex min-w-0 items-center gap-2 sm:gap-3">
-        <div className="task-glass-control flex h-12 min-w-0 flex-1 items-center gap-2 rounded-[18px] px-3 transition-colors focus-within:border-primary/45 sm:px-4 md:h-11">
-          <Search className="h-4 w-4 text-primary" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar tarefas..."
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/75"
-          />
-        </div>
-        {canCreateTask && (
-          <>
-            <button
-              onClick={() => openPopAssistant()}
-              className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 text-sm font-bold text-primary transition hover:bg-primary/15 lg:hidden"
-              aria-label="Criar com a Pop"
-            >
-              <Sparkles className="h-4 w-4" />
-              <span className="hidden sm:inline">Pop</span>
-            </button>
-            <button
-              onClick={openForm}
-              className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full bg-primary px-3.5 text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 sm:px-4 lg:hidden"
-            >
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
-                <Plus className="h-4 w-4" />
-              </span>
-              Nova
-            </button>
-          </>
-        )}
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Popover>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
-                (active !== "all" || taskScope !== "all") &&
-                  "border-primary/25 bg-primary/8 text-primary",
-              )}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              Filtros
-              {(active !== "all" || taskScope !== "all") && (
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground">
-                  {Number(active !== "all") + Number(taskScope !== "all")}
-                </span>
-              )}
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-3">
-            <div>
-              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                Status
-              </p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {statusFilters.map((filter) => {
-                  const count =
-                    filter.key === "all"
-                      ? taskRows.length
-                      : taskRows.filter((task) => task.status === filter.key).length;
-                  return (
-                    <button
-                      key={filter.key}
-                      type="button"
-                      onClick={() => applyStatusFilter(filter.key)}
-                      className={cn(
-                        "flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
-                        active === filter.key && "bg-primary/10 text-primary",
-                      )}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <Check
-                          className={cn(
-                            "h-3.5 w-3.5",
-                            active === filter.key ? "opacity-100" : "opacity-0",
-                          )}
-                        />
-                        {filter.label}
-                      </span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground">
-                        {count}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {currentUserIsAdmin && !isPersonalWorkspace && (
-              <div className="mt-3 border-t border-border/60 pt-3">
-                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                  Prazo e atribuição
-                </p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {adminScopeFilters.map((filter) => (
-                    <button
-                      key={filter.key}
-                      type="button"
-                      onClick={() => applyScopeFilter(filter.key)}
-                      className={cn(
-                        "flex items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
-                        taskScope === filter.key && "bg-primary/10 text-primary",
-                      )}
-                    >
-                      <Check
-                        className={cn(
-                          "h-3.5 w-3.5",
-                          taskScope === filter.key ? "opacity-100" : "opacity-0",
-                        )}
-                      />
-                      {filter.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </PopoverContent>
-        </Popover>
-
-        {active !== "all" && (
-          <button
-            type="button"
-            onClick={() => applyStatusFilter("all")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
-          >
-            {statusFilters.find((filter) => filter.key === active)?.label}
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-        {taskScope !== "all" && (
-          <button
-            type="button"
-            onClick={() => applyScopeFilter("all")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
-          >
-            {adminScopeFilters.find((filter) => filter.key === taskScope)?.label}
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2">
+      {!isPersonalWorkspace && (selectedDirectoryDepartment || selectedDirectoryCollaborator) && (
+        <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
           <button
             type="button"
             onClick={() =>
-              setLayoutPreferences((current) => ({
-                ...current,
-                layoutMode: current.layoutMode === "department" ? "list" : "department",
-              }))
+              navigate({
+                search: (current) => ({
+                  ...current,
+                  setor: undefined,
+                  colaborador: undefined,
+                }),
+              })
             }
-            className={cn(
-              "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
-              layoutPreferences.layoutMode === "department" && "border-primary/25 text-primary",
-            )}
+            className="task-glass-control inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
           >
-            <Layers3 className="h-4 w-4" />
-            {layoutPreferences.layoutMode === "department" ? "Por setor" : "Abrir por setor"}
+            <ArrowLeft className="h-4 w-4" /> Voltar para categorias
           </button>
-          <button
-            type="button"
-            onClick={() => setShowLayoutSettings((current) => !current)}
-            className={cn(
-              "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
-              showLayoutSettings && "border-primary/25 text-primary",
-            )}
-          >
-            <Settings2 className="h-4 w-4" />
-            Personalizar layout
-          </button>
-          {layoutPreferences.layoutMode === "department" && (
-            <button
-              type="button"
-              onClick={() => {
-                const sectionIds = taskSections.map((section) => section.id);
-                const allCollapsed =
-                  sectionIds.length > 0 &&
-                  sectionIds.every((sectionId) => collapsedDepartments.has(sectionId));
-                setCollapsedDepartments(allCollapsed ? new Set() : new Set(sectionIds));
-              }}
-              className="task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition hover:border-primary/25 hover:text-primary"
-            >
-              {taskSections.every((section) => collapsedDepartments.has(section.id)) ? (
-                <Eye className="h-4 w-4" />
-              ) : (
-                <EyeOff className="h-4 w-4" />
+          <div className="mt-4 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+                {selectedDirectoryDepartment ? "Tarefas do setor" : "Tarefas do colaborador"}
+              </p>
+              <h2 className="mt-1 truncate font-display text-xl font-bold">
+                {selectedDirectoryDepartment?.name ?? selectedDirectoryCollaborator?.name}
+              </h2>
+              {selectedDirectoryCollaborator && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Tarefas individuais e atividades atribuídas a esta pessoa
+                </p>
               )}
-              {taskSections.every((section) => collapsedDepartments.has(section.id))
-                ? "Mostrar todos os setores"
-                : "Ocultar todos os setores"}
-            </button>
-          )}
-        </div>
-        <span className="hidden text-xs text-muted-foreground lg:inline">
-          Arraste a barra azul ao lado de “Atividade” para aumentar ou diminuir.
-        </span>
-      </div>
-
-      {showLayoutSettings && (
-        <section className="task-glass-panel mb-4 grid gap-4 rounded-[20px] p-4 sm:grid-cols-3">
-          <label className="space-y-2 text-xs font-semibold">
-            <span className="flex items-center justify-between gap-2 text-foreground">
-              <span className="flex items-center gap-2">
-                <Columns3 className="h-4 w-4 text-primary" />
-                Largura da atividade
-              </span>
-              <span className="text-[10px] text-primary">{layoutPreferences.titleWidth}px</span>
+            </div>
+            <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary">
+              {taskRows.length} {taskRows.length === 1 ? "tarefa" : "tarefas"}
             </span>
-            <input
-              type="range"
-              min={240}
-              max={680}
-              step={20}
-              value={layoutPreferences.titleWidth}
-              onChange={(event) =>
-                setLayoutPreferences((current) => ({
-                  ...current,
-                  titleWidth: Number(event.target.value),
-                }))
-              }
-              className="w-full accent-primary"
-            />
-          </label>
-          <label className="space-y-2 text-xs font-semibold">
-            <span className="text-foreground">Espaçamento das linhas</span>
-            <select
-              value={layoutPreferences.density}
-              onChange={(event) =>
-                setLayoutPreferences((current) => ({
-                  ...current,
-                  density: event.target.value as TaskLayoutPreferences["density"],
-                }))
-              }
-              className="h-10 w-full rounded-xl border border-border/70 bg-background/70 px-3 outline-none"
-            >
-              <option value="comfortable">Confortável</option>
-              <option value="compact">Compacto</option>
-            </select>
-          </label>
-          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-[14px] border border-border/60 bg-background/55 px-3 text-xs font-semibold">
-            Mostrar notas na tabela
-            <input
-              type="checkbox"
-              checked={layoutPreferences.showDescription}
-              onChange={(event) =>
-                setLayoutPreferences((current) => ({
-                  ...current,
-                  showDescription: event.target.checked,
-                }))
-              }
-              className="h-4 w-4 accent-primary"
-            />
-          </label>
+          </div>
         </section>
       )}
 
-      <div className="space-y-4">
-        {taskSections.map((section) => {
-          const collapsed = collapsedDepartments.has(section.id);
-          return (
-            <section key={section.id}>
-              {layoutPreferences.layoutMode === "department" && (
+      {(isPersonalWorkspace || hasDirectorySelection || selectedOrganizerList) && (
+        <>
+          <div className="mb-4 flex min-w-0 items-center gap-2 sm:gap-3">
+            <div className="task-glass-control flex h-12 min-w-0 flex-1 items-center gap-2 rounded-[18px] px-3 transition-colors focus-within:border-primary/45 sm:px-4 md:h-11">
+              <Search className="h-4 w-4 text-primary" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar tarefas..."
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/75"
+              />
+            </div>
+            {canCreateTask && (
+              <>
+                <button
+                  onClick={() => openPopAssistant()}
+                  className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 text-sm font-bold text-primary transition hover:bg-primary/15 lg:hidden"
+                  aria-label="Criar com a Pop"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  <span className="hidden sm:inline">Pop</span>
+                </button>
+                <button
+                  onClick={openForm}
+                  className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full bg-primary px-3.5 text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 sm:px-4 lg:hidden"
+                >
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
+                    <Plus className="h-4 w-4" />
+                  </span>
+                  Nova
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
                 <button
                   type="button"
-                  onClick={() =>
-                    setCollapsedDepartments((current) => {
-                      const next = new Set(current);
-                      if (next.has(section.id)) next.delete(section.id);
-                      else next.add(section.id);
-                      return next;
-                    })
-                  }
-                  className="mb-1 flex w-full items-center justify-between border-b border-border/70 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                  className={cn(
+                    "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
+                    (active !== "all" || taskScope !== "all") &&
+                      "border-primary/25 bg-primary/8 text-primary",
+                  )}
                 >
-                  <span className="font-display text-sm font-bold">{section.label}</span>
-                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                    {section.tasks.length} atividades
-                    <ChevronDown
-                      className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")}
-                    />
-                  </span>
+                  <SlidersHorizontal className="h-4 w-4" />
+                  Filtros
+                  {(active !== "all" || taskScope !== "all") && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground">
+                      {Number(active !== "all") + Number(taskScope !== "all")}
+                    </span>
+                  )}
                 </button>
-              )}
-              {!collapsed && (
-                <TaskList
-                  tasks={section.tasks}
-                  employees={assignmentMembers}
-                  departments={departments}
-                  groups={groups}
-                  permissionGroups={data.permissionGroups}
-                  currentUser={currentUser}
-                  showResponsible={showResponsible}
-                  selectedTaskId={selectedTaskId}
-                  onOpen={openTask}
-                  onComplete={(task) => statusMutation.mutate({ id: task.id, status: "completed" })}
-                  onReorder={handleReorderTask}
-                  movingTaskId={movingTaskId}
-                  isCompleting={statusMutation.isPending}
-                  preferences={layoutPreferences}
-                  onTitleWidthChange={(titleWidth) =>
-                    setLayoutPreferences((current) => ({ ...current, titleWidth }))
-                  }
-                />
-              )}
-            </section>
-          );
-        })}
-      </div>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-3">
+                <div>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                    Status
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {statusFilters.map((filter) => {
+                      const count =
+                        filter.key === "all"
+                          ? taskRows.length
+                          : taskRows.filter((task) => task.status === filter.key).length;
+                      return (
+                        <button
+                          key={filter.key}
+                          type="button"
+                          onClick={() => applyStatusFilter(filter.key)}
+                          className={cn(
+                            "flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
+                            active === filter.key && "bg-primary/10 text-primary",
+                          )}
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            <Check
+                              className={cn(
+                                "h-3.5 w-3.5",
+                                active === filter.key ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            {filter.label}
+                          </span>
+                          <span className="text-[10px] tabular-nums text-muted-foreground">
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-      {list.length === 0 && (
-        <div className="py-16 text-center text-muted-foreground">
-          {completedTasks.length > 0
-            ? "Nenhuma tarefa ativa neste filtro."
-            : "Nenhuma tarefa encontrada."}
-        </div>
-      )}
+                {currentUserIsAdmin && !isPersonalWorkspace && (
+                  <div className="mt-3 border-t border-border/60 pt-3">
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                      Prazo e atribuição
+                    </p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {adminScopeFilters.map((filter) => (
+                        <button
+                          key={filter.key}
+                          type="button"
+                          onClick={() => applyScopeFilter(filter.key)}
+                          className={cn(
+                            "flex items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
+                            taskScope === filter.key && "bg-primary/10 text-primary",
+                          )}
+                        >
+                          <Check
+                            className={cn(
+                              "h-3.5 w-3.5",
+                              taskScope === filter.key ? "opacity-100" : "opacity-0",
+                            )}
+                          />
+                          {filter.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
 
-      {completedTasks.length > 0 && (
-        <section className="task-glass-panel mt-6 overflow-hidden rounded-[22px] md:rounded-[22px]">
-          <button
-            type="button"
-            onClick={() => setShowCompleted((current) => !current)}
-            className="group flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-foreground/[0.025] md:px-6"
-          >
-            <span className="inline-flex min-w-0 items-center gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-border/70 bg-background/70 text-primary transition-colors group-hover:text-primary">
-                <Archive className="h-4 w-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-foreground">
-                  Tarefas concluídas
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {completedTasks.length} {completedTasks.length === 1 ? "atividade" : "atividades"}{" "}
-                  arquivada{completedTasks.length === 1 ? "" : "s"}
-                </span>
-              </span>
+            {active !== "all" && (
+              <button
+                type="button"
+                onClick={() => applyStatusFilter("all")}
+                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
+              >
+                {statusFilters.find((filter) => filter.key === active)?.label}
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {taskScope !== "all" && (
+              <button
+                type="button"
+                onClick={() => applyScopeFilter("all")}
+                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
+              >
+                {adminScopeFilters.find((filter) => filter.key === taskScope)?.label}
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setLayoutPreferences((current) => ({
+                    ...current,
+                    layoutMode: current.layoutMode === "department" ? "list" : "department",
+                  }))
+                }
+                className={cn(
+                  "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
+                  layoutPreferences.layoutMode === "department" && "border-primary/25 text-primary",
+                )}
+              >
+                <Layers3 className="h-4 w-4" />
+                {layoutPreferences.layoutMode === "department" ? "Por setor" : "Abrir por setor"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowLayoutSettings((current) => !current)}
+                className={cn(
+                  "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
+                  showLayoutSettings && "border-primary/25 text-primary",
+                )}
+              >
+                <Settings2 className="h-4 w-4" />
+                Personalizar layout
+              </button>
+            </div>
+            <span className="hidden text-xs text-muted-foreground lg:inline">
+              Arraste a barra azul ao lado de “Atividade” para aumentar ou diminuir.
             </span>
-            <ChevronDown
-              className={cn(
-                "h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:text-primary",
-                showCompleted && "rotate-180",
-              )}
-            />
-          </button>
+          </div>
 
-          {showCompleted && (
-            <div className="grid grid-cols-1 gap-3 border-t border-border/60 bg-background/35 p-4 animate-in fade-in slide-in-from-top-1 duration-150 md:grid-cols-2 md:p-5 xl:grid-cols-3">
-              {completedTasks.map((task) => {
-                const emp = employees.find((employee) => employee.id === task.responsibleId);
-                return (
-                  <button
-                    key={task.id}
-                    type="button"
-                    onClick={() => openTask(task)}
-                    className="task-glass-control pressable rounded-[16px] p-4 text-left opacity-80 hover:border-primary/35 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="truncate text-sm font-semibold text-foreground line-through">
-                          {task.title}
-                        </h3>
-                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                          {task.description}
-                        </p>
-                        {task.recurrence && (
-                          <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                            <Repeat className="h-3 w-3" />
-                            {recurrenceLabel(task.recurrence)}
-                          </div>
-                        )}
-                      </div>
-                      <PriorityBadge priority={task.priority} />
-                    </div>
-                    <div
-                      className={cn(
-                        "mt-3 flex items-center gap-3 text-[11px] text-muted-foreground",
-                        showResponsible ? "justify-between" : "justify-end",
-                      )}
+          {showLayoutSettings && (
+            <section className="task-glass-panel mb-4 grid gap-4 rounded-[20px] p-4 sm:grid-cols-3">
+              <label className="space-y-2 text-xs font-semibold">
+                <span className="flex items-center justify-between gap-2 text-foreground">
+                  <span className="flex items-center gap-2">
+                    <Columns3 className="h-4 w-4 text-primary" />
+                    Largura da atividade
+                  </span>
+                  <span className="text-[10px] text-primary">{layoutPreferences.titleWidth}px</span>
+                </span>
+                <input
+                  type="range"
+                  min={240}
+                  max={680}
+                  step={20}
+                  value={layoutPreferences.titleWidth}
+                  onChange={(event) =>
+                    setLayoutPreferences((current) => ({
+                      ...current,
+                      titleWidth: Number(event.target.value),
+                    }))
+                  }
+                  className="w-full accent-primary"
+                />
+              </label>
+              <label className="space-y-2 text-xs font-semibold">
+                <span className="text-foreground">Espaçamento das linhas</span>
+                <select
+                  value={layoutPreferences.density}
+                  onChange={(event) =>
+                    setLayoutPreferences((current) => ({
+                      ...current,
+                      density: event.target.value as TaskLayoutPreferences["density"],
+                    }))
+                  }
+                  className="h-10 w-full rounded-xl border border-border/70 bg-background/70 px-3 outline-none"
+                >
+                  <option value="comfortable">Confortável</option>
+                  <option value="compact">Compacto</option>
+                </select>
+              </label>
+              <label className="flex cursor-pointer items-center justify-between gap-3 rounded-[14px] border border-border/60 bg-background/55 px-3 text-xs font-semibold">
+                Mostrar notas na tabela
+                <input
+                  type="checkbox"
+                  checked={layoutPreferences.showDescription}
+                  onChange={(event) =>
+                    setLayoutPreferences((current) => ({
+                      ...current,
+                      showDescription: event.target.checked,
+                    }))
+                  }
+                  className="h-4 w-4 accent-primary"
+                />
+              </label>
+            </section>
+          )}
+
+          <div className="space-y-4">
+            {taskSections.map((section) => {
+              const collapsed = collapsedDepartments.has(section.id);
+              return (
+                <section key={section.id}>
+                  {layoutPreferences.layoutMode === "department" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCollapsedDepartments((current) => {
+                          const next = new Set(current);
+                          if (next.has(section.id)) next.delete(section.id);
+                          else next.add(section.id);
+                          return next;
+                        })
+                      }
+                      className="mb-1 flex w-full items-center justify-between border-b border-border/70 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
                     >
-                      {showResponsible && (
-                        <span className="truncate">
-                          {emp?.name ?? (task.target.type === "department" ? "Setor inteiro" : "")}
-                        </span>
-                      )}
-                      <span>
-                        {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
+                      <span className="font-display text-sm font-bold">{section.label}</span>
+                      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {section.tasks.length} atividades
+                        <ChevronDown
+                          className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")}
+                        />
                       </span>
-                    </div>
-                  </button>
-                );
-              })}
+                    </button>
+                  )}
+                  {!collapsed && (
+                    <TaskList
+                      tasks={section.tasks}
+                      employees={assignmentMembers}
+                      departments={departments}
+                      groups={groups}
+                      permissionGroups={data.permissionGroups}
+                      currentUser={currentUser}
+                      showResponsible={showResponsible}
+                      selectedTaskId={selectedTaskId}
+                      onOpen={openTask}
+                      onComplete={(task) =>
+                        statusMutation.mutate({ id: task.id, status: "completed" })
+                      }
+                      onReorder={handleReorderTask}
+                      movingTaskId={movingTaskId}
+                      isCompleting={statusMutation.isPending}
+                      preferences={layoutPreferences}
+                      onTitleWidthChange={(titleWidth) =>
+                        setLayoutPreferences((current) => ({ ...current, titleWidth }))
+                      }
+                    />
+                  )}
+                </section>
+              );
+            })}
+          </div>
+
+          {list.length === 0 && (
+            <div className="py-16 text-center text-muted-foreground">
+              {completedTasks.length > 0
+                ? "Nenhuma tarefa ativa neste filtro."
+                : "Nenhuma tarefa encontrada."}
             </div>
           )}
-        </section>
+
+          {completedTasks.length > 0 && (
+            <section className="task-glass-panel mt-6 overflow-hidden rounded-[22px] md:rounded-[22px]">
+              <button
+                type="button"
+                onClick={() => setShowCompleted((current) => !current)}
+                className="group flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-foreground/[0.025] md:px-6"
+              >
+                <span className="inline-flex min-w-0 items-center gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-border/70 bg-background/70 text-primary transition-colors group-hover:text-primary">
+                    <Archive className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-foreground">
+                      Tarefas concluídas
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {completedTasks.length}{" "}
+                      {completedTasks.length === 1 ? "atividade" : "atividades"} arquivada
+                      {completedTasks.length === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:text-primary",
+                    showCompleted && "rotate-180",
+                  )}
+                />
+              </button>
+
+              {showCompleted && (
+                <div className="grid grid-cols-1 gap-3 border-t border-border/60 bg-background/35 p-4 animate-in fade-in slide-in-from-top-1 duration-150 md:grid-cols-2 md:p-5 xl:grid-cols-3">
+                  {completedTasks.map((task) => {
+                    const emp = employees.find((employee) => employee.id === task.responsibleId);
+                    return (
+                      <button
+                        key={task.id}
+                        type="button"
+                        onClick={() => openTask(task)}
+                        className="task-glass-control pressable rounded-[16px] p-4 text-left opacity-80 hover:border-primary/35 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="truncate text-sm font-semibold text-foreground line-through">
+                              {task.title}
+                            </h3>
+                            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                              {task.description}
+                            </p>
+                            {task.recurrence && (
+                              <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                                <Repeat className="h-3 w-3" />
+                                {recurrenceLabel(task.recurrence)}
+                              </div>
+                            )}
+                          </div>
+                          <PriorityBadge priority={task.priority} />
+                        </div>
+                        <div
+                          className={cn(
+                            "mt-3 flex items-center gap-3 text-[11px] text-muted-foreground",
+                            showResponsible ? "justify-between" : "justify-end",
+                          )}
+                        >
+                          {showResponsible && (
+                            <span className="truncate">
+                              {emp?.name ??
+                                (task.target.type === "department" ? "Setor inteiro" : "")}
+                            </span>
+                          )}
+                          <span>
+                            {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
+        </>
       )}
 
       {taskDetailLayer}

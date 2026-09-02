@@ -333,7 +333,7 @@ export function TaskCreateDrawer({
                                 },
                                 ...availableEmployees.map((employee) => ({
                                   value: employee.id,
-                                  label: `${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
+                                  label: employee.name,
                                 })),
                               ]}
                               onChange={(responsibleId) =>
@@ -393,7 +393,7 @@ export function TaskCreateDrawer({
                         },
                         ...employees.map((employee) => ({
                           value: employee.id,
-                          label: `${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
+                          label: employee.name,
                         })),
                       ]}
                       onChange={(reviewerId) =>

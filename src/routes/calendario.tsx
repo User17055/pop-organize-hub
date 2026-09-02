@@ -236,7 +236,7 @@ function CalendarPage() {
         ...groups.map((group) => ({ value: `group:${group.id}`, label: `Grupo: ${group.name}` })),
         ...assignmentMembers.map((employee) => ({
           value: `user:${employee.id}`,
-          label: `Pessoa: ${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
+          label: employee.name,
         })),
       ];
 

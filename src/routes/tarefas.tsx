@@ -521,7 +521,7 @@ function TasksPage() {
         })),
         ...assignmentMembers.map((employee) => ({
           value: `user:${employee.id}`,
-          label: `Pessoa: ${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
+          label: employee.name,
         })),
       ];
 

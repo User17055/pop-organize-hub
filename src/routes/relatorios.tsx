@@ -3,6 +3,7 @@ import { useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { AccessRestricted } from "@/components/access-restricted";
 import { ErrorState, LoadingState } from "@/components/data-state";
+import { EmployeeAvatar } from "@/components/tasks/employee-avatar";
 import {
   Sheet,
   SheetContent,
@@ -15,8 +16,11 @@ import { priorityLabels, statusLabels } from "@/lib/domain";
 import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 import {
   AlertTriangle,
+  CheckCircle2,
+  ClipboardList,
   CalendarDays,
   ChevronRight,
+  CircleDashed,
   Clock,
   TrendingUp,
   UserCheck,
@@ -61,8 +65,19 @@ function RelatoriosPage() {
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const taskResponsibleIds = (task: (typeof tasks)[number]) =>
+    Array.from(new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean)));
+  const employeeDepartmentById = new Map(
+    employees.map((employee) => [employee.id, employee.departmentId]),
+  );
+  const taskBelongsToDepartment = (task: (typeof tasks)[number], departmentId: string) => {
+    if (task.target.type === "department") return task.target.id === departmentId;
+    return taskResponsibleIds(task).some(
+      (employeeId) => employeeDepartmentById.get(employeeId) === departmentId,
+    );
+  };
   const byDept = departments.map((d) => {
-    const dt = tasks.filter((t) => t.target.type === "department" && t.target.id === d.id);
+    const dt = tasks.filter((task) => taskBelongsToDepartment(task, d.id));
     return {
       ...d,
       total: dt.length,
@@ -89,10 +104,14 @@ function RelatoriosPage() {
     };
   });
 
-  const taskResponsibleIds = (task: (typeof tasks)[number]) =>
-    Array.from(new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean)));
   const assignedTasks = tasks.filter((task) => taskResponsibleIds(task).length > 0);
   const unassignedTasks = tasks.filter((task) => taskResponsibleIds(task).length === 0);
+  const completedTasks = tasks.filter((task) => task.status === "completed");
+  const pendingTasks = tasks.filter((task) => task.status !== "completed");
+  const lateTasks = pendingTasks.filter((task) => new Date(`${task.dueDate}T00:00:00`) < today);
+  const completionRate = tasks.length
+    ? Math.round((completedTasks.length / tasks.length) * 100)
+    : 0;
 
   const ranking = employees
     .map((e) => ({
@@ -104,7 +123,6 @@ function RelatoriosPage() {
     }))
     .sort((a, b) => b.total - a.total || b.done - a.done);
 
-  const completedTasks = tasks.filter((task) => task.status === "completed");
   const averageDays = completedTasks.length
     ? completedTasks.reduce((sum, task) => {
         const created = new Date(`${task.createdAt}T00:00:00`).getTime();
@@ -115,9 +133,7 @@ function RelatoriosPage() {
 
   const selectedDepartment = byDept.find((department) => department.id === selectedDepartmentId);
   const selectedDepartmentTasks = selectedDepartment
-    ? tasks.filter(
-        (task) => task.target.type === "department" && task.target.id === selectedDepartment.id,
-      )
+    ? tasks.filter((task) => taskBelongsToDepartment(task, selectedDepartment.id))
     : [];
   const selectedDepartmentMembers = selectedDepartment
     ? employees.filter((employee) => employee.departmentId === selectedDepartment.id)
@@ -125,11 +141,57 @@ function RelatoriosPage() {
 
   return (
     <AppShell title="Relatórios" subtitle="Indicadores de produtividade da empresa">
+      <section className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {[
+          {
+            label: "Total de tarefas",
+            value: tasks.length,
+            detail: `${departments.length} setores visíveis`,
+            icon: ClipboardList,
+          },
+          {
+            label: "Concluídas",
+            value: completedTasks.length,
+            detail: `${completionRate}% do total`,
+            icon: CheckCircle2,
+          },
+          {
+            label: "Em aberto",
+            value: pendingTasks.length,
+            detail: `${assignedTasks.length} com responsável`,
+            icon: CircleDashed,
+          },
+          {
+            label: "Atrasadas",
+            value: lateTasks.length,
+            detail: lateTasks.length ? "Precisam de atenção" : "Tudo dentro do prazo",
+            icon: AlertTriangle,
+          },
+        ].map(({ label, value, detail, icon: Icon }) => (
+          <div
+            key={label}
+            className="rounded-2xl border border-border/60 bg-card px-4 py-4 sm:px-5"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-medium text-muted-foreground">{label}</span>
+              <Icon className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="mt-2 font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              {value}
+            </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">{detail}</div>
+          </div>
+        ))}
+      </section>
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-5">
         <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 lg:col-span-2">
-          <div className="flex items-center gap-2 mb-5">
-            <TrendingUp className="h-4.5 w-4.5 text-primary" />
-            <h2 className="font-display font-semibold text-base">Tarefas por setor</h2>
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4.5 w-4.5 text-primary" />
+              <h2 className="font-display text-base font-semibold">Tarefas por setor</h2>
+            </div>
+            <span className="text-xs text-muted-foreground">Clique para detalhar</span>
           </div>
           <div className="space-y-5">
             {byDept.map((d) => {
@@ -144,23 +206,19 @@ function RelatoriosPage() {
                 >
                   <div className="mb-2 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                     <span className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: d.color }}
-                      />
                       <span className="truncate">{d.name}</span>
                       <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                     </span>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-[18px] text-[11px] sm:pl-0 sm:text-xs">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs">
                       <span className="text-success">{d.done} concluídas</span>
                       {d.late > 0 && <span className="text-destructive">{d.late} atrasadas</span>}
                       <span className="text-muted-foreground">{d.total} total</span>
                     </div>
                   </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                     <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${pct}%`, background: d.color }}
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{ width: `${pct}%` }}
                     />
                   </div>
                 </button>
@@ -169,25 +227,31 @@ function RelatoriosPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
           <div className="flex items-center gap-2 mb-5">
             <UserCheck className="h-4.5 w-4.5 text-primary" />
             <h2 className="font-display font-semibold text-base">Responsabilidade</h2>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl bg-success/10 p-3">
-              <div className="mb-2 flex items-center gap-2 text-success">
-                <UserCheck className="h-4 w-4" />
-                <span className="text-xs font-semibold">Com responsável</span>
-              </div>
-              <div className="text-2xl font-bold text-foreground">{assignedTasks.length}</div>
+          <div className="overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-2 rounded-full bg-primary"
+              style={{
+                width: `${tasks.length ? (assignedTasks.length / tasks.length) * 100 : 0}%`,
+              }}
+            />
+          </div>
+          <div className="mt-5 divide-y divide-border/60">
+            <div className="flex items-center justify-between gap-3 pb-3">
+              <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <UserCheck className="h-4 w-4" /> Com responsável
+              </span>
+              <span className="text-xl font-bold text-foreground">{assignedTasks.length}</span>
             </div>
-            <div className="rounded-xl bg-warning/10 p-3">
-              <div className="mb-2 flex items-center gap-2 text-warning">
-                <UserX className="h-4 w-4" />
-                <span className="text-xs font-semibold">Sem responsável</span>
-              </div>
-              <div className="text-2xl font-bold text-foreground">{unassignedTasks.length}</div>
+            <div className="flex items-center justify-between gap-3 pt-3">
+              <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <UserX className="h-4 w-4" /> Sem responsável
+              </span>
+              <span className="text-xl font-bold text-foreground">{unassignedTasks.length}</span>
             </div>
           </div>
           <p className="mt-4 text-xs text-muted-foreground">
@@ -195,7 +259,7 @@ function RelatoriosPage() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 lg:col-span-2">
+        <div className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5 lg:col-span-2">
           <div className="flex items-center gap-2 mb-5">
             <Users className="h-4.5 w-4.5 text-primary" />
             <h2 className="font-display font-semibold text-base">Tarefas por grupo</h2>
@@ -233,24 +297,28 @@ function RelatoriosPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
           <div className="flex items-center gap-2 mb-5">
             <UserCheck className="h-4.5 w-4.5 text-primary" />
             <h2 className="font-display font-semibold text-base">Por responsável</h2>
           </div>
-          <div className="space-y-3">
+          <div className="divide-y divide-border/60">
             {ranking.map((e) => (
-              <div key={e.id} className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-semibold text-primary-foreground bg-primary">
-                  {e.name
-                    .split(" ")
-                    .map((n) => n[0])
-                    .slice(0, 2)
-                    .join("")}
-                </div>
+              <div key={e.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                <EmployeeAvatar employee={e} departments={departments} size="sm" />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{e.name}</div>
-                  <div className="text-xs text-muted-foreground">{e.role}</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary"
+                        style={{ width: `${e.total ? (e.done / e.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">
+                      {e.total ? Math.round((e.done / e.total) * 100) : 0}%
+                    </span>
+                  </div>
                 </div>
                 <div className="text-right">
                   <div className="text-sm font-bold text-foreground">{e.total}</div>
@@ -261,21 +329,21 @@ function RelatoriosPage() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5 lg:col-span-3">
+        <div className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5 lg:col-span-3">
           <div className="flex items-center gap-4">
             <div className="h-11 w-11 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
               <Clock className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <div className="text-sm text-muted-foreground">Tempo médio planejado</div>
+              <div className="text-sm text-muted-foreground">Prazo médio definido</div>
               <div className="text-2xl font-display font-bold text-foreground">
                 {averageDays.toFixed(1).replace(".", ",")} dias
               </div>
             </div>
           </div>
           <div className="text-sm text-muted-foreground max-w-md">
-            Os indicadores são calculados diretamente das tarefas, setores e funcionários
-            persistidos no backend local.
+            Os indicadores consideram apenas os setores, colaboradores e tarefas que você tem
+            permissão para visualizar.
           </div>
         </div>
       </div>

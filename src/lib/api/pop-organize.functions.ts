@@ -2071,7 +2071,7 @@ export const createEmployee = createServerFn({ method: "POST" })
 export const updateEmployee = createServerFn({ method: "POST" })
   .validator((data) => updateEmployeeSchema.parse(data))
   .handler(async ({ data }) => {
-    return mutateCurrentWorkspace((db, currentUserId) => {
+    return mutateCurrentWorkspace((db, currentUserId, platform) => {
       requireGroupPermission(
         db,
         currentUserId,
@@ -2109,6 +2109,17 @@ export const updateEmployee = createServerFn({ method: "POST" })
       employee.departmentId = data.departmentId;
       employee.status = data.status;
       employee.permissionGroupId = data.permissionGroupId;
+
+      // A conta e a fonte canonica do nome durante a normalizacao do banco. Manter apenas o
+      // registro do colaborador atualizado fazia o nome antigo voltar no carregamento seguinte.
+      const account = platform.accounts.find((item) => item.id === employee.id);
+      if (account) {
+        account.name = data.name;
+        for (const workspace of platform.workspaces) {
+          const member = workspace.employees.find((item) => item.id === employee.id);
+          if (member) member.name = data.name;
+        }
+      }
       return employee;
     });
   });

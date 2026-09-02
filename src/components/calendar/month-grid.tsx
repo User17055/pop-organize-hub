@@ -11,7 +11,11 @@ import {
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import type { Task } from "@/lib/domain";
+import type { Department, Employee, Group, Task } from "@/lib/domain";
+import {
+  getCalendarTaskDepartmentLabel,
+  getCalendarTaskFirstTime,
+} from "@/components/calendar/calendar-task";
 
 const weekdayLabels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -22,35 +26,23 @@ const priorityDotClass: Record<Task["priority"], string> = {
   urgent: "bg-destructive",
 };
 
-function balancedCalendarTasks(tasks: Task[]) {
-  const completed = tasks.filter(
-    (task) => task.status === "completed" || task.status === "waiting_review",
-  );
-  const pending = tasks.filter(
-    (task) => task.status !== "completed" && task.status !== "waiting_review",
-  );
-  if (completed.length === 0 || pending.length === 0) return tasks;
-
-  const balanced: Task[] = [];
-  const length = Math.max(pending.length, completed.length);
-  for (let index = 0; index < length; index += 1) {
-    if (pending[index]) balanced.push(pending[index]);
-    if (completed[index]) balanced.push(completed[index]);
-  }
-  return balanced;
-}
-
 export function MonthGrid({
   month,
   tasksByDay,
   selectedDay,
   onSelectDay,
+  employees,
+  departments,
+  groups,
   fullHeight = false,
 }: {
   month: Date;
   tasksByDay: Map<string, Task[]>;
   selectedDay: Date | null;
   onSelectDay: (day: Date) => void;
+  employees: Employee[];
+  departments: Department[];
+  groups: Group[];
   fullHeight?: boolean;
 }) {
   const start = startOfWeek(startOfMonth(month), { weekStartsOn: 0 });
@@ -86,9 +78,8 @@ export function MonthGrid({
           const inMonth = isSameMonth(day, month);
           const today = isToday(day);
           const selected = selectedDay ? isSameDay(day, selectedDay) : false;
-          const balancedTasks = balancedCalendarTasks(dayTasks);
-          const visibleTasks = balancedTasks.slice(0, 3);
-          const mobileVisibleTasks = balancedTasks.slice(0, 4);
+          const visibleTasks = dayTasks.slice(0, 3);
+          const mobileVisibleTasks = dayTasks.slice(0, 4);
           const overflow = dayTasks.length - visibleTasks.length;
 
           return (
@@ -138,7 +129,7 @@ export function MonthGrid({
                   <div
                     key={task.id}
                     className="rounded-full border border-border/50 bg-white/68 px-2 py-0.5 text-[10px] font-medium leading-4 text-foreground/72 xl:text-[11px]"
-                    title={task.title}
+                    title={`${getCalendarTaskFirstTime(task) ? `${getCalendarTaskFirstTime(task)} · ` : ""}${task.title} · ${getCalendarTaskDepartmentLabel(task, { employees, departments, groups })}`}
                   >
                     <span className="flex min-w-0 items-center gap-1.5">
                       <span
@@ -149,7 +140,19 @@ export function MonthGrid({
                             : priorityDotClass[task.priority],
                         )}
                       />
-                      <span className="truncate">{task.title}</span>
+                      {getCalendarTaskFirstTime(task) && (
+                        <span className="shrink-0 font-bold text-primary">
+                          {getCalendarTaskFirstTime(task)}
+                        </span>
+                      )}
+                      <span className="truncate">
+                        {task.title}
+                        <span className="text-muted-foreground">
+                          {" "}
+                          ·{" "}
+                          {getCalendarTaskDepartmentLabel(task, { employees, departments, groups })}
+                        </span>
+                      </span>
                     </span>
                   </div>
                 ))}

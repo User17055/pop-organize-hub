@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ListChecks, MessageSquare, Paperclip, Plus } from "lucide-react";
+import { Building2, Clock3, ListChecks, MessageSquare, Paperclip, Plus } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -10,13 +10,18 @@ import {
 } from "@/components/ui/sheet";
 import { PriorityBadge, StatusBadge } from "@/components/app-shell";
 import { EmployeeAvatar } from "@/components/tasks/employee-avatar";
-import type { Department, Employee, Task } from "@/lib/domain";
+import type { Department, Employee, Group, Task } from "@/lib/domain";
+import {
+  getCalendarTaskDepartmentLabel,
+  getCalendarTaskTimes,
+} from "@/components/calendar/calendar-task";
 
 export function DaySheet({
   day,
   tasks,
   employees,
   departments,
+  groups,
   onOpenChange,
   onOpenTask,
   onCreateTask,
@@ -26,12 +31,26 @@ export function DaySheet({
   tasks: Task[];
   employees: Employee[];
   departments: Department[];
+  groups: Group[];
   onOpenChange: (open: boolean) => void;
   onOpenTask: (task: Task) => void;
   onCreateTask?: () => void;
   isTaskAvailable?: (task: Task) => boolean;
 }) {
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
+  const agenda = tasks
+    .flatMap((task) => {
+      const times = getCalendarTaskTimes(task);
+      return (times.length > 0 ? times : [null]).map((time) => ({ task, time }));
+    })
+    .sort((left, right) => {
+      const byTime = (left.time ?? "99:99").localeCompare(right.time ?? "99:99");
+      if (byTime !== 0) return byTime;
+      const leftCompleted = ["completed", "waiting_review"].includes(left.task.status);
+      const rightCompleted = ["completed", "waiting_review"].includes(right.task.status);
+      if (leftCompleted !== rightCompleted) return Number(leftCompleted) - Number(rightCompleted);
+      return left.task.title.localeCompare(right.task.title, "pt-BR");
+    });
 
   return (
     <Sheet open={day !== null} onOpenChange={onOpenChange}>
@@ -65,13 +84,18 @@ export function DaySheet({
               Nenhuma tarefa vence neste dia.
             </p>
           )}
-          {tasks.map((task) => {
+          {agenda.map(({ task, time }) => {
             const emp = getEmployee(task.responsibleId);
             const subtasks = task.subtasks ?? [];
             const available = isTaskAvailable(task);
+            const departmentLabel = getCalendarTaskDepartmentLabel(task, {
+              employees,
+              departments,
+              groups,
+            });
             return (
               <button
-                key={task.id}
+                key={`${task.id}:${task.dueDate}:${time ?? "no-time"}`}
                 type="button"
                 disabled={!available}
                 onClick={() => onOpenTask(task)}
@@ -80,6 +104,16 @@ export function DaySheet({
                 <EmployeeAvatar employee={emp} departments={departments} size="sm" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold text-foreground">{task.title}</div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock3 className="h-3.5 w-3.5" />
+                      {time ?? "Sem horário"}
+                    </span>
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <Building2 className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{departmentLabel}</span>
+                    </span>
+                  </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <PriorityBadge priority={task.priority} />
                     <StatusBadge status={task.status} />

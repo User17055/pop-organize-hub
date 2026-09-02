@@ -548,7 +548,7 @@ function TasksPage() {
         { value: `company:${company.id}`, label: "Empresa inteira" },
         ...departments.map((department) => ({
           value: `department:${department.id}`,
-          label: `Setor: ${department.name}`,
+          label: department.name,
         })),
         ...groups.map((group) => ({
           value: `group:${group.id}`,

@@ -158,10 +158,12 @@ export function sanitizeDatabase(
   const employeeNames = new Map(db.employees.map((employee) => [employee.id, employee.name]));
   for (const invitation of db.invitations) employeeNames.set(invitation.id, invitation.name);
   const groupNames = new Map(db.groups.map((group) => [group.id, group.name]));
-  const departments = db.departments.map((department) => ({
-    ...department,
-    name: departmentNames.get(department.id)!,
-  }));
+  const departments = db.departments
+    .map((department) => ({
+      ...department,
+      name: departmentNames.get(department.id)!,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name, "pt-BR", { sensitivity: "base" }));
   const visibleTasks = db.tasks
     .filter((task) =>
       canViewTask({

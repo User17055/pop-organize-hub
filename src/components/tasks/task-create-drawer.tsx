@@ -48,6 +48,7 @@ export function TaskCreateDrawer({
 }) {
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(0);
+  const [finalStepReady, setFinalStepReady] = useState(false);
   const [draft, setDraft] = useState(form);
   const [assignmentType, setAssignmentType] = useState<TargetType | "">("");
   const steps = personalMode ? personalSteps : companySteps;
@@ -90,8 +91,21 @@ export function TaskCreateDrawer({
         personalMode ? "user" : ((form.targetKey.split(":")[0] as TargetType | undefined) ?? ""),
       );
       setStep(0);
+      setFinalStepReady(false);
     }
   }, [form, open, personalMode]);
+
+  useEffect(() => {
+    if (!open || !isLastStep) {
+      setFinalStepReady(false);
+      return;
+    }
+
+    // Evita que um clique duplo em "Continuar" atinja o botão de criação,
+    // que ocupa a mesma posição quando a etapa final é exibida.
+    const timer = window.setTimeout(() => setFinalStepReady(true), 400);
+    return () => window.clearTimeout(timer);
+  }, [isLastStep, open]);
 
   useEffect(() => {
     if (!open || !mounted) return;
@@ -114,6 +128,11 @@ export function TaskCreateDrawer({
 
   function previousStep() {
     setStep((current) => Math.max(current - 1, 0));
+  }
+
+  function submitTask() {
+    if (!isLastStep || !finalStepReady || isSubmitting) return;
+    onSubmit(draft);
   }
 
   const drawer = (
@@ -140,7 +159,7 @@ export function TaskCreateDrawer({
               nextStep();
               return;
             }
-            onSubmit(draft);
+            submitTask();
           }}
           className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg"
         >
@@ -484,9 +503,11 @@ export function TaskCreateDrawer({
               </button>
               {isLastStep ? (
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={submitTask}
                   disabled={
                     isSubmitting ||
+                    !finalStepReady ||
                     !draft.title.trim() ||
                     !draft.dueDate ||
                     (!personalMode && !draft.targetKey)

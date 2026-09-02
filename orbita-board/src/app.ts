@@ -549,7 +549,7 @@ function renderMineHeader(): void {
 }
 
 function cardHTML(t: Task, i: number): string {
-  return `<article class="card${t.priority === "alta" ? " p-alta" : ""}" draggable="true" data-id="${t.id}" ` +
+  return `<article class="card${t.priority === "alta" ? " p-alta" : ""}" draggable="${popBridgeActive ? "false" : "true"}" data-id="${t.id}" ` +
     `style="--i:${Math.min(i, 8)}" tabindex="0" role="button">` +
     `<div class="cbody">` +
       `<div class="crow">${tagChip(t.tag)}<span class="push"></span>${prioChip(t.priority)}</div>` +
@@ -685,6 +685,7 @@ function openTask(id: string): void {
   const st = statusOf(t.status);
   const d = dayDiff(t.due);
   const prazo = t.status === "done" ? "entregue" : d < 0 ? `${-d} dia(s) em atraso` : d === 0 ? "vence hoje" : `faltam ${d} dia(s)`;
+  const activityLog = popBridgeActive ? [] : LOG;
 
   openLayer(
     `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(t.title)}">` +
@@ -713,10 +714,10 @@ function openTask(id: string): void {
           `<option value="${x}"${x === t.priority ? " selected" : ""}>${PRIO_NAME[x]}</option>`).join("") +
       `</select></div>` +
     `</div>` +
-    `<div class="log">` + LOG.map((l, i) =>
+    (activityLog.length ? `<div class="log">` + activityLog.map((l, i) =>
       `<div class="item" style="--i:${i}">${avatar(l.who)}<div class="bd"><b>${esc(PEOPLE[l.who]!.name)}</b> ` +
       `<span style="color:var(--tx3);font-size:12.5px">${l.what}</span><time>${l.when}</time>` +
-      `<p>${esc(l.text)}</p></div></div>`).join("") + `</div>` +
+      `<p>${esc(l.text)}</p></div></div>`).join("") + `</div>` : "") +
     `<div class="acts"><button class="btn" data-edit="${t.id}">${I.pen} Editar</button>` +
     `<button class="btn danger" data-del="${t.id}">${I.trash} Excluir</button>` +
     `<span class="push"></span><button class="btn" data-close="1">Fechar</button></div>` +
@@ -2196,6 +2197,7 @@ function formatSectorName(name: string): string {
 
 function hydratePopWorkspace(data: PopWorkspacePayload): void {
   popBridgeActive = true;
+  document.documentElement.dataset["popBridge"] = "true";
   POP_WORKSPACES = data.workspaces;
   POP_COMPANY_ID = data.company.id;
   TODAY = new Date(`${data.today}T00:00:00`);

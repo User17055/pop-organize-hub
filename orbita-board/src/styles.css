@@ -4,7 +4,7 @@
   --rail:#0D0E0F; --side:#0D0E0F; --bg:#09090A;
   --panel:#121314; --panel2:#191A1C; --hover:#1F2124;
   --line:#1E2022; --line-soft:#191A1C;
-  --tx:#FAFAFA; --tx2:#8E9196; --tx3:#5C6066;
+  --tx:#FAFAFA; --tx2:#ADB1B7; --tx3:#7B8088;
   --acc:#2F6BFF; --acc-2:#5B8AFF; --acc-soft:#152547; --on-acc:#FFFFFF;
   --red:#FF4A3D; --amber:#FFB524; --green:#00D183;
   --s-todo:#AEB7C2; --s-doing:#FFC82E; --s-review:#189BFF; --s-done:#00CE86;
@@ -19,7 +19,7 @@
   --rail:#FFFFFF; --side:#FFFFFF; --bg:#F6F7F9;
   --panel:#FFFFFF; --panel2:#EFF1F4; --hover:#E7EAEF;
   --line:#E2E5EA; --line-soft:#EDEFF2;
-  --tx:#0E1013; --tx2:#5C636C; --tx3:#8B929B;
+  --tx:#0E1013; --tx2:#424A55; --tx3:#69717C;
   --acc:#2455E8; --acc-2:#1B44C9; --acc-soft:#E4EAFF; --on-acc:#FFFFFF;
   --red:#D3352A; --amber:#A97418; --green:#1E9E52;
   --s-todo:#79818D; --s-doing:#C27400; --s-review:#0A84E8; --s-done:#00A15C;
@@ -42,6 +42,30 @@ button{background:none;border:0;cursor:pointer}
 ::-webkit-scrollbar-track{background:transparent}
 
 .app{width:100vw;height:100dvh;display:grid;grid-template-columns:auto auto 1fr;overflow:hidden;background:var(--bg)}
+
+/* O painel conectado ao Pop atualiza os dados sem reaplicar animações de entrada. */
+:root[data-pop-bridge="true"] .pitem,
+:root[data-pop-bridge="true"] .sitem[aria-current="true"]::before,
+:root[data-pop-bridge="true"] .ptitle,
+:root[data-pop-bridge="true"] .brief,
+:root[data-pop-bridge="true"] .btn .cnt,
+:root[data-pop-bridge="true"] .col-h,
+:root[data-pop-bridge="true"] .card,
+:root[data-pop-bridge="true"] .lrow,
+:root[data-pop-bridge="true"] .tablewrap,
+:root[data-pop-bridge="true"] .scrim,
+:root[data-pop-bridge="true"] .sheet,
+:root[data-pop-bridge="true"] .log .item,
+:root[data-pop-bridge="true"] .pop,
+:root[data-pop-bridge="true"] .dcard,
+:root[data-pop-bridge="true"] .ev,
+:root[data-pop-bridge="true"] .ttab[aria-current="true"]::after{animation:none}
+:root[data-pop-bridge="true"] .grp-body,
+:root[data-pop-bridge="true"] .grp-h .chev{transition:none}
+:root[data-pop-bridge="true"] .side-scroll,
+:root[data-pop-bridge="true"] .scroller,
+:root[data-pop-bridge="true"] .col-body,
+:root[data-pop-bridge="true"] .sheet{scrollbar-gutter:stable}
 
 /* ---------- animações ---------- */
 @keyframes fadeIn{from{opacity:0}}

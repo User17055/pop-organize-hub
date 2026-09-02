@@ -769,17 +769,22 @@ function normalizePlatformDatabase(value: PlatformDatabase | Database): Platform
 
   const now = Date.now();
   const accountById = new Map(value.accounts.map((account) => [account.id, account]));
+  const accountByEmail = new Map(
+    value.accounts.map((account) => [account.email.trim().toLocaleLowerCase("pt-BR"), account]),
+  );
   const workspaces = value.workspaces.map((rawWorkspace) => {
     const workspace = normalizeDatabase(rawWorkspace);
     workspace.sessions = [];
     workspace.employees = workspace.employees.map((employee) => {
-      const account = accountById.get(employee.id);
+      const account =
+        accountById.get(employee.id) ??
+        accountByEmail.get(employee.email.trim().toLocaleLowerCase("pt-BR"));
       return account
         ? {
             ...employee,
             name: account.name,
             email: account.email,
-            avatar: account.avatar,
+            avatar: account.avatar ?? employee.avatar,
             passwordHash: account.passwordHash,
             googleSubject: account.googleSubject,
           }

@@ -216,6 +216,7 @@ function TasksPage() {
   const [directoryMode, setDirectoryMode] = useState<"departments" | "collaborators" | "groups">(
     selectedGroupId ? "groups" : selectedCollaboratorId ? "collaborators" : "departments",
   );
+  const isFilteredTaskView = initialStatus !== undefined || initialScope !== undefined;
   const filters = emptyTaskFilters;
   const [isMounted, setIsMounted] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -869,21 +870,45 @@ function TasksPage() {
         </section>
       )}
 
-      {!isPersonalWorkspace && !hasDirectorySelection && !selectedOrganizerList && (
-        <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
-                Organizar tarefas
-              </p>
-              <h2 className="mt-1 font-display text-lg font-bold">
-                Setores, colaboradores ou grupos
-              </h2>
+      {!isPersonalWorkspace &&
+        !hasDirectorySelection &&
+        !selectedOrganizerList &&
+        !isFilteredTaskView && (
+          <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+                  Organizar tarefas
+                </p>
+                <h2 className="mt-1 font-display text-lg font-bold">
+                  Setores, colaboradores ou grupos
+                </h2>
+              </div>
+              {(selectedDepartmentId || selectedCollaboratorId || selectedGroupId) && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate({
+                      search: (current) => ({
+                        ...current,
+                        setor: undefined,
+                        colaborador: undefined,
+                        grupo: undefined,
+                      }),
+                    })
+                  }
+                  className="task-glass-control inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
+                >
+                  <X className="h-3.5 w-3.5" /> Mostrar todas
+                </button>
+              )}
             </div>
-            {(selectedDepartmentId || selectedCollaboratorId || selectedGroupId) && (
+
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  setDirectoryMode("departments");
                   navigate({
                     search: (current) => ({
                       ...current,
@@ -891,183 +916,92 @@ function TasksPage() {
                       colaborador: undefined,
                       grupo: undefined,
                     }),
-                  })
-                }
-                className="task-glass-control inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
+                  });
+                }}
+                className={cn(
+                  "rounded-2xl border px-4 py-3 text-left transition",
+                  directoryMode === "departments"
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border/65 bg-background/55 hover:border-primary/25",
+                )}
               >
-                <X className="h-3.5 w-3.5" /> Mostrar todas
+                <Layers3 className="mb-2 h-4 w-4" />
+                <span className="block text-sm font-bold">Setores</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {departments.length} cadastrados
+                </span>
               </button>
-            )}
-          </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDirectoryMode("collaborators");
+                  navigate({
+                    search: (current) => ({
+                      ...current,
+                      setor: undefined,
+                      colaborador: undefined,
+                      grupo: undefined,
+                    }),
+                  });
+                }}
+                className={cn(
+                  "rounded-2xl border px-4 py-3 text-left transition",
+                  directoryMode === "collaborators"
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border/65 bg-background/55 hover:border-primary/25",
+                )}
+              >
+                <Users className="mb-2 h-4 w-4" />
+                <span className="block text-sm font-bold">Colaboradores</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {assignmentMembers.length} cadastrados
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDirectoryMode("groups");
+                  navigate({
+                    search: (current) => ({
+                      ...current,
+                      setor: undefined,
+                      colaborador: undefined,
+                      grupo: undefined,
+                    }),
+                  });
+                }}
+                className={cn(
+                  "rounded-2xl border px-4 py-3 text-left transition",
+                  directoryMode === "groups"
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border/65 bg-background/55 hover:border-primary/25",
+                )}
+              >
+                <Network className="mb-2 h-4 w-4" />
+                <span className="block text-sm font-bold">Grupos</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {groups.length} cadastrados
+                </span>
+              </button>
+            </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <button
-              type="button"
-              onClick={() => {
-                setDirectoryMode("departments");
-                navigate({
-                  search: (current) => ({
-                    ...current,
-                    setor: undefined,
-                    colaborador: undefined,
-                    grupo: undefined,
-                  }),
-                });
-              }}
-              className={cn(
-                "rounded-2xl border px-4 py-3 text-left transition",
-                directoryMode === "departments"
-                  ? "border-primary/30 bg-primary/10 text-primary"
-                  : "border-border/65 bg-background/55 hover:border-primary/25",
-              )}
-            >
-              <Layers3 className="mb-2 h-4 w-4" />
-              <span className="block text-sm font-bold">Setores</span>
-              <span className="text-[11px] text-muted-foreground">
-                {departments.length} cadastrados
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setDirectoryMode("collaborators");
-                navigate({
-                  search: (current) => ({
-                    ...current,
-                    setor: undefined,
-                    colaborador: undefined,
-                    grupo: undefined,
-                  }),
-                });
-              }}
-              className={cn(
-                "rounded-2xl border px-4 py-3 text-left transition",
-                directoryMode === "collaborators"
-                  ? "border-primary/30 bg-primary/10 text-primary"
-                  : "border-border/65 bg-background/55 hover:border-primary/25",
-              )}
-            >
-              <Users className="mb-2 h-4 w-4" />
-              <span className="block text-sm font-bold">Colaboradores</span>
-              <span className="text-[11px] text-muted-foreground">
-                {assignmentMembers.length} cadastrados
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setDirectoryMode("groups");
-                navigate({
-                  search: (current) => ({
-                    ...current,
-                    setor: undefined,
-                    colaborador: undefined,
-                    grupo: undefined,
-                  }),
-                });
-              }}
-              className={cn(
-                "rounded-2xl border px-4 py-3 text-left transition",
-                directoryMode === "groups"
-                  ? "border-primary/30 bg-primary/10 text-primary"
-                  : "border-border/65 bg-background/55 hover:border-primary/25",
-              )}
-            >
-              <Network className="mb-2 h-4 w-4" />
-              <span className="block text-sm font-bold">Grupos</span>
-              <span className="text-[11px] text-muted-foreground">{groups.length} cadastrados</span>
-            </button>
-          </div>
-
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {directoryMode === "departments"
-              ? departments.map((department) => {
-                  const count = tasks.filter((task) =>
-                    taskMatchesDepartment(task, department.id, data),
-                  ).length;
-                  const selected = selectedDepartmentId === department.id;
-                  return (
-                    <button
-                      key={department.id}
-                      type="button"
-                      onClick={() =>
-                        navigate({
-                          search: (current) => ({
-                            ...current,
-                            setor: department.id,
-                            colaborador: undefined,
-                            grupo: undefined,
-                          }),
-                        })
-                      }
-                      className={cn(
-                        "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
-                        selected
-                          ? "border-primary/30 bg-primary/10 text-primary"
-                          : "border-border/60 bg-background/55 hover:border-primary/25",
-                      )}
-                    >
-                      <span className="truncate text-xs font-bold">{department.name}</span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground">
-                        {count}
-                      </span>
-                    </button>
-                  );
-                })
-              : directoryMode === "groups"
-                ? groups.map((group) => {
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {directoryMode === "departments"
+                ? departments.map((department) => {
                     const count = tasks.filter((task) =>
-                      taskMatchesGroup(task, group.id, data),
+                      taskMatchesDepartment(task, department.id, data),
                     ).length;
-                    const selected = selectedGroupId === group.id;
+                    const selected = selectedDepartmentId === department.id;
                     return (
                       <button
-                        key={group.id}
+                        key={department.id}
                         type="button"
                         onClick={() =>
                           navigate({
                             search: (current) => ({
                               ...current,
-                              setor: undefined,
+                              setor: department.id,
                               colaborador: undefined,
-                              grupo: group.id,
-                            }),
-                          })
-                        }
-                        className={cn(
-                          "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
-                          selected
-                            ? "border-primary/30 bg-primary/10 text-primary"
-                            : "border-border/60 bg-background/55 hover:border-primary/25",
-                        )}
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate text-xs font-bold">{group.name}</span>
-                          <span className="block truncate text-[10px] text-muted-foreground">
-                            {group.memberIds.length} membros
-                          </span>
-                        </span>
-                        <span className="text-[10px] tabular-nums text-muted-foreground">
-                          {count}
-                        </span>
-                      </button>
-                    );
-                  })
-                : assignmentMembers.map((employee) => {
-                    const count = tasks.filter((task) =>
-                      taskMatchesCollaborator(task, employee.id),
-                    ).length;
-                    const selected = selectedCollaboratorId === employee.id;
-                    return (
-                      <button
-                        key={employee.id}
-                        type="button"
-                        onClick={() =>
-                          navigate({
-                            search: (current) => ({
-                              ...current,
-                              setor: undefined,
-                              colaborador: employee.id,
                               grupo: undefined,
                             }),
                           })
@@ -1079,21 +1013,95 @@ function TasksPage() {
                             : "border-border/60 bg-background/55 hover:border-primary/25",
                         )}
                       >
-                        <span className="min-w-0">
-                          <span className="block truncate text-xs font-bold">{employee.name}</span>
-                          <span className="block truncate text-[10px] text-muted-foreground">
-                            {employee.role}
-                          </span>
-                        </span>
+                        <span className="truncate text-xs font-bold">{department.name}</span>
                         <span className="text-[10px] tabular-nums text-muted-foreground">
                           {count}
                         </span>
                       </button>
                     );
-                  })}
-          </div>
-        </section>
-      )}
+                  })
+                : directoryMode === "groups"
+                  ? groups.map((group) => {
+                      const count = tasks.filter((task) =>
+                        taskMatchesGroup(task, group.id, data),
+                      ).length;
+                      const selected = selectedGroupId === group.id;
+                      return (
+                        <button
+                          key={group.id}
+                          type="button"
+                          onClick={() =>
+                            navigate({
+                              search: (current) => ({
+                                ...current,
+                                setor: undefined,
+                                colaborador: undefined,
+                                grupo: group.id,
+                              }),
+                            })
+                          }
+                          className={cn(
+                            "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                            selected
+                              ? "border-primary/30 bg-primary/10 text-primary"
+                              : "border-border/60 bg-background/55 hover:border-primary/25",
+                          )}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs font-bold">{group.name}</span>
+                            <span className="block truncate text-[10px] text-muted-foreground">
+                              {group.memberIds.length} membros
+                            </span>
+                          </span>
+                          <span className="text-[10px] tabular-nums text-muted-foreground">
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })
+                  : assignmentMembers.map((employee) => {
+                      const count = tasks.filter((task) =>
+                        taskMatchesCollaborator(task, employee.id),
+                      ).length;
+                      const selected = selectedCollaboratorId === employee.id;
+                      return (
+                        <button
+                          key={employee.id}
+                          type="button"
+                          onClick={() =>
+                            navigate({
+                              search: (current) => ({
+                                ...current,
+                                setor: undefined,
+                                colaborador: employee.id,
+                                grupo: undefined,
+                              }),
+                            })
+                          }
+                          className={cn(
+                            "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                            selected
+                              ? "border-primary/30 bg-primary/10 text-primary"
+                              : "border-border/60 bg-background/55 hover:border-primary/25",
+                          )}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs font-bold">
+                              {employee.name}
+                            </span>
+                            <span className="block truncate text-[10px] text-muted-foreground">
+                              {employee.role}
+                            </span>
+                          </span>
+                          <span className="text-[10px] tabular-nums text-muted-foreground">
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+            </div>
+          </section>
+        )}
 
       {!isPersonalWorkspace &&
         (selectedDirectoryDepartment ||
@@ -1148,7 +1156,10 @@ function TasksPage() {
           </section>
         )}
 
-      {(isPersonalWorkspace || hasDirectorySelection || selectedOrganizerList) && (
+      {(isPersonalWorkspace ||
+        hasDirectorySelection ||
+        selectedOrganizerList ||
+        isFilteredTaskView) && (
         <>
           <div className="mb-4 flex min-w-0 items-center gap-2 sm:gap-3">
             <div className="task-glass-control flex h-12 min-w-0 flex-1 items-center gap-2 rounded-[18px] px-3 transition-colors focus-within:border-primary/45 sm:px-4 md:h-11">

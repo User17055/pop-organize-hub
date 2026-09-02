@@ -86,6 +86,7 @@ function CalendarPage() {
       frequency: "none",
       weekDays: [],
       excludedWeekDays: [],
+      times: [],
       interval: "1",
       customUnit: "days",
       dayOfMonth: "1",

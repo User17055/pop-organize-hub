@@ -542,6 +542,7 @@ function resolveTargetLabel(type: TargetType, id: string, db: Database) {
 function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["recurrence"] {
   if (!value || value.frequency === "none") return undefined;
 
+  const times = [...new Set(value.times ?? [])].sort();
   const customUnit = value.frequency === "custom" ? (value.customUnit ?? "days") : undefined;
   const interval =
     value.frequency === "custom" ? (value.interval ?? value.intervalDays ?? 1) : undefined;
@@ -557,7 +558,7 @@ function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["rec
     weekDays:
       value.frequency === "weekly" || value.frequency === "biweekly" ? value.weekDays : undefined,
     excludedWeekDays: value.frequency === "daily" ? value.excludedWeekDays : undefined,
-    times: value.frequency === "daily" && (value.times?.length ?? 0) >= 2 ? value.times : undefined,
+    times: value.frequency === "daily" && times.length >= 2 ? times : undefined,
     interval,
     intervalDays: value.frequency === "custom" && customUnit === "days" ? interval : undefined,
     customUnit,

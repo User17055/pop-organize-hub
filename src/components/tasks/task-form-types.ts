@@ -35,6 +35,7 @@ export type RecurrenceFormState = {
   frequency: RecurrenceFrequency | "none";
   weekDays: number[];
   excludedWeekDays: number[];
+  times: string[];
   interval: string;
   customUnit: RecurrenceCustomUnit;
   dayOfMonth: string;
@@ -47,6 +48,7 @@ export type RecurrenceInput =
       frequency: RecurrenceFrequency;
       weekDays?: number[];
       excludedWeekDays?: number[];
+      times?: string[];
       interval?: number;
       intervalDays?: number;
       customUnit?: RecurrenceCustomUnit;
@@ -145,6 +147,7 @@ export function getDefaultRecurrence(dueDate?: string): RecurrenceFormState {
     frequency: "none",
     weekDays: [],
     excludedWeekDays: [],
+    times: [],
     interval: "1",
     customUnit: "days",
     dayOfMonth: anchor.dayOfMonth,
@@ -162,6 +165,7 @@ export function recurrenceToForm(
     frequency: recurrence?.frequency ?? "none",
     weekDays: recurrence?.weekDays ?? [],
     excludedWeekDays: recurrence?.excludedWeekDays ?? [],
+    times: recurrence?.times ?? [],
     interval: String(recurrence?.interval ?? recurrence?.intervalDays ?? 1),
     customUnit: recurrence?.customUnit ?? "days",
     dayOfMonth: String(recurrence?.dayOfMonth ?? anchor.dayOfMonth),
@@ -194,10 +198,14 @@ export function recurrenceFromForm(recurrence: RecurrenceFormState): RecurrenceI
   }
 
   if (recurrence.frequency === "daily") {
+    const times = [
+      ...new Set(recurrence.times.filter((time) => /^([01]\d|2[0-3]):[0-5]\d$/.test(time))),
+    ].sort();
     return {
       frequency: recurrence.frequency,
       excludedWeekDays:
         recurrence.excludedWeekDays.length > 0 ? recurrence.excludedWeekDays : undefined,
+      times: times.length >= 2 ? times : undefined,
       endDate,
     };
   }
@@ -275,7 +283,12 @@ export function recurrenceLabel(recurrence?: TaskRecurrence) {
                       : `A cada ${interval} ${plural(interval, "ano", "anos")}`
                     : `A cada ${interval} ${plural(interval, "dia", "dias")}`;
 
+  const labelWithTimes =
+    recurrence.frequency === "daily" && (recurrence.times?.length ?? 0) >= 2
+      ? `${label} às ${recurrence.times!.join(", ")}`
+      : label;
+
   return recurrence.endDate
-    ? `${label} até ${new Date(`${recurrence.endDate}T00:00:00`).toLocaleDateString("pt-BR")}`
-    : label;
+    ? `${labelWithTimes} até ${new Date(`${recurrence.endDate}T00:00:00`).toLocaleDateString("pt-BR")}`
+    : labelWithTimes;
 }

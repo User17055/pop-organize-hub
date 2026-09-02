@@ -12,6 +12,30 @@ import {
   type RecurrenceFormState,
 } from "./task-form-types";
 
+const timesPerDayOptions = Array.from({ length: 12 }, (_, index) => {
+  const count = index + 1;
+  return {
+    value: String(count),
+    label: count === 1 ? "1 vez por dia" : `${count} vezes por dia`,
+  };
+});
+
+function defaultTimes(count: number) {
+  if (count < 2) return [];
+  const firstMinute = 8 * 60;
+  const lastMinute = 20 * 60;
+  return Array.from({ length: count }, (_, index) => {
+    const minutes = Math.round(firstMinute + ((lastMinute - firstMinute) * index) / (count - 1));
+    return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  });
+}
+
+function resizeTimes(current: string[], count: number) {
+  if (count < 2) return [];
+  const defaults = defaultTimes(count);
+  return Array.from({ length: count }, (_, index) => current[index] ?? defaults[index]);
+}
+
 export function RecurrenceFields({
   value,
   onChange,
@@ -117,6 +141,49 @@ export function RecurrenceFields({
             </div>
           </div>
         </Field>
+      )}
+
+      {value.frequency === "daily" && (
+        <>
+          <Field label="Quantas vezes no mesmo dia">
+            <GlassSelect
+              value={String(value.times.length >= 2 ? value.times.length : 1)}
+              options={timesPerDayOptions}
+              onChange={(count) => update({ times: resizeTimes(value.times, Number(count)) })}
+              compact={compact}
+            />
+          </Field>
+
+          {value.times.length >= 2 && (
+            <div className={cn("space-y-2", !compact && "md:col-span-2")}>
+              <div>
+                <p className="text-sm font-medium text-foreground">Horários das ocorrências</p>
+                <p className="text-xs text-muted-foreground">
+                  Cada horário representa uma repetição da tarefa no mesmo dia.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {value.times.map((time, index) => (
+                  <label key={index} className="space-y-1">
+                    <span className="block text-[11px] font-medium text-muted-foreground">
+                      Horário {index + 1}
+                    </span>
+                    <input
+                      type="time"
+                      value={time}
+                      onChange={(event) => {
+                        const times = [...value.times];
+                        times[index] = event.target.value;
+                        update({ times });
+                      }}
+                      className={inputClass}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {showMonthlyDay && (

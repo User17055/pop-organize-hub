@@ -9,7 +9,7 @@ import type {
   TaskFolder,
   TaskListDefinition,
 } from "./domain";
-import { canViewTask } from "./permissions";
+import { canViewTask, getManagerDepartmentAccess } from "./permissions";
 
 export type EmployeeRecord = Employee & {
   passwordHash: string;
@@ -144,14 +144,27 @@ export function sanitizeDatabase(
   currentUserId: string,
   workspaces: PlatformDatabase["workspaces"] = [db],
 ) {
-  const employees =
+  const allEmployees =
     db.company.kind === "personal"
       ? db.employees.filter((employee) => employee.id === currentUserId).map(withoutPassword)
       : db.employees.map(withoutPassword);
-  const currentEmployee = employees.find((employee) => employee.id === currentUserId);
+  const currentEmployee = allEmployees.find((employee) => employee.id === currentUserId);
   if (!currentEmployee) {
     throw Object.assign(new Error("Usuário da sessão não encontrado."), { statusCode: 401 });
   }
+  const managerAccess = getManagerDepartmentAccess({
+    currentUser: currentEmployee,
+    employees: allEmployees,
+    departments: db.departments,
+  });
+  const scopedDepartmentIds =
+    managerAccess && managerAccess.mode !== "all" ? managerAccess.departmentIds : null;
+  const employees = scopedDepartmentIds
+    ? allEmployees.filter(
+        (employee) =>
+          employee.id === currentUserId || scopedDepartmentIds.has(employee.departmentId),
+      )
+    : allEmployees;
   const departmentNames = new Map(
     db.departments.map((department) => [department.id, formatDepartmentName(department.name)]),
   );
@@ -159,6 +172,7 @@ export function sanitizeDatabase(
   for (const invitation of db.invitations) employeeNames.set(invitation.id, invitation.name);
   const groupNames = new Map(db.groups.map((group) => [group.id, group.name]));
   const departments = db.departments
+    .filter((department) => !scopedDepartmentIds || scopedDepartmentIds.has(department.id))
     .map((department) => ({
       ...department,
       name: departmentNames.get(department.id)!,
@@ -169,7 +183,7 @@ export function sanitizeDatabase(
       canViewTask({
         task,
         currentUser: currentEmployee,
-        employees,
+        employees: allEmployees,
         departments: db.departments,
         groups: db.groups,
         permissionGroups: db.permissionGroups,
@@ -209,7 +223,12 @@ export function sanitizeDatabase(
     invitations:
       db.company.kind === "personal"
         ? []
-        : db.invitations.map(({ tokenHash, ...invitation }) => invitation),
+        : db.invitations
+            .filter(
+              (invitation) =>
+                !scopedDepartmentIds || scopedDepartmentIds.has(invitation.departmentId),
+            )
+            .map(({ tokenHash, ...invitation }) => invitation),
     workspaces: workspaces
       .filter((workspace) => {
         if (workspace.company.kind === "personal") {

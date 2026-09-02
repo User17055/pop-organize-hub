@@ -14,10 +14,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { createDepartment } from "@/lib/api/pop-organize.functions";
+import { createDepartment, updateDepartmentDetails } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
-import { departmentColors } from "@/lib/domain";
-import { ClipboardList, Plus, UserRound, UsersRound } from "lucide-react";
+import { departmentColors, type Department } from "@/lib/domain";
+import { ClipboardList, Pencil, Plus, UserRound, UsersRound } from "lucide-react";
 
 export const Route = createFileRoute("/setores")({
   head: () => ({ meta: [{ title: "Setores - Pop Organize" }] }),
@@ -28,11 +28,14 @@ function SetoresPage() {
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useWorkspaceData();
   const [showForm, setShowForm] = useState(false);
+  const [editingDepartmentId, setEditingDepartmentId] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "",
     description: "",
     managerId: "",
     color: departmentColors[0],
+    managerAccessMode: "own" as "own" | "selected" | "all",
+    managerVisibleDepartmentIds: [] as string[],
   });
 
   const createMutation = useMutation({
@@ -41,9 +44,28 @@ function SetoresPage() {
       description: string;
       managerId: string;
       color?: string;
+      managerAccessMode?: "own" | "selected" | "all";
+      managerVisibleDepartmentIds: string[];
     }) => createDepartment({ data: payload }),
     onSuccess: () => {
       setShowForm(false);
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (payload: {
+      departmentId: string;
+      name: string;
+      description: string;
+      managerId?: string;
+      color?: string;
+      managerAccessMode?: "own" | "selected" | "all";
+      managerVisibleDepartmentIds?: string[];
+    }) => updateDepartmentDetails({ data: payload }),
+    onSuccess: () => {
+      setShowForm(false);
+      setEditingDepartmentId(null);
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
@@ -74,24 +96,80 @@ function SetoresPage() {
     );
   }
   const canManage = hasPermission(permissionSet, "manage.departments");
+  const canConfigureManagerAccess =
+    data.company.ownerId === currentUser.id ||
+    currentUser.role.toLocaleLowerCase("pt-BR").includes("admin");
 
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
-  const mutationError = createMutation.error instanceof Error ? createMutation.error.message : null;
+  const mutationError =
+    createMutation.error instanceof Error
+      ? createMutation.error.message
+      : updateMutation.error instanceof Error
+        ? updateMutation.error.message
+        : null;
 
   function openForm() {
+    const manager = employees[0];
+    setEditingDepartmentId(null);
     setForm({
       name: "",
       description: "",
-      managerId: employees[0]?.id ?? "",
+      managerId: manager?.id ?? "",
       color: departmentColors[departments.length % departmentColors.length],
+      managerAccessMode: manager?.departmentAccessMode ?? "own",
+      managerVisibleDepartmentIds: manager?.visibleDepartmentIds ?? [],
     });
     createMutation.reset();
+    updateMutation.reset();
+    setShowForm(true);
+  }
+
+  function openEditForm(department: Department) {
+    const manager = getEmployee(department.managerId);
+    setEditingDepartmentId(department.id);
+    setForm({
+      name: department.name,
+      description: department.description,
+      managerId: department.managerId,
+      color: department.color,
+      managerAccessMode: manager?.departmentAccessMode ?? "own",
+      managerVisibleDepartmentIds: manager?.visibleDepartmentIds ?? [],
+    });
+    createMutation.reset();
+    updateMutation.reset();
     setShowForm(true);
   }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    createMutation.mutate(form);
+    if (editingDepartmentId) {
+      updateMutation.mutate({
+        departmentId: editingDepartmentId,
+        name: form.name,
+        description: form.description,
+        color: form.color,
+        ...(canConfigureManagerAccess
+          ? {
+              managerId: form.managerId,
+              managerAccessMode: form.managerAccessMode,
+              managerVisibleDepartmentIds: form.managerVisibleDepartmentIds,
+            }
+          : {}),
+      });
+      return;
+    }
+    createMutation.mutate({
+      name: form.name,
+      description: form.description,
+      managerId: form.managerId,
+      color: form.color,
+      ...(canConfigureManagerAccess
+        ? {
+            managerAccessMode: form.managerAccessMode,
+            managerVisibleDepartmentIds: form.managerVisibleDepartmentIds,
+          }
+        : { managerVisibleDepartmentIds: [] }),
+    });
   }
 
   return (
@@ -139,6 +217,13 @@ function SetoresPage() {
               (task) => task.status !== "completed",
             ).length;
             const manager = getEmployee(department.managerId);
+            const canEdit = canManage || department.managerId === currentUser.id;
+            const managerAccessLabel =
+              manager?.departmentAccessMode === "all"
+                ? "Todos os setores"
+                : manager?.departmentAccessMode === "selected"
+                  ? `${manager.visibleDepartmentIds?.length ?? 0} setores adicionais`
+                  : "Setor próprio e setores gerenciados";
 
             return (
               <article
@@ -157,10 +242,22 @@ function SetoresPage() {
                       {department.description || "Sem descrição cadastrada."}
                     </p>
                   </div>
-                  <span
-                    className="mt-1 h-3 w-3 shrink-0 rounded-full ring-4 ring-muted/70"
-                    style={{ background: department.color }}
-                  />
+                  <div className="flex shrink-0 items-center gap-2">
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => openEditForm(department)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition hover:border-primary/35 hover:text-primary"
+                        aria-label={`Editar ${department.name}`}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    <span
+                      className="h-3 w-3 rounded-full ring-4 ring-muted/70"
+                      style={{ background: department.color }}
+                    />
+                  </div>
                 </div>
 
                 <div className="mt-4 flex items-center gap-3 rounded-xl bg-muted/45 px-3 py-2.5">
@@ -174,6 +271,11 @@ function SetoresPage() {
                     <div className="truncate text-xs font-semibold">
                       {manager?.name ?? "Não definido"}
                     </div>
+                    {manager && (
+                      <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                        Acesso: {managerAccessLabel}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -206,9 +308,11 @@ function SetoresPage() {
         <DialogContent className="max-w-lg">
           <form onSubmit={handleSubmit}>
             <DialogHeader>
-              <DialogTitle>Novo setor</DialogTitle>
+              <DialogTitle>{editingDepartmentId ? "Editar setor" : "Novo setor"}</DialogTitle>
               <DialogDescription>
-                Crie uma divisão fixa para organizar equipe e tarefas.
+                {editingDepartmentId
+                  ? "Atualize o setor, o gestor e quais informações ele pode visualizar."
+                  : "Crie uma divisão fixa para organizar equipe e tarefas."}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3.5 mt-4">
@@ -234,10 +338,17 @@ function SetoresPage() {
               <Field label="Gestor">
                 <select
                   value={form.managerId}
-                  onChange={(e) =>
-                    setForm((current) => ({ ...current, managerId: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    const manager = getEmployee(e.target.value);
+                    setForm((current) => ({
+                      ...current,
+                      managerId: e.target.value,
+                      managerAccessMode: manager?.departmentAccessMode ?? "own",
+                      managerVisibleDepartmentIds: manager?.visibleDepartmentIds ?? [],
+                    }));
+                  }}
                   className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
+                  disabled={!canConfigureManagerAccess && Boolean(editingDepartmentId)}
                 >
                   {employees.map((employee) => (
                     <option key={employee.id} value={employee.id}>
@@ -246,6 +357,60 @@ function SetoresPage() {
                   ))}
                 </select>
               </Field>
+              {canConfigureManagerAccess && (
+                <div className="space-y-3 rounded-xl border border-border/70 bg-muted/25 p-3.5">
+                  <Field label="Setores que o gestor pode visualizar">
+                    <select
+                      value={form.managerAccessMode}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          managerAccessMode: event.target.value as "own" | "selected" | "all",
+                        }))
+                      }
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                    >
+                      <option value="own">Setor original + setores que gerencia</option>
+                      <option value="selected">Parcialmente: escolher setores</option>
+                      <option value="all">Todos os setores</option>
+                    </select>
+                  </Field>
+                  {form.managerAccessMode === "selected" && (
+                    <div className="grid max-h-44 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
+                      {departments.map((department) => {
+                        const checked = form.managerVisibleDepartmentIds.includes(department.id);
+                        return (
+                          <label
+                            key={department.id}
+                            className="flex cursor-pointer items-center gap-2 rounded-lg border border-border/60 bg-background/70 px-3 py-2 text-xs font-medium"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setForm((current) => ({
+                                  ...current,
+                                  managerVisibleDepartmentIds: checked
+                                    ? current.managerVisibleDepartmentIds.filter(
+                                        (id) => id !== department.id,
+                                      )
+                                    : [...current.managerVisibleDepartmentIds, department.id],
+                                }))
+                              }
+                              className="h-4 w-4 accent-primary"
+                            />
+                            <span className="truncate">{department.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    Tarefas atribuídas diretamente ao gestor continuam visíveis. O acesso aos demais
+                    colaboradores e tarefas respeita os setores definidos aqui.
+                  </p>
+                </div>
+              )}
               <Field label="Cor">
                 <div className="flex flex-wrap gap-2">
                   {departmentColors.map((color) => (
@@ -275,11 +440,15 @@ function SetoresPage() {
               </button>
               <button
                 type="submit"
-                disabled={createMutation.isPending}
+                disabled={createMutation.isPending || updateMutation.isPending}
                 style={{ background: "var(--gradient-primary)" }}
                 className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
               >
-                {createMutation.isPending ? "Criando..." : "Criar setor"}
+                {createMutation.isPending || updateMutation.isPending
+                  ? "Salvando..."
+                  : editingDepartmentId
+                    ? "Salvar alterações"
+                    : "Criar setor"}
               </button>
             </DialogFooter>
           </form>

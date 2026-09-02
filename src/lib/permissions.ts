@@ -2,7 +2,15 @@ import type { CurrentUser, Department, Employee, Group, PermissionGroup, Task } 
 import { hasPermission, isAdminUser, resolvePermissionSet } from "./permission-groups";
 
 type PermissionEmployee =
-  | Pick<Employee, "id" | "role" | "departmentId" | "permissionGroupId">
+  | Pick<
+      Employee,
+      | "id"
+      | "role"
+      | "departmentId"
+      | "permissionGroupId"
+      | "departmentAccessMode"
+      | "visibleDepartmentIds"
+    >
   | CurrentUser;
 
 export type TaskPermissions = {
@@ -23,7 +31,17 @@ export type TaskPermissions = {
 type PermissionInput = {
   task: Task;
   currentUser?: PermissionEmployee | null;
-  employees: Array<Pick<Employee, "id" | "role" | "departmentId" | "permissionGroupId">>;
+  employees: Array<
+    Pick<
+      Employee,
+      | "id"
+      | "role"
+      | "departmentId"
+      | "permissionGroupId"
+      | "departmentAccessMode"
+      | "visibleDepartmentIds"
+    >
+  >;
   departments: Array<Pick<Department, "id" | "managerId" | "memberIds">>;
   groups: Array<Pick<Group, "id" | "leaderId" | "memberIds">>;
   permissionGroups?: PermissionGroup[];
@@ -37,13 +55,75 @@ function isAdmin(input: PermissionInput) {
   });
 }
 
+export function getManagerDepartmentAccess(input: {
+  currentUser?: PermissionEmployee | null;
+  employees: PermissionInput["employees"];
+  departments: PermissionInput["departments"];
+}) {
+  const userId = input.currentUser?.id;
+  if (!userId) return null;
+  const employee = input.employees.find((item) => item.id === userId);
+  const role = employee?.role ?? input.currentUser?.role;
+  if (role?.toLocaleLowerCase("pt-BR").includes("admin")) return null;
+
+  const managedDepartmentIds = input.departments
+    .filter((department) => department.managerId === userId)
+    .map((department) => department.id);
+  if (managedDepartmentIds.length === 0) return null;
+
+  const mode = employee?.departmentAccessMode ?? "own";
+  const departmentIds = new Set(
+    [
+      employee?.departmentId,
+      ...managedDepartmentIds,
+      ...(mode === "selected" ? (employee?.visibleDepartmentIds ?? []) : []),
+    ].filter((id): id is string => Boolean(id)),
+  );
+  return { mode, departmentIds };
+}
+
 export function canViewTask(input: PermissionInput) {
   const userId = input.currentUser?.id;
   if (!userId) return false;
 
+  const currentEmployee = input.employees.find((item) => item.id === userId);
+  const managerAccess = getManagerDepartmentAccess({
+    currentUser: input.currentUser,
+    employees: input.employees,
+    departments: input.departments,
+  });
+  if (managerAccess?.mode === "all") return true;
+  if (managerAccess) {
+    const responsibleIds = new Set(
+      [input.task.responsibleId, ...(input.task.responsibleIds ?? [])].filter(Boolean),
+    );
+    if (responsibleIds.has(userId) || input.task.reviewerId === userId) return true;
+    if (
+      [...responsibleIds].some((id) => {
+        const responsible = input.employees.find((employee) => employee.id === id);
+        return responsible ? managerAccess.departmentIds.has(responsible.departmentId) : false;
+      })
+    ) {
+      return true;
+    }
+    if (input.task.target.type === "department") {
+      return managerAccess.departmentIds.has(input.task.target.id);
+    }
+    if (input.task.target.type === "user") {
+      const targetEmployee = input.employees.find(
+        (employee) => employee.id === input.task.target.id,
+      );
+      return targetEmployee ? managerAccess.departmentIds.has(targetEmployee.departmentId) : false;
+    }
+    if (input.task.target.type === "group") {
+      const group = input.groups.find((item) => item.id === input.task.target.id);
+      return group?.leaderId === userId || group?.memberIds.includes(userId) || false;
+    }
+    return false;
+  }
+
   if (isAdmin(input)) return true;
 
-  const currentEmployee = input.employees.find((item) => item.id === userId);
   if (input.permissionGroups) {
     const set = resolvePermissionSet({
       currentUser: input.currentUser,

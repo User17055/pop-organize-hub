@@ -31,7 +31,7 @@ import {
   type TargetType,
 } from "../domain";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
-import { canViewTask, getTaskPermissions } from "../permissions";
+import { canViewTask, getManagerDepartmentAccess, getTaskPermissions } from "../permissions";
 import { materializeRecurringTasks } from "../recurrence.server";
 
 const SESSION_COOKIE = "pop_organize_session";
@@ -137,6 +137,8 @@ const createDepartmentSchema = z.object({
   description: z.string().trim().min(3),
   managerId: z.string().min(1),
   color: z.string().min(3).optional(),
+  managerAccessMode: z.enum(["own", "selected", "all"]).optional(),
+  managerVisibleDepartmentIds: z.array(z.string().min(1)).max(500).default([]),
 });
 
 const updateDepartmentMembersSchema = z.object({
@@ -148,6 +150,10 @@ const updateDepartmentDetailsSchema = z.object({
   departmentId: z.string().min(1),
   name: z.string().trim().min(2).max(60),
   description: z.string().trim().min(3).max(320),
+  managerId: z.string().min(1).optional(),
+  color: z.string().min(3).optional(),
+  managerAccessMode: z.enum(["own", "selected", "all"]).optional(),
+  managerVisibleDepartmentIds: z.array(z.string().min(1)).max(500).optional(),
 });
 
 const updateWorkspaceTagsSchema = z.object({
@@ -1795,6 +1801,24 @@ export const createDepartment = createServerFn({ method: "POST" })
       if (!db.employees.some((employee) => employee.id === data.managerId)) {
         throw createHttpError("Gestor não encontrado.");
       }
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const canConfigureManagerAccess =
+        db.company.ownerId === currentUserId ||
+        currentUser?.role.toLocaleLowerCase("pt-BR").includes("admin");
+      if (
+        !canConfigureManagerAccess &&
+        ((data.managerAccessMode !== undefined && data.managerAccessMode !== "own") ||
+          data.managerVisibleDepartmentIds.length > 0)
+      ) {
+        throw createHttpError("Somente um administrador pode liberar outros setores.", 403);
+      }
+      if (
+        data.managerVisibleDepartmentIds.some(
+          (id) => !db.departments.some((department) => department.id === id),
+        )
+      ) {
+        throw createHttpError("Um dos setores permitidos não foi encontrado.");
+      }
 
       const department = {
         id: nextId("d", db.departments),
@@ -1805,6 +1829,14 @@ export const createDepartment = createServerFn({ method: "POST" })
       };
 
       db.departments.push(department);
+      const manager = db.employees.find((employee) => employee.id === data.managerId)!;
+      if (data.managerAccessMode) {
+        manager.departmentAccessMode = data.managerAccessMode;
+        manager.visibleDepartmentIds =
+          data.managerAccessMode === "selected"
+            ? [...new Set(data.managerVisibleDepartmentIds)]
+            : undefined;
+      }
       return department;
     });
   });
@@ -1817,6 +1849,18 @@ export const updateDepartmentMembers = createServerFn({ method: "POST" })
       if (!department) throw createHttpError("Setor não encontrado.", 404);
 
       const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const managerAccess = getManagerDepartmentAccess({
+        currentUser,
+        employees: db.employees,
+        departments: db.departments,
+      });
+      if (
+        managerAccess &&
+        managerAccess.mode !== "all" &&
+        !managerAccess.departmentIds.has(department.id)
+      ) {
+        throw createHttpError("Você não pode gerenciar os membros deste setor.", 403);
+      }
       const permissionSet = resolvePermissionSet({
         currentUser,
         employees: db.employees,
@@ -1852,6 +1896,18 @@ export const updateDepartmentDetails = createServerFn({ method: "POST" })
       if (!department) throw createHttpError("Setor não encontrado.", 404);
 
       const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const managerAccess = getManagerDepartmentAccess({
+        currentUser,
+        employees: db.employees,
+        departments: db.departments,
+      });
+      if (
+        managerAccess &&
+        managerAccess.mode !== "all" &&
+        !managerAccess.departmentIds.has(department.id)
+      ) {
+        throw createHttpError("Você não pode editar este setor.", 403);
+      }
       const permissionSet = resolvePermissionSet({
         currentUser,
         employees: db.employees,
@@ -1864,8 +1920,39 @@ export const updateDepartmentDetails = createServerFn({ method: "POST" })
         throw createHttpError("Você não pode editar este setor.", 403);
       }
 
+      const canConfigureManagerAccess =
+        db.company.ownerId === currentUserId ||
+        currentUser?.role.toLocaleLowerCase("pt-BR").includes("admin");
+      const changesManagerAccess =
+        data.managerId !== undefined ||
+        data.managerAccessMode !== undefined ||
+        data.managerVisibleDepartmentIds !== undefined;
+      if (changesManagerAccess && !canConfigureManagerAccess) {
+        throw createHttpError("Somente um administrador pode alterar o gestor e o acesso.", 403);
+      }
+      if (data.managerId && !db.employees.some((employee) => employee.id === data.managerId)) {
+        throw createHttpError("Gestor não encontrado.");
+      }
+      if (
+        data.managerVisibleDepartmentIds?.some(
+          (id) => !db.departments.some((item) => item.id === id),
+        )
+      ) {
+        throw createHttpError("Um dos setores permitidos não foi encontrado.");
+      }
+
       department.name = formatDepartmentName(data.name);
       department.description = data.description;
+      if (data.managerId) department.managerId = data.managerId;
+      if (data.color) department.color = data.color;
+      const manager = db.employees.find((employee) => employee.id === department.managerId);
+      if (manager && data.managerAccessMode) {
+        manager.departmentAccessMode = data.managerAccessMode;
+        manager.visibleDepartmentIds =
+          data.managerAccessMode === "selected"
+            ? [...new Set(data.managerVisibleDepartmentIds ?? [])]
+            : undefined;
+      }
       return department;
     });
   });

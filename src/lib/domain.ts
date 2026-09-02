@@ -73,6 +73,8 @@ export interface Employee {
   avatar?: string;
   status: "active" | "inactive";
   permissionGroupId?: string;
+  departmentAccessMode?: "own" | "selected" | "all";
+  visibleDepartmentIds?: string[];
 }
 
 export type PermissionKey =

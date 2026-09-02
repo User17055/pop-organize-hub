@@ -4,7 +4,7 @@
   --rail:#0D0E0F; --side:#0D0E0F; --bg:#09090A;
   --panel:#121314; --panel2:#191A1C; --hover:#1F2124;
   --line:#1E2022; --line-soft:#191A1C;
-  --tx:#FAFAFA; --tx2:#ADB1B7; --tx3:#7B8088;
+  --tx:#FAFAFA; --tx2:#C5C9CF; --tx3:#9DA3AC;
   --acc:#2F6BFF; --acc-2:#5B8AFF; --acc-soft:#152547; --on-acc:#FFFFFF;
   --red:#FF4A3D; --amber:#FFB524; --green:#00D183;
   --s-todo:#AEB7C2; --s-doing:#FFC82E; --s-review:#189BFF; --s-done:#00CE86;
@@ -19,7 +19,7 @@
   --rail:#FFFFFF; --side:#FFFFFF; --bg:#F6F7F9;
   --panel:#FFFFFF; --panel2:#EFF1F4; --hover:#E7EAEF;
   --line:#E2E5EA; --line-soft:#EDEFF2;
-  --tx:#0E1013; --tx2:#424A55; --tx3:#69717C;
+  --tx:#0E1013; --tx2:#303741; --tx3:#555E69;
   --acc:#2455E8; --acc-2:#1B44C9; --acc-soft:#E4EAFF; --on-acc:#FFFFFF;
   --red:#D3352A; --amber:#A97418; --green:#1E9E52;
   --s-todo:#79818D; --s-doing:#C27400; --s-review:#0A84E8; --s-done:#00A15C;
@@ -113,10 +113,10 @@ button{background:none;border:0;cursor:pointer}
 .side{width:222px;background:var(--side);display:flex;flex-direction:column;overflow:hidden;flex:none;position:relative;
   transition:width .26s cubic-bezier(.3,.8,.3,1),opacity .2s}
 .side.collapsed{width:0;overflow:visible}
-.side.collapsed .side-top{position:absolute;top:0;left:0;width:42px;padding:19px 8px 6px;z-index:4;pointer-events:none}
+.side.collapsed .side-top{position:absolute;top:12px;left:0;width:48px;padding:7px 9px;z-index:4;pointer-events:none;background:var(--side);border:1px solid var(--line);border-left:0;border-radius:0 12px 12px 0;box-shadow:4px 4px 16px rgba(0,0,0,.22)}
 .side.collapsed .side-top .mag,
 .side.collapsed .side-top input{visibility:hidden}
-.side.collapsed .side-toggle{pointer-events:auto;background:var(--panel);box-shadow:var(--shadow)}
+.side.collapsed .side-toggle{pointer-events:auto}
 .side.collapsed .side-scroll,
 .side.collapsed .side-foot{visibility:hidden}
 .side-top{padding:19px 14px 6px;display:flex;align-items:center;gap:9px}
@@ -124,9 +124,23 @@ button{background:none;border:0;cursor:pointer}
 .side-top:focus-within .mag{color:var(--acc-2)}
 .side-top input{border:0;background:none;outline:0;width:100%;min-width:0;font-size:13.5px}
 .side-top input::placeholder{color:var(--tx3)}
-.side-top .col{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;color:var(--tx3);flex:none;transition:.16s}
+.side-top .col{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);display:grid;place-items:center;color:var(--tx2);flex:none;background:linear-gradient(180deg,var(--panel2),var(--panel));box-shadow:0 3px 10px rgba(0,0,0,.22),inset 0 1px rgba(255,255,255,.05);transition:.16s}
 .side-top .col:hover{background:var(--hover);color:var(--tx)}
 .side-top .col svg{width:15px;height:15px}
+.search-results{display:flex;flex-direction:column;gap:4px}
+.search-results-h{display:flex;justify-content:space-between;align-items:center;padding:0 7px 8px;color:var(--tx2);font-size:12px;font-weight:650}
+.search-results-h span{color:var(--tx3);font-weight:500}
+.search-task{width:100%;padding:9px 8px;border-radius:9px;text-align:left;transition:.16s}
+.search-task:hover{background:var(--hover)}
+.search-task strong,.search-task span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.search-task strong{color:var(--tx);font-size:12.5px;font-weight:650}
+.search-task span{margin-top:2px;color:var(--tx3);font-size:11.5px}
+.search-empty{padding:14px 8px;color:var(--tx3);font-size:12.5px}
+.tag-help{margin:0;color:var(--tx2);font-size:13.5px}
+.tag-catalog{display:flex;flex-wrap:wrap;gap:7px;min-height:26px}
+.tag-catalog-item{padding:4px 10px;border-radius:20px;background:hsl(var(--h) 70% 18%);color:hsl(var(--h) 86% 76%);font-size:12px;font-weight:600}
+:root[data-theme="light"] .tag-catalog-item{background:hsl(var(--h) 75% 91%);color:hsl(var(--h) 70% 30%)}
+.tag-manager{width:min(510px,100%)}
 .side-scroll{flex:1;overflow-y:auto;padding:16px 10px 12px}
 .grp{margin-bottom:15px}
 .grp-h{display:flex;align-items:center;gap:7px;width:100%;padding:5px 6px;color:var(--tx2);font-size:13px;transition:color .16s}

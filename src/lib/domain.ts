@@ -61,6 +61,7 @@ export interface Company {
   status: "active" | "inactive";
   kind?: "personal" | "company";
   ownerId?: string;
+  taskTags?: string[];
 }
 
 export interface Employee {

@@ -144,6 +144,16 @@ const updateDepartmentMembersSchema = z.object({
   memberIds: z.array(z.string().min(1)).max(500),
 });
 
+const updateDepartmentDetailsSchema = z.object({
+  departmentId: z.string().min(1),
+  name: z.string().trim().min(2).max(60),
+  description: z.string().trim().min(3).max(320),
+});
+
+const updateWorkspaceTagsSchema = z.object({
+  tags: z.array(z.string().trim().min(1).max(40)).max(100),
+});
+
 const createEmployeeSchema = z.object({
   name: z.string().trim().min(2),
   email: z.string().trim().email(),
@@ -1833,6 +1843,47 @@ export const updateDepartmentMembers = createServerFn({ method: "POST" })
         ...new Set([department.managerId, ...requiredIds, ...memberIds]),
       ].filter(Boolean);
       return department;
+    });
+  });
+
+export const updateDepartmentDetails = createServerFn({ method: "POST" })
+  .validator((data) => updateDepartmentDetailsSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const department = db.departments.find((item) => item.id === data.departmentId);
+      if (!department) throw createHttpError("Setor não encontrado.", 404);
+
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: db.employees,
+        permissionGroups: db.permissionGroups,
+      });
+      if (
+        department.managerId !== currentUserId &&
+        !hasPermission(permissionSet, "manage.departments")
+      ) {
+        throw createHttpError("Você não pode editar este setor.", 403);
+      }
+
+      department.name = formatDepartmentName(data.name);
+      department.description = data.description;
+      return department;
+    });
+  });
+
+export const updateWorkspaceTags = createServerFn({ method: "POST" })
+  .validator((data) => updateWorkspaceTagsSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "tasks.create",
+        "Seu grupo de permissão não pode cadastrar etiquetas.",
+      );
+      db.company.taskTags = [...new Set(data.tags.map((tag) => tag.trim()).filter(Boolean))];
+      return { tags: db.company.taskTags };
     });
   });
 

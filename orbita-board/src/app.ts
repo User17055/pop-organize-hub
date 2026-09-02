@@ -375,6 +375,17 @@ const inSection = (t: Task): boolean => t.project === state.project && t.section
 const scheduledOn = (t: Task, day: number): boolean =>
   SCHEDULE.some(b => b.day === day && b.task === t.title);
 
+const searchText = (value: string): string =>
+  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+
+function matchesSearch(t: Task): boolean {
+  if (!state.query) return true;
+  const sectorName = project(t.project).sections.find(s => s.id === t.section)?.name ?? "";
+  const responsibleNames = t.who.map(id => PEOPLE[id]?.name ?? "").join(" ");
+  return searchText(`${t.title} ${t.desc} ${t.tag} ${sectorName} ${responsibleNames}`)
+    .includes(searchText(state.query));
+}
+
 /** O que está atribuído a mim dentro do recorte escolhido. */
 function isMine(t: Task, range: State["mineRange"] = state.mineRange): boolean {
   if (!t.who.includes(ME)) return false;
@@ -395,11 +406,7 @@ function isVisible(t: Task): boolean {
     const d = new Date(t.due + "T00:00:00");
     if (d < state.week || d > weekEnd()) return false;
   }
-  if (state.query) {
-    const q = state.query.toLowerCase();
-    const sectorName = project(t.project).sections.find(s => s.id === t.section)?.name ?? "";
-    if (!`${t.title} ${t.desc} ${t.tag} ${sectorName}`.toLowerCase().includes(q)) return false;
-  }
+  if (!matchesSearch(t)) return false;
   return true;
 }
 
@@ -410,7 +417,7 @@ function matchesFilters(t: Task): boolean {
   if (state.tags.size && !state.tags.has(t.tag)) return false;
   if (state.priorities.size && !state.priorities.has(t.priority)) return false;
   if (state.who.size && !t.who.some(k => state.who.has(k))) return false;
-  if (state.query && !`${t.title} ${t.desc} ${t.tag}`.toLowerCase().includes(state.query.toLowerCase())) return false;
+  if (!matchesSearch(t)) return false;
   return true;
 }
 const filterCount = (): number =>
@@ -445,6 +452,17 @@ function groupBlock(key: string, label: string, items: Project[], colored: boole
 }
 
 function renderSidebar(): void {
+  if (state.query) {
+    const results = TASKS.filter(matchesSearch).slice(0, 50);
+    const html = `<div class="search-results"><div class="search-results-h">Resultados da busca <span>${results.length}</span></div>` +
+      (results.length ? results.map(t => {
+        const sectorName = project(t.project).sections.find(s => s.id === t.section)?.name ?? "Setor";
+        return `<button class="search-task" data-search-task="${t.id}"><strong>${esc(t.title)}</strong>` +
+          `<span>${esc(sectorName)} · ${esc(t.tag)}</span></button>`;
+      }).join("") : `<div class="search-empty">Nenhuma tarefa encontrada.</div>`) + `</div>`;
+    $("#sideScroll").innerHTML = html;
+    return;
+  }
   const favs = PROJECTS.filter(p => p.favorite);
   const hoje = TASKS.filter(t => isMine(t, "hoje")).length;
   let html =
@@ -862,9 +880,13 @@ function deleteTask(id: string): void {
 
 function openSectionForm(): void {
   const s = section();
+  if (popBridgeActive && s.id.startsWith("_company:")) {
+    toast("A descrição de Geral é alterada nas configurações da empresa.");
+    return;
+  }
   openLayer(
-    `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="Editar frente">` +
-    `<div class="sheet-h"><div class="grow"><div class="crumb">${esc(project().name)}</div><h2>Editar frente</h2></div>` +
+    `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="Editar setor">` +
+    `<div class="sheet-h"><div class="grow"><div class="crumb">${esc(project().name)}</div><h2>Editar setor</h2></div>` +
     `<button class="iconbtn" data-close="1" aria-label="Fechar">${I.x}</button></div>` +
     `<form class="sheet-b" id="secForm">` +
     `<div class="field"><label for="sN">Nome</label><input id="sN" type="text" data-focus maxlength="60" value="${esc(s.name)}"></div>` +
@@ -878,12 +900,17 @@ function openSectionForm(): void {
     () => {
       $<HTMLFormElement>("#secForm").addEventListener("submit", e => {
         e.preventDefault();
-        s.name = $<HTMLInputElement>("#sN").value.trim() || s.name;
-        s.desc = $<HTMLTextAreaElement>("#sD").value.trim();
+        const nextName = $<HTMLInputElement>("#sN").value.trim();
+        const nextDescription = $<HTMLTextAreaElement>("#sD").value.trim();
+        if (!nextName) { $<HTMLInputElement>("#sN").focus(); return; }
+        if (nextDescription.length < 3) { $<HTMLTextAreaElement>("#sD").focus(); return; }
+        s.name = formatSectorName(nextName);
+        s.desc = nextDescription;
         s.hours = $<HTMLInputElement>("#sH").value.trim() || s.hours;
         const parts = $<HTMLInputElement>("#sR").value.split(/[—–]/);
         if (parts.length > 1) { s.from = parts[0]!.trim(); s.to = parts.slice(1).join("–").trim(); }
-        closeLayer(); renderAll(); toast("Frente atualizada.");
+        popPost("sector:update", { sectionId: s.id, name: s.name, description: s.desc });
+        closeLayer(); renderAll(); toast("Setor atualizado e salvo.");
       });
     });
 }
@@ -1031,10 +1058,38 @@ function openMore(anchor: HTMLElement): void {
   openLayer(
     `<div class="scrim" style="background:transparent;backdrop-filter:none;display:block">` +
     `<div class="pop" style="top:${b.bottom + 8}px;left:${left}px;width:210px;padding:7px" role="menu">` +
-    `<button class="menu" data-edit-section="1">Editar frente</button>` +
+    `<button class="menu" data-edit-section="1">Editar setor e descrição</button>` +
+    `<button class="menu" data-manage-tags="1">Cadastrar etiqueta</button>` +
     `<button class="menu" data-new="1">Nova tarefa</button>` +
-    `<button class="menu" data-copy-section="1">Copiar link da frente</button>` +
+    `<button class="menu" data-copy-section="1">Copiar link do setor</button>` +
     `</div></div>`);
+}
+
+function openTagManager(): void {
+  const tags = Object.keys(TAGS).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  openLayer(
+    `<div class="scrim"><div class="sheet tag-manager" role="dialog" aria-modal="true" aria-label="Cadastrar etiqueta">` +
+    `<div class="sheet-h"><div class="grow"><div class="crumb">Organização</div><h2>Etiquetas</h2></div>` +
+    `<button class="iconbtn" data-close="1" aria-label="Fechar">${I.x}</button></div>` +
+    `<form class="sheet-b" id="tagManagerForm"><p class="tag-help">Cadastre uma etiqueta para usar nas tarefas de todos os setores.</p>` +
+    `<div class="tag-catalog">${tags.map(tag => `<span class="tag-catalog-item" style="--h:${TAGS[tag]}">${esc(tag)}</span>`).join("")}</div>` +
+    `<div class="field"><label for="newTag">Nome da etiqueta</label><input id="newTag" type="text" data-focus required maxlength="40" placeholder="Ex.: Urgente"></div>` +
+    `<div class="acts"><span class="push"></span><button type="button" class="btn" data-close="1">Cancelar</button>` +
+    `<button type="submit" class="btn solid">Cadastrar</button></div></form></div></div>`,
+    () => {
+      $<HTMLFormElement>("#tagManagerForm").addEventListener("submit", e => {
+        e.preventDefault();
+        const input = $<HTMLInputElement>("#newTag");
+        const name = input.value.trim();
+        if (!name) { input.focus(); return; }
+        const existing = Object.keys(TAGS).find(tag => searchText(tag) === searchText(name));
+        if (existing) { input.focus(); toast(`A etiqueta “${existing}” já existe.`); return; }
+        const formatted = name.charAt(0).toLocaleUpperCase("pt-BR") + name.slice(1);
+        TAGS[formatted] = hueFrom(formatted);
+        popPost("workspace:tags", { tags: Object.keys(TAGS) });
+        closeLayer(); renderScreen(); toast(`Etiqueta “${formatted}” cadastrada e salva.`);
+      });
+    });
 }
 
 /* ============================ arrastar e soltar ============================ */
@@ -1147,6 +1202,15 @@ document.addEventListener("click", e => {
 
   if (at("[data-mine]")) { state.mine = true; setScreen("board"); return; }
 
+  const searchTask = at("[data-search-task]");
+  if (searchTask) {
+    const task = TASKS.find(item => item.id === searchTask.dataset["searchTask"]);
+    if (!task) return;
+    state.query = ""; state.mine = false; state.project = task.project; state.section = task.section;
+    $<HTMLInputElement>("#q").value = "";
+    savePopPreferences(); setScreen("board"); openTask(task.id); return;
+  }
+
   const mr = at("[data-minerange]");
   if (mr) { state.mineRange = mr.dataset["minerange"] as State["mineRange"]; renderAll(); return; }
 
@@ -1179,6 +1243,7 @@ document.addEventListener("click", e => {
     return;
   }
   if (at("[data-edit-section]")) { closeLayer(); openSectionForm(); return; }
+  if (at("[data-manage-tags]")) { closeLayer(); openTagManager(); return; }
 
   const more = at("[data-more]");
   if (more) { openMore(more); return; }
@@ -1215,7 +1280,7 @@ document.addEventListener("keydown", e => {
 
 $<HTMLInputElement>("#q").addEventListener("input", e => {
   state.query = (e.target as HTMLInputElement).value.trim();
-  renderScreen();
+  renderSidebar(); renderView();
 });
 
 function setSidebarCollapsed(collapsed: boolean): void {
@@ -2278,7 +2343,7 @@ document.addEventListener("keydown", e => {
 /* ============================ integração Pop Organize ============================ */
 
 interface PopWorkspacePayload {
-  company: { id: string; name: string; description?: string };
+  company: { id: string; name: string; description?: string; taskTags?: string[] };
   currentUser: { id: string; name: string; role: string };
   departments: Array<{
     id: string; name: string; description: string; color: string;
@@ -2439,7 +2504,7 @@ function hydratePopWorkspace(data: PopWorkspacePayload): void {
     };
   });
 
-  const tags = [...new Set(TASKS.map(item => item.tag))];
+  const tags = [...new Set([...(data.company.taskTags ?? []), ...TASKS.map(item => item.tag)])];
   TAGS = Object.fromEntries(tags.map((tag, index) => [tag, (index * 47 + 18) % 360]));
   if (!Object.keys(TAGS).length) TAGS = { Geral: 212 };
 

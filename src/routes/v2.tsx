@@ -10,7 +10,9 @@ import {
   deleteTask,
   logout,
   switchWorkspace,
+  updateDepartmentDetails,
   updateDepartmentMembers,
+  updateWorkspaceTags,
   updateTaskDetails,
   updateTaskStatus,
 } from "@/lib/api/pop-organize.functions";
@@ -53,6 +55,9 @@ type BridgeMessage = {
   priority?: OrbitaPriority;
   task?: OrbitaTaskPayload;
   memberIds?: string[];
+  name?: string;
+  description?: string;
+  tags?: string[];
 };
 
 function todayIso() {
@@ -174,6 +179,27 @@ function PopOrganizeV2() {
         await updateDepartmentMembers({
           data: { departmentId: message.sectionId, memberIds: message.memberIds },
         });
+        await refreshWorkspace();
+        return;
+      }
+      if (
+        message.type === "sector:update" &&
+        message.sectionId &&
+        message.name &&
+        message.description
+      ) {
+        await updateDepartmentDetails({
+          data: {
+            departmentId: message.sectionId,
+            name: message.name,
+            description: message.description,
+          },
+        });
+        await refreshWorkspace();
+        return;
+      }
+      if (message.type === "workspace:tags" && message.tags) {
+        await updateWorkspaceTags({ data: { tags: message.tags } });
         await refreshWorkspace();
         return;
       }

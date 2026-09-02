@@ -22,6 +22,7 @@ import {
   ChevronDown,
   Columns3,
   Layers3,
+  Network,
   Plus,
   Repeat,
   Search,
@@ -58,6 +59,7 @@ type TasksSearch = {
   escopo?: "today" | "overdue" | "upcoming" | "mine" | "department" | "group" | "all";
   setor?: string;
   colaborador?: string;
+  grupo?: string;
 };
 
 export const Route = createFileRoute("/tarefas")({
@@ -72,6 +74,8 @@ export const Route = createFileRoute("/tarefas")({
       typeof search.colaborador === "string" && search.colaborador.trim()
         ? search.colaborador.trim()
         : undefined,
+    grupo:
+      typeof search.grupo === "string" && search.grupo.trim() ? search.grupo.trim() : undefined,
   }),
   head: () => ({
     meta: [
@@ -168,8 +172,21 @@ function taskMatchesDepartment(task: Task, departmentId: string, data: Workspace
   return [...taskResponsibleIds(task)].some((id) => memberIds.has(id));
 }
 
+function taskMatchesGroup(task: Task, groupId: string, data: WorkspaceData) {
+  if (task.target.type === "group" && task.target.id === groupId) return true;
+  const group = data.groups.find((item) => item.id === groupId);
+  const memberIds = new Set([
+    ...(group?.memberIds ?? []),
+    ...data.invitations
+      .filter((invitation) => invitation.groupIds?.includes(groupId))
+      .map((invitation) => invitation.id),
+  ]);
+  if (task.target.type === "user" && memberIds.has(task.target.id)) return true;
+  return [...taskResponsibleIds(task)].some((id) => memberIds.has(id));
+}
+
 type TaskLayoutPreferences = {
-  layoutMode: "list" | "department";
+  layoutMode: "list" | "department" | "group";
   titleWidth: number;
   density: "compact" | "comfortable";
   showDescription: boolean;
@@ -189,14 +206,15 @@ function TasksPage() {
     escopo: initialScope,
     setor: selectedDepartmentId,
     colaborador: selectedCollaboratorId,
+    grupo: selectedGroupId,
   } = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data, isLoading, error } = useWorkspaceData();
   const [active, setActive] = useState<TaskStatus | "all">(initialStatus ?? "all");
   const [taskScope, setTaskScope] = useState<TaskScope>(initialScope ?? "all");
   const [search, setSearch] = useState("");
-  const [directoryMode, setDirectoryMode] = useState<"departments" | "collaborators">(
-    selectedCollaboratorId ? "collaborators" : "departments",
+  const [directoryMode, setDirectoryMode] = useState<"departments" | "collaborators" | "groups">(
+    selectedGroupId ? "groups" : selectedCollaboratorId ? "collaborators" : "departments",
   );
   const filters = emptyTaskFilters;
   const [isMounted, setIsMounted] = useState(false);
@@ -354,9 +372,10 @@ function TasksPage() {
         if (!data) return true;
         if (selectedDepartmentId) return taskMatchesDepartment(task, selectedDepartmentId, data);
         if (selectedCollaboratorId) return taskMatchesCollaborator(task, selectedCollaboratorId);
+        if (selectedGroupId) return taskMatchesGroup(task, selectedGroupId, data);
         return true;
       }),
-    [data, organizerTaskRows, selectedCollaboratorId, selectedDepartmentId],
+    [data, organizerTaskRows, selectedCollaboratorId, selectedDepartmentId, selectedGroupId],
   );
   const activeTaskRows = useMemo(
     () => taskRows.filter((task) => task.status !== "completed"),
@@ -399,28 +418,40 @@ function TasksPage() {
   // hooks than during the previous render"). Por isso leem de `data` tolerando nulo, e ficam antes
   // de qualquer return condicional.
   const dataDepartments = data?.departments;
-  const taskSections = useMemo(
-    () =>
-      layoutPreferences.layoutMode === "department"
-        ? [
-            ...(dataDepartments ?? [])
-              .map((department) => ({
-                id: department.id,
-                label: department.name,
-                tasks: list.filter(
-                  (task) => task.target.type === "department" && task.target.id === department.id,
-                ),
-              }))
-              .filter((section) => section.tasks.length > 0),
-            {
-              id: "other",
-              label: "Outras atividades",
-              tasks: list.filter((task) => task.target.type !== "department"),
-            },
-          ].filter((section) => section.tasks.length > 0)
-        : [{ id: "all", label: "Todas as atividades", tasks: list }],
-    [layoutPreferences.layoutMode, dataDepartments, list],
-  );
+  const dataGroups = data?.groups;
+  const taskSections = useMemo(() => {
+    if (layoutPreferences.layoutMode === "department") {
+      return [
+        ...(dataDepartments ?? []).map((department) => ({
+          id: `department:${department.id}`,
+          label: department.name,
+          tasks: list.filter(
+            (task) => task.target.type === "department" && task.target.id === department.id,
+          ),
+        })),
+        {
+          id: "department:other",
+          label: "Outras atividades",
+          tasks: list.filter((task) => task.target.type !== "department"),
+        },
+      ].filter((section) => section.tasks.length > 0);
+    }
+    if (layoutPreferences.layoutMode === "group") {
+      return [
+        ...(dataGroups ?? []).map((group) => ({
+          id: `group:${group.id}`,
+          label: group.name,
+          tasks: list.filter((task) => task.target.type === "group" && task.target.id === group.id),
+        })),
+        {
+          id: "group:other",
+          label: "Outras atividades",
+          tasks: list.filter((task) => task.target.type !== "group"),
+        },
+      ].filter((section) => section.tasks.length > 0);
+    }
+    return [{ id: "all", label: "Todas as atividades", tasks: list }];
+  }, [layoutPreferences.layoutMode, dataDepartments, dataGroups, list]);
 
   const organizerToday = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "America/Sao_Paulo",
@@ -469,6 +500,7 @@ function TasksPage() {
       email: invitation.email,
       role: "Convite pendente",
       departmentId: invitation.departmentId,
+      groupIds: invitation.groupIds,
       status: invitation.status,
       permissionGroupId: invitation.permissionGroupId,
     })),
@@ -494,8 +526,11 @@ function TasksPage() {
   const selectedDirectoryCollaborator = selectedCollaboratorId
     ? assignmentMembers.find((employee) => employee.id === selectedCollaboratorId)
     : null;
+  const selectedDirectoryGroup = selectedGroupId
+    ? groups.find((group) => group.id === selectedGroupId)
+    : null;
   const hasDirectorySelection = Boolean(
-    selectedDirectoryDepartment || selectedDirectoryCollaborator,
+    selectedDirectoryDepartment || selectedDirectoryCollaborator || selectedDirectoryGroup,
   );
   const selectedPermissions = selectedTask
     ? getTaskPermissions({
@@ -841,9 +876,11 @@ function TasksPage() {
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
                 Organizar tarefas
               </p>
-              <h2 className="mt-1 font-display text-lg font-bold">Setores ou colaboradores</h2>
+              <h2 className="mt-1 font-display text-lg font-bold">
+                Setores, colaboradores ou grupos
+              </h2>
             </div>
-            {(selectedDepartmentId || selectedCollaboratorId) && (
+            {(selectedDepartmentId || selectedCollaboratorId || selectedGroupId) && (
               <button
                 type="button"
                 onClick={() =>
@@ -852,6 +889,7 @@ function TasksPage() {
                       ...current,
                       setor: undefined,
                       colaborador: undefined,
+                      grupo: undefined,
                     }),
                   })
                 }
@@ -862,7 +900,7 @@ function TasksPage() {
             )}
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
             <button
               type="button"
               onClick={() => {
@@ -872,6 +910,7 @@ function TasksPage() {
                     ...current,
                     setor: undefined,
                     colaborador: undefined,
+                    grupo: undefined,
                   }),
                 });
               }}
@@ -897,6 +936,7 @@ function TasksPage() {
                     ...current,
                     setor: undefined,
                     colaborador: undefined,
+                    grupo: undefined,
                   }),
                 });
               }}
@@ -912,6 +952,30 @@ function TasksPage() {
               <span className="text-[11px] text-muted-foreground">
                 {assignmentMembers.length} cadastrados
               </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDirectoryMode("groups");
+                navigate({
+                  search: (current) => ({
+                    ...current,
+                    setor: undefined,
+                    colaborador: undefined,
+                    grupo: undefined,
+                  }),
+                });
+              }}
+              className={cn(
+                "rounded-2xl border px-4 py-3 text-left transition",
+                directoryMode === "groups"
+                  ? "border-primary/30 bg-primary/10 text-primary"
+                  : "border-border/65 bg-background/55 hover:border-primary/25",
+              )}
+            >
+              <Network className="mb-2 h-4 w-4" />
+              <span className="block text-sm font-bold">Grupos</span>
+              <span className="text-[11px] text-muted-foreground">{groups.length} cadastrados</span>
             </button>
           </div>
 
@@ -932,6 +996,7 @@ function TasksPage() {
                             ...current,
                             setor: department.id,
                             colaborador: undefined,
+                            grupo: undefined,
                           }),
                         })
                       }
@@ -949,84 +1014,139 @@ function TasksPage() {
                     </button>
                   );
                 })
-              : assignmentMembers.map((employee) => {
-                  const count = tasks.filter((task) =>
-                    taskMatchesCollaborator(task, employee.id),
-                  ).length;
-                  const selected = selectedCollaboratorId === employee.id;
-                  return (
-                    <button
-                      key={employee.id}
-                      type="button"
-                      onClick={() =>
-                        navigate({
-                          search: (current) => ({
-                            ...current,
-                            setor: undefined,
-                            colaborador: employee.id,
-                          }),
-                        })
-                      }
-                      className={cn(
-                        "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
-                        selected
-                          ? "border-primary/30 bg-primary/10 text-primary"
-                          : "border-border/60 bg-background/55 hover:border-primary/25",
-                      )}
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-xs font-bold">{employee.name}</span>
-                        <span className="block truncate text-[10px] text-muted-foreground">
-                          {employee.role}
+              : directoryMode === "groups"
+                ? groups.map((group) => {
+                    const count = tasks.filter((task) =>
+                      taskMatchesGroup(task, group.id, data),
+                    ).length;
+                    const selected = selectedGroupId === group.id;
+                    return (
+                      <button
+                        key={group.id}
+                        type="button"
+                        onClick={() =>
+                          navigate({
+                            search: (current) => ({
+                              ...current,
+                              setor: undefined,
+                              colaborador: undefined,
+                              grupo: group.id,
+                            }),
+                          })
+                        }
+                        className={cn(
+                          "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                          selected
+                            ? "border-primary/30 bg-primary/10 text-primary"
+                            : "border-border/60 bg-background/55 hover:border-primary/25",
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-xs font-bold">{group.name}</span>
+                          <span className="block truncate text-[10px] text-muted-foreground">
+                            {group.memberIds.length} membros
+                          </span>
                         </span>
-                      </span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground">
-                        {count}
-                      </span>
-                    </button>
-                  );
-                })}
+                        <span className="text-[10px] tabular-nums text-muted-foreground">
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })
+                : assignmentMembers.map((employee) => {
+                    const count = tasks.filter((task) =>
+                      taskMatchesCollaborator(task, employee.id),
+                    ).length;
+                    const selected = selectedCollaboratorId === employee.id;
+                    return (
+                      <button
+                        key={employee.id}
+                        type="button"
+                        onClick={() =>
+                          navigate({
+                            search: (current) => ({
+                              ...current,
+                              setor: undefined,
+                              colaborador: employee.id,
+                              grupo: undefined,
+                            }),
+                          })
+                        }
+                        className={cn(
+                          "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                          selected
+                            ? "border-primary/30 bg-primary/10 text-primary"
+                            : "border-border/60 bg-background/55 hover:border-primary/25",
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-xs font-bold">{employee.name}</span>
+                          <span className="block truncate text-[10px] text-muted-foreground">
+                            {employee.role}
+                          </span>
+                        </span>
+                        <span className="text-[10px] tabular-nums text-muted-foreground">
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
           </div>
         </section>
       )}
 
-      {!isPersonalWorkspace && (selectedDirectoryDepartment || selectedDirectoryCollaborator) && (
-        <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
-          <button
-            type="button"
-            onClick={() =>
-              navigate({
-                search: (current) => ({
-                  ...current,
-                  setor: undefined,
-                  colaborador: undefined,
-                }),
-              })
-            }
-            className="task-glass-control inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
-          >
-            <ArrowLeft className="h-4 w-4" /> Voltar para categorias
-          </button>
-          <div className="mt-4 flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
-                {selectedDirectoryDepartment ? "Tarefas do setor" : "Tarefas do colaborador"}
-              </p>
-              <h2 className="mt-1 truncate font-display text-xl font-bold">
-                {selectedDirectoryDepartment?.name ?? selectedDirectoryCollaborator?.name}
-              </h2>
-              {selectedDirectoryCollaborator && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Tarefas individuais e atividades atribuídas a esta pessoa
+      {!isPersonalWorkspace &&
+        (selectedDirectoryDepartment ||
+          selectedDirectoryCollaborator ||
+          selectedDirectoryGroup) && (
+          <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
+            <button
+              type="button"
+              onClick={() =>
+                navigate({
+                  search: (current) => ({
+                    ...current,
+                    setor: undefined,
+                    colaborador: undefined,
+                    grupo: undefined,
+                  }),
+                })
+              }
+              className="task-glass-control inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
+            >
+              <ArrowLeft className="h-4 w-4" /> Voltar para categorias
+            </button>
+            <div className="mt-4 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+                  {selectedDirectoryDepartment
+                    ? "Tarefas do setor"
+                    : selectedDirectoryGroup
+                      ? "Tarefas do grupo"
+                      : "Tarefas do colaborador"}
                 </p>
-              )}
+                <h2 className="mt-1 truncate font-display text-xl font-bold">
+                  {selectedDirectoryDepartment?.name ??
+                    selectedDirectoryGroup?.name ??
+                    selectedDirectoryCollaborator?.name}
+                </h2>
+                {selectedDirectoryCollaborator && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Tarefas individuais e atividades atribuídas a esta pessoa
+                  </p>
+                )}
+                {selectedDirectoryGroup && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Tarefas do grupo e atividades atribuídas aos seus integrantes
+                  </p>
+                )}
+              </div>
+              <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary">
+                {taskRows.length} {taskRows.length === 1 ? "tarefa" : "tarefas"}
+              </span>
             </div>
-            <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary">
-              {taskRows.length} {taskRows.length === 1 ? "tarefa" : "tarefas"}
-            </span>
-          </div>
-        </section>
-      )}
+          </section>
+        )}
 
       {(isPersonalWorkspace || hasDirectorySelection || selectedOrganizerList) && (
         <>
@@ -1177,22 +1297,35 @@ function TasksPage() {
 
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setLayoutPreferences((current) => ({
-                    ...current,
-                    layoutMode: current.layoutMode === "department" ? "list" : "department",
-                  }))
-                }
-                className={cn(
-                  "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
-                  layoutPreferences.layoutMode === "department" && "border-primary/25 text-primary",
-                )}
-              >
-                <Layers3 className="h-4 w-4" />
-                {layoutPreferences.layoutMode === "department" ? "Por setor" : "Abrir por setor"}
-              </button>
+              {(
+                [
+                  { value: "list", label: "Lista", icon: Columns3 },
+                  { value: "department", label: "Por setor", icon: Layers3 },
+                  { value: "group", label: "Por grupo", icon: Network },
+                ] as const
+              ).map((option) => {
+                const Icon = option.icon;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() =>
+                      setLayoutPreferences((current) => ({
+                        ...current,
+                        layoutMode: option.value,
+                      }))
+                    }
+                    className={cn(
+                      "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
+                      layoutPreferences.layoutMode === option.value &&
+                        "border-primary/25 text-primary",
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {option.label}
+                  </button>
+                );
+              })}
               <button
                 type="button"
                 onClick={() => setShowLayoutSettings((current) => !current)}
@@ -1273,7 +1406,7 @@ function TasksPage() {
               const collapsed = collapsedDepartments.has(section.id);
               return (
                 <section key={section.id}>
-                  {layoutPreferences.layoutMode === "department" && (
+                  {layoutPreferences.layoutMode !== "list" && (
                     <button
                       type="button"
                       onClick={() =>
@@ -1440,9 +1573,9 @@ function TasksPage() {
         isSubmitting={createTaskMutation.isPending}
         errorMessage={mutationError}
         employees={assignmentMembers}
+        groups={groups}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}
-        canCreateChecklist={isAdminUser({ currentUser, employees, permissionGroups })}
       />
     </AppShell>
   );

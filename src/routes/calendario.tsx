@@ -28,7 +28,7 @@ import {
   type TaskFormState,
 } from "@/components/tasks/task-form-types";
 import { recurringTaskDatesInRange } from "@/lib/recurrence";
-import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
+import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 
 export const Route = createFileRoute("/calendario")({
   head: () => ({
@@ -197,6 +197,7 @@ function CalendarPage() {
       email: invitation.email,
       role: "Convite pendente",
       departmentId: invitation.departmentId,
+      groupIds: invitation.groupIds,
       status: invitation.status,
       permissionGroupId: invitation.permissionGroupId,
     })),
@@ -513,9 +514,9 @@ function CalendarPage() {
           createTaskMutation.error instanceof Error ? createTaskMutation.error.message : null
         }
         employees={assignmentMembers}
+        groups={groups}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}
-        canCreateChecklist={isAdminUser({ currentUser, employees, permissionGroups })}
       />
 
       {taskDetailLayer}

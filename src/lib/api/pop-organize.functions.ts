@@ -30,7 +30,7 @@ import {
   type Task,
   type TargetType,
 } from "../domain";
-import { hasPermission, isAdminUser, resolvePermissionSet } from "../permission-groups";
+import { hasPermission, resolvePermissionSet } from "../permission-groups";
 import { canViewTask, getTaskPermissions } from "../permissions";
 import { materializeRecurringTasks } from "../recurrence.server";
 
@@ -1176,11 +1176,7 @@ export const askPop = createServerFn({ method: "POST" })
             name: group.name,
             memberIds: group.memberIds,
           })),
-          canCreateChecklist: isAdminUser({
-            currentUser,
-            employees: workspace.employees,
-            permissionGroups: workspace.permissionGroups,
-          }),
+          canCreateChecklist: true,
         },
         messages: data.messages,
         message,
@@ -1277,17 +1273,18 @@ export const createTask = createServerFn({ method: "POST" })
 
       const targetLabel = resolveTargetLabel(data.target.type, data.target.id, db);
       if (!targetLabel) throw createHttpError("Destino da tarefa não encontrado.");
-      if (
-        data.checklist.length > 0 &&
-        !isAdminUser({
-          currentUser: db.employees.find((employee) => employee.id === currentUserId),
-          employees: db.employees,
-          permissionGroups: db.permissionGroups,
-        })
-      ) {
-        throw createHttpError("Somente administradores podem criar o checklist da tarefa.", 403);
+      if (data.target.type === "group" && responsibleIds.length > 0) {
+        const group = db.groups.find((item) => item.id === data.target.id);
+        const groupMemberIds = new Set([
+          ...(group?.memberIds ?? []),
+          ...db.invitations
+            .filter((invitation) => invitation.groupIds?.includes(data.target.id))
+            .map((invitation) => invitation.id),
+        ]);
+        if (responsibleIds.some((id) => !groupMemberIds.has(id))) {
+          throw createHttpError("O responsável precisa fazer parte do grupo selecionado.");
+        }
       }
-
       const task = {
         id: nextId("t", db.tasks),
         title: data.title,

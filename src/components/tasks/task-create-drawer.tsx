@@ -2,7 +2,13 @@ import { useEffect, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { Building2, Check, Layers3, ListChecks, Network, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { priorityLabels, type Employee, type Priority, type TargetType } from "@/lib/domain";
+import {
+  priorityLabels,
+  type Employee,
+  type Group,
+  type Priority,
+  type TargetType,
+} from "@/lib/domain";
 import { Field } from "@/components/form-field";
 import { GlassDatePicker } from "./glass-date-picker";
 import { GlassSelect, RecurrenceFields } from "./recurrence-fields";
@@ -25,9 +31,9 @@ export function TaskCreateDrawer({
   isSubmitting,
   errorMessage,
   employees,
+  groups,
   targetOptions,
   personalMode = false,
-  canCreateChecklist = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -35,10 +41,10 @@ export function TaskCreateDrawer({
   onSubmit: (form: TaskFormState) => void;
   isSubmitting: boolean;
   errorMessage?: string | null;
-  employees: Employee[];
+  employees: Array<Employee & { groupIds?: string[] }>;
+  groups: Group[];
   targetOptions: Array<{ value: string; label: string }>;
   personalMode?: boolean;
-  canCreateChecklist?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(0);
@@ -47,13 +53,22 @@ export function TaskCreateDrawer({
   const steps = personalMode ? personalSteps : companySteps;
   const isLastStep = step === steps.length - 1;
   const isDepartmentTarget = draft.targetKey.startsWith("department:");
+  const isGroupTarget = draft.targetKey.startsWith("group:");
   const isUserTarget = draft.targetKey.startsWith("user:");
   const selectedDepartmentId = isDepartmentTarget
     ? draft.targetKey.slice("department:".length)
     : "";
+  const selectedGroupId = isGroupTarget ? draft.targetKey.slice("group:".length) : "";
+  const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const availableEmployees = isDepartmentTarget
     ? employees.filter((employee) => employee.departmentId === selectedDepartmentId)
-    : employees;
+    : isGroupTarget
+      ? employees.filter(
+          (employee) =>
+            selectedGroup?.memberIds.includes(employee.id) ||
+            employee.groupIds?.includes(selectedGroupId),
+        )
+      : employees;
   const filteredTargetOptions = assignmentType
     ? targetOptions.filter((option) => option.value.startsWith(`${assignmentType}:`))
     : [];
@@ -321,7 +336,11 @@ export function TaskCreateDrawer({
                         {!isUserTarget && draft.targetKey && (
                           <Field
                             label={
-                              isDepartmentTarget ? "Responsável do setor (opcional)" : "Responsável"
+                              isDepartmentTarget
+                                ? "Responsável do setor (opcional)"
+                                : isGroupTarget
+                                  ? "Responsável do grupo (opcional)"
+                                  : "Responsável"
                             }
                           >
                             <GlassSelect
@@ -329,7 +348,11 @@ export function TaskCreateDrawer({
                               options={[
                                 {
                                   value: "",
-                                  label: isDepartmentTarget ? "Setor inteiro" : "Sem responsável",
+                                  label: isDepartmentTarget
+                                    ? "Setor inteiro"
+                                    : isGroupTarget
+                                      ? "Grupo inteiro"
+                                      : "Sem responsável",
                                 },
                                 ...availableEmployees.map((employee) => ({
                                   value: employee.id,
@@ -415,32 +438,27 @@ export function TaskCreateDrawer({
                     placeholder="Separadas por vírgula"
                   />
                 </Field>
-                {canCreateChecklist && (
-                  <div className="task-create-card rounded-2xl border p-4">
-                    <div className="mb-2 flex items-center gap-2 text-sm font-bold text-foreground">
-                      <ListChecks className="h-4 w-4 text-primary" />
-                      Checklist inicial
-                    </div>
-                    <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-                      Digite um item por linha. Somente administradores podem incluir o checklist
-                      durante o cadastro.
-                    </p>
-                    <textarea
-                      value={draft.checklist}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          checklist: event.target.value,
-                        }))
-                      }
-                      rows={5}
-                      className="task-create-input min-h-[120px] w-full resize-y rounded-md border px-3 py-2.5 text-sm leading-relaxed outline-none transition"
-                      placeholder={
-                        "Ex: Conferir materiais\nRegistrar no sistema\nEnviar confirmação"
-                      }
-                    />
+                <div className="task-create-card rounded-2xl border p-4">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-bold text-foreground">
+                    <ListChecks className="h-4 w-4 text-primary" />
+                    Checklist inicial
                   </div>
-                )}
+                  <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+                    Digite um item por linha. O checklist é opcional.
+                  </p>
+                  <textarea
+                    value={draft.checklist}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        checklist: event.target.value,
+                      }))
+                    }
+                    rows={5}
+                    className="task-create-input min-h-[120px] w-full resize-y rounded-md border px-3 py-2.5 text-sm leading-relaxed outline-none transition"
+                    placeholder={"Ex: Conferir materiais\nRegistrar no sistema\nEnviar confirmação"}
+                  />
+                </div>
               </>
             )}
 

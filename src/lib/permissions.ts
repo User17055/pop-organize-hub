@@ -18,6 +18,8 @@ export type TaskPermissions = {
   canChangeStatus: boolean;
   canComplete: boolean;
   canReopen: boolean;
+  canApproveReview: boolean;
+  canRejectReview: boolean;
   canDelete: boolean;
   canComment: boolean;
   canAttach: boolean;
@@ -132,6 +134,8 @@ export function canViewTask(input: PermissionInput) {
     });
     if (hasPermission(set, "tasks.viewAll")) return true;
   }
+
+  if (input.task.reviewerId === userId) return true;
 
   if (input.task.responsibleId === userId || (input.task.responsibleIds ?? []).includes(userId)) {
     return true;
@@ -285,6 +289,8 @@ function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
  */
 export function getTaskPermissions(input: PermissionInput): TaskPermissions {
   const base = getHierarchyPermissions(input);
+  const isAssignedReviewer = input.task.reviewerId === input.currentUser?.id;
+  const isWaitingReview = input.task.status === "waiting_review";
 
   const set = resolvePermissionSet({
     currentUser: input.currentUser,
@@ -295,11 +301,19 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
     ? (key: Parameters<typeof hasPermission>[1]) => hasPermission(set, key)
     : () => true;
 
+  const canComplete = base.canComplete && allowed("tasks.complete");
+  const canReopen = base.canComplete && allowed("tasks.reopen");
+
   return {
     canEditContent: base.canEditContent && allowed("tasks.edit"),
-    canChangeStatus: base.canChangeStatus && allowed("tasks.changeStatus"),
-    canComplete: base.canComplete && allowed("tasks.complete"),
-    canReopen: base.canComplete && allowed("tasks.reopen"),
+    canChangeStatus:
+      base.canChangeStatus &&
+      allowed("tasks.changeStatus") &&
+      (!isWaitingReview || isAssignedReviewer),
+    canComplete: canComplete && (!isWaitingReview || isAssignedReviewer),
+    canReopen: canReopen && (!isWaitingReview || isAssignedReviewer),
+    canApproveReview: isWaitingReview && isAssignedReviewer && canComplete,
+    canRejectReview: isWaitingReview && isAssignedReviewer && canReopen,
     canDelete: base.canDelete && allowed("tasks.delete"),
     canComment: base.canChangeStatus && allowed("tasks.comment"),
     canAttach: base.canChangeStatus && allowed("tasks.attach"),

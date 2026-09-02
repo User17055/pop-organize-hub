@@ -46,8 +46,8 @@ export function DaySheet({
     .sort((left, right) => {
       const byTime = (left.time ?? "99:99").localeCompare(right.time ?? "99:99");
       if (byTime !== 0) return byTime;
-      const leftCompleted = ["completed", "waiting_review"].includes(left.task.status);
-      const rightCompleted = ["completed", "waiting_review"].includes(right.task.status);
+      const leftCompleted = left.task.status === "completed";
+      const rightCompleted = right.task.status === "completed";
       if (leftCompleted !== rightCompleted) return Number(leftCompleted) - Number(rightCompleted);
       return left.task.title.localeCompare(right.task.title, "pt-BR");
     });

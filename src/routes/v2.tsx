@@ -71,6 +71,17 @@ function toPopStatus(status: OrbitaStatus): TaskStatus {
   return "pending";
 }
 
+function reviewAwareStatus(task: Task, status: OrbitaStatus): TaskStatus {
+  const nextStatus = toPopStatus(status);
+  if (
+    task.status === "waiting_review" &&
+    (nextStatus === "pending" || nextStatus === "in_progress")
+  ) {
+    return "reopened";
+  }
+  return nextStatus;
+}
+
 function toPopPriority(priority: OrbitaPriority): Priority {
   if (priority === "alta") return "high";
   if (priority === "baixa") return "low";
@@ -152,7 +163,7 @@ function PopOrganizeV2() {
           recurrence: task.recurrence,
         },
       });
-      const nextStatus = toPopStatus(patch.status);
+      const nextStatus = reviewAwareStatus(task, patch.status);
       if (task.status !== nextStatus) {
         await updateTaskStatus({ data: { id: task.id, status: nextStatus } });
       }
@@ -208,7 +219,9 @@ function PopOrganizeV2() {
       if (message.type === "task:delete" && message.id) {
         await deleteTask({ data: { id: message.id } });
       } else if (message.type === "task:status" && task && message.status) {
-        await updateTaskStatus({ data: { id: task.id, status: toPopStatus(message.status) } });
+        await updateTaskStatus({
+          data: { id: task.id, status: reviewAwareStatus(task, message.status) },
+        });
       } else if (message.type === "task:priority" && task && message.priority) {
         await updateTaskDetails({
           data: {

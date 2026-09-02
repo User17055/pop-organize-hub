@@ -1342,20 +1342,46 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
         groups: db.groups,
         permissionGroups: db.permissionGroups,
       });
-      if (data.status === "completed") {
+      let nextStatus = data.status;
+
+      if (task.requiresReview) {
+        const isAssignedReviewer = task.reviewerId === currentUserId;
+
+        if (task.status === "waiting_review") {
+          if (!isAssignedReviewer) {
+            throw createHttpError(
+              "Esta tarefa aguarda a decisão da pessoa responsável pela revisão.",
+              403,
+            );
+          }
+          if (data.status !== "completed" && data.status !== "reopened") {
+            throw createHttpError("Na revisão, escolha reabrir ou concluir a tarefa.", 400);
+          }
+        } else if (data.status === "completed" && !isAssignedReviewer) {
+          nextStatus = "waiting_review";
+        }
+      }
+      if (nextStatus === "completed") {
         if (!permissions.canComplete) {
           throw createHttpError("Seu grupo de permissão não pode concluir tarefas.", 403);
         }
-      } else if (task.status === "completed" || data.status === "reopened") {
+      } else if (task.status === "completed" || nextStatus === "reopened") {
         if (!permissions.canReopen) {
           throw createHttpError("Seu grupo de permissão não pode reabrir tarefas.", 403);
+        }
+      } else if (nextStatus === "waiting_review") {
+        if (!permissions.canComplete) {
+          throw createHttpError(
+            "Seu grupo de permissão não pode enviar tarefas para revisão.",
+            403,
+          );
         }
       } else if (!permissions.canChangeStatus) {
         throw createHttpError("Você não tem permissão para alterar o status desta tarefa.", 403);
       }
       const wasCompleted = task.status === "completed";
-      task.status = data.status;
-      if (data.status === "completed" && !wasCompleted) {
+      task.status = nextStatus;
+      if (nextStatus === "completed" && !wasCompleted) {
         createNextRecurringTask(db, task);
       }
       return task;

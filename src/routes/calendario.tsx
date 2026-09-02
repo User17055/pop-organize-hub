@@ -181,8 +181,8 @@ function CalendarPage() {
         const rightTime = getCalendarTaskFirstTime(right) ?? "99:99";
         const byTime = leftTime.localeCompare(rightTime);
         if (byTime !== 0) return byTime;
-        const leftCompleted = left.status === "completed" || left.status === "waiting_review";
-        const rightCompleted = right.status === "completed" || right.status === "waiting_review";
+        const leftCompleted = left.status === "completed";
+        const rightCompleted = right.status === "completed";
         if (leftCompleted !== rightCompleted) return Number(leftCompleted) - Number(rightCompleted);
         return left.title.localeCompare(right.title, "pt-BR");
       });
@@ -412,10 +412,10 @@ function CalendarPage() {
                 onEditFormChange={setEditForm}
                 onSubmit={handleEditSubmit}
                 onClose={() => setSelectedTaskId(null)}
-                onToggleComplete={() =>
+                onStatusChange={(status) =>
                   statusMutation.mutate({
                     id: selectedTask.id,
-                    status: selectedTask.status === "completed" ? "in_progress" : "completed",
+                    status,
                   })
                 }
                 onDelete={handleDeleteSelectedTask}

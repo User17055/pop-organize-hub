@@ -1427,7 +1427,7 @@ function taskToMobileTask(
     dueLabel: native?.dueLabel ?? task.dueDate,
     priority: mobilePriority(task.priority),
     dueDate: task.dueDate,
-    completed: task.status === "completed" || task.status === "waiting_review",
+    completed: task.status === "completed",
     description: task.description === "Tarefa criada no aplicativo" ? "" : task.description,
     assignee,
     assignedBy: native?.assignedBy ?? assignedBy,
@@ -1750,11 +1750,13 @@ export async function replaceMobileTasks(
           ...existing.nativeRemindersByUser,
           [account.id]: item.reminder,
         };
-        if (
-          completed !== (existing.status === "completed" || existing.status === "waiting_review")
-        ) {
-          if (completed && permissions.canComplete)
-            existing.status = existing.requiresReview ? "waiting_review" : "completed";
+        if (completed !== (existing.status === "completed")) {
+          if (completed && permissions.canComplete) {
+            existing.status =
+              existing.requiresReview && existing.reviewerId !== account.id
+                ? "waiting_review"
+                : "completed";
+          }
           if (!completed && permissions.canReopen) existing.status = "reopened";
         }
         if (permissions.canEditContent || existing.nativeOwnerId === account.id) {

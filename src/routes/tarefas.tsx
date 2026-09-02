@@ -728,10 +728,10 @@ function TasksPage() {
                 onEditFormChange={setEditForm}
                 onSubmit={handleEditSubmit}
                 onClose={() => setSelectedTaskId(null)}
-                onToggleComplete={() =>
+                onStatusChange={(status) =>
                   statusMutation.mutate({
                     id: selectedTask.id,
-                    status: selectedTask.status === "completed" ? "in_progress" : "completed",
+                    status,
                   })
                 }
                 onReorder={(position) => {

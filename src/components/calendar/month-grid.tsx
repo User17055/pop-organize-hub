@@ -114,7 +114,7 @@ export function MonthGrid({
                       key={task.id}
                       className={cn(
                         "h-1.5 w-2.5 shrink-0 rounded-full",
-                        task.status === "completed" || task.status === "waiting_review"
+                        task.status === "completed"
                           ? "bg-emerald-500"
                           : priorityDotClass[task.priority],
                       )}
@@ -135,7 +135,7 @@ export function MonthGrid({
                       <span
                         className={cn(
                           "h-1.5 w-1.5 shrink-0 rounded-full",
-                          task.status === "completed" || task.status === "waiting_review"
+                          task.status === "completed"
                             ? "bg-emerald-500"
                             : priorityDotClass[task.priority],
                         )}

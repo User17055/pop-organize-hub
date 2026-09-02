@@ -155,6 +155,9 @@ export function sanitizeDatabase(
   const departmentNames = new Map(
     db.departments.map((department) => [department.id, formatDepartmentName(department.name)]),
   );
+  const employeeNames = new Map(db.employees.map((employee) => [employee.id, employee.name]));
+  for (const invitation of db.invitations) employeeNames.set(invitation.id, invitation.name);
+  const groupNames = new Map(db.groups.map((group) => [group.id, group.name]));
   const departments = db.departments.map((department) => ({
     ...department,
     name: departmentNames.get(department.id)!,
@@ -170,17 +173,17 @@ export function sanitizeDatabase(
         permissionGroups: db.permissionGroups,
       }),
     )
-    .map((task) =>
-      task.target.type === "department"
-        ? {
-            ...task,
-            target: {
-              ...task.target,
-              label: departmentNames.get(task.target.id) ?? formatDepartmentName(task.target.label),
-            },
-          }
-        : task,
-    );
+    .map((task) => {
+      const label =
+        task.target.type === "department"
+          ? (departmentNames.get(task.target.id) ?? formatDepartmentName(task.target.label))
+          : task.target.type === "user"
+            ? (employeeNames.get(task.target.id) ?? task.target.label)
+            : task.target.type === "group"
+              ? (groupNames.get(task.target.id) ?? task.target.label)
+              : db.company.name;
+      return { ...task, target: { ...task.target, label } };
+    });
 
   return {
     accessMode: db.accessMode,

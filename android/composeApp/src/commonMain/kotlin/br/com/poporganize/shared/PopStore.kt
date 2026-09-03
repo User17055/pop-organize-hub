@@ -207,8 +207,22 @@ class PopStore(private val platform: PopPlatformServices) {
         assignment: AssignmentTarget,
         checklistTitles: List<String> = emptyList(),
         recurrence: RecurrenceKind = RecurrenceKind.None,
+        /**
+         * Nomes de quem responde pela tarefa, DENTRO do alvo.
+         *
+         * Um alvo de setor com responsavel escolhido e a combinacao que faltava: a tarefa continua
+         * aparecendo no setor, e alguem de dentro dele responde por ela. Nome, e nao id, porque
+         * nome e o que o fio carrega -- o servidor resolve com
+         * `employees.find(name === assignee || email === assignee)`.
+         */
+        responsaveis: List<String> = emptyList(),
     ) {
         val taskId = newId("task")
+        // Teto de TRES, e ele e rigido do outro lado: o schema movel tem `.max(3)` em `assignees`
+        // e, como `tasks` e um array, quatro nomes reprovam a CARGA TODA -- nada sincroniza, nao
+        // so a tarefa errada. O servidor tambem corta em tres na leitura, entao o quarto nome
+        // nunca voltaria de qualquer forma.
+        val encarregados = responsaveis.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(3)
         val task = PopTask(
             id = taskId,
             title = title.trim(),
@@ -219,6 +233,17 @@ class PopStore(private val platform: PopPlatformServices) {
             workspace = state.workspace,
             companyId = state.selectedCompanyId.takeIf { state.workspace == WorkspaceKind.Company },
             assignment = assignment,
+            // NULO quando ninguem foi escolhido, e NUNCA lista vazia.
+            //
+            // O servidor faz `Array.isArray(item.assignees) ? item.assignees : [item.assignee]`, e
+            // `Array.isArray([])` e TRUE -- mandar lista vazia entraria no primeiro ramo com zero
+            // nomes e gravaria `responsibleIds = []`, apagando responsavel em vez de nao mexer.
+            // Com nulo e `explicitNulls = false` a chave sai do JSON, o `.optional()` do zod
+            // aceita a ausencia, e o servidor cai no ramo de tras.
+            assignees = encarregados.takeIf { it.isNotEmpty() },
+            // Espelha o que o servidor produz na LEITURA (`assignees.join(", ")`), para os dois
+            // campos nao se contradizerem na ida e na volta.
+            assignee = encarregados.joinToString(", "),
             createdBy = state.currentUser?.name.orEmpty(),
             checklist = if (isCurrentUserAdmin) {
                 checklistTitles.filter { it.isNotBlank() }.map {
@@ -704,6 +729,7 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     recurrenceEndMode = recurrenceEndMode,
     recurrenceEndValue = recurrenceEndValue,
     recurrenceOccurrence = recurrenceOccurrence,
+    recurrenceTimes = recurrenceTimes,
     assignee = assignee,
     assignees = assignees,
     assignedBy = assignedBy,
@@ -749,6 +775,7 @@ private fun PopTask.toApiTask() = ApiTask(
     recurrenceEndMode = recurrenceEndMode,
     recurrenceEndValue = recurrenceEndValue,
     recurrenceOccurrence = recurrenceOccurrence,
+    recurrenceTimes = recurrenceTimes,
     assignmentType = when (assignment.kind) {
         AssignmentKind.Person -> "user"
         AssignmentKind.Sector -> "department"

@@ -61,6 +61,34 @@ internal fun monthTitle(year: Int, month: Int): String =
     "${monthNames[month - 1].replaceFirstChar { it.uppercase() }} $year"
 
 /**
+ * A hora do relogio agora, em HH:MM.
+ *
+ * CORRECAO de uma afirmacao anterior deste KDoc, que dizia que `dueTime` sempre chega neste
+ * formato. NAO chega: o campo de hora do formulario e um `OutlinedTextField` cru, sem mascara, e o
+ * schema do servidor e so `z.string().max(20)`, sem regex -- ao contrario do `recurrenceTimes`,
+ * que tem regex nos dois lados. Ou seja, "9:00" e um valor possivel.
+ *
+ * Isso importa porque a agenda compara horario como TEXTO, e "9:00" > "10:30" e verdadeiro. Por
+ * isso toda comparacao passa antes pelo `horaComparavel`.
+ */
+internal fun horaAgora(): String {
+    // Esta sai sempre com zero a esquerda, pelo padStart abaixo -- e a referencia contra a qual as
+    // outras sao comparadas.
+    val agora = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+    return "${agora.hour.toString().padStart(2, '0')}:${agora.minute.toString().padStart(2, '0')}"
+}
+
+/**
+ * Poe o zero a esquerda que falta, para que a comparacao de texto entre horarios pare de mentir.
+ *
+ * Sem isto, "9:00" >= "10:30" e TRUE (porque '9' > '1'): a tarefa das nove vai para depois da das
+ * dez e a regua do "agora" aparece acima de uma tarefa ja vencida. So a agenda usa esta funcao --
+ * o valor que vai para o servidor continua sendo o que a pessoa digitou, intacto.
+ */
+internal fun horaComparavel(hora: String): String =
+    if (hora.length == 4 && hora[1] == ':') "0$hora" else hora
+
+/**
  * Rotulo de prazo de uma linha de tarefa: "Hoje • 09:00", "seg, 25 de agosto".
  *
  * Uma dueDate vazia ou fora do ISO e devolvida como veio, em vez de virar excecao ou sumir: e

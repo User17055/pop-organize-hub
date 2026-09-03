@@ -148,6 +148,11 @@ data class PopTask(
     val recurrenceEndValue: String = "",
     val recurrenceOccurrence: Int = 1,
 
+    // Os horarios do dia, quando a serie repete mais de uma vez por dia. Entra no cofre pela mesma
+    // razao dos seis acima. Ver a nota no ApiTask sobre as tres regras do schema e sobre por que
+    // este NAO e nulavel, ao contrario do `assignees`.
+    val recurrenceTimes: List<String> = emptyList(),
+
     // Segundo cofre, mesma ideia do de cima e pelo mesmo motivo: o PUT reescreve sem condicao, e o
     // que o iPhone nao carregar volta como default do construtor e apaga o que estava la -- para o
     // Android e para o painel tambem.
@@ -305,6 +310,31 @@ data class ApiTask(
     val recurrenceEndMode: String = "Nunca",
     val recurrenceEndValue: String = "",
     val recurrenceOccurrence: Int = 1,
+
+    // Os horarios de uma tarefa que repete varias vezes ao dia, ate 12. O servidor manda em
+    // `taskToMobileTask` e LE DE VOLTA em `mobileTaskRecurrence` (`times: item.recurrenceTimes`),
+    // no ramo "Diaria". Sem este campo o iPhone apagava os horarios de toda tarefa diaria que
+    // sincronizasse -- o quarto caso da mesma familia, depois da recorrencia, do `assignees` e dos
+    // campos de lembrete, anexo e duracao.
+    //
+    // NAO e nulavel, ao contrario do `assignees` acima, e a assimetria convida ao erro: o zod
+    // deste campo tem `.optional().default([])`, entao omitir a chave e mandar lista vazia caem no
+    // MESMO lugar. Nao existe ramo de tras para cair, como havia no `assignees`. O que preserva o
+    // dado aqui nao e o nulo -- e carregar o valor verdadeiro e devolve-lo intacto.
+    //
+    // TRES REGRAS NO SCHEMA, e a terceira ja derrubou a sincronizacao inteira uma vez:
+    //
+    //   1. regex ^([01]\d|2[0-3]):[0-5]\d$ -- string fora de HH:MM reprova;
+    //   2. `.max(12)` -- teto rigido;
+    //   3. `.refine(t => t.length === 0 || t.length >= 2)` -- "informe pelo menos dois horarios,
+    //      ou nenhum". LISTA DE UM ELEMENTO E RECUSADA. E como `tasks` e um array, um item ruim
+    //      reprova a CARGA TODA e nada sincroniza. Foi assim que este campo travou tudo antes
+    //      (ver o comentario do toggleTask, no PopStore).
+    //
+    // Por isso aqui e cofre PURO: entra como veio, sai como veio. O valor do servidor ja satisfaz
+    // as tres. **Nunca montar esta lista no app** -- em especial nunca `listOf(dueTime)`, que e o
+    // atalho obvio e cai direto na regra 3.
+    val recurrenceTimes: List<String> = emptyList(),
     val assignmentType: String? = null,
     val assignmentTargetId: String? = null,
     val assignmentTargetLabel: String? = null,

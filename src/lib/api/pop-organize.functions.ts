@@ -31,7 +31,13 @@ import {
   type TargetType,
 } from "../domain";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
-import { canViewTask, getManagerDepartmentAccess, getTaskPermissions } from "../permissions";
+import {
+  canViewTask,
+  getManagerDepartmentAccess,
+  getTaskPermissions,
+  isReviewManagerCandidateId,
+  resolveTaskReviewManagerId,
+} from "../permissions";
 import { materializeRecurringTasks } from "../recurrence.server";
 
 const SESSION_COOKIE = "pop_organize_session";
@@ -1272,13 +1278,39 @@ export const createTask = createServerFn({ method: "POST" })
         throw createHttpError("Responsável não encontrado.");
       }
 
-      const reviewerId = data.requiresReview ? data.reviewerId : undefined;
+      const automaticReviewerId = data.requiresReview
+        ? resolveTaskReviewManagerId({
+            target: data.target,
+            responsibleId: responsibleIds[0],
+            responsibleIds,
+            employees: db.employees,
+            departments: db.departments,
+            groups: db.groups,
+          })
+        : undefined;
+      const requestedManagerId = isReviewManagerCandidateId({
+        id: data.reviewerId,
+        employees: db.employees,
+        departments: db.departments,
+        groups: db.groups,
+      })
+        ? data.reviewerId
+        : undefined;
+      const reviewerId = data.requiresReview
+        ? automaticReviewerId ?? requestedManagerId
+        : undefined;
       if (
         reviewerId &&
         !db.employees.some((employee) => employee.id === reviewerId) &&
         !db.invitations.some((invitation) => invitation.id === reviewerId)
       ) {
         throw createHttpError("Revisor não encontrado.");
+      }
+      if (data.requiresReview && !reviewerId) {
+        throw createHttpError(
+          "Defina um gestor para o setor ou grupo antes de ativar a revisão.",
+          400,
+        );
       }
 
       const targetLabel = resolveTargetLabel(data.target.type, data.target.id, db);
@@ -1309,7 +1341,7 @@ export const createTask = createServerFn({ method: "POST" })
         assignedById: currentUserId,
         assignedAt: new Date().toISOString(),
         reviewerId,
-        requiresReview: Boolean(reviewerId),
+        requiresReview: data.requiresReview,
         tags: data.tags,
         comments: 0,
         attachments: 0,
@@ -1333,6 +1365,23 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
     return mutateCurrentWorkspace((db, currentUserId) => {
       const task = db.tasks.find((item) => item.id === data.id);
       if (!task) throw createHttpError("Tarefa não encontrada.", 404);
+      if (task.requiresReview) {
+        const reviewManagerId = resolveTaskReviewManagerId({
+          target: task.target,
+          responsibleId: task.responsibleId,
+          responsibleIds: task.responsibleIds,
+          employees: db.employees,
+          departments: db.departments,
+          groups: db.groups,
+        });
+        if (reviewManagerId) task.reviewerId = reviewManagerId;
+        if (!task.reviewerId) {
+          throw createHttpError(
+            "Esta tarefa precisa de um gestor definido antes de ser enviada para revisão.",
+            400,
+          );
+        }
+      }
       const currentUser = db.employees.find((employee) => employee.id === currentUserId);
       const permissions = getTaskPermissions({
         task,

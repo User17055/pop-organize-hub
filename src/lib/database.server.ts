@@ -20,6 +20,7 @@ import {
   type PermissionGroup,
   type Task,
 } from "./domain";
+import { isReviewManagerCandidateId, resolveTaskReviewManagerId } from "./permissions";
 
 const DEFAULT_PASSWORD_PEPPER = "pop-organize-local-demo";
 const SCRYPT_PREFIX = "scrypt";
@@ -601,12 +602,35 @@ function normalizeDatabase(value: Database): Database {
     employees.find((employee) => employee.role.toLowerCase().includes("admin"))?.id ??
     employees[0]?.id;
   const tasks = (value.tasks ?? []).map((task) => {
-    if (task.target.type !== "user") return task;
-    return {
-      ...task,
-      responsibleId: task.target.id,
-      responsibleIds: [task.target.id],
-    };
+    const normalizedTask =
+      task.target.type === "user"
+        ? {
+            ...task,
+            responsibleId: task.target.id,
+            responsibleIds: [task.target.id],
+          }
+        : task;
+    if (!normalizedTask.requiresReview) return normalizedTask;
+    const reviewManagerId =
+      resolveTaskReviewManagerId({
+        target: normalizedTask.target,
+        responsibleId: normalizedTask.responsibleId,
+        responsibleIds: normalizedTask.responsibleIds,
+        employees,
+        departments,
+        groups,
+      }) ??
+      (isReviewManagerCandidateId({
+        id: normalizedTask.reviewerId,
+        employees,
+        departments,
+        groups,
+      })
+        ? normalizedTask.reviewerId
+        : undefined);
+    return normalizedTask.reviewerId !== reviewManagerId
+      ? { ...normalizedTask, reviewerId: reviewManagerId }
+      : normalizedTask;
   });
   return {
     ...value,

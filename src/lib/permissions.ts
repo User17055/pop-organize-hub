@@ -27,6 +27,7 @@ export type TaskPermissions = {
   canMove: boolean;
   canAssign: boolean;
   canManageRecurrence: boolean;
+  reviewManagerId?: string;
   roleLabel: string;
 };
 
@@ -48,6 +49,86 @@ type PermissionInput = {
   groups: Array<Pick<Group, "id" | "leaderId" | "memberIds">>;
   permissionGroups?: PermissionGroup[];
 };
+
+export function resolveTaskReviewManagerId(input: {
+  target: Pick<Task["target"], "type" | "id">;
+  responsibleId?: string;
+  responsibleIds?: string[];
+  employees: Array<Pick<Employee, "id" | "departmentId">>;
+  departments: Array<Pick<Department, "id" | "managerId">>;
+  groups: Array<Pick<Group, "id" | "leaderId">>;
+}) {
+  const employeeIds = new Set(input.employees.map((employee) => employee.id));
+  const validManager = (id?: string) => (id && employeeIds.has(id) ? id : undefined);
+  const departmentManager = (departmentId?: string) =>
+    validManager(
+      input.departments.find((department) => department.id === departmentId)?.managerId,
+    );
+  const employeeManager = (employeeId?: string) => {
+    const employee = input.employees.find((item) => item.id === employeeId);
+    return departmentManager(employee?.departmentId);
+  };
+
+  if (input.target.type === "group") {
+    const group = input.groups.find((item) => item.id === input.target.id);
+    const leaderId = validManager(group?.leaderId);
+    if (leaderId) return leaderId;
+  }
+
+  if (input.target.type === "department") {
+    const managerId = departmentManager(input.target.id);
+    if (managerId) return managerId;
+  }
+
+  if (input.target.type === "user") {
+    const managerId = employeeManager(input.target.id);
+    if (managerId) return managerId;
+  }
+
+  const responsibleIds = [input.responsibleId, ...(input.responsibleIds ?? [])].filter(
+    (id): id is string => Boolean(id),
+  );
+  for (const responsibleId of responsibleIds) {
+    const managerId = employeeManager(responsibleId);
+    if (managerId) return managerId;
+  }
+
+  return undefined;
+}
+
+export function isReviewManagerCandidateId(input: {
+  id?: string;
+  employees: Array<Pick<Employee, "id" | "role">>;
+  departments: Array<Pick<Department, "managerId">>;
+  groups: Array<Pick<Group, "leaderId">>;
+}) {
+  if (!input.id) return false;
+  if (input.departments.some((department) => department.managerId === input.id)) return true;
+  if (input.groups.some((group) => group.leaderId === input.id)) return true;
+  const employee = input.employees.find((item) => item.id === input.id);
+  return Boolean(employee && /gestor|administrador/i.test(employee.role));
+}
+
+function effectiveReviewManagerId(input: PermissionInput) {
+  if (!input.task.requiresReview) return undefined;
+  const automaticManagerId = resolveTaskReviewManagerId({
+    target: input.task.target,
+    responsibleId: input.task.responsibleId,
+    responsibleIds: input.task.responsibleIds,
+    employees: input.employees,
+    departments: input.departments,
+    groups: input.groups,
+  });
+  if (automaticManagerId) return automaticManagerId;
+  return isReviewManagerCandidateId({
+    id: input.task.reviewerId,
+    employees: input.employees,
+    departments: input.departments,
+    groups: input.groups,
+  })
+    ? input.task.reviewerId
+    : undefined;
+}
 
 function isAdmin(input: PermissionInput) {
   return isAdminUser({
@@ -99,7 +180,7 @@ export function canViewTask(input: PermissionInput) {
     const responsibleIds = new Set(
       [input.task.responsibleId, ...(input.task.responsibleIds ?? [])].filter(Boolean),
     );
-    if (responsibleIds.has(userId) || input.task.reviewerId === userId) return true;
+    if (responsibleIds.has(userId) || effectiveReviewManagerId(input) === userId) return true;
     if (
       [...responsibleIds].some((id) => {
         const responsible = input.employees.find((employee) => employee.id === id);
@@ -135,7 +216,7 @@ export function canViewTask(input: PermissionInput) {
     if (hasPermission(set, "tasks.viewAll")) return true;
   }
 
-  if (input.task.reviewerId === userId) return true;
+  if (effectiveReviewManagerId(input) === userId) return true;
 
   if (input.task.responsibleId === userId || (input.task.responsibleIds ?? []).includes(userId)) {
     return true;
@@ -231,7 +312,7 @@ function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
     };
   }
 
-  if (input.task.reviewerId === userId) {
+  if (effectiveReviewManagerId(input) === userId) {
     return {
       canEditContent: false,
       canChangeStatus: true,
@@ -289,7 +370,8 @@ function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
  */
 export function getTaskPermissions(input: PermissionInput): TaskPermissions {
   const base = getHierarchyPermissions(input);
-  const isAssignedReviewer = input.task.reviewerId === input.currentUser?.id;
+  const reviewManagerId = effectiveReviewManagerId(input);
+  const isAssignedReviewer = reviewManagerId === input.currentUser?.id;
   const isWaitingReview = input.task.status === "waiting_review";
 
   const set = resolvePermissionSet({
@@ -321,6 +403,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
     canMove: base.canEditContent && allowed("tasks.move"),
     canAssign: base.canEditContent && allowed("tasks.assign"),
     canManageRecurrence: base.canEditContent && allowed("tasks.recurrence"),
+    reviewManagerId,
     roleLabel: base.roleLabel,
   };
 }

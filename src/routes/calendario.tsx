@@ -297,7 +297,7 @@ function CalendarPage() {
       responsibleId,
       reviewerId:
         !isPersonalWorkspace && submittedForm.requiresReview
-          ? submittedForm.reviewerId || responsibleId || undefined
+          ? submittedForm.reviewerId || undefined
           : undefined,
       requiresReview: !isPersonalWorkspace && submittedForm.requiresReview,
       tags: submittedForm.tags
@@ -561,6 +561,7 @@ function CalendarPage() {
           createTaskMutation.error instanceof Error ? createTaskMutation.error.message : null
         }
         employees={assignmentMembers}
+        departments={departments}
         groups={groups}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}

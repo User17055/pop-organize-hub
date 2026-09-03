@@ -4,11 +4,13 @@ import { Building2, Check, Layers3, ListChecks, Network, UserRound, X } from "lu
 import { cn } from "@/lib/utils";
 import {
   priorityLabels,
+  type Department,
   type Employee,
   type Group,
   type Priority,
   type TargetType,
 } from "@/lib/domain";
+import { resolveTaskReviewManagerId } from "@/lib/permissions";
 import { Field } from "@/components/form-field";
 import { GlassDatePicker } from "./glass-date-picker";
 import { GlassSelect, RecurrenceFields } from "./recurrence-fields";
@@ -31,6 +33,7 @@ export function TaskCreateDrawer({
   isSubmitting,
   errorMessage,
   employees,
+  departments,
   groups,
   targetOptions,
   personalMode = false,
@@ -42,6 +45,7 @@ export function TaskCreateDrawer({
   isSubmitting: boolean;
   errorMessage?: string | null;
   employees: Array<Employee & { groupIds?: string[] }>;
+  departments: Department[];
   groups: Group[];
   targetOptions: Array<{ value: string; label: string }>;
   personalMode?: boolean;
@@ -61,6 +65,33 @@ export function TaskCreateDrawer({
     : "";
   const selectedGroupId = isGroupTarget ? draft.targetKey.slice("group:".length) : "";
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
+  const [draftTargetType, draftTargetId] = draft.targetKey.split(":") as [
+    TargetType | undefined,
+    string | undefined,
+  ];
+  const automaticReviewManagerId =
+    draftTargetType && draftTargetId
+      ? resolveTaskReviewManagerId({
+          target: { type: draftTargetType, id: draftTargetId },
+          responsibleId: draft.responsibleId,
+          employees,
+          departments,
+          groups,
+        })
+      : undefined;
+  const reviewManagerIds = new Set(
+    [
+      ...departments.map((department) => department.managerId),
+      ...groups.map((group) => group.leaderId),
+      ...employees
+        .filter((employee) => /gestor|administrador/i.test(employee.role))
+        .map((employee) => employee.id),
+    ].filter((id): id is string => Boolean(id)),
+  );
+  const reviewManagerOptions = employees
+    .filter((employee) => reviewManagerIds.has(employee.id))
+    .map((employee) => ({ value: employee.id, label: employee.name }));
+  const selectedReviewManagerId = automaticReviewManagerId ?? draft.reviewerId;
   const availableEmployees = isDepartmentTarget
     ? employees.filter((employee) => employee.departmentId === selectedDepartmentId)
     : isGroupTarget
@@ -94,6 +125,16 @@ export function TaskCreateDrawer({
       setFinalStepReady(false);
     }
   }, [form, open, personalMode]);
+
+  useEffect(() => {
+    if (
+      draft.requiresReview &&
+      automaticReviewManagerId &&
+      draft.reviewerId !== automaticReviewManagerId
+    ) {
+      setDraft((current) => ({ ...current, reviewerId: automaticReviewManagerId }));
+    }
+  }, [automaticReviewManagerId, draft.requiresReview, draft.reviewerId]);
 
   useEffect(() => {
     if (!open || !isLastStep) {
@@ -406,10 +447,12 @@ export function TaskCreateDrawer({
                         setDraft((current) => ({
                           ...current,
                           requiresReview: event.target.checked,
-                          reviewerId:
-                            event.target.checked && !current.responsibleId && !current.reviewerId
-                              ? (employees[0]?.id ?? "")
-                              : current.reviewerId,
+                          reviewerId: event.target.checked
+                            ? automaticReviewManagerId ||
+                              current.reviewerId ||
+                              reviewManagerOptions[0]?.value ||
+                              ""
+                            : "",
                         }))
                       }
                       className="sr-only"
@@ -427,28 +470,29 @@ export function TaskCreateDrawer({
                   </label>
                 )}
                 {!personalMode && draft.requiresReview && (
-                  <Field label="Revisor">
-                    <GlassSelect
-                      value={draft.reviewerId}
-                      options={[
-                        {
-                          value: "",
-                          label: draft.responsibleId
-                            ? "Usar o responsável"
-                            : "Selecione um revisor",
-                        },
-                        ...employees.map((employee) => ({
-                          value: employee.id,
-                          label: employee.name,
-                        })),
-                      ]}
-                      onChange={(reviewerId) =>
-                        setDraft((current) => ({
-                          ...current,
-                          reviewerId,
-                        }))
-                      }
-                    />
+                  <Field label="Gestor responsável pela revisão">
+                    {automaticReviewManagerId ? (
+                      <div className="task-create-card rounded-2xl border px-4 py-3">
+                        <p className="text-sm font-bold text-foreground">
+                          {employees.find((employee) => employee.id === automaticReviewManagerId)
+                            ?.name ?? "Gestor do setor"}
+                        </p>
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                          Ao concluir, a tarefa será enviada automaticamente para este gestor.
+                        </p>
+                      </div>
+                    ) : (
+                      <GlassSelect
+                        value={selectedReviewManagerId}
+                        options={[
+                          { value: "", label: "Selecione um gestor" },
+                          ...reviewManagerOptions,
+                        ]}
+                        onChange={(reviewerId) =>
+                          setDraft((current) => ({ ...current, reviewerId }))
+                        }
+                      />
+                    )}
                   </Field>
                 )}
                 <Field label="Tags">
@@ -510,7 +554,8 @@ export function TaskCreateDrawer({
                     !finalStepReady ||
                     !draft.title.trim() ||
                     !draft.dueDate ||
-                    (!personalMode && !draft.targetKey)
+                    (!personalMode && !draft.targetKey) ||
+                    (!personalMode && draft.requiresReview && !selectedReviewManagerId)
                   }
                   className="task-create-primary-button pressable h-12 flex-1 rounded-2xl text-sm font-bold transition disabled:opacity-60"
                 >

@@ -611,7 +611,7 @@ function TasksPage() {
       responsibleId,
       reviewerId:
         !isPersonalWorkspace && submittedForm.requiresReview
-          ? submittedForm.reviewerId || responsibleId || undefined
+          ? submittedForm.reviewerId || undefined
           : undefined,
       requiresReview: !isPersonalWorkspace && submittedForm.requiresReview,
       tags: submittedForm.tags
@@ -1584,6 +1584,7 @@ function TasksPage() {
         isSubmitting={createTaskMutation.isPending}
         errorMessage={mutationError}
         employees={assignmentMembers}
+        departments={departments}
         groups={groups}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}

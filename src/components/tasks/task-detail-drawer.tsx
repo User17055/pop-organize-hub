@@ -118,6 +118,7 @@ export function TaskDetailDrawer({
   errorMessage?: string | null;
 }) {
   const getEmployee = (id?: string) => employees.find((employee) => employee.id === id);
+  const reviewManagerId = permissions.reviewManagerId;
   const [isCelebrating, setIsCelebrating] = useState(false);
   const [destinationOpen, setDestinationOpen] = useState(false);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -331,7 +332,7 @@ export function TaskDetailDrawer({
                 <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
                   {permissions.canApproveReview || permissions.canRejectReview
                     ? "Confira a execução e escolha se a tarefa deve ser reaberta ou concluída definitivamente."
-                    : `Aguardando a confirmação de ${getEmployee(task.reviewerId)?.name ?? "quem revisa esta tarefa"}.`}
+                    : `Aguardando a confirmação de ${getEmployee(reviewManagerId)?.name ?? "quem gerencia este setor"}.`}
                 </p>
               </div>
             </div>
@@ -544,15 +545,15 @@ export function TaskDetailDrawer({
             </div>
 
             {/* Reviewer */}
-            {task.reviewerId && (
+            {reviewManagerId && (
               <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
-                <EmployeeAvatar employee={getEmployee(task.reviewerId)} departments={departments} />
+                <EmployeeAvatar employee={getEmployee(reviewManagerId)} departments={departments} />
                 <div className="flex-1 min-w-0">
                   <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                    Revisor
+                    Gestor revisor
                   </div>
                   <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
-                    {getEmployee(task.reviewerId)?.name}
+                    {getEmployee(reviewManagerId)?.name}
                   </div>
                 </div>
               </div>

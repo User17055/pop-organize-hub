@@ -532,6 +532,19 @@ function renderAll() {
     renderSidebar();
     renderScreen();
 }
+function playEntrance(...targets) {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+        return;
+    for (const target of targets) {
+        const element = typeof target === "string" ? document.querySelector(target) : target;
+        if (!element || element.hidden)
+            continue;
+        element.classList.remove("motion-enter");
+        void element.offsetWidth;
+        element.classList.add("motion-enter");
+        element.addEventListener("animationend", () => element.classList.remove("motion-enter"), { once: true });
+    }
+}
 function setScreen(next) {
     state.screen = next;
     $("#screenBoard").hidden = next !== "board";
@@ -539,16 +552,31 @@ function setScreen(next) {
     $("#screenCal").hidden = next !== "cal";
     document.querySelectorAll("[data-screen]").forEach(b => b.setAttribute("aria-current", String(b.dataset["screen"] === next)));
     renderAll();
+    playEntrance("#headLeft", next === "board" ? "#screenBoard" : next === "dash" ? "#screenDash" : "#screenCal");
 }
 /* ============================ camadas ============================ */
 const layer = $("#layer");
+let layerCloseTimer = 0;
 function closeLayer() {
-    layer.innerHTML = "";
-    document.removeEventListener("keydown", onEsc);
+    window.clearTimeout(layerCloseTimer);
+    const surface = layer.querySelector(".scrim") ?? layer.querySelector(".pop");
+    if (!surface || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        layer.innerHTML = "";
+        document.removeEventListener("keydown", onEsc);
+        return;
+    }
+    surface.classList.add("is-closing");
+    layerCloseTimer = window.setTimeout(() => {
+        layer.innerHTML = "";
+        document.removeEventListener("keydown", onEsc);
+        layerCloseTimer = 0;
+    }, 210);
 }
 function onEsc(e) { if (e.key === "Escape")
     closeLayer(); }
 function openLayer(html, onMount) {
+    window.clearTimeout(layerCloseTimer);
+    layerCloseTimer = 0;
     layer.innerHTML = html;
     document.addEventListener("keydown", onEsc);
     const scrim = layer.querySelector(".scrim");
@@ -1110,13 +1138,14 @@ document.addEventListener("click", e => {
     if (mr) {
         state.mineRange = mr.dataset["minerange"];
         renderAll();
+        playEntrance("#brief", "#view");
         return;
     }
     const group = at("[data-group]");
     if (group) {
         const k = group.dataset["group"];
         state.open[k] = !state.open[k];
-        renderSidebar();
+        group.closest(".grp")?.classList.toggle("closed", !state.open[k]);
         return;
     }
     const proj = at("[data-project]");
@@ -1206,6 +1235,7 @@ document.addEventListener("click", e => {
         [...$("#viewSeg").children].forEach(b => b.setAttribute("aria-current", String(b === seg)));
         savePopPreferences();
         renderView();
+        playEntrance("#view");
         return;
     }
     const row = at(".card") ?? at(".lrow") ?? at("tbody tr");
@@ -1270,10 +1300,12 @@ document.querySelectorAll("[data-wk]").forEach(b => b.addEventListener("click", 
     d.setDate(d.getDate() + 7 * Number(b.dataset["wk"]));
     state.week = d;
     renderScreen();
+    playEntrance("#brief", "#view");
 }));
 $("#weekLab").addEventListener("click", () => {
     state.weekOn = !state.weekOn;
     renderScreen();
+    playEntrance("#brief", "#view");
     toast(state.weekOn ? "Mostrando só o que vence nesta semana." : "Filtro de semana desligado.");
 });
 $("#filterBtn").addEventListener("click", () => {
@@ -2121,18 +2153,21 @@ document.addEventListener("click", e => {
         state.calView = cv.dataset["calview"];
         renderCalHead();
         renderCalendar();
+        playEntrance("#headLeft", "#cal");
         return;
     }
     const range = el.closest("[data-range]");
     if (range) {
         state.range = range.dataset["range"];
         renderScreen();
+        playEntrance(state.screen === "dash" ? "#dash" : state.screen === "cal" ? "#cal" : "#view");
         return;
     }
     const cf = el.closest("[data-calfilter]");
     if (cf) {
         state.calFilter = cf.dataset["calfilter"];
         renderCalendar();
+        playEntrance("#cal");
         return;
     }
     const cm = el.closest("[data-calmonth]");
@@ -2141,6 +2176,7 @@ document.addEventListener("click", e => {
         d.setMonth(d.getMonth() + Number(cm.dataset["calmonth"]));
         state.calMonth = d;
         renderCalendar();
+        playEntrance("#cal");
         return;
     }
     const cs = el.closest("[data-calshift]");
@@ -2149,6 +2185,7 @@ document.addEventListener("click", e => {
         state.calDate = n === 0 ? new Date(TODAY.getTime()) : addDays(state.calDate, n);
         state.calMonth = new Date(state.calDate.getFullYear(), state.calDate.getMonth(), 1);
         renderCalendar();
+        playEntrance("#cal");
         return;
     }
     const cfb = el.closest("#calFilter");
@@ -2204,12 +2241,14 @@ document.addEventListener("click", e => {
             renderCalHead();
         }
         renderCalendar();
+        playEntrance("#headLeft", "#cal");
         return;
     }
     const tbl = el.closest("[data-dtable]");
     if (tbl) {
         toggle(state.dashTables, tbl.dataset["dtable"]);
         renderDashboard();
+        playEntrance("#dash");
         return;
     }
     if (el.closest("[data-newreminder]")) {

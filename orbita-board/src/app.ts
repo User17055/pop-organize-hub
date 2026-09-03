@@ -670,6 +670,18 @@ function renderAll(): void {
   renderScreen();
 }
 
+function playEntrance(...targets: Array<string | HTMLElement>): void {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  for (const target of targets) {
+    const element = typeof target === "string" ? document.querySelector<HTMLElement>(target) : target;
+    if (!element || element.hidden) continue;
+    element.classList.remove("motion-enter");
+    void element.offsetWidth;
+    element.classList.add("motion-enter");
+    element.addEventListener("animationend", () => element.classList.remove("motion-enter"), { once: true });
+  }
+}
+
 function setScreen(next: State["screen"]): void {
   state.screen = next;
   $("#screenBoard").hidden = next !== "board";
@@ -678,19 +690,34 @@ function setScreen(next: State["screen"]): void {
   document.querySelectorAll<HTMLElement>("[data-screen]").forEach(b =>
     b.setAttribute("aria-current", String(b.dataset["screen"] === next)));
   renderAll();
+  playEntrance("#headLeft", next === "board" ? "#screenBoard" : next === "dash" ? "#screenDash" : "#screenCal");
 }
 
 /* ============================ camadas ============================ */
 
 const layer = $("#layer");
+let layerCloseTimer = 0;
 
 function closeLayer(): void {
-  layer.innerHTML = "";
-  document.removeEventListener("keydown", onEsc);
+  window.clearTimeout(layerCloseTimer);
+  const surface = layer.querySelector<HTMLElement>(".scrim") ?? layer.querySelector<HTMLElement>(".pop");
+  if (!surface || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    layer.innerHTML = "";
+    document.removeEventListener("keydown", onEsc);
+    return;
+  }
+  surface.classList.add("is-closing");
+  layerCloseTimer = window.setTimeout(() => {
+    layer.innerHTML = "";
+    document.removeEventListener("keydown", onEsc);
+    layerCloseTimer = 0;
+  }, 210);
 }
 function onEsc(e: KeyboardEvent): void { if (e.key === "Escape") closeLayer(); }
 
 function openLayer(html: string, onMount?: () => void): void {
+  window.clearTimeout(layerCloseTimer);
+  layerCloseTimer = 0;
   layer.innerHTML = html;
   document.addEventListener("keydown", onEsc);
   const scrim = layer.querySelector<HTMLElement>(".scrim");
@@ -1212,10 +1239,20 @@ document.addEventListener("click", e => {
   }
 
   const mr = at("[data-minerange]");
-  if (mr) { state.mineRange = mr.dataset["minerange"] as State["mineRange"]; renderAll(); return; }
+  if (mr) {
+    state.mineRange = mr.dataset["minerange"] as State["mineRange"];
+    renderAll();
+    playEntrance("#brief", "#view");
+    return;
+  }
 
   const group = at("[data-group]");
-  if (group) { const k = group.dataset["group"]!; state.open[k] = !state.open[k]; renderSidebar(); return; }
+  if (group) {
+    const k = group.dataset["group"]!;
+    state.open[k] = !state.open[k];
+    group.closest(".grp")?.classList.toggle("closed", !state.open[k]);
+    return;
+  }
 
   const proj = at("[data-project]");
   if (proj) {
@@ -1265,6 +1302,7 @@ document.addEventListener("click", e => {
     [...$("#viewSeg").children].forEach(b => b.setAttribute("aria-current", String(b === seg)));
     savePopPreferences();
     renderView();
+    playEntrance("#view");
     return;
   }
 
@@ -1331,11 +1369,13 @@ document.querySelectorAll<HTMLElement>("[data-wk]").forEach(b =>
     d.setDate(d.getDate() + 7 * Number(b.dataset["wk"]));
     state.week = d;
     renderScreen();
+    playEntrance("#brief", "#view");
   }));
 
 $("#weekLab").addEventListener("click", () => {
   state.weekOn = !state.weekOn;
   renderScreen();
+  playEntrance("#brief", "#view");
   toast(state.weekOn ? "Mostrando só o que vence nesta semana." : "Filtro de semana desligado.");
 });
 
@@ -2262,19 +2302,30 @@ document.addEventListener("click", e => {
   }
 
   const cv = el.closest<HTMLElement>("[data-calview]");
-  if (cv) { state.calView = cv.dataset["calview"] as State["calView"]; renderCalHead(); renderCalendar(); return; }
+  if (cv) {
+    state.calView = cv.dataset["calview"] as State["calView"];
+    renderCalHead(); renderCalendar(); playEntrance("#headLeft", "#cal"); return;
+  }
 
   const range = el.closest<HTMLElement>("[data-range]");
-  if (range) { state.range = range.dataset["range"] as State["range"]; renderScreen(); return; }
+  if (range) {
+    state.range = range.dataset["range"] as State["range"];
+    renderScreen();
+    playEntrance(state.screen === "dash" ? "#dash" : state.screen === "cal" ? "#cal" : "#view");
+    return;
+  }
 
   const cf = el.closest<HTMLElement>("[data-calfilter]");
-  if (cf) { state.calFilter = cf.dataset["calfilter"] as State["calFilter"]; renderCalendar(); return; }
+  if (cf) {
+    state.calFilter = cf.dataset["calfilter"] as State["calFilter"];
+    renderCalendar(); playEntrance("#cal"); return;
+  }
 
   const cm = el.closest<HTMLElement>("[data-calmonth]");
   if (cm) {
     const d = new Date(state.calMonth.getTime());
     d.setMonth(d.getMonth() + Number(cm.dataset["calmonth"]));
-    state.calMonth = d; renderCalendar(); return;
+    state.calMonth = d; renderCalendar(); playEntrance("#cal"); return;
   }
 
   const cs = el.closest<HTMLElement>("[data-calshift]");
@@ -2282,7 +2333,7 @@ document.addEventListener("click", e => {
     const n = Number(cs.dataset["calshift"]);
     state.calDate = n === 0 ? new Date(TODAY.getTime()) : addDays(state.calDate, n);
     state.calMonth = new Date(state.calDate.getFullYear(), state.calDate.getMonth(), 1);
-    renderCalendar(); return;
+    renderCalendar(); playEntrance("#cal"); return;
   }
 
   const cfb = el.closest<HTMLElement>("#calFilter");
@@ -2312,11 +2363,14 @@ document.addEventListener("click", e => {
   if (cd) {
     state.calDate = new Date(cd.dataset["calday"] + "T00:00:00");
     if (state.calView !== "dia") { state.calView = "dia"; renderCalHead(); }
-    renderCalendar(); return;
+    renderCalendar(); playEntrance("#headLeft", "#cal"); return;
   }
 
   const tbl = el.closest<HTMLElement>("[data-dtable]");
-  if (tbl) { toggle(state.dashTables, tbl.dataset["dtable"]!); renderDashboard(); return; }
+  if (tbl) {
+    toggle(state.dashTables, tbl.dataset["dtable"]!);
+    renderDashboard(); playEntrance("#dash"); return;
+  }
 
 
   if (el.closest("[data-newreminder]")) { toast("Lembrete criado para hoje às 17:00."); return; }

@@ -11,6 +11,7 @@ on:
   push:
     paths:
       - "src/**"
+      - "orbita-board/**"
       - "scripts/**"
       - "package.json"
       - "package-lock.json"
@@ -21,9 +22,11 @@ on:
   pull_request:
     paths:
       - "src/**"
+      - "orbita-board/**"
       - "package.json"
       - "package-lock.json"
       - "vite.config.ts"
+      - "eslint.config.js"
   workflow_dispatch:
 
 concurrency:

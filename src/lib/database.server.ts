@@ -20,6 +20,7 @@ import {
   type PermissionGroup,
   type Task,
 } from "./domain";
+import { isReviewManagerCandidateId, resolveTaskReviewManagerId } from "./permissions";
 
 const DEFAULT_PASSWORD_PEPPER = "pop-organize-local-demo";
 const SCRYPT_PREFIX = "scrypt";
@@ -600,6 +601,37 @@ function normalizeDatabase(value: Database): Database {
     value.company?.ownerId ??
     employees.find((employee) => employee.role.toLowerCase().includes("admin"))?.id ??
     employees[0]?.id;
+  const tasks = (value.tasks ?? []).map((task) => {
+    const normalizedTask =
+      task.target.type === "user"
+        ? {
+            ...task,
+            responsibleId: task.target.id,
+            responsibleIds: [task.target.id],
+          }
+        : task;
+    if (!normalizedTask.requiresReview) return normalizedTask;
+    const reviewManagerId =
+      resolveTaskReviewManagerId({
+        target: normalizedTask.target,
+        responsibleId: normalizedTask.responsibleId,
+        responsibleIds: normalizedTask.responsibleIds,
+        employees,
+        departments,
+        groups,
+      }) ??
+      (isReviewManagerCandidateId({
+        id: normalizedTask.reviewerId,
+        employees,
+        departments,
+        groups,
+      })
+        ? normalizedTask.reviewerId
+        : undefined);
+    return normalizedTask.reviewerId !== reviewManagerId
+      ? { ...normalizedTask, reviewerId: reviewManagerId }
+      : normalizedTask;
+  });
   return {
     ...value,
     accessMode: "team",
@@ -612,7 +644,7 @@ function normalizeDatabase(value: Database): Database {
     employees,
     departments,
     groups,
-    tasks: value.tasks ?? [],
+    tasks,
     taskFolders: value.taskFolders ?? [],
     taskLists: value.taskLists ?? [],
     permissionGroups,
@@ -769,17 +801,22 @@ function normalizePlatformDatabase(value: PlatformDatabase | Database): Platform
 
   const now = Date.now();
   const accountById = new Map(value.accounts.map((account) => [account.id, account]));
+  const accountByEmail = new Map(
+    value.accounts.map((account) => [account.email.trim().toLocaleLowerCase("pt-BR"), account]),
+  );
   const workspaces = value.workspaces.map((rawWorkspace) => {
     const workspace = normalizeDatabase(rawWorkspace);
     workspace.sessions = [];
     workspace.employees = workspace.employees.map((employee) => {
-      const account = accountById.get(employee.id);
+      const account =
+        accountById.get(employee.id) ??
+        accountByEmail.get(employee.email.trim().toLocaleLowerCase("pt-BR"));
       return account
         ? {
             ...employee,
             name: account.name,
             email: account.email,
-            avatar: account.avatar,
+            avatar: account.avatar ?? employee.avatar,
             passwordHash: account.passwordHash,
             googleSubject: account.googleSubject,
           }

@@ -4607,7 +4607,7 @@ private fun AssignmentSelector(
                     }
                 }
 
-                val activeMembers = members.filterNot { it.pending }
+                val assignmentMembers = members
                 val targets: List<Triple<String, String, String>> = when (assignmentType) {
                     "department" -> sectors.map { Triple(it.id, it.name, it.description) }
                     "group" -> groups.map {
@@ -4627,7 +4627,7 @@ private fun AssignmentSelector(
                     fontSize = 13.sp,
                 )
                 if (assignmentType == "user") {
-                    activeMembers.forEach { member ->
+                    assignmentMembers.forEach { member ->
                         Surface(
                             onClick = {
                                 onChange(
@@ -4663,7 +4663,11 @@ private fun AssignmentSelector(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp,
                                     )
-                                    Text(member.email, color = PopMuted, fontSize = 9.sp)
+                                    Text(
+                                        if (member.pending) "${member.email} • convite pendente" else member.email,
+                                        color = PopMuted,
+                                        fontSize = 9.sp,
+                                    )
                                 }
                                 if (targetId == member.id && targetLabel == member.name) {
                                     Icon(Icons.Rounded.Check, "Selecionado", tint = PopBlue)
@@ -4711,14 +4715,14 @@ private fun AssignmentSelector(
 
                 if (assignmentType != "user" && targetLabel.isNotBlank()) {
                     val eligibleMembers = when (assignmentType) {
-                        "department" -> activeMembers.filter { member ->
+                        "department" -> assignmentMembers.filter { member ->
                             member.sectorId == targetId || member.sector == targetLabel
                         }
                         "group" -> {
                             val selectedGroup = groups.firstOrNull {
                                 it.id == targetId || it.name == targetLabel
                             }
-                            activeMembers.filter { member ->
+                            assignmentMembers.filter { member ->
                                 selectedGroup != null &&
                                     (
                                         member.id in selectedGroup.memberIds ||
@@ -4726,7 +4730,7 @@ private fun AssignmentSelector(
                                         )
                             }
                         }
-                        else -> activeMembers
+                        else -> assignmentMembers
                     }
                     HorizontalDivider(color = PopBorder.copy(alpha = .7f))
                     Text("Responsáveis (opcional)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -4773,7 +4777,11 @@ private fun AssignmentSelector(
                                 Spacer(Modifier.width(10.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(member.name, color = PopText, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                                    Text(member.email, color = PopMuted, fontSize = 9.sp)
+                                    Text(
+                                        if (member.pending) "${member.email} • convite pendente" else member.email,
+                                        color = PopMuted,
+                                        fontSize = 9.sp,
+                                    )
                                 }
                                 if (selected) Icon(Icons.Rounded.Check, "Responsável", tint = PopBlue)
                             }

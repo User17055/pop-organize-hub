@@ -61,6 +61,7 @@ export interface Company {
   status: "active" | "inactive";
   kind?: "personal" | "company";
   ownerId?: string;
+  taskTags?: string[];
 }
 
 export interface Employee {
@@ -72,6 +73,8 @@ export interface Employee {
   avatar?: string;
   status: "active" | "inactive";
   permissionGroupId?: string;
+  departmentAccessMode?: "own" | "selected" | "all";
+  visibleDepartmentIds?: string[];
 }
 
 export type PermissionKey =
@@ -232,6 +235,7 @@ export interface Department {
   name: string;
   description: string;
   managerId: string;
+  memberIds?: string[];
   color: string;
 }
 

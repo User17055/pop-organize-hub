@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "
 import { createPortal } from "react-dom";
 import { addMonths, endOfMonth, endOfWeek, format, startOfWeek, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { AccessRestricted } from "@/components/access-restricted";
@@ -13,6 +13,10 @@ import type { TargetType, Task } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 import { MonthGrid } from "@/components/calendar/month-grid";
 import { DaySheet } from "@/components/calendar/day-sheet";
+import {
+  getCalendarTaskDepartmentIds,
+  getCalendarTaskFirstTime,
+} from "@/components/calendar/calendar-task";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { TaskCreateDrawer } from "@/components/tasks/task-create-drawer";
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
@@ -28,7 +32,7 @@ import {
   type TaskFormState,
 } from "@/components/tasks/task-form-types";
 import { recurringTaskDatesInRange } from "@/lib/recurrence";
-import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
+import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 
 export const Route = createFileRoute("/calendario")({
   head: () => ({
@@ -50,6 +54,7 @@ function startOfMonth(date: Date) {
 function CalendarPage() {
   const { data, isLoading, error } = useWorkspaceData();
   const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(new Date()));
+  const [departmentFilter, setDepartmentFilter] = useState("all");
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const filters = emptyTaskFilters;
   const [isMounted, setIsMounted] = useState(false);
@@ -86,6 +91,7 @@ function CalendarPage() {
       frequency: "none",
       weekDays: [],
       excludedWeekDays: [],
+      times: [],
       interval: "1",
       customUnit: "days",
       dayOfMonth: "1",
@@ -120,10 +126,18 @@ function CalendarPage() {
 
   const filteredTasks = useMemo(() => {
     if (!data) return [];
-    return data.tasks.filter((task) =>
-      taskMatchesFilters(task, filters, { employees: data.employees, groups: data.groups }),
+    const context = {
+      employees: data.employees,
+      departments: data.departments,
+      groups: data.groups,
+    };
+    return data.tasks.filter(
+      (task) =>
+        taskMatchesFilters(task, filters, context) &&
+        (departmentFilter === "all" ||
+          getCalendarTaskDepartmentIds(task, context).includes(departmentFilter)),
     );
-  }, [data, filters]);
+  }, [data, departmentFilter, filters]);
 
   const tasksByDay = useMemo(() => {
     const map = new Map<string, Task[]>();
@@ -163,9 +177,14 @@ function CalendarPage() {
     }
     for (const dayTasks of map.values()) {
       dayTasks.sort((left, right) => {
-        const leftCompleted = left.status === "completed" || left.status === "waiting_review";
-        const rightCompleted = right.status === "completed" || right.status === "waiting_review";
-        return Number(rightCompleted) - Number(leftCompleted);
+        const leftTime = getCalendarTaskFirstTime(left) ?? "99:99";
+        const rightTime = getCalendarTaskFirstTime(right) ?? "99:99";
+        const byTime = leftTime.localeCompare(rightTime);
+        if (byTime !== 0) return byTime;
+        const leftCompleted = left.status === "completed";
+        const rightCompleted = right.status === "completed";
+        if (leftCompleted !== rightCompleted) return Number(leftCompleted) - Number(rightCompleted);
+        return left.title.localeCompare(right.title, "pt-BR");
       });
     }
     return map;
@@ -187,7 +206,21 @@ function CalendarPage() {
     );
   }
 
-  const { currentUser, departments, employees, groups, permissionGroups, tasks } = data;
+  const { currentUser, departments, employees, groups, invitations, permissionGroups, tasks } =
+    data;
+  const assignmentMembers = [
+    ...employees,
+    ...invitations.map((invitation) => ({
+      id: invitation.id,
+      name: invitation.name,
+      email: invitation.email,
+      role: "Convite pendente",
+      departmentId: invitation.departmentId,
+      groupIds: invitation.groupIds,
+      status: invitation.status,
+      permissionGroupId: invitation.permissionGroupId,
+    })),
+  ];
   const permissionSet = resolvePermissionSet({ currentUser, employees, permissionGroups });
   if (!hasPermission(permissionSet, "pages.calendar")) {
     return (
@@ -210,6 +243,9 @@ function CalendarPage() {
   const selectedDayKey = selectedDay ? format(selectedDay, "yyyy-MM-dd") : null;
   const dayTasks = selectedDayKey ? (tasksByDay.get(selectedDayKey) ?? []) : [];
   const company = data.company;
+  const sortedDepartments = [...departments].sort((left, right) =>
+    left.name.localeCompare(right.name, "pt-BR"),
+  );
   const isPersonalWorkspace = company.kind === "personal";
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
   const targetOptions = isPersonalWorkspace
@@ -218,12 +254,12 @@ function CalendarPage() {
         { value: `company:${company.id}`, label: "Empresa inteira" },
         ...departments.map((department) => ({
           value: `department:${department.id}`,
-          label: `Setor: ${department.name}`,
+          label: department.name,
         })),
         ...groups.map((group) => ({ value: `group:${group.id}`, label: `Grupo: ${group.name}` })),
-        ...employees.map((employee) => ({
+        ...assignmentMembers.map((employee) => ({
           value: `user:${employee.id}`,
-          label: `Pessoa: ${employee.name}`,
+          label: employee.name,
         })),
       ];
 
@@ -234,7 +270,7 @@ function CalendarPage() {
       description: "",
       priority: "medium",
       dueDate,
-      targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : `company:${company.id}`,
+      targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : "",
       responsibleId: "",
       reviewerId: "",
       requiresReview: false,
@@ -251,7 +287,7 @@ function CalendarPage() {
     const [selectedType, selectedId] = submittedForm.targetKey.split(":") as [TargetType, string];
     const type = isPersonalWorkspace ? "user" : selectedType;
     const id = isPersonalWorkspace ? currentUser.id : selectedId;
-    const responsibleId = type === "user" ? "" : submittedForm.responsibleId;
+    const responsibleId = type === "user" ? id : submittedForm.responsibleId;
     createTaskMutation.mutate({
       title: submittedForm.title,
       description: submittedForm.description,
@@ -261,7 +297,7 @@ function CalendarPage() {
       responsibleId,
       reviewerId:
         !isPersonalWorkspace && submittedForm.requiresReview
-          ? submittedForm.reviewerId || responsibleId || undefined
+          ? submittedForm.reviewerId || undefined
           : undefined,
       requiresReview: !isPersonalWorkspace && submittedForm.requiresReview,
       tags: submittedForm.tags
@@ -306,7 +342,7 @@ function CalendarPage() {
       priority: editForm.priority,
       dueDate: editForm.dueDate,
       target: { type: selectedType, id: selectedId },
-      responsibleId: editForm.responsibleId,
+      responsibleId: selectedType === "user" ? selectedId : editForm.responsibleId,
       tags: editForm.tags
         .split(",")
         .map((tag) => tag.trim())
@@ -368,7 +404,7 @@ function CalendarPage() {
               <TaskDetailDrawer
                 task={selectedTask}
                 permissions={selectedPermissions}
-                employees={employees}
+                employees={assignmentMembers}
                 departments={departments}
                 groups={groups}
                 company={data.company}
@@ -376,10 +412,10 @@ function CalendarPage() {
                 onEditFormChange={setEditForm}
                 onSubmit={handleEditSubmit}
                 onClose={() => setSelectedTaskId(null)}
-                onToggleComplete={() =>
+                onStatusChange={(status) =>
                   statusMutation.mutate({
                     id: selectedTask.id,
-                    status: selectedTask.status === "completed" ? "in_progress" : "completed",
+                    status,
                   })
                 }
                 onDelete={handleDeleteSelectedTask}
@@ -420,7 +456,7 @@ function CalendarPage() {
       subtitle="Visualize as tarefas organizadas por data de vencimento"
       contentClassName="flex min-h-0 flex-col"
     >
-      <div className="mb-4 flex shrink-0 justify-center md:mb-3 md:justify-between">
+      <div className="mb-4 flex shrink-0 flex-col gap-2 md:mb-3 md:flex-row md:items-center md:justify-between">
         <div className="task-glass-control flex w-full items-center justify-between gap-2 rounded-[22px] px-2 py-2 md:w-auto md:rounded-full md:py-1.5">
           <button
             type="button"
@@ -455,9 +491,30 @@ function CalendarPage() {
             Hoje
           </button>
         </div>
-        <div className="hidden items-center gap-2 text-sm text-muted-foreground md:flex">
-          <span className="h-2 w-2 rounded-full bg-primary" />
-          {filteredTasks.length} tarefas no calendário
+        <div className="flex items-center justify-between gap-3 md:justify-end">
+          {!isPersonalWorkspace && sortedDepartments.length > 0 && (
+            <label className="task-glass-control flex h-10 min-w-0 items-center gap-2 rounded-full px-3 md:h-9">
+              <SlidersHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="sr-only">Filtrar por setor</span>
+              <select
+                value={departmentFilter}
+                onChange={(event) => setDepartmentFilter(event.target.value)}
+                className="min-w-0 max-w-[220px] bg-transparent text-sm font-semibold text-foreground outline-none"
+                aria-label="Filtrar calendário por setor"
+              >
+                <option value="all">Todos os setores</option>
+                {sortedDepartments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <div className="flex items-center gap-2 whitespace-nowrap text-xs text-muted-foreground md:text-sm">
+            <span className="h-2 w-2 rounded-full bg-primary" />
+            {filteredTasks.length} tarefas
+          </div>
         </div>
       </div>
 
@@ -467,6 +524,9 @@ function CalendarPage() {
           tasksByDay={tasksByDay}
           selectedDay={selectedDay}
           onSelectDay={setSelectedDay}
+          employees={assignmentMembers}
+          departments={departments}
+          groups={groups}
           fullHeight
         />
       </div>
@@ -474,8 +534,9 @@ function CalendarPage() {
       <DaySheet
         day={selectedDay}
         tasks={dayTasks}
-        employees={employees}
+        employees={assignmentMembers}
         departments={departments}
+        groups={groups}
         onOpenChange={(open) => {
           if (!open) setSelectedDay(null);
         }}
@@ -499,10 +560,11 @@ function CalendarPage() {
         errorMessage={
           createTaskMutation.error instanceof Error ? createTaskMutation.error.message : null
         }
-        employees={employees}
+        employees={assignmentMembers}
+        departments={departments}
+        groups={groups}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}
-        canCreateChecklist={isAdminUser({ currentUser, employees, permissionGroups })}
       />
 
       {taskDetailLayer}

@@ -48,13 +48,7 @@ export function PopDock() {
   const { data } = useWorkspaceData();
 
   async function handleCreate(draft: PopTaskDraft) {
-    if (
-      !draft.title ||
-      !draft.description ||
-      !draft.dueDate ||
-      !draft.targetType ||
-      !draft.targetId
-    ) {
+    if (!draft.title || !draft.dueDate || !draft.targetType || !draft.targetId) {
       throw new Error("A Pop ainda não reuniu todos os dados necessários para criar a atividade.");
     }
 
@@ -73,11 +67,12 @@ export function PopDock() {
             monthOfYear: draft.recurrence.monthOfYear ?? undefined,
             endDate: draft.recurrence.endDate || undefined,
           };
-    const responsibleId = draft.targetType === "user" ? "" : (draft.responsibleId ?? "");
+    const responsibleId =
+      draft.targetType === "user" ? draft.targetId : (draft.responsibleId ?? "");
 
     await createTaskMutation.mutateAsync({
       title: draft.title,
-      description: draft.description,
+      description: draft.description ?? "",
       priority: draft.priority ?? "medium",
       dueDate: draft.dueDate,
       target: { type: draft.targetType, id: draft.targetId },

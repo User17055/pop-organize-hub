@@ -21,15 +21,15 @@ import {
   Check,
   ChevronDown,
   Columns3,
-  Eye,
-  EyeOff,
   Layers3,
+  Network,
   Plus,
   Repeat,
   Search,
   Settings2,
   SlidersHorizontal,
   Sparkles,
+  Users,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -57,6 +57,9 @@ type TasksSearch = {
   lista?: string;
   status?: TaskStatus | "all";
   escopo?: "today" | "overdue" | "upcoming" | "mine" | "department" | "group" | "all";
+  setor?: string;
+  colaborador?: string;
+  grupo?: string;
 };
 
 export const Route = createFileRoute("/tarefas")({
@@ -65,6 +68,14 @@ export const Route = createFileRoute("/tarefas")({
       typeof search.lista === "string" && search.lista.trim() ? search.lista.trim() : undefined,
     status: isTaskStatusFilter(search.status) ? search.status : undefined,
     escopo: isTaskScope(search.escopo) ? search.escopo : undefined,
+    setor:
+      typeof search.setor === "string" && search.setor.trim() ? search.setor.trim() : undefined,
+    colaborador:
+      typeof search.colaborador === "string" && search.colaborador.trim()
+        ? search.colaborador.trim()
+        : undefined,
+    grupo:
+      typeof search.grupo === "string" && search.grupo.trim() ? search.grupo.trim() : undefined,
   }),
   head: () => ({
     meta: [
@@ -140,8 +151,42 @@ function taskMatchesAdminScope(task: Task, scope: TaskScope, data: WorkspaceData
   return task.target.type === "group" && currentGroupIds.has(task.target.id);
 }
 
+function taskResponsibleIds(task: Task) {
+  return new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean));
+}
+
+function taskMatchesCollaborator(task: Task, employeeId: string) {
+  return task.target.type === "user" && task.target.id === employeeId
+    ? true
+    : taskResponsibleIds(task).has(employeeId);
+}
+
+function taskMatchesDepartment(task: Task, departmentId: string, data: WorkspaceData) {
+  if (task.target.type === "department" && task.target.id === departmentId) return true;
+  const memberIds = new Set(
+    [...data.employees, ...data.invitations]
+      .filter((employee) => employee.departmentId === departmentId)
+      .map((employee) => employee.id),
+  );
+  if (task.target.type === "user" && memberIds.has(task.target.id)) return true;
+  return [...taskResponsibleIds(task)].some((id) => memberIds.has(id));
+}
+
+function taskMatchesGroup(task: Task, groupId: string, data: WorkspaceData) {
+  if (task.target.type === "group" && task.target.id === groupId) return true;
+  const group = data.groups.find((item) => item.id === groupId);
+  const memberIds = new Set([
+    ...(group?.memberIds ?? []),
+    ...data.invitations
+      .filter((invitation) => invitation.groupIds?.includes(groupId))
+      .map((invitation) => invitation.id),
+  ]);
+  if (task.target.type === "user" && memberIds.has(task.target.id)) return true;
+  return [...taskResponsibleIds(task)].some((id) => memberIds.has(id));
+}
+
 type TaskLayoutPreferences = {
-  layoutMode: "list" | "department";
+  layoutMode: "list" | "department" | "group";
   titleWidth: number;
   density: "compact" | "comfortable";
   showDescription: boolean;
@@ -155,12 +200,23 @@ const defaultLayoutPreferences: TaskLayoutPreferences = {
 };
 
 function TasksPage() {
-  const { lista: organizerListId, status: initialStatus, escopo: initialScope } = Route.useSearch();
+  const {
+    lista: organizerListId,
+    status: initialStatus,
+    escopo: initialScope,
+    setor: selectedDepartmentId,
+    colaborador: selectedCollaboratorId,
+    grupo: selectedGroupId,
+  } = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data, isLoading, error } = useWorkspaceData();
   const [active, setActive] = useState<TaskStatus | "all">(initialStatus ?? "all");
   const [taskScope, setTaskScope] = useState<TaskScope>(initialScope ?? "all");
   const [search, setSearch] = useState("");
+  const [directoryMode, setDirectoryMode] = useState<"departments" | "collaborators" | "groups">(
+    selectedGroupId ? "groups" : selectedCollaboratorId ? "collaborators" : "departments",
+  );
+  const isFilteredTaskView = initialStatus !== undefined || initialScope !== undefined;
   const filters = emptyTaskFilters;
   const [isMounted, setIsMounted] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -306,10 +362,21 @@ function TasksPage() {
     () => new Set(selectedOrganizerList?.taskIds ?? []),
     [selectedOrganizerList?.taskIds],
   );
-  const taskRows = useMemo(
+  const organizerTaskRows = useMemo(
     () =>
       (data?.tasks ?? []).filter((task) => !selectedOrganizerList || organizerTaskIds.has(task.id)),
     [data?.tasks, organizerTaskIds, selectedOrganizerList],
+  );
+  const taskRows = useMemo(
+    () =>
+      organizerTaskRows.filter((task) => {
+        if (!data) return true;
+        if (selectedDepartmentId) return taskMatchesDepartment(task, selectedDepartmentId, data);
+        if (selectedCollaboratorId) return taskMatchesCollaborator(task, selectedCollaboratorId);
+        if (selectedGroupId) return taskMatchesGroup(task, selectedGroupId, data);
+        return true;
+      }),
+    [data, organizerTaskRows, selectedCollaboratorId, selectedDepartmentId, selectedGroupId],
   );
   const activeTaskRows = useMemo(
     () => taskRows.filter((task) => task.status !== "completed"),
@@ -352,28 +419,40 @@ function TasksPage() {
   // hooks than during the previous render"). Por isso leem de `data` tolerando nulo, e ficam antes
   // de qualquer return condicional.
   const dataDepartments = data?.departments;
-  const taskSections = useMemo(
-    () =>
-      layoutPreferences.layoutMode === "department"
-        ? [
-            ...(dataDepartments ?? [])
-              .map((department) => ({
-                id: department.id,
-                label: department.name,
-                tasks: list.filter(
-                  (task) => task.target.type === "department" && task.target.id === department.id,
-                ),
-              }))
-              .filter((section) => section.tasks.length > 0),
-            {
-              id: "other",
-              label: "Outras atividades",
-              tasks: list.filter((task) => task.target.type !== "department"),
-            },
-          ].filter((section) => section.tasks.length > 0)
-        : [{ id: "all", label: "Todas as atividades", tasks: list }],
-    [layoutPreferences.layoutMode, dataDepartments, list],
-  );
+  const dataGroups = data?.groups;
+  const taskSections = useMemo(() => {
+    if (layoutPreferences.layoutMode === "department") {
+      return [
+        ...(dataDepartments ?? []).map((department) => ({
+          id: `department:${department.id}`,
+          label: department.name,
+          tasks: list.filter(
+            (task) => task.target.type === "department" && task.target.id === department.id,
+          ),
+        })),
+        {
+          id: "department:other",
+          label: "Outras atividades",
+          tasks: list.filter((task) => task.target.type !== "department"),
+        },
+      ].filter((section) => section.tasks.length > 0);
+    }
+    if (layoutPreferences.layoutMode === "group") {
+      return [
+        ...(dataGroups ?? []).map((group) => ({
+          id: `group:${group.id}`,
+          label: group.name,
+          tasks: list.filter((task) => task.target.type === "group" && task.target.id === group.id),
+        })),
+        {
+          id: "group:other",
+          label: "Outras atividades",
+          tasks: list.filter((task) => task.target.type !== "group"),
+        },
+      ].filter((section) => section.tasks.length > 0);
+    }
+    return [{ id: "all", label: "Todas as atividades", tasks: list }];
+  }, [layoutPreferences.layoutMode, dataDepartments, dataGroups, list]);
 
   const organizerToday = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "America/Sao_Paulo",
@@ -404,7 +483,29 @@ function TasksPage() {
     );
   }
 
-  const { company, currentUser, departments, employees, groups, permissionGroups, tasks } = data;
+  const {
+    company,
+    currentUser,
+    departments,
+    employees,
+    groups,
+    invitations,
+    permissionGroups,
+    tasks,
+  } = data;
+  const assignmentMembers = [
+    ...employees,
+    ...invitations.map((invitation) => ({
+      id: invitation.id,
+      name: invitation.name,
+      email: invitation.email,
+      role: "Convite pendente",
+      departmentId: invitation.departmentId,
+      groupIds: invitation.groupIds,
+      status: invitation.status,
+      permissionGroupId: invitation.permissionGroupId,
+    })),
+  ];
   const permissionSet = resolvePermissionSet({
     currentUser,
     employees,
@@ -420,6 +521,18 @@ function TasksPage() {
   const isPersonalWorkspace = company.kind === "personal";
   const showResponsible = canSeePeopleContext && !isPersonalWorkspace;
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
+  const selectedDirectoryDepartment = selectedDepartmentId
+    ? departments.find((department) => department.id === selectedDepartmentId)
+    : null;
+  const selectedDirectoryCollaborator = selectedCollaboratorId
+    ? assignmentMembers.find((employee) => employee.id === selectedCollaboratorId)
+    : null;
+  const selectedDirectoryGroup = selectedGroupId
+    ? groups.find((group) => group.id === selectedGroupId)
+    : null;
+  const hasDirectorySelection = Boolean(
+    selectedDirectoryDepartment || selectedDirectoryCollaborator || selectedDirectoryGroup,
+  );
   const selectedPermissions = selectedTask
     ? getTaskPermissions({
         task: selectedTask,
@@ -436,15 +549,15 @@ function TasksPage() {
         { value: `company:${company.id}`, label: "Empresa inteira" },
         ...departments.map((department) => ({
           value: `department:${department.id}`,
-          label: `Setor: ${department.name}`,
+          label: department.name,
         })),
         ...groups.map((group) => ({
           value: `group:${group.id}`,
           label: `Grupo: ${group.name}`,
         })),
-        ...employees.map((employee) => ({
+        ...assignmentMembers.map((employee) => ({
           value: `user:${employee.id}`,
-          label: `Pessoa: ${employee.name}`,
+          label: employee.name,
         })),
       ];
 
@@ -455,7 +568,7 @@ function TasksPage() {
       description: "",
       priority: "medium",
       dueDate,
-      targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : `company:${company.id}`,
+      targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : "",
       responsibleId: "",
       reviewerId: "",
       requiresReview: false,
@@ -487,7 +600,7 @@ function TasksPage() {
     const [selectedType, selectedId] = submittedForm.targetKey.split(":") as [TargetType, string];
     const type = isPersonalWorkspace ? "user" : selectedType;
     const id = isPersonalWorkspace ? currentUser.id : selectedId;
-    const responsibleId = type === "user" ? "" : submittedForm.responsibleId;
+    const responsibleId = type === "user" ? id : submittedForm.responsibleId;
 
     createTaskMutation.mutate({
       title: submittedForm.title,
@@ -498,7 +611,7 @@ function TasksPage() {
       responsibleId,
       reviewerId:
         !isPersonalWorkspace && submittedForm.requiresReview
-          ? submittedForm.reviewerId || responsibleId || undefined
+          ? submittedForm.reviewerId || undefined
           : undefined,
       requiresReview: !isPersonalWorkspace && submittedForm.requiresReview,
       tags: submittedForm.tags
@@ -525,7 +638,7 @@ function TasksPage() {
       priority: editForm.priority,
       dueDate: editForm.dueDate,
       target: { type: selectedType, id: selectedId },
-      responsibleId: selectedType === "user" ? "" : editForm.responsibleId,
+      responsibleId: selectedType === "user" ? selectedId : editForm.responsibleId,
       tags: editForm.tags
         .split(",")
         .map((tag) => tag.trim())
@@ -607,7 +720,7 @@ function TasksPage() {
               <TaskDetailDrawer
                 task={selectedTask}
                 permissions={selectedPermissions}
-                employees={employees}
+                employees={assignmentMembers}
                 departments={departments}
                 groups={groups}
                 company={company}
@@ -615,10 +728,10 @@ function TasksPage() {
                 onEditFormChange={setEditForm}
                 onSubmit={handleEditSubmit}
                 onClose={() => setSelectedTaskId(null)}
-                onToggleComplete={() =>
+                onStatusChange={(status) =>
                   statusMutation.mutate({
                     id: selectedTask.id,
-                    status: selectedTask.status === "completed" ? "in_progress" : "completed",
+                    status,
                   })
                 }
                 onReorder={(position) => {
@@ -757,405 +870,693 @@ function TasksPage() {
         </section>
       )}
 
-      <div className="mb-4 flex min-w-0 items-center gap-2 sm:gap-3">
-        <div className="task-glass-control flex h-12 min-w-0 flex-1 items-center gap-2 rounded-[18px] px-3 transition-colors focus-within:border-primary/45 sm:px-4 md:h-11">
-          <Search className="h-4 w-4 text-primary" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar tarefas..."
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/75"
-          />
-        </div>
-        {canCreateTask && (
-          <>
-            <button
-              onClick={() => openPopAssistant()}
-              className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 text-sm font-bold text-primary transition hover:bg-primary/15 lg:hidden"
-              aria-label="Criar com a Pop"
-            >
-              <Sparkles className="h-4 w-4" />
-              <span className="hidden sm:inline">Pop</span>
-            </button>
-            <button
-              onClick={openForm}
-              className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full bg-primary px-3.5 text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 sm:px-4 lg:hidden"
-            >
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
-                <Plus className="h-4 w-4" />
-              </span>
-              Nova
-            </button>
-          </>
-        )}
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Popover>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
-                (active !== "all" || taskScope !== "all") &&
-                  "border-primary/25 bg-primary/8 text-primary",
-              )}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              Filtros
-              {(active !== "all" || taskScope !== "all") && (
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground">
-                  {Number(active !== "all") + Number(taskScope !== "all")}
-                </span>
-              )}
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-3">
-            <div>
-              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                Status
-              </p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {statusFilters.map((filter) => {
-                  const count =
-                    filter.key === "all"
-                      ? taskRows.length
-                      : taskRows.filter((task) => task.status === filter.key).length;
-                  return (
-                    <button
-                      key={filter.key}
-                      type="button"
-                      onClick={() => applyStatusFilter(filter.key)}
-                      className={cn(
-                        "flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
-                        active === filter.key && "bg-primary/10 text-primary",
-                      )}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <Check
-                          className={cn(
-                            "h-3.5 w-3.5",
-                            active === filter.key ? "opacity-100" : "opacity-0",
-                          )}
-                        />
-                        {filter.label}
-                      </span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground">
-                        {count}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {currentUserIsAdmin && !isPersonalWorkspace && (
-              <div className="mt-3 border-t border-border/60 pt-3">
-                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                  Prazo e atribuição
+      {!isPersonalWorkspace &&
+        !hasDirectorySelection &&
+        !selectedOrganizerList &&
+        !isFilteredTaskView && (
+          <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+                  Organizar tarefas
                 </p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {adminScopeFilters.map((filter) => (
-                    <button
-                      key={filter.key}
-                      type="button"
-                      onClick={() => applyScopeFilter(filter.key)}
-                      className={cn(
-                        "flex items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
-                        taskScope === filter.key && "bg-primary/10 text-primary",
-                      )}
-                    >
-                      <Check
-                        className={cn(
-                          "h-3.5 w-3.5",
-                          taskScope === filter.key ? "opacity-100" : "opacity-0",
-                        )}
-                      />
-                      {filter.label}
-                    </button>
-                  ))}
-                </div>
+                <h2 className="mt-1 font-display text-lg font-bold">
+                  Setores, colaboradores ou grupos
+                </h2>
               </div>
-            )}
-          </PopoverContent>
-        </Popover>
-
-        {active !== "all" && (
-          <button
-            type="button"
-            onClick={() => applyStatusFilter("all")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
-          >
-            {statusFilters.find((filter) => filter.key === active)?.label}
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-        {taskScope !== "all" && (
-          <button
-            type="button"
-            onClick={() => applyScopeFilter("all")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
-          >
-            {adminScopeFilters.find((filter) => filter.key === taskScope)?.label}
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              setLayoutPreferences((current) => ({
-                ...current,
-                layoutMode: current.layoutMode === "department" ? "list" : "department",
-              }))
-            }
-            className={cn(
-              "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
-              layoutPreferences.layoutMode === "department" && "border-primary/25 text-primary",
-            )}
-          >
-            <Layers3 className="h-4 w-4" />
-            {layoutPreferences.layoutMode === "department" ? "Por setor" : "Abrir por setor"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowLayoutSettings((current) => !current)}
-            className={cn(
-              "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
-              showLayoutSettings && "border-primary/25 text-primary",
-            )}
-          >
-            <Settings2 className="h-4 w-4" />
-            Personalizar layout
-          </button>
-          {layoutPreferences.layoutMode === "department" && (
-            <button
-              type="button"
-              onClick={() => {
-                const sectionIds = taskSections.map((section) => section.id);
-                const allCollapsed =
-                  sectionIds.length > 0 &&
-                  sectionIds.every((sectionId) => collapsedDepartments.has(sectionId));
-                setCollapsedDepartments(allCollapsed ? new Set() : new Set(sectionIds));
-              }}
-              className="task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition hover:border-primary/25 hover:text-primary"
-            >
-              {taskSections.every((section) => collapsedDepartments.has(section.id)) ? (
-                <Eye className="h-4 w-4" />
-              ) : (
-                <EyeOff className="h-4 w-4" />
-              )}
-              {taskSections.every((section) => collapsedDepartments.has(section.id))
-                ? "Mostrar todos os setores"
-                : "Ocultar todos os setores"}
-            </button>
-          )}
-        </div>
-        <span className="hidden text-xs text-muted-foreground lg:inline">
-          Arraste a barra azul ao lado de “Atividade” para aumentar ou diminuir.
-        </span>
-      </div>
-
-      {showLayoutSettings && (
-        <section className="task-glass-panel mb-4 grid gap-4 rounded-[20px] p-4 sm:grid-cols-3">
-          <label className="space-y-2 text-xs font-semibold">
-            <span className="flex items-center justify-between gap-2 text-foreground">
-              <span className="flex items-center gap-2">
-                <Columns3 className="h-4 w-4 text-primary" />
-                Largura da atividade
-              </span>
-              <span className="text-[10px] text-primary">{layoutPreferences.titleWidth}px</span>
-            </span>
-            <input
-              type="range"
-              min={240}
-              max={680}
-              step={20}
-              value={layoutPreferences.titleWidth}
-              onChange={(event) =>
-                setLayoutPreferences((current) => ({
-                  ...current,
-                  titleWidth: Number(event.target.value),
-                }))
-              }
-              className="w-full accent-primary"
-            />
-          </label>
-          <label className="space-y-2 text-xs font-semibold">
-            <span className="text-foreground">Espaçamento das linhas</span>
-            <select
-              value={layoutPreferences.density}
-              onChange={(event) =>
-                setLayoutPreferences((current) => ({
-                  ...current,
-                  density: event.target.value as TaskLayoutPreferences["density"],
-                }))
-              }
-              className="h-10 w-full rounded-xl border border-border/70 bg-background/70 px-3 outline-none"
-            >
-              <option value="comfortable">Confortável</option>
-              <option value="compact">Compacto</option>
-            </select>
-          </label>
-          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-[14px] border border-border/60 bg-background/55 px-3 text-xs font-semibold">
-            Mostrar notas na tabela
-            <input
-              type="checkbox"
-              checked={layoutPreferences.showDescription}
-              onChange={(event) =>
-                setLayoutPreferences((current) => ({
-                  ...current,
-                  showDescription: event.target.checked,
-                }))
-              }
-              className="h-4 w-4 accent-primary"
-            />
-          </label>
-        </section>
-      )}
-
-      <div className="space-y-4">
-        {taskSections.map((section) => {
-          const collapsed = collapsedDepartments.has(section.id);
-          return (
-            <section key={section.id}>
-              {layoutPreferences.layoutMode === "department" && (
+              {(selectedDepartmentId || selectedCollaboratorId || selectedGroupId) && (
                 <button
                   type="button"
                   onClick={() =>
-                    setCollapsedDepartments((current) => {
-                      const next = new Set(current);
-                      if (next.has(section.id)) next.delete(section.id);
-                      else next.add(section.id);
-                      return next;
+                    navigate({
+                      search: (current) => ({
+                        ...current,
+                        setor: undefined,
+                        colaborador: undefined,
+                        grupo: undefined,
+                      }),
                     })
                   }
-                  className="mb-1 flex w-full items-center justify-between border-b border-border/70 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                  className="task-glass-control inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
                 >
-                  <span className="font-display text-sm font-bold">{section.label}</span>
-                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                    {section.tasks.length} atividades
-                    <ChevronDown
-                      className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")}
-                    />
-                  </span>
+                  <X className="h-3.5 w-3.5" /> Mostrar todas
                 </button>
               )}
-              {!collapsed && (
-                <TaskList
-                  tasks={section.tasks}
-                  employees={employees}
-                  departments={departments}
-                  groups={groups}
-                  permissionGroups={data.permissionGroups}
-                  currentUser={currentUser}
-                  showResponsible={showResponsible}
-                  selectedTaskId={selectedTaskId}
-                  onOpen={openTask}
-                  onComplete={(task) => statusMutation.mutate({ id: task.id, status: "completed" })}
-                  onReorder={handleReorderTask}
-                  movingTaskId={movingTaskId}
-                  isCompleting={statusMutation.isPending}
-                  preferences={layoutPreferences}
-                  onTitleWidthChange={(titleWidth) =>
-                    setLayoutPreferences((current) => ({ ...current, titleWidth }))
-                  }
-                />
-              )}
-            </section>
-          );
-        })}
-      </div>
+            </div>
 
-      {list.length === 0 && (
-        <div className="py-16 text-center text-muted-foreground">
-          {completedTasks.length > 0
-            ? "Nenhuma tarefa ativa neste filtro."
-            : "Nenhuma tarefa encontrada."}
-        </div>
-      )}
-
-      {completedTasks.length > 0 && (
-        <section className="task-glass-panel mt-6 overflow-hidden rounded-[22px] md:rounded-[22px]">
-          <button
-            type="button"
-            onClick={() => setShowCompleted((current) => !current)}
-            className="group flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-foreground/[0.025] md:px-6"
-          >
-            <span className="inline-flex min-w-0 items-center gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-border/70 bg-background/70 text-primary transition-colors group-hover:text-primary">
-                <Archive className="h-4 w-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-foreground">
-                  Tarefas concluídas
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setDirectoryMode("departments");
+                  navigate({
+                    search: (current) => ({
+                      ...current,
+                      setor: undefined,
+                      colaborador: undefined,
+                      grupo: undefined,
+                    }),
+                  });
+                }}
+                className={cn(
+                  "rounded-2xl border px-4 py-3 text-left transition",
+                  directoryMode === "departments"
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border/65 bg-background/55 hover:border-primary/25",
+                )}
+              >
+                <Layers3 className="mb-2 h-4 w-4" />
+                <span className="block text-sm font-bold">Setores</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {departments.length} cadastrados
                 </span>
-                <span className="text-xs text-muted-foreground">
-                  {completedTasks.length} {completedTasks.length === 1 ? "atividade" : "atividades"}{" "}
-                  arquivada{completedTasks.length === 1 ? "" : "s"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDirectoryMode("collaborators");
+                  navigate({
+                    search: (current) => ({
+                      ...current,
+                      setor: undefined,
+                      colaborador: undefined,
+                      grupo: undefined,
+                    }),
+                  });
+                }}
+                className={cn(
+                  "rounded-2xl border px-4 py-3 text-left transition",
+                  directoryMode === "collaborators"
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border/65 bg-background/55 hover:border-primary/25",
+                )}
+              >
+                <Users className="mb-2 h-4 w-4" />
+                <span className="block text-sm font-bold">Colaboradores</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {assignmentMembers.length} cadastrados
                 </span>
-              </span>
-            </span>
-            <ChevronDown
-              className={cn(
-                "h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:text-primary",
-                showCompleted && "rotate-180",
-              )}
-            />
-          </button>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDirectoryMode("groups");
+                  navigate({
+                    search: (current) => ({
+                      ...current,
+                      setor: undefined,
+                      colaborador: undefined,
+                      grupo: undefined,
+                    }),
+                  });
+                }}
+                className={cn(
+                  "rounded-2xl border px-4 py-3 text-left transition",
+                  directoryMode === "groups"
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border/65 bg-background/55 hover:border-primary/25",
+                )}
+              >
+                <Network className="mb-2 h-4 w-4" />
+                <span className="block text-sm font-bold">Grupos</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {groups.length} cadastrados
+                </span>
+              </button>
+            </div>
 
-          {showCompleted && (
-            <div className="grid grid-cols-1 gap-3 border-t border-border/60 bg-background/35 p-4 animate-in fade-in slide-in-from-top-1 duration-150 md:grid-cols-2 md:p-5 xl:grid-cols-3">
-              {completedTasks.map((task) => {
-                const emp = employees.find((employee) => employee.id === task.responsibleId);
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {directoryMode === "departments"
+                ? departments.map((department) => {
+                    const count = tasks.filter((task) =>
+                      taskMatchesDepartment(task, department.id, data),
+                    ).length;
+                    const selected = selectedDepartmentId === department.id;
+                    return (
+                      <button
+                        key={department.id}
+                        type="button"
+                        onClick={() =>
+                          navigate({
+                            search: (current) => ({
+                              ...current,
+                              setor: department.id,
+                              colaborador: undefined,
+                              grupo: undefined,
+                            }),
+                          })
+                        }
+                        className={cn(
+                          "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                          selected
+                            ? "border-primary/30 bg-primary/10 text-primary"
+                            : "border-border/60 bg-background/55 hover:border-primary/25",
+                        )}
+                      >
+                        <span className="truncate text-xs font-bold">{department.name}</span>
+                        <span className="text-[10px] tabular-nums text-muted-foreground">
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })
+                : directoryMode === "groups"
+                  ? groups.map((group) => {
+                      const count = tasks.filter((task) =>
+                        taskMatchesGroup(task, group.id, data),
+                      ).length;
+                      const selected = selectedGroupId === group.id;
+                      return (
+                        <button
+                          key={group.id}
+                          type="button"
+                          onClick={() =>
+                            navigate({
+                              search: (current) => ({
+                                ...current,
+                                setor: undefined,
+                                colaborador: undefined,
+                                grupo: group.id,
+                              }),
+                            })
+                          }
+                          className={cn(
+                            "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                            selected
+                              ? "border-primary/30 bg-primary/10 text-primary"
+                              : "border-border/60 bg-background/55 hover:border-primary/25",
+                          )}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs font-bold">{group.name}</span>
+                            <span className="block truncate text-[10px] text-muted-foreground">
+                              {group.memberIds.length} membros
+                            </span>
+                          </span>
+                          <span className="text-[10px] tabular-nums text-muted-foreground">
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })
+                  : assignmentMembers.map((employee) => {
+                      const count = tasks.filter((task) =>
+                        taskMatchesCollaborator(task, employee.id),
+                      ).length;
+                      const selected = selectedCollaboratorId === employee.id;
+                      return (
+                        <button
+                          key={employee.id}
+                          type="button"
+                          onClick={() =>
+                            navigate({
+                              search: (current) => ({
+                                ...current,
+                                setor: undefined,
+                                colaborador: employee.id,
+                                grupo: undefined,
+                              }),
+                            })
+                          }
+                          className={cn(
+                            "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                            selected
+                              ? "border-primary/30 bg-primary/10 text-primary"
+                              : "border-border/60 bg-background/55 hover:border-primary/25",
+                          )}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs font-bold">
+                              {employee.name}
+                            </span>
+                            <span className="block truncate text-[10px] text-muted-foreground">
+                              {employee.role}
+                            </span>
+                          </span>
+                          <span className="text-[10px] tabular-nums text-muted-foreground">
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+            </div>
+          </section>
+        )}
+
+      {!isPersonalWorkspace &&
+        (selectedDirectoryDepartment ||
+          selectedDirectoryCollaborator ||
+          selectedDirectoryGroup) && (
+          <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
+            <button
+              type="button"
+              onClick={() =>
+                navigate({
+                  search: (current) => ({
+                    ...current,
+                    setor: undefined,
+                    colaborador: undefined,
+                    grupo: undefined,
+                  }),
+                })
+              }
+              className="task-glass-control inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
+            >
+              <ArrowLeft className="h-4 w-4" /> Voltar para categorias
+            </button>
+            <div className="mt-4 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+                  {selectedDirectoryDepartment
+                    ? "Tarefas do setor"
+                    : selectedDirectoryGroup
+                      ? "Tarefas do grupo"
+                      : "Tarefas do colaborador"}
+                </p>
+                <h2 className="mt-1 truncate font-display text-xl font-bold">
+                  {selectedDirectoryDepartment?.name ??
+                    selectedDirectoryGroup?.name ??
+                    selectedDirectoryCollaborator?.name}
+                </h2>
+                {selectedDirectoryCollaborator && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Tarefas individuais e atividades atribuídas a esta pessoa
+                  </p>
+                )}
+                {selectedDirectoryGroup && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Tarefas do grupo e atividades atribuídas aos seus integrantes
+                  </p>
+                )}
+              </div>
+              <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary">
+                {taskRows.length} {taskRows.length === 1 ? "tarefa" : "tarefas"}
+              </span>
+            </div>
+          </section>
+        )}
+
+      {(isPersonalWorkspace ||
+        hasDirectorySelection ||
+        selectedOrganizerList ||
+        isFilteredTaskView) && (
+        <>
+          <div className="mb-4 flex min-w-0 items-center gap-2 sm:gap-3">
+            <div className="task-glass-control flex h-12 min-w-0 flex-1 items-center gap-2 rounded-[18px] px-3 transition-colors focus-within:border-primary/45 sm:px-4 md:h-11">
+              <Search className="h-4 w-4 text-primary" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar tarefas..."
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/75"
+              />
+            </div>
+            {canCreateTask && (
+              <>
+                <button
+                  onClick={() => openPopAssistant()}
+                  className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 text-sm font-bold text-primary transition hover:bg-primary/15 lg:hidden"
+                  aria-label="Criar com a Pop"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  <span className="hidden sm:inline">Pop</span>
+                </button>
+                <button
+                  onClick={openForm}
+                  className="pressable inline-flex h-12 shrink-0 items-center gap-2 rounded-full bg-primary px-3.5 text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 sm:px-4 lg:hidden"
+                >
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background/16">
+                    <Plus className="h-4 w-4" />
+                  </span>
+                  Nova
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
+                    (active !== "all" || taskScope !== "all") &&
+                      "border-primary/25 bg-primary/8 text-primary",
+                  )}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  Filtros
+                  {(active !== "all" || taskScope !== "all") && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground">
+                      {Number(active !== "all") + Number(taskScope !== "all")}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-3">
+                <div>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                    Status
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {statusFilters.map((filter) => {
+                      const count =
+                        filter.key === "all"
+                          ? taskRows.length
+                          : taskRows.filter((task) => task.status === filter.key).length;
+                      return (
+                        <button
+                          key={filter.key}
+                          type="button"
+                          onClick={() => applyStatusFilter(filter.key)}
+                          className={cn(
+                            "flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
+                            active === filter.key && "bg-primary/10 text-primary",
+                          )}
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            <Check
+                              className={cn(
+                                "h-3.5 w-3.5",
+                                active === filter.key ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            {filter.label}
+                          </span>
+                          <span className="text-[10px] tabular-nums text-muted-foreground">
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {currentUserIsAdmin && !isPersonalWorkspace && (
+                  <div className="mt-3 border-t border-border/60 pt-3">
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                      Prazo e atribuição
+                    </p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {adminScopeFilters.map((filter) => (
+                        <button
+                          key={filter.key}
+                          type="button"
+                          onClick={() => applyScopeFilter(filter.key)}
+                          className={cn(
+                            "flex items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
+                            taskScope === filter.key && "bg-primary/10 text-primary",
+                          )}
+                        >
+                          <Check
+                            className={cn(
+                              "h-3.5 w-3.5",
+                              taskScope === filter.key ? "opacity-100" : "opacity-0",
+                            )}
+                          />
+                          {filter.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+
+            {active !== "all" && (
+              <button
+                type="button"
+                onClick={() => applyStatusFilter("all")}
+                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
+              >
+                {statusFilters.find((filter) => filter.key === active)?.label}
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {taskScope !== "all" && (
+              <button
+                type="button"
+                onClick={() => applyScopeFilter("all")}
+                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
+              >
+                {adminScopeFilters.find((filter) => filter.key === taskScope)?.label}
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  { value: "list", label: "Lista", icon: Columns3 },
+                  { value: "department", label: "Por setor", icon: Layers3 },
+                  { value: "group", label: "Por grupo", icon: Network },
+                ] as const
+              ).map((option) => {
+                const Icon = option.icon;
                 return (
                   <button
-                    key={task.id}
+                    key={option.value}
                     type="button"
-                    onClick={() => openTask(task)}
-                    className="task-glass-control pressable rounded-[16px] p-4 text-left opacity-80 hover:border-primary/35 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+                    onClick={() =>
+                      setLayoutPreferences((current) => ({
+                        ...current,
+                        layoutMode: option.value,
+                      }))
+                    }
+                    className={cn(
+                      "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
+                      layoutPreferences.layoutMode === option.value &&
+                        "border-primary/25 text-primary",
+                    )}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="truncate text-sm font-semibold text-foreground line-through">
-                          {task.title}
-                        </h3>
-                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                          {task.description}
-                        </p>
-                        {task.recurrence && (
-                          <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                            <Repeat className="h-3 w-3" />
-                            {recurrenceLabel(task.recurrence)}
-                          </div>
-                        )}
-                      </div>
-                      <PriorityBadge priority={task.priority} />
-                    </div>
-                    <div
-                      className={cn(
-                        "mt-3 flex items-center gap-3 text-[11px] text-muted-foreground",
-                        showResponsible ? "justify-between" : "justify-end",
-                      )}
-                    >
-                      {showResponsible && (
-                        <span className="truncate">
-                          {emp?.name ?? (task.target.type === "department" ? "Setor inteiro" : "")}
-                        </span>
-                      )}
-                      <span>
-                        {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
-                      </span>
-                    </div>
+                    <Icon className="h-4 w-4" />
+                    {option.label}
                   </button>
                 );
               })}
+              <button
+                type="button"
+                onClick={() => setShowLayoutSettings((current) => !current)}
+                className={cn(
+                  "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
+                  showLayoutSettings && "border-primary/25 text-primary",
+                )}
+              >
+                <Settings2 className="h-4 w-4" />
+                Personalizar layout
+              </button>
+            </div>
+            <span className="hidden text-xs text-muted-foreground lg:inline">
+              Arraste a barra azul ao lado de “Atividade” para aumentar ou diminuir.
+            </span>
+          </div>
+
+          {showLayoutSettings && (
+            <section className="task-glass-panel mb-4 grid gap-4 rounded-[20px] p-4 sm:grid-cols-3">
+              <label className="space-y-2 text-xs font-semibold">
+                <span className="flex items-center justify-between gap-2 text-foreground">
+                  <span className="flex items-center gap-2">
+                    <Columns3 className="h-4 w-4 text-primary" />
+                    Largura da atividade
+                  </span>
+                  <span className="text-[10px] text-primary">{layoutPreferences.titleWidth}px</span>
+                </span>
+                <input
+                  type="range"
+                  min={240}
+                  max={680}
+                  step={20}
+                  value={layoutPreferences.titleWidth}
+                  onChange={(event) =>
+                    setLayoutPreferences((current) => ({
+                      ...current,
+                      titleWidth: Number(event.target.value),
+                    }))
+                  }
+                  className="w-full accent-primary"
+                />
+              </label>
+              <label className="space-y-2 text-xs font-semibold">
+                <span className="text-foreground">Espaçamento das linhas</span>
+                <select
+                  value={layoutPreferences.density}
+                  onChange={(event) =>
+                    setLayoutPreferences((current) => ({
+                      ...current,
+                      density: event.target.value as TaskLayoutPreferences["density"],
+                    }))
+                  }
+                  className="h-10 w-full rounded-xl border border-border/70 bg-background/70 px-3 outline-none"
+                >
+                  <option value="comfortable">Confortável</option>
+                  <option value="compact">Compacto</option>
+                </select>
+              </label>
+              <label className="flex cursor-pointer items-center justify-between gap-3 rounded-[14px] border border-border/60 bg-background/55 px-3 text-xs font-semibold">
+                Mostrar notas na tabela
+                <input
+                  type="checkbox"
+                  checked={layoutPreferences.showDescription}
+                  onChange={(event) =>
+                    setLayoutPreferences((current) => ({
+                      ...current,
+                      showDescription: event.target.checked,
+                    }))
+                  }
+                  className="h-4 w-4 accent-primary"
+                />
+              </label>
+            </section>
+          )}
+
+          <div className="space-y-4">
+            {taskSections.map((section) => {
+              const collapsed = collapsedDepartments.has(section.id);
+              return (
+                <section key={section.id}>
+                  {layoutPreferences.layoutMode !== "list" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCollapsedDepartments((current) => {
+                          const next = new Set(current);
+                          if (next.has(section.id)) next.delete(section.id);
+                          else next.add(section.id);
+                          return next;
+                        })
+                      }
+                      className="mb-1 flex w-full items-center justify-between border-b border-border/70 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                    >
+                      <span className="font-display text-sm font-bold">{section.label}</span>
+                      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {section.tasks.length} atividades
+                        <ChevronDown
+                          className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")}
+                        />
+                      </span>
+                    </button>
+                  )}
+                  {!collapsed && (
+                    <TaskList
+                      tasks={section.tasks}
+                      employees={assignmentMembers}
+                      departments={departments}
+                      groups={groups}
+                      permissionGroups={data.permissionGroups}
+                      currentUser={currentUser}
+                      showResponsible={showResponsible}
+                      selectedTaskId={selectedTaskId}
+                      onOpen={openTask}
+                      onComplete={(task) =>
+                        statusMutation.mutate({ id: task.id, status: "completed" })
+                      }
+                      onReorder={handleReorderTask}
+                      movingTaskId={movingTaskId}
+                      isCompleting={statusMutation.isPending}
+                      preferences={layoutPreferences}
+                      onTitleWidthChange={(titleWidth) =>
+                        setLayoutPreferences((current) => ({ ...current, titleWidth }))
+                      }
+                    />
+                  )}
+                </section>
+              );
+            })}
+          </div>
+
+          {list.length === 0 && (
+            <div className="py-16 text-center text-muted-foreground">
+              {completedTasks.length > 0
+                ? "Nenhuma tarefa ativa neste filtro."
+                : "Nenhuma tarefa encontrada."}
             </div>
           )}
-        </section>
+
+          {completedTasks.length > 0 && (
+            <section className="task-glass-panel mt-6 overflow-hidden rounded-[22px] md:rounded-[22px]">
+              <button
+                type="button"
+                onClick={() => setShowCompleted((current) => !current)}
+                className="group flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-foreground/[0.025] md:px-6"
+              >
+                <span className="inline-flex min-w-0 items-center gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-border/70 bg-background/70 text-primary transition-colors group-hover:text-primary">
+                    <Archive className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-foreground">
+                      Tarefas concluídas
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {completedTasks.length}{" "}
+                      {completedTasks.length === 1 ? "atividade" : "atividades"} arquivada
+                      {completedTasks.length === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:text-primary",
+                    showCompleted && "rotate-180",
+                  )}
+                />
+              </button>
+
+              {showCompleted && (
+                <div className="grid grid-cols-1 gap-3 border-t border-border/60 bg-background/35 p-4 animate-in fade-in slide-in-from-top-1 duration-150 md:grid-cols-2 md:p-5 xl:grid-cols-3">
+                  {completedTasks.map((task) => {
+                    const emp = employees.find((employee) => employee.id === task.responsibleId);
+                    return (
+                      <button
+                        key={task.id}
+                        type="button"
+                        onClick={() => openTask(task)}
+                        className="task-glass-control pressable rounded-[16px] p-4 text-left opacity-80 hover:border-primary/35 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="truncate text-sm font-semibold text-foreground line-through">
+                              {task.title}
+                            </h3>
+                            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                              {task.description}
+                            </p>
+                            {task.recurrence && (
+                              <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                                <Repeat className="h-3 w-3" />
+                                {recurrenceLabel(task.recurrence)}
+                              </div>
+                            )}
+                          </div>
+                          <PriorityBadge priority={task.priority} />
+                        </div>
+                        <div
+                          className={cn(
+                            "mt-3 flex items-center gap-3 text-[11px] text-muted-foreground",
+                            showResponsible ? "justify-between" : "justify-end",
+                          )}
+                        >
+                          {showResponsible && (
+                            <span className="truncate">
+                              {emp?.name ??
+                                (task.target.type === "department" ? "Setor inteiro" : "")}
+                            </span>
+                          )}
+                          <span>
+                            {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
+        </>
       )}
 
       {taskDetailLayer}
@@ -1182,10 +1583,11 @@ function TasksPage() {
         onSubmit={handleSubmit}
         isSubmitting={createTaskMutation.isPending}
         errorMessage={mutationError}
-        employees={employees}
+        employees={assignmentMembers}
+        departments={departments}
+        groups={groups}
         targetOptions={targetOptions}
         personalMode={isPersonalWorkspace}
-        canCreateChecklist={isAdminUser({ currentUser, employees, permissionGroups })}
       />
     </AppShell>
   );

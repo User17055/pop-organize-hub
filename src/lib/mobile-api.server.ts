@@ -1,6 +1,12 @@
-import type { Database, PlatformDatabase } from "./database";
+import {
+  formatDepartmentName,
+  nextId,
+  toCurrentUser,
+  transferInvitationAssignments,
+  type Database,
+  type PlatformDatabase,
+} from "./database";
 import { createPublicKey, createVerify, randomInt, type JsonWebKey } from "node:crypto";
-import { nextId, toCurrentUser } from "./database";
 import {
   createCompanyWorkspace,
   createPersonalWorkspace,
@@ -107,6 +113,10 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         permissionGroups: workspace.permissionGroups,
       });
       const isCompany = (workspace.company.kind ?? "company") === "company";
+      const departmentName = (id: string) =>
+        formatDepartmentName(
+          workspace.departments.find((department) => department.id === id)?.name ?? "",
+        );
       return {
         id: workspace.company.id,
         name: workspace.company.name,
@@ -140,9 +150,7 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
                   : employee.role,
               isOwner: isCompany && employee.id === workspace.company.ownerId,
               sectorId: employee.departmentId,
-              sector:
-                workspace.departments.find((department) => department.id === employee.departmentId)
-                  ?.name ?? "",
+              sector: departmentName(employee.departmentId),
               groupIds: workspace.groups
                 .filter((group) => group.memberIds.includes(employee.id))
                 .map((group) => group.id),
@@ -158,16 +166,14 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             role: invitation.role,
             isOwner: false,
             sectorId: invitation.departmentId,
-            sector:
-              workspace.departments.find((department) => department.id === invitation.departmentId)
-                ?.name ?? "",
+            sector: departmentName(invitation.departmentId),
             groupIds: invitation.groupIds ?? [],
             pending: true,
           })),
         ],
         sectors: workspace.departments.map((department) => ({
           id: department.id,
-          name: department.name,
+          name: formatDepartmentName(department.name),
           description: department.description ?? "",
         })),
         groups: workspace.groups.map((group) => ({
@@ -705,7 +711,7 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
   const workspaceId = authorizedWorkspace.company.id;
 
   if (action === "createDepartment") {
-    const name = requiredText(input.name, "O nome");
+    const name = formatDepartmentName(requiredText(input.name, "O nome"));
     const description = requiredText(input.description, "A descrição", 3);
     await mutateDatabase((platform) => {
       const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
@@ -1179,6 +1185,7 @@ export async function respondToMobileInvitation(
         }
       });
     }
+    if (accept) transferInvitationAssignments(workspace, invitation.id, account.id);
     workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
     return {
       ok: true,
@@ -1397,7 +1404,11 @@ function taskToMobileTask(
     new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean)),
   ).slice(0, 3);
   const assignees = responsibleIds
-    .map((id) => workspace.employees.find((employee) => employee.id === id)?.name)
+    .map(
+      (id) =>
+        workspace.employees.find((employee) => employee.id === id)?.name ??
+        workspace.invitations.find((invitation) => invitation.id === id)?.name,
+    )
     .filter((name): name is string => Boolean(name));
   const assignee = assignees.join(", ") || "Sem responsável";
   const assignedBy =
@@ -1416,7 +1427,7 @@ function taskToMobileTask(
     dueLabel: native?.dueLabel ?? task.dueDate,
     priority: mobilePriority(task.priority),
     dueDate: task.dueDate,
-    completed: task.status === "completed" || task.status === "waiting_review",
+    completed: task.status === "completed",
     description: task.description === "Tarefa criada no aplicativo" ? "" : task.description,
     assignee,
     assignedBy: native?.assignedBy ?? assignedBy,
@@ -1470,7 +1481,13 @@ function mobileResponsibleId(workspace: Database, accountId: string, assignee: s
       (employee) =>
         employee.name.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR") ||
         employee.email.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR"),
-    )?.id ?? ""
+    )?.id ??
+    workspace.invitations.find(
+      (invitation) =>
+        invitation.name.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR") ||
+        invitation.email.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR"),
+    )?.id ??
+    ""
   );
 }
 
@@ -1511,6 +1528,12 @@ function mobileTaskTarget(
         candidate.name.toLocaleLowerCase("pt-BR") === label.toLocaleLowerCase("pt-BR"),
     );
     if (employee) return { type: "user", id: employee.id, label: employee.name };
+    const invitation = workspace.invitations.find(
+      (candidate) =>
+        candidate.id === id ||
+        candidate.name.toLocaleLowerCase("pt-BR") === label.toLocaleLowerCase("pt-BR"),
+    );
+    if (invitation) return { type: "user", id: invitation.id, label: invitation.name };
   }
   if (workspace.company.kind === "company") {
     return {
@@ -1727,11 +1750,13 @@ export async function replaceMobileTasks(
           ...existing.nativeRemindersByUser,
           [account.id]: item.reminder,
         };
-        if (
-          completed !== (existing.status === "completed" || existing.status === "waiting_review")
-        ) {
-          if (completed && permissions.canComplete)
-            existing.status = existing.requiresReview ? "waiting_review" : "completed";
+        if (completed !== (existing.status === "completed")) {
+          if (completed && permissions.canComplete) {
+            existing.status =
+              existing.requiresReview && existing.reviewerId !== account.id
+                ? "waiting_review"
+                : "completed";
+          }
           if (!completed && permissions.canReopen) existing.status = "reopened";
         }
         if (permissions.canEditContent || existing.nativeOwnerId === account.id) {

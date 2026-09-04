@@ -11,7 +11,9 @@ import {
   Paperclip,
   Pencil,
   Repeat,
+  RotateCcw,
   Send,
+  ShieldCheck,
   Tag,
   Target,
   Trash2,
@@ -29,6 +31,7 @@ import type {
   Priority,
   TargetType,
   Task,
+  TaskStatus,
 } from "@/lib/domain";
 import { priorityLabels } from "@/lib/domain";
 import type { TaskPermissions } from "@/lib/permissions";
@@ -64,7 +67,7 @@ export function TaskDetailDrawer({
   onEditFormChange,
   onSubmit,
   onClose,
-  onToggleComplete,
+  onStatusChange,
   onReorder,
   onDelete,
   isSaving,
@@ -94,7 +97,7 @@ export function TaskDetailDrawer({
   onEditFormChange: (updater: (current: TaskEditState) => TaskEditState) => void;
   onSubmit: (event: FormEvent) => void;
   onClose: () => void;
-  onToggleComplete: () => void;
+  onStatusChange: (status: TaskStatus) => void;
   onReorder?: (position: "start" | "end") => void;
   onDelete: () => void;
   isSaving: boolean;
@@ -115,10 +118,14 @@ export function TaskDetailDrawer({
   errorMessage?: string | null;
 }) {
   const getEmployee = (id?: string) => employees.find((employee) => employee.id === id);
+  const reviewManagerId = permissions.reviewManagerId;
   const [isCelebrating, setIsCelebrating] = useState(false);
   const [destinationOpen, setDestinationOpen] = useState(false);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [selectedTargetType] = editForm.targetKey.split(":") as [TargetType, string];
+  const [selectedTargetType, selectedTargetId] = editForm.targetKey.split(":") as [
+    TargetType,
+    string,
+  ];
   const destinationOptions =
     selectedTargetType === "company"
       ? [{ id: company.id, label: company.name, description: "Toda a empresa" }]
@@ -137,7 +144,10 @@ export function TaskDetailDrawer({
           : employees.map((employee) => ({
               id: employee.id,
               label: employee.name,
-              description: employee.role,
+              description:
+                employee.role === "Convite pendente"
+                  ? "Aguardando aceite do convite"
+                  : employee.role,
             }));
 
   useEffect(
@@ -148,12 +158,12 @@ export function TaskDetailDrawer({
   );
 
   function handleToggleComplete() {
-    if (task.status !== "completed") {
+    if (task.status !== "completed" && (!task.requiresReview || permissions.canApproveReview)) {
       setIsCelebrating(true);
       if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
       celebrationTimerRef.current = setTimeout(() => setIsCelebrating(false), 900);
     }
-    onToggleComplete();
+    onStatusChange(task.status === "completed" ? "reopened" : "completed");
   }
 
   return (
@@ -246,7 +256,11 @@ export function TaskDetailDrawer({
         <div className="flex items-start gap-3">
           <button
             type="button"
-            disabled={!permissions.canComplete || isStatusPending}
+            disabled={
+              task.status === "waiting_review" ||
+              (task.status === "completed" ? !permissions.canReopen : !permissions.canComplete) ||
+              isStatusPending
+            }
             onClick={handleToggleComplete}
             className={cn(
               "task-complete-toggle relative mt-1 flex h-7 w-7 shrink-0 items-center justify-center overflow-visible rounded-full border-2 transition disabled:opacity-50",
@@ -257,7 +271,15 @@ export function TaskDetailDrawer({
                   )
                 : "border-muted-foreground/40 hover:border-foreground",
             )}
-            aria-label={task.status === "completed" ? "Reabrir" : "Concluir"}
+            aria-label={
+              task.status === "waiting_review"
+                ? "Aguardando revisão"
+                : task.status === "completed"
+                  ? "Reabrir"
+                  : task.requiresReview && !permissions.canApproveReview
+                    ? "Enviar para revisão"
+                    : "Concluir"
+            }
           >
             {(task.status === "completed" || isCelebrating) && (
               <>
@@ -301,6 +323,43 @@ export function TaskDetailDrawer({
             </span>
           )}
         </div>
+        {task.status === "waiting_review" && (
+          <div className="mt-3 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3">
+            <div className="flex items-start gap-2.5">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-foreground">Aguardando revisão</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  {permissions.canApproveReview || permissions.canRejectReview
+                    ? "Confira a execução e escolha se a tarefa deve ser reaberta ou concluída definitivamente."
+                    : `Aguardando a confirmação de ${getEmployee(reviewManagerId)?.name ?? "quem gerencia este setor"}.`}
+                </p>
+              </div>
+            </div>
+            {(permissions.canApproveReview || permissions.canRejectReview) && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={!permissions.canRejectReview || isStatusPending}
+                  onClick={() => onStatusChange("reopened")}
+                  className="pressable inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-border bg-background/80 px-3 text-xs font-bold text-foreground disabled:opacity-50"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Reabrir tarefa
+                </button>
+                <button
+                  type="button"
+                  disabled={!permissions.canApproveReview || isStatusPending}
+                  onClick={() => onStatusChange("completed")}
+                  className="pressable inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-success px-3 text-xs font-bold text-white disabled:opacity-50"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Concluir de fato
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </header>
 
       {/* Scrollable body */}
@@ -319,7 +378,6 @@ export function TaskDetailDrawer({
             rows={8}
             placeholder="Adicionar uma nota..."
             className="min-h-[240px] w-full resize-y rounded-md border border-border/60 bg-muted/30 px-4 py-3.5 text-sm leading-relaxed outline-none transition focus:border-primary focus:bg-background disabled:opacity-60"
-            required
           />
         </div>
 
@@ -449,52 +507,53 @@ export function TaskDetailDrawer({
               )}
             </button>
 
-            {/* A pessoa escolhida como destino já é a destinatária da atividade. */}
-            {selectedTargetType !== "user" && (
-              <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
-                <EmployeeAvatar
-                  employee={getEmployee(task.responsibleId)}
-                  departments={departments}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                    Responsável
-                  </div>
-                  {permissions.canEditContent ? (
-                    <GlassSelect
-                      value={editForm.responsibleId}
-                      options={[
-                        { value: "", label: "Sem responsável" },
-                        ...employees.map((employee) => ({
-                          value: employee.id,
-                          label: employee.name,
-                        })),
-                      ]}
-                      onChange={(responsibleId) =>
-                        onEditFormChange((current) => ({ ...current, responsibleId }))
-                      }
-                      compact
-                    />
-                  ) : (
-                    <div className="mt-0.5 truncate text-xs font-semibold text-foreground">
-                      {getEmployee(task.responsibleId)?.name ??
-                        (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
-                    </div>
-                  )}
+            <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
+              <EmployeeAvatar
+                employee={getEmployee(
+                  selectedTargetType === "user" ? selectedTargetId : task.responsibleId,
+                )}
+                departments={departments}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Responsável
                 </div>
+                {permissions.canEditContent && selectedTargetType !== "user" ? (
+                  <GlassSelect
+                    value={editForm.responsibleId}
+                    options={[
+                      { value: "", label: "Sem responsável" },
+                      ...employees.map((employee) => ({
+                        value: employee.id,
+                        label: `${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
+                      })),
+                    ]}
+                    onChange={(responsibleId) =>
+                      onEditFormChange((current) => ({ ...current, responsibleId }))
+                    }
+                    compact
+                  />
+                ) : (
+                  <div className="mt-0.5 truncate text-xs font-semibold text-foreground">
+                    {getEmployee(
+                      selectedTargetType === "user" ? selectedTargetId : task.responsibleId,
+                    )?.name ??
+                      (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
+                  </div>
+                )}
               </div>
-            )}
+            </div>
 
             {/* Reviewer */}
-            {task.reviewerId && (
+            {reviewManagerId && (
               <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
-                <EmployeeAvatar employee={getEmployee(task.reviewerId)} departments={departments} />
+                <EmployeeAvatar employee={getEmployee(reviewManagerId)} departments={departments} />
                 <div className="flex-1 min-w-0">
                   <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                    Revisor
+                    Gestor revisor
                   </div>
                   <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
-                    {getEmployee(task.reviewerId)?.name}
+                    {getEmployee(reviewManagerId)?.name}
                   </div>
                 </div>
               </div>

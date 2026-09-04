@@ -293,7 +293,6 @@ function sanitizeDraft(
 
   const missing = new Set<string>();
   if (!draft.title?.trim()) missing.add("título");
-  if (!draft.description?.trim()) missing.add("descrição");
   if (!draft.targetType || !draft.targetId) missing.add("destino");
 
   answer.missingFields = [...missing];

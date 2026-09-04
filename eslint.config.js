@@ -17,6 +17,8 @@ export default tseslint.config(
       "android/**/build/**",
       "ios/**/build/**",
       "native-shell/**/build/**",
+      // Gerado por `orbita-board/build.mjs`; a fonte TypeScript continua sendo validada.
+      "orbita-board/build/**",
     ],
   },
   {
@@ -49,4 +51,9 @@ export default tseslint.config(
     },
   },
   eslintPluginPrettier,
+  {
+    // O Órbita mantém a formatação compacta do painel original.
+    files: ["orbita-board/src/**/*.{ts,tsx,js,jsx}"],
+    rules: { "prettier/prettier": "off" },
+  },
 );

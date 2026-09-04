@@ -301,6 +301,10 @@ function TaskListImpl({
   }, []);
 
   function completeFromMobile(task: Task) {
+    if (task.requiresReview) {
+      onComplete(task);
+      return;
+    }
     if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
     setCelebratingTaskId(task.id);
     completionTimerRef.current = setTimeout(() => {
@@ -355,7 +359,9 @@ function TaskListImpl({
             </TableHeader>
             <TableBody className="[&_tr:last-child]:border-b">
               {tasks.map((task) => {
-                const emp = getEmployee(task.responsibleId);
+                const emp = getEmployee(
+                  task.responsibleId || (task.target.type === "user" ? task.target.id : ""),
+                );
                 const overdue = isOverdue(task);
                 const permissions = permissionsByTaskId.get(task.id)!;
                 const progress = subtaskProgress(task);
@@ -402,10 +408,19 @@ function TaskListImpl({
                             <button
                               type="button"
                               onClick={() => {
-                                if (!permissions.canChangeStatus || isCompleting) return;
+                                if (
+                                  !permissions.canComplete ||
+                                  task.status === "waiting_review" ||
+                                  isCompleting
+                                )
+                                  return;
                                 onComplete(task);
                               }}
-                              disabled={!permissions.canChangeStatus || isCompleting}
+                              disabled={
+                                !permissions.canComplete ||
+                                task.status === "waiting_review" ||
+                                isCompleting
+                              }
                               className={cn(
                                 "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 bg-white transition-all duration-300 disabled:opacity-40",
                                 overdue
@@ -452,23 +467,15 @@ function TaskListImpl({
                         </TableCell>
                         {showResponsible && (
                           <TableCell className="px-4 py-4">
-                            {task.target.type !== "user" ? (
-                              <div className="flex items-center gap-2">
-                                <EmployeeAvatar
-                                  employee={emp}
-                                  departments={departments}
-                                  size="sm"
-                                />
-                                <span className="truncate text-sm font-medium text-foreground/75">
-                                  {emp?.name ??
-                                    (task.target.type === "department"
-                                      ? "Setor inteiro"
-                                      : "Sem responsável")}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-xs text-muted-foreground/45">—</span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              <EmployeeAvatar employee={emp} departments={departments} size="sm" />
+                              <span className="truncate text-sm font-medium text-foreground/75">
+                                {emp?.name ??
+                                  (task.target.type === "department"
+                                    ? "Setor inteiro"
+                                    : "Sem responsável")}
+                              </span>
+                            </div>
                           </TableCell>
                         )}
                         <TableCell className="px-4 py-4">
@@ -550,7 +557,9 @@ function TaskListImpl({
         <div className="flex flex-col gap-3 lg:hidden">
           <AnimatePresence initial={false}>
             {tasks.map((task, index) => {
-              const emp = getEmployee(task.responsibleId);
+              const emp = getEmployee(
+                task.responsibleId || (task.target.type === "user" ? task.target.id : ""),
+              );
               const overdue = isOverdue(task);
               const permissions = permissionsByTaskId.get(task.id)!;
               const progress = subtaskProgress(task);
@@ -634,7 +643,8 @@ function TaskListImpl({
                     onClick={(event) => {
                       event.stopPropagation();
                       if (
-                        !permissions.canChangeStatus ||
+                        !permissions.canComplete ||
+                        task.status === "waiting_review" ||
                         isCompleting ||
                         celebratingTaskId !== null
                       )
@@ -642,7 +652,10 @@ function TaskListImpl({
                       completeFromMobile(task);
                     }}
                     disabled={
-                      !permissions.canChangeStatus || isCompleting || celebratingTaskId !== null
+                      !permissions.canComplete ||
+                      task.status === "waiting_review" ||
+                      isCompleting ||
+                      celebratingTaskId !== null
                     }
                     className={cn(
                       "task-mobile-complete relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-visible rounded-full transition-all disabled:opacity-50",
@@ -706,7 +719,7 @@ function TaskListImpl({
                     </div>
                   </div>
 
-                  {showResponsible && task.target.type !== "user" && (
+                  {showResponsible && (
                     <div
                       className="shrink-0"
                       title={

@@ -11,10 +11,12 @@ import { z } from "zod";
 
 import {
   defaultDueDate,
+  formatDepartmentName,
   nextId,
   sanitizeDatabase,
   today,
   toCurrentUser,
+  transferInvitationAssignments,
   type AccountRecord,
   type Database,
   type PlatformDatabase,
@@ -28,8 +30,14 @@ import {
   type Task,
   type TargetType,
 } from "../domain";
-import { hasPermission, isAdminUser, resolvePermissionSet } from "../permission-groups";
-import { canViewTask, getTaskPermissions } from "../permissions";
+import { hasPermission, resolvePermissionSet } from "../permission-groups";
+import {
+  canViewTask,
+  getManagerDepartmentAccess,
+  getTaskPermissions,
+  isReviewManagerCandidateId,
+  resolveTaskReviewManagerId,
+} from "../permissions";
 import { materializeRecurringTasks } from "../recurrence.server";
 
 const SESSION_COOKIE = "pop_organize_session";
@@ -67,7 +75,6 @@ const recurrenceSchema = z
     excludedWeekDays: z.array(z.coerce.number().int().min(1).max(7)).max(6).optional(),
     times: z
       .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
-      .min(2)
       .max(12)
       .optional(),
     interval: z.coerce.number().int().min(1).max(120).optional(),
@@ -93,11 +100,12 @@ const recurrenceSchema = z
 
 const createTaskSchema = z.object({
   title: z.string().trim().min(3, "Informe um título"),
-  description: z.string().trim().min(3, "Informe uma descrição"),
+  description: z.string().trim().max(4_000).default(""),
   priority: prioritySchema.default("medium"),
   dueDate: z.string().min(10).default(defaultDueDate()),
   target: targetSchema,
   responsibleId: z.string().default(""),
+  responsibleIds: z.array(z.string().min(1)).max(100).default([]),
   reviewerId: z.string().optional(),
   requiresReview: z.boolean().default(false),
   tags: z.array(z.string().trim().min(1)).default([]),
@@ -135,6 +143,27 @@ const createDepartmentSchema = z.object({
   description: z.string().trim().min(3),
   managerId: z.string().min(1),
   color: z.string().min(3).optional(),
+  managerAccessMode: z.enum(["own", "selected", "all"]).optional(),
+  managerVisibleDepartmentIds: z.array(z.string().min(1)).max(500).default([]),
+});
+
+const updateDepartmentMembersSchema = z.object({
+  departmentId: z.string().min(1),
+  memberIds: z.array(z.string().min(1)).max(500),
+});
+
+const updateDepartmentDetailsSchema = z.object({
+  departmentId: z.string().min(1),
+  name: z.string().trim().min(2).max(60),
+  description: z.string().trim().min(3).max(320),
+  managerId: z.string().min(1).optional(),
+  color: z.string().min(3).optional(),
+  managerAccessMode: z.enum(["own", "selected", "all"]).optional(),
+  managerVisibleDepartmentIds: z.array(z.string().min(1)).max(500).optional(),
+});
+
+const updateWorkspaceTagsSchema = z.object({
+  tags: z.array(z.string().trim().min(1).max(40)).max(100),
 });
 
 const createEmployeeSchema = z.object({
@@ -215,11 +244,12 @@ const updateTaskStatusSchema = z.object({
 const updateTaskDetailsSchema = z.object({
   id: z.string().min(1),
   title: z.string().trim().min(3, "Informe um título"),
-  description: z.string().trim().min(3, "Informe uma descrição"),
+  description: z.string().trim().max(4_000).default(""),
   priority: prioritySchema,
   dueDate: z.string().min(10),
   target: targetSchema,
   responsibleId: z.string().default(""),
+  responsibleIds: z.array(z.string().min(1)).max(100).optional(),
   tags: z.array(z.string().trim().min(1)).default([]),
   recurrence: recurrenceSchema,
 });
@@ -512,13 +542,19 @@ function resolveTargetLabel(type: TargetType, id: string, db: Database) {
   if (type === "company" && db.company.id === id) return "Empresa inteira";
   if (type === "department") return db.departments.find((department) => department.id === id)?.name;
   if (type === "group") return db.groups.find((group) => group.id === id)?.name;
-  if (type === "user") return db.employees.find((employee) => employee.id === id)?.name;
+  if (type === "user") {
+    return (
+      db.employees.find((employee) => employee.id === id)?.name ??
+      db.invitations.find((invitation) => invitation.id === id)?.name
+    );
+  }
   return undefined;
 }
 
 function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["recurrence"] {
   if (!value || value.frequency === "none") return undefined;
 
+  const times = [...new Set(value.times ?? [])].sort();
   const customUnit = value.frequency === "custom" ? (value.customUnit ?? "days") : undefined;
   const interval =
     value.frequency === "custom" ? (value.interval ?? value.intervalDays ?? 1) : undefined;
@@ -534,7 +570,7 @@ function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["rec
     weekDays:
       value.frequency === "weekly" || value.frequency === "biweekly" ? value.weekDays : undefined,
     excludedWeekDays: value.frequency === "daily" ? value.excludedWeekDays : undefined,
-    times: value.frequency === "daily" ? value.times : undefined,
+    times: value.frequency === "daily" && times.length >= 2 ? times : undefined,
     interval,
     intervalDays: value.frequency === "custom" && customUnit === "days" ? interval : undefined,
     customUnit,
@@ -542,6 +578,10 @@ function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["rec
     monthOfYear: usesYearlyAnchor ? value.monthOfYear : undefined,
     endDate: value.endDate,
   };
+}
+
+function normalizeResponsibleIds(responsibleId: string, responsibleIds: string[] = []) {
+  return [...new Set([responsibleId, ...responsibleIds].filter(Boolean))];
 }
 
 function getDateParts(dateValue: string) {
@@ -824,6 +864,7 @@ export const leaveCompany = createServerFn({ method: "POST" }).handler(async () 
     }
     for (const department of workspace.departments) {
       if (department.managerId === account.id) department.managerId = owner.id;
+      department.memberIds = department.memberIds?.filter((id) => id !== account.id);
     }
     for (const group of workspace.groups) {
       group.memberIds = group.memberIds.filter((id) => id !== account.id);
@@ -991,6 +1032,7 @@ export const loginWithGoogle = createServerFn({ method: "POST" })
             }
           });
         }
+        transferInvitationAssignments(workspace, invitation.id, account.id);
         workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
         invitedWorkspace ??= workspace;
       }
@@ -1147,11 +1189,7 @@ export const askPop = createServerFn({ method: "POST" })
             name: group.name,
             memberIds: group.memberIds,
           })),
-          canCreateChecklist: isAdminUser({
-            currentUser,
-            employees: workspace.employees,
-            permissionGroups: workspace.permissionGroups,
-          }),
+          canCreateChecklist: true,
         },
         messages: data.messages,
         message,
@@ -1213,11 +1251,15 @@ export const createTask = createServerFn({ method: "POST" })
         "Seu grupo de permissão não pode criar tarefas.",
       );
 
+      const responsibleIds =
+        data.target.type === "user"
+          ? [data.target.id]
+          : normalizeResponsibleIds(data.responsibleId, data.responsibleIds);
       if (
         db.company.kind === "personal" &&
         (data.target.type !== "user" ||
           data.target.id !== currentUserId ||
-          (data.responsibleId !== "" && data.responsibleId !== currentUserId) ||
+          responsibleIds.some((id) => id !== currentUserId) ||
           data.requiresReview ||
           Boolean(data.reviewerId))
       ) {
@@ -1227,31 +1269,64 @@ export const createTask = createServerFn({ method: "POST" })
         );
       }
 
-      const responsible = data.responsibleId
-        ? db.employees.find((employee) => employee.id === data.responsibleId)
-        : undefined;
-      if (data.responsibleId && !responsible) {
+      const invalidResponsible = responsibleIds.find(
+        (id) =>
+          !db.employees.some((employee) => employee.id === id) &&
+          !db.invitations.some((invitation) => invitation.id === id),
+      );
+      if (invalidResponsible) {
         throw createHttpError("Responsável não encontrado.");
       }
 
-      const reviewerId = data.requiresReview ? data.reviewerId : undefined;
-      if (reviewerId && !db.employees.some((employee) => employee.id === reviewerId)) {
+      const automaticReviewerId = data.requiresReview
+        ? resolveTaskReviewManagerId({
+            target: data.target,
+            responsibleId: responsibleIds[0],
+            responsibleIds,
+            employees: db.employees,
+            departments: db.departments,
+            groups: db.groups,
+          })
+        : undefined;
+      const requestedManagerId = isReviewManagerCandidateId({
+        id: data.reviewerId,
+        employees: db.employees,
+        departments: db.departments,
+        groups: db.groups,
+      })
+        ? data.reviewerId
+        : undefined;
+      const reviewerId = data.requiresReview
+        ? automaticReviewerId ?? requestedManagerId
+        : undefined;
+      if (
+        reviewerId &&
+        !db.employees.some((employee) => employee.id === reviewerId) &&
+        !db.invitations.some((invitation) => invitation.id === reviewerId)
+      ) {
         throw createHttpError("Revisor não encontrado.");
+      }
+      if (data.requiresReview && !reviewerId) {
+        throw createHttpError(
+          "Defina um gestor para o setor ou grupo antes de ativar a revisão.",
+          400,
+        );
       }
 
       const targetLabel = resolveTargetLabel(data.target.type, data.target.id, db);
       if (!targetLabel) throw createHttpError("Destino da tarefa não encontrado.");
-      if (
-        data.checklist.length > 0 &&
-        !isAdminUser({
-          currentUser: db.employees.find((employee) => employee.id === currentUserId),
-          employees: db.employees,
-          permissionGroups: db.permissionGroups,
-        })
-      ) {
-        throw createHttpError("Somente administradores podem criar o checklist da tarefa.", 403);
+      if (data.target.type === "group" && responsibleIds.length > 0) {
+        const group = db.groups.find((item) => item.id === data.target.id);
+        const groupMemberIds = new Set([
+          ...(group?.memberIds ?? []),
+          ...db.invitations
+            .filter((invitation) => invitation.groupIds?.includes(data.target.id))
+            .map((invitation) => invitation.id),
+        ]);
+        if (responsibleIds.some((id) => !groupMemberIds.has(id))) {
+          throw createHttpError("O responsável precisa fazer parte do grupo selecionado.");
+        }
       }
-
       const task = {
         id: nextId("t", db.tasks),
         title: data.title,
@@ -1261,11 +1336,12 @@ export const createTask = createServerFn({ method: "POST" })
         dueDate: data.dueDate,
         createdAt: today(),
         target: { ...data.target, label: targetLabel },
-        responsibleId: data.responsibleId,
+        responsibleId: responsibleIds[0] ?? "",
+        responsibleIds: responsibleIds.length ? responsibleIds : undefined,
         assignedById: currentUserId,
         assignedAt: new Date().toISOString(),
         reviewerId,
-        requiresReview: Boolean(reviewerId),
+        requiresReview: data.requiresReview,
         tags: data.tags,
         comments: 0,
         attachments: 0,
@@ -1289,6 +1365,23 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
     return mutateCurrentWorkspace((db, currentUserId) => {
       const task = db.tasks.find((item) => item.id === data.id);
       if (!task) throw createHttpError("Tarefa não encontrada.", 404);
+      if (task.requiresReview) {
+        const reviewManagerId = resolveTaskReviewManagerId({
+          target: task.target,
+          responsibleId: task.responsibleId,
+          responsibleIds: task.responsibleIds,
+          employees: db.employees,
+          departments: db.departments,
+          groups: db.groups,
+        });
+        if (reviewManagerId) task.reviewerId = reviewManagerId;
+        if (!task.reviewerId) {
+          throw createHttpError(
+            "Esta tarefa precisa de um gestor definido antes de ser enviada para revisão.",
+            400,
+          );
+        }
+      }
       const currentUser = db.employees.find((employee) => employee.id === currentUserId);
       const permissions = getTaskPermissions({
         task,
@@ -1298,20 +1391,46 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
         groups: db.groups,
         permissionGroups: db.permissionGroups,
       });
-      if (data.status === "completed") {
+      let nextStatus = data.status;
+
+      if (task.requiresReview) {
+        const isAssignedReviewer = task.reviewerId === currentUserId;
+
+        if (task.status === "waiting_review") {
+          if (!isAssignedReviewer) {
+            throw createHttpError(
+              "Esta tarefa aguarda a decisão da pessoa responsável pela revisão.",
+              403,
+            );
+          }
+          if (data.status !== "completed" && data.status !== "reopened") {
+            throw createHttpError("Na revisão, escolha reabrir ou concluir a tarefa.", 400);
+          }
+        } else if (data.status === "completed" && !isAssignedReviewer) {
+          nextStatus = "waiting_review";
+        }
+      }
+      if (nextStatus === "completed") {
         if (!permissions.canComplete) {
           throw createHttpError("Seu grupo de permissão não pode concluir tarefas.", 403);
         }
-      } else if (task.status === "completed" || data.status === "reopened") {
+      } else if (task.status === "completed" || nextStatus === "reopened") {
         if (!permissions.canReopen) {
           throw createHttpError("Seu grupo de permissão não pode reabrir tarefas.", 403);
+        }
+      } else if (nextStatus === "waiting_review") {
+        if (!permissions.canComplete) {
+          throw createHttpError(
+            "Seu grupo de permissão não pode enviar tarefas para revisão.",
+            403,
+          );
         }
       } else if (!permissions.canChangeStatus) {
         throw createHttpError("Você não tem permissão para alterar o status desta tarefa.", 403);
       }
       const wasCompleted = task.status === "completed";
-      task.status = data.status;
-      if (data.status === "completed" && !wasCompleted) {
+      task.status = nextStatus;
+      if (nextStatus === "completed" && !wasCompleted) {
         createNextRecurringTask(db, task);
       }
       return task;
@@ -1341,29 +1460,39 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       if (targetChanged && !permissions.canMove && !permissions.canAssign) {
         throw createHttpError("Você não tem permissão para mover ou alterar o destino.", 403);
       }
-      if (task.responsibleId !== data.responsibleId && !permissions.canAssign) {
+      const nextResponsibleIds =
+        data.target.type === "user"
+          ? [data.target.id]
+          : normalizeResponsibleIds(data.responsibleId, data.responsibleIds ?? task.responsibleIds);
+      const responsibleChanged =
+        JSON.stringify(normalizeResponsibleIds(task.responsibleId, task.responsibleIds).sort()) !==
+        JSON.stringify([...nextResponsibleIds].sort());
+      if (responsibleChanged && !permissions.canAssign) {
         throw createHttpError("Você não tem permissão para alterar o responsável.", 403);
       }
       const nextRecurrence = normalizeRecurrence(data.recurrence);
       if (
-        JSON.stringify(task.recurrence ?? null) !== JSON.stringify(nextRecurrence ?? null) &&
+        JSON.stringify(normalizeRecurrence(task.recurrence) ?? null) !==
+          JSON.stringify(nextRecurrence ?? null) &&
         !permissions.canManageRecurrence
       ) {
         throw createHttpError("Você não tem permissão para alterar a recorrência.", 403);
       }
       const targetLabel = resolveTargetLabel(data.target.type, data.target.id, db);
       if (!targetLabel) throw createHttpError("Destino da tarefa não encontrado.");
-      if (
-        data.responsibleId &&
-        !db.employees.some((employee) => employee.id === data.responsibleId)
-      ) {
+      const invalidResponsible = nextResponsibleIds.find(
+        (id) =>
+          !db.employees.some((employee) => employee.id === id) &&
+          !db.invitations.some((invitation) => invitation.id === id),
+      );
+      if (invalidResponsible) {
         throw createHttpError("Responsável não encontrado.");
       }
       if (
         db.company.kind === "personal" &&
         (data.target.type !== "user" ||
           data.target.id !== currentUserId ||
-          (data.responsibleId !== "" && data.responsibleId !== currentUserId))
+          nextResponsibleIds.some((id) => id !== currentUserId))
       ) {
         throw createHttpError(
           "O Meu espaço é pessoal. Para atribuir ou compartilhar tarefas, crie uma empresa.",
@@ -1376,7 +1505,8 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       task.priority = data.priority;
       task.dueDate = data.dueDate;
       task.target = { ...data.target, label: targetLabel };
-      task.responsibleId = data.responsibleId;
+      task.responsibleId = nextResponsibleIds[0] ?? "";
+      task.responsibleIds = nextResponsibleIds.length ? nextResponsibleIds : undefined;
       task.tags = data.tags;
       task.recurrence = nextRecurrence;
       return task;
@@ -1749,17 +1879,174 @@ export const createDepartment = createServerFn({ method: "POST" })
       if (!db.employees.some((employee) => employee.id === data.managerId)) {
         throw createHttpError("Gestor não encontrado.");
       }
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const canConfigureManagerAccess =
+        db.company.ownerId === currentUserId ||
+        currentUser?.role.toLocaleLowerCase("pt-BR").includes("admin");
+      if (
+        !canConfigureManagerAccess &&
+        ((data.managerAccessMode !== undefined && data.managerAccessMode !== "own") ||
+          data.managerVisibleDepartmentIds.length > 0)
+      ) {
+        throw createHttpError("Somente um administrador pode liberar outros setores.", 403);
+      }
+      if (
+        data.managerVisibleDepartmentIds.some(
+          (id) => !db.departments.some((department) => department.id === id),
+        )
+      ) {
+        throw createHttpError("Um dos setores permitidos não foi encontrado.");
+      }
 
       const department = {
         id: nextId("d", db.departments),
-        name: data.name,
+        name: formatDepartmentName(data.name),
         description: data.description,
         managerId: data.managerId,
         color: data.color ?? departmentColors[db.departments.length % departmentColors.length],
       };
 
       db.departments.push(department);
+      const manager = db.employees.find((employee) => employee.id === data.managerId)!;
+      if (data.managerAccessMode) {
+        manager.departmentAccessMode = data.managerAccessMode;
+        manager.visibleDepartmentIds =
+          data.managerAccessMode === "selected"
+            ? [...new Set(data.managerVisibleDepartmentIds)]
+            : undefined;
+      }
       return department;
+    });
+  });
+
+export const updateDepartmentMembers = createServerFn({ method: "POST" })
+  .validator((data) => updateDepartmentMembersSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const department = db.departments.find((item) => item.id === data.departmentId);
+      if (!department) throw createHttpError("Setor não encontrado.", 404);
+
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const managerAccess = getManagerDepartmentAccess({
+        currentUser,
+        employees: db.employees,
+        departments: db.departments,
+      });
+      if (
+        managerAccess &&
+        managerAccess.mode !== "all" &&
+        !managerAccess.departmentIds.has(department.id)
+      ) {
+        throw createHttpError("Você não pode gerenciar os membros deste setor.", 403);
+      }
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: db.employees,
+        permissionGroups: db.permissionGroups,
+      });
+      if (
+        department.managerId !== currentUserId &&
+        !hasPermission(permissionSet, "manage.departments")
+      ) {
+        throw createHttpError("Você não pode gerenciar os membros deste setor.", 403);
+      }
+
+      const memberIds = [...new Set(data.memberIds)];
+      if (memberIds.some((id) => !db.employees.some((employee) => employee.id === id))) {
+        throw createHttpError("Uma das pessoas selecionadas não foi encontrada.");
+      }
+
+      const requiredIds = db.employees
+        .filter((employee) => employee.departmentId === department.id)
+        .map((employee) => employee.id);
+      department.memberIds = [
+        ...new Set([department.managerId, ...requiredIds, ...memberIds]),
+      ].filter(Boolean);
+      return department;
+    });
+  });
+
+export const updateDepartmentDetails = createServerFn({ method: "POST" })
+  .validator((data) => updateDepartmentDetailsSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const department = db.departments.find((item) => item.id === data.departmentId);
+      if (!department) throw createHttpError("Setor não encontrado.", 404);
+
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const managerAccess = getManagerDepartmentAccess({
+        currentUser,
+        employees: db.employees,
+        departments: db.departments,
+      });
+      if (
+        managerAccess &&
+        managerAccess.mode !== "all" &&
+        !managerAccess.departmentIds.has(department.id)
+      ) {
+        throw createHttpError("Você não pode editar este setor.", 403);
+      }
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: db.employees,
+        permissionGroups: db.permissionGroups,
+      });
+      if (
+        department.managerId !== currentUserId &&
+        !hasPermission(permissionSet, "manage.departments")
+      ) {
+        throw createHttpError("Você não pode editar este setor.", 403);
+      }
+
+      const canConfigureManagerAccess =
+        db.company.ownerId === currentUserId ||
+        currentUser?.role.toLocaleLowerCase("pt-BR").includes("admin");
+      const changesManagerAccess =
+        data.managerId !== undefined ||
+        data.managerAccessMode !== undefined ||
+        data.managerVisibleDepartmentIds !== undefined;
+      if (changesManagerAccess && !canConfigureManagerAccess) {
+        throw createHttpError("Somente um administrador pode alterar o gestor e o acesso.", 403);
+      }
+      if (data.managerId && !db.employees.some((employee) => employee.id === data.managerId)) {
+        throw createHttpError("Gestor não encontrado.");
+      }
+      if (
+        data.managerVisibleDepartmentIds?.some(
+          (id) => !db.departments.some((item) => item.id === id),
+        )
+      ) {
+        throw createHttpError("Um dos setores permitidos não foi encontrado.");
+      }
+
+      department.name = formatDepartmentName(data.name);
+      department.description = data.description;
+      if (data.managerId) department.managerId = data.managerId;
+      if (data.color) department.color = data.color;
+      const manager = db.employees.find((employee) => employee.id === department.managerId);
+      if (manager && data.managerAccessMode) {
+        manager.departmentAccessMode = data.managerAccessMode;
+        manager.visibleDepartmentIds =
+          data.managerAccessMode === "selected"
+            ? [...new Set(data.managerVisibleDepartmentIds ?? [])]
+            : undefined;
+      }
+      return department;
+    });
+  });
+
+export const updateWorkspaceTags = createServerFn({ method: "POST" })
+  .validator((data) => updateWorkspaceTagsSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "tasks.create",
+        "Seu grupo de permissão não pode cadastrar etiquetas.",
+      );
+      db.company.taskTags = [...new Set(data.tags.map((tag) => tag.trim()).filter(Boolean))];
+      return { tags: db.company.taskTags };
     });
   });
 
@@ -1862,7 +2149,7 @@ export const createEmployee = createServerFn({ method: "POST" })
 export const updateEmployee = createServerFn({ method: "POST" })
   .validator((data) => updateEmployeeSchema.parse(data))
   .handler(async ({ data }) => {
-    return mutateCurrentWorkspace((db, currentUserId) => {
+    return mutateCurrentWorkspace((db, currentUserId, platform) => {
       requireGroupPermission(
         db,
         currentUserId,
@@ -1900,6 +2187,17 @@ export const updateEmployee = createServerFn({ method: "POST" })
       employee.departmentId = data.departmentId;
       employee.status = data.status;
       employee.permissionGroupId = data.permissionGroupId;
+
+      // A conta e a fonte canonica do nome durante a normalizacao do banco. Manter apenas o
+      // registro do colaborador atualizado fazia o nome antigo voltar no carregamento seguinte.
+      const account = platform.accounts.find((item) => item.id === employee.id);
+      if (account) {
+        account.name = data.name;
+        for (const workspace of platform.workspaces) {
+          const member = workspace.employees.find((item) => item.id === employee.id);
+          if (member) member.name = data.name;
+        }
+      }
       return employee;
     });
   });
@@ -1926,6 +2224,7 @@ export const deleteEmployee = createServerFn({ method: "POST" })
       });
       db.departments.forEach((department) => {
         if (department.managerId === data.id) department.managerId = "";
+        department.memberIds = department.memberIds?.filter((memberId) => memberId !== data.id);
       });
       db.tasks.forEach((task) => {
         if (task.responsibleId === data.id) task.responsibleId = "";
@@ -2091,6 +2390,7 @@ export const acceptInvitation = createServerFn({ method: "POST" })
           group.memberIds = Array.from(new Set([...group.memberIds, employee.id]));
         }
       });
+      transferInvitationAssignments(workspace, invitation.id, employee.id);
       workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
       platform.sessions.push({
         id: nextId("s", platform.sessions),

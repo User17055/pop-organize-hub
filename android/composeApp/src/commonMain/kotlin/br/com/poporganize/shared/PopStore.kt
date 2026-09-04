@@ -344,10 +344,41 @@ class PopStore(private val platform: PopPlatformServices) {
         platform.playActionSound()
     }
 
-    // `deleteRecurringOccurrence`, `deleteTaskSeries` e `nextRecurrenceDate` foram REMOVIDAS aqui.
-    // Nenhuma das duas exclusoes de tarefa recorrente funcionava, e a primeira estragava dado. O
-    // motivo completo, com os trechos do servidor, esta no TaskDeleteDialog, em PopOrganizeApp.kt
-    // -- que e onde alguem vai procurar ao perguntar por que o aplicativo nao exclui recorrente.
+    /**
+     * Exclui TODAS as ocorrencias da mesma serie.
+     *
+     * "Somente esta data" nao precisa de funcao propria: `deleteTask` basta, porque desde 04/09 o
+     * servidor registra a data excluida nas linhas que sobram da serie ao apagar uma ocorrencia.
+     * Antes disso o `materializeRecurringTasks` recriava a linha apagada na chamada seguinte, e
+     * por isso as duas exclusoes ficaram desligadas do build 9 ate agora.
+     *
+     * O agrupamento e por `recurrenceSeriesId`, que o servidor passou a mandar na mesma data como
+     * `recurrenceParentId ?: id`. Antes ele era sempre nulo em tarefa vinda do servidor, e "toda a
+     * recorrencia" casava exatamente UMA linha.
+     *
+     * NAO avancar `dueDate` aqui, nem em lugar nenhum: o PUT faz `existing.dueDate = item.dueDate`
+     * e ADOTA o que o aparelho manda. Era assim que a serie saia de fase de forma permanente,
+     * tambem para o Android e para o painel.
+     */
+    fun deleteTaskSeries(taskId: String) {
+        update {
+            val alvo = tasks.firstOrNull { it.id == taskId } ?: return@update this
+            val serie = alvo.recurrenceSeriesId
+            val removidas =
+                if (serie == null) listOf(alvo) else tasks.filter { it.recurrenceSeriesId == serie }
+            val ids = removidas.map { it.id }.toSet()
+            copy(
+                tasks = tasks.filterNot { it.id in ids },
+                pendingDeletedServerIds =
+                    (pendingDeletedServerIds + removidas.mapNotNull { it.serverId }).distinct(),
+            )
+        }
+        platform.playActionSound()
+    }
+
+    // `deleteRecurringOccurrence` e `nextRecurrenceDate` continuam REMOVIDAS. A primeira virou o
+    // `deleteTask` comum, agora que o servidor registra a exclusao; a segunda avancava data
+    // localmente, que e exatamente o que nao se pode fazer.
     //
     // Em resumo: o servidor RECRIA a ocorrencia apagada (materializeRecurringTasks) e o app nao tem
     // como marcar data excluida nem identificar a serie, porque o contrato movel nao traz esses
@@ -730,6 +761,14 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     recurrenceEndValue = recurrenceEndValue,
     recurrenceOccurrence = recurrenceOccurrence,
     recurrenceTimes = recurrenceTimes,
+    // Vazio vira nulo para nao confundir "o servidor nao mandou" com "a serie se chama vazio":
+    // tarefa criada aqui usa o proprio id como serie, e null e o valor que o resto do app espera
+    // quando nao ha serie conhecida.
+    recurrenceSeriesId = recurrenceSeriesId.ifBlank { null },
+    requiresReview = requiresReview,
+    isReviewer = isReviewer,
+    awaitingReview = awaitingReview,
+    recurrenceExcludedDates = recurrenceExcludedDates,
     assignee = assignee,
     assignees = assignees,
     assignedBy = assignedBy,
@@ -782,6 +821,9 @@ private fun PopTask.toApiTask() = ApiTask(
         AssignmentKind.Group -> "group"
         AssignmentKind.None -> if (workspace == WorkspaceKind.Company) "company" else "user"
     },
+    // requiresReview, isReviewer, recurrenceSeriesId e recurrenceExcludedDates NAO sao mapeados
+    // de proposito: sao so de leitura e o servidor os descarta na volta. Os defaults do ApiTask
+    // seguem no JSON por causa do encodeDefaults, e o zod os ignora.
     assignmentTargetId = assignment.id,
     assignmentTargetLabel = assignment.label,
     checklist = checklist,

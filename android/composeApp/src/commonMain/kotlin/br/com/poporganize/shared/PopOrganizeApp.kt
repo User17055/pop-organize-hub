@@ -63,6 +63,7 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.ListAlt
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -1387,8 +1388,8 @@ private fun TasksScreen(store: PopStore) {
         TaskDeleteDialog(
             task = task,
             onDismiss = { pendingDeleteTask = null },
-            // So chega aqui tarefa NAO recorrente: o dialogo nao oferece exclusao para serie.
-            onDeleteAll = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
+            onDelete = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
+            onDeleteSeries = { deleteWithAnimation(task) { store.deleteTaskSeries(task.id) } },
         )
     }
 }
@@ -1579,9 +1580,9 @@ private fun TaskDetailsDialog(
 }
 
 /**
- * Confirmacao de exclusao. Numa tarefa comum, confirma e exclui. Numa tarefa RECORRENTE nao oferece
- * exclusao nenhuma: explica que o aplicativo ainda nao consegue e manda usar o painel. O porque
- * esta no comentario do `confirmButton`, abaixo.
+ * Confirmacao de exclusao. Numa tarefa comum, confirma e exclui. Numa tarefa RECORRENTE oferece as
+ * duas saidas: somente esta data, ou a serie inteira. As duas ficaram desligadas do build 9 ate
+ * 04/09 porque o contrato movel nao tinha como sustenta-las; o historico esta no `confirmButton`.
  *
  * Recebe a acao pronta em vez do store porque quem chama e que sabe animar a saida da linha antes
  * de a tarefa sumir de fato.
@@ -1590,7 +1591,8 @@ private fun TaskDetailsDialog(
 private fun TaskDeleteDialog(
     task: PopTask,
     onDismiss: () -> Unit,
-    onDeleteAll: () -> Unit,
+    onDelete: () -> Unit,
+    onDeleteSeries: () -> Unit,
 ) {
     val isRecurring = task.recurrence != RecurrenceKind.None
     AlertDialog(
@@ -1604,8 +1606,8 @@ private fun TaskDeleteDialog(
         text = {
             Text(
                 if (isRecurring) {
-                    "Excluir atividades que se repetem ainda não funciona pelo aplicativo — nem " +
-                        "uma data só, nem a série inteira. Use o painel web."
+                    "“${task.title}” se repete. Excluir somente esta data mantém as outras; " +
+                        "excluir a recorrência apaga a série inteira."
                 } else {
                     "Confirma a exclusão de “${task.title}”?"
                 },
@@ -1619,44 +1621,39 @@ private fun TaskDeleteDialog(
         // margem apertada: era sobreposicao, com o texto de um lendo em cima do outro. Visto em
         // aparelho em 27/08, no build 7.
         //
-        // TAREFA RECORRENTE NAO OFERECE EXCLUSAO, e isto nao e escolha de produto -- o aplicativo
-        // nao consegue. Ate 31/08/2026 havia dois botoes aqui, "Somente esta data" e "Toda a
-        // recorrencia", e NENHUM dos dois funcionava:
+        // POR QUE ESTES DOIS BOTOES FICARAM DESLIGADOS DO BUILD 9 ATE 04/09/2026, e o que mudou.
+        // Vale ler antes de mexer, porque cada um dos tres motivos abaixo estragava dado de um
+        // jeito diferente, e o terceiro estragava para o Android e para o painel tambem.
         //
-        // 1. O servidor RECRIA a ocorrencia apagada. `materializeRecurringTasks`
+        // 1. O servidor RECRIAVA a ocorrencia apagada. `materializeRecurringTasks`
         //    (src/lib/recurrence.server.ts) caminha da data do modelo ate hoje e cria toda data que
-        //    nao esteja entre as existentes nem em `recurrenceExcludedDates`. Esse campo nao existe
-        //    no contrato movel, entao nao ha como dizer "pule esta data": apagar de verdade, por
-        //    `pendingDeletedServerIds`, seria desfeito na chamada seguinte.
-        // 2. Nao ha id de serie deste lado. O servidor tem (`recurrenceParentId`) e nao envia, e o
-        //    `toPopTask` nao preenche `recurrenceSeriesId` -- toda tarefa vinda do servidor tem
-        //    null ali. "Toda a recorrencia" casava exatamente UMA tarefa e parecia ter acertado.
-        // 3. Pior: "Somente esta data" avancava a `dueDate` localmente, e como todo `update`
-        //    reenvia a lista visivel inteira, o servidor gravava essa data -- o PUT faz
+        //    nao esteja entre as existentes nem em `recurrenceExcludedDates`, e nao havia como
+        //    dizer "pule esta data". RESOLVIDO no servidor, e nao aqui: ao apagar uma ocorrencia
+        //    pelo endpoint movel ele registra a data nas linhas que sobram da serie, que e o mesmo
+        //    que o painel ja fazia. O app so precisa apagar; nao monta nem devolve exclusao.
+        // 2. Nao havia id de serie deste lado -- `recurrenceSeriesId` era null em toda tarefa
+        //    vinda do servidor, e "toda a recorrencia" casava exatamente UMA linha. RESOLVIDO: o
+        //    servidor manda `recurrenceParentId ?: id` e o `toPopTask` o carrega.
+        // 3. "Somente esta data" avancava a `dueDate` localmente, e como todo `update` reenvia a
+        //    lista visivel inteira, o servidor gravava essa data -- o PUT faz
         //    `existing.dueDate = item.dueDate`, ADOTA o que o aparelho manda. A serie saia de fase
-        //    de forma PERMANENTE, tambem para o Android e para o painel.
-        //
-        // Religar depende de o servidor expor dois campos no `MobileTask`: `recurrenceSeriesId`
-        // (que seria `task.recurrenceParentId ?? task.id`, como o proprio recurrence.server.ts ja
-        // calcula) e `recurrenceExcludedDates`. Sem risco de ordem entre as pontas: o
-        // `mobileTaskSchema` e um `z.object` sem `.strict()`, entao campo desconhecido e
-        // descartado, nao recusado. Ate la, dizer a verdade custa menos que estragar dado.
+        //    de forma PERMANENTE. NAO VOLTOU, e nao pode voltar: hoje "somente esta data" e uma
+        //    exclusao comum, e nenhum caminho daqui mexe em `dueDate`.
         confirmButton = {
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                if (isRecurring) {
-                    TextButton(onClick = onDismiss) { Text("Entendi") }
-                } else {
-                    Button(
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        onClick = onDeleteAll,
-                    ) {
-                        Text("Excluir")
-                    }
-                    TextButton(onClick = onDismiss) { Text("Cancelar") }
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = if (isRecurring) onDeleteSeries else onDelete,
+                ) {
+                    Text(if (isRecurring) "Toda a recorrência" else "Excluir")
                 }
+                if (isRecurring) {
+                    TextButton(onClick = onDelete) { Text("Somente esta data") }
+                }
+                TextButton(onClick = onDismiss) { Text("Cancelar") }
             }
         },
     )
@@ -1713,16 +1710,40 @@ private fun TaskRow(
             // Largura de um IconButton, para a calha e os titulos seguirem alinhados na coluna
             // mesmo nas linhas que nao mostram o circulo.
             if (!mostrarAcoes) Spacer(Modifier.width(48.dp))
-            if (mostrarAcoes) IconButton(onClick = onToggle) {
+            // Tarefa que EXIGE revisao e ja foi enviada para ela nao aceita toque de quem nao e o
+            // revisor, e o motivo esta no servidor: o `replaceMobileTasks` so mexe no status
+            // quando o `completed` que chega difere do que ele tem, e para ele "waiting_review"
+            // ja nao e concluida. O toque nao fazia nada, sem aviso nenhum.
+            //
+            // Antes de o servidor mandar estes campos era pior: a tarefa em revisao chegava como
+            // um circulo vazio comum, a pessoa marcava, o servidor a devolvia para revisao e a
+            // leitura seguinte trazia `completed = false` -- do lado de quem usa, o aplicativo
+            // "desmarcou sozinho". Era o mesmo sintoma que ja custou uma investigacao inteira.
+            //
+            // Para o REVISOR nada muda: ele cai no outro ramo do servidor e conclui normalmente.
+            val aguardaRevisao = task.awaitingReview && !task.isReviewer
+            if (mostrarAcoes) IconButton(onClick = onToggle, enabled = !aguardaRevisao) {
                 Icon(
-                    if (task.completed) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-                    if (task.completed) "Reabrir" else "Concluir",
+                    when {
+                        aguardaRevisao -> Icons.Rounded.HourglassEmpty
+                        task.completed -> Icons.Rounded.CheckCircle
+                        else -> Icons.Rounded.RadioButtonUnchecked
+                    },
+                    when {
+                        aguardaRevisao -> "Aguarda revisão"
+                        task.completed -> "Reabrir"
+                        else -> "Concluir"
+                    },
                     // Era um "check" colorido pela prioridade em toda tarefa PENDENTE, o que lia
                     // como se ja estivesse concluida -- e a cor da prioridade ja aparece no rotulo
                     // ao lado, entao o icone repetia a informacao e mentia sobre o estado. Circulo
                     // vazio para pendente, circulo marcado para concluida: o icone passa a dizer o
                     // estado, e a cor passa a dizer a acao.
-                    tint = if (task.completed) PopGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = when {
+                        aguardaRevisao -> PopOrange
+                        task.completed -> PopGreen
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
             }
             // A calha. Largura FIXA de proposito: e o que faz os horarios se alinharem coluna
@@ -2630,8 +2651,8 @@ private fun CalendarScreen(store: PopStore) {
         TaskDeleteDialog(
             task = task,
             onDismiss = { pendingDeleteTask = null },
-            // So chega aqui tarefa NAO recorrente: o dialogo nao oferece exclusao para serie.
-            onDeleteAll = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
+            onDelete = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
+            onDeleteSeries = { deleteWithAnimation(task) { store.deleteTaskSeries(task.id) } },
         )
     }
 }

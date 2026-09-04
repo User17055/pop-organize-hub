@@ -131,6 +131,12 @@ data class PopTask(
     val recurrenceSeriesId: String? = null,
     val serverId: String? = null,
 
+    // So de leitura, vindos do servidor. Ver a nota no ApiTask sobre por que nao sao cofre.
+    val requiresReview: Boolean = false,
+    val isReviewer: Boolean = false,
+    val awaitingReview: Boolean = false,
+    val recurrenceExcludedDates: List<String> = emptyList(),
+
     // Cofre da recorrencia: as palavras do servidor, guardadas cruas e devolvidas intactas.
     //
     // O RecurrenceKind acima so consegue representar quatro casos, e o servidor guarda mais: de
@@ -339,6 +345,34 @@ data class ApiTask(
     val assignmentTargetId: String? = null,
     val assignmentTargetLabel: String? = null,
     val checklist: List<ChecklistItem> = emptyList(),
+
+    // OS QUATRO ABAIXO SAO SO DE LEITURA, e por isso nao sao cofre. O servidor os recalcula a
+    // cada resposta e os DESCARTA na volta: o mobileTaskSchema nao os declara, e um z.object sem
+    // .strict() ignora campo desconhecido em vez de recusar. Nao ha dado do usuario a preservar
+    // aqui -- ao contrario dos dois cofres acima, onde nao carregar o valor o apagava.
+    //
+    // requiresReview e isReviewer existem porque a tarefa que aguarda revisao chegava como
+    // pendente: a pessoa marcava, o servidor a devolvia para "waiting_review", a leitura seguinte
+    // trazia completed = false e a marcacao parecia voltar sozinha. Sem estes dois o app nao
+    // consegue nem avisar antes nem explicar depois -- e o resultado ainda MUDA POR PESSOA,
+    // porque quem e o revisor cai no outro ramo do servidor e para ele a conclusao funciona.
+    val requiresReview: Boolean = false,
+    val isReviewer: Boolean = false,
+
+    // `requiresReview` sozinho nao basta: ele e verdadeiro tanto na tarefa que ninguem tocou
+    // quanto na que ja esta esperando o revisor, e as duas chegam com `completed = false`. Este
+    // diz qual das duas. Booleano, e nao o status cru, para nao trazer mais uma string de estado
+    // para o fio -- palavra que so existe de um lado e a familia de bug mais cara daqui.
+    val awaitingReview: Boolean = false,
+
+    // recurrenceSeriesId e o `recurrenceParentId ?: id` do servidor. Sem ele "toda a recorrencia"
+    // casava exatamente UMA tarefa e parecia ter acertado.
+    //
+    // recurrenceExcludedDates sao as datas que o materializeRecurringTasks nao recria. O app so
+    // precisa LER: quem registra a exclusao e o proprio servidor, ao apagar a ocorrencia. Nao
+    // montar esta lista aqui nem tentar devolve-la.
+    val recurrenceSeriesId: String = "",
+    val recurrenceExcludedDates: List<String> = emptyList(),
 )
 
 @Serializable

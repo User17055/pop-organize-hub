@@ -73,6 +73,13 @@ export type MobileTask = {
   // sem .strict() os descarta na volta, então não ficam guardados velhos dentro do nativeData.
   requiresReview?: boolean;
   isReviewer?: boolean;
+  // requiresReview sozinho não basta: ele é verdadeiro tanto na tarefa que ainda não foi tocada
+  // quanto na que já está esperando o revisor, e as duas chegam com completed: false. Sem
+  // distinguir as duas o aplicativo não sabe se deve oferecer "concluir" ou dizer "aguarda
+  // revisão". Vai como booleano, e não como o status cru, porque string de estado atravessando o
+  // fio é a família de bug mais cara deste projeto — os dois lados escrevendo a mesma ideia com
+  // palavras diferentes, sem ninguém reclamar em voz alta.
+  awaitingReview?: boolean;
   assignmentType?: string;
   assignmentTargetId?: string;
   assignmentTargetLabel?: string;
@@ -1464,6 +1471,7 @@ function taskToMobileTask(
     canDelete: permissions.canDelete,
     requiresReview: task.requiresReview ?? false,
     isReviewer: task.reviewerId === currentUser.id,
+    awaitingReview: task.status === "waiting_review",
     assignmentType: native?.assignmentType ?? task.target.type,
     assignmentTargetId: native?.assignmentTargetId ?? task.target.id,
     assignmentTargetLabel: native?.assignmentTargetLabel ?? task.target.label,
@@ -1714,6 +1722,22 @@ export async function replaceMobileTasks(
       }
       workspace.tasks.splice(taskIndex, 1);
       deleted += 1;
+      // Apagar a linha não bastava: o materializeRecurringTasks caminha do modelo até hoje e
+      // recria toda data que não esteja em recurrenceExcludedDates, então a ocorrência
+      // excluída voltava na chamada seguinte. Registrar a data nas tarefas que sobraram da
+      // série é o mesmo que o painel faz em "somente esta data", e o materialize lê a exclusão
+      // de qualquer linha da série, não só do modelo. Quando a série inteira é apagada não
+      // sobra ninguém para anotar — e também não sobra modelo de onde materializar, então
+      // "toda a recorrência" funciona sem isto.
+      if (task.recurrence) {
+        const seriesId = task.recurrenceParentId ?? task.id;
+        for (const sibling of workspace.tasks) {
+          if ((sibling.recurrenceParentId ?? sibling.id) !== seriesId) continue;
+          sibling.recurrenceExcludedDates = Array.from(
+            new Set([...(sibling.recurrenceExcludedDates ?? []), task.dueDate]),
+          );
+        }
+      }
     }
 
     for (const item of tasks) {

@@ -30,6 +30,7 @@ import {
   type Task,
   type TargetType,
 } from "../domain";
+import { invalidateNativeShadow } from "../native-shadow";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
 import {
   canViewTask,
@@ -852,7 +853,10 @@ export const leaveCompany = createServerFn({ method: "POST" }).handler(async () 
     if (!owner) throw createHttpError("Dono da empresa não encontrado.", 409);
 
     for (const task of workspace.tasks) {
-      if (task.responsibleId === account.id) task.responsibleId = owner.id;
+      if (task.responsibleId === account.id) {
+        task.responsibleId = owner.id;
+        invalidateNativeShadow(task, "responsible");
+      }
       if (task.reviewerId === account.id) task.reviewerId = owner.id;
       if (task.target.type === "user" && task.target.id === account.id) {
         task.target = {
@@ -860,6 +864,7 @@ export const leaveCompany = createServerFn({ method: "POST" }).handler(async () 
           id: workspace.company.id,
           label: "Empresa inteira",
         };
+        invalidateNativeShadow(task, "target");
       }
     }
     for (const department of workspace.departments) {
@@ -1297,7 +1302,7 @@ export const createTask = createServerFn({ method: "POST" })
         ? data.reviewerId
         : undefined;
       const reviewerId = data.requiresReview
-        ? automaticReviewerId ?? requestedManagerId
+        ? (automaticReviewerId ?? requestedManagerId)
         : undefined;
       if (
         reviewerId &&
@@ -1509,6 +1514,7 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       task.responsibleIds = nextResponsibleIds.length ? nextResponsibleIds : undefined;
       task.tags = data.tags;
       task.recurrence = nextRecurrence;
+      invalidateNativeShadow(task, "dueDate", "target", "responsible", "recurrence");
       return task;
     });
   });
@@ -1849,6 +1855,7 @@ export const deleteTask = createServerFn({ method: "POST" })
         task.dueDate = nextDueDate;
         task.status = "pending";
         task.recurrenceOccurrence = (task.recurrenceOccurrence ?? 1) + 1;
+        invalidateNativeShadow(task, "dueDate", "recurrenceOccurrence");
         task.recurrenceExcludedDates = Array.from(
           new Set([...(task.recurrenceExcludedDates ?? []), occurrenceDate]),
         );
@@ -2227,11 +2234,15 @@ export const deleteEmployee = createServerFn({ method: "POST" })
         department.memberIds = department.memberIds?.filter((memberId) => memberId !== data.id);
       });
       db.tasks.forEach((task) => {
+        const wasResponsible =
+          task.responsibleId === data.id || (task.responsibleIds?.includes(data.id) ?? false);
         if (task.responsibleId === data.id) task.responsibleId = "";
         task.responsibleIds = task.responsibleIds?.filter((id) => id !== data.id);
         if (task.reviewerId === data.id) task.reviewerId = undefined;
+        if (wasResponsible) invalidateNativeShadow(task, "responsible");
         if (task.target.type === "user" && task.target.id === data.id) {
           task.target = { type: "company", id: db.company.id, label: db.company.name };
+          invalidateNativeShadow(task, "target");
         }
       });
       return { ok: true, id: data.id };
@@ -2484,6 +2495,7 @@ export const deleteGroup = createServerFn({ method: "POST" })
       db.tasks.forEach((task) => {
         if (task.target.type === "group" && task.target.id === data.id) {
           task.target = { type: "company", id: db.company.id, label: db.company.name };
+          invalidateNativeShadow(task, "target");
         }
       });
       return { ok: true, id: data.id };

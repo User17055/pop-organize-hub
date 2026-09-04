@@ -61,9 +61,7 @@ export function resolveTaskReviewManagerId(input: {
   const employeeIds = new Set(input.employees.map((employee) => employee.id));
   const validManager = (id?: string) => (id && employeeIds.has(id) ? id : undefined);
   const departmentManager = (departmentId?: string) =>
-    validManager(
-      input.departments.find((department) => department.id === departmentId)?.managerId,
-    );
+    validManager(input.departments.find((department) => department.id === departmentId)?.managerId);
   const employeeManager = (employeeId?: string) => {
     const employee = input.employees.find((item) => item.id === employeeId);
     return departmentManager(employee?.departmentId);

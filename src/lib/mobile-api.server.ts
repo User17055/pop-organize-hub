@@ -57,9 +57,22 @@ export type MobileTask = {
   recurrenceEndMode: string;
   recurrenceEndValue: string;
   recurrenceOccurrence: number;
+  // Identifica a série a que esta ocorrência pertence, para o aplicativo conseguir excluir
+  // "toda a recorrência". Mesma expressão que o recurrence.server.ts usa.
+  recurrenceSeriesId?: string;
+  // Sem isto o aplicativo não tem como dizer "exclua só esta data": o
+  // materializeRecurringTasks recria a linha apagada na chamada seguinte.
+  recurrenceExcludedDates?: string[];
   canEdit?: boolean;
   canComplete?: boolean;
   canDelete?: boolean;
+  // Só de leitura, calculados aqui a cada resposta. O aplicativo precisa dos dois para
+  // distinguir "aguarda revisão" de "pendente" — sem eles ele mostra um círculo comum, a
+  // pessoa marca, o servidor devolve para waiting_review e a marcação parece voltar sozinha.
+  // Não entram no mobileTaskSchema de propósito: são do servidor para o aplicativo, e o zod
+  // sem .strict() os descarta na volta, então não ficam guardados velhos dentro do nativeData.
+  requiresReview?: boolean;
+  isReviewer?: boolean;
   assignmentType?: string;
   assignmentTargetId?: string;
   assignmentTargetLabel?: string;
@@ -1444,9 +1457,13 @@ function taskToMobileTask(
     recurrenceEndMode: native?.recurrenceEndMode ?? recurrence.endMode,
     recurrenceEndValue: native?.recurrenceEndValue ?? recurrence.endValue,
     recurrenceOccurrence: native?.recurrenceOccurrence ?? task.recurrenceOccurrence ?? 1,
+    recurrenceSeriesId: task.recurrenceParentId ?? task.id,
+    recurrenceExcludedDates: task.recurrenceExcludedDates ?? [],
     canEdit: permissions.canEditContent,
     canComplete: permissions.canComplete || permissions.canReopen,
     canDelete: permissions.canDelete,
+    requiresReview: task.requiresReview ?? false,
+    isReviewer: task.reviewerId === currentUser.id,
     assignmentType: native?.assignmentType ?? task.target.type,
     assignmentTargetId: native?.assignmentTargetId ?? task.target.id,
     assignmentTargetLabel: native?.assignmentTargetLabel ?? task.target.label,
@@ -1757,7 +1774,13 @@ export async function replaceMobileTasks(
                 ? "waiting_review"
                 : "completed";
           }
-          if (!completed && permissions.canReopen) existing.status = "reopened";
+          // Espelha reviewAwareStatus (src/routes/v2.tsx): só sair de "waiting_review" é
+          // reabertura de verdade; desmarcar uma tarefa concluída volta para "pending". Daqui
+          // saía "reopened" em qualquer caso, e como "pending" só era atribuído na criação,
+          // nenhuma tarefa voltava a Pendente depois de concluída uma vez — o painel mostrava
+          // "Pendente 0" com tarefa claramente em aberto.
+          if (!completed && permissions.canReopen)
+            existing.status = existing.status === "waiting_review" ? "reopened" : "pending";
         }
         if (permissions.canEditContent || existing.nativeOwnerId === account.id) {
           existing.title = normalizeMobileTaskTitle(item.title);

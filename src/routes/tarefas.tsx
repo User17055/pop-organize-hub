@@ -18,7 +18,6 @@ import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permissi
 import {
   Archive,
   ArrowLeft,
-  Check,
   ChevronDown,
   Columns3,
   Layers3,
@@ -27,7 +26,6 @@ import {
   Repeat,
   Search,
   Settings2,
-  SlidersHorizontal,
   Sparkles,
   Users,
   X,
@@ -41,7 +39,6 @@ import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialo
 import { useTaskMutations } from "@/components/tasks/use-task-mutations";
 import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import { PriorityBadge } from "@/components/app-shell";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   getDefaultDueDate,
   getDefaultRecurrence,
@@ -172,17 +169,8 @@ function taskMatchesDepartment(task: Task, departmentId: string, data: Workspace
   return [...taskResponsibleIds(task)].some((id) => memberIds.has(id));
 }
 
-function taskMatchesGroup(task: Task, groupId: string, data: WorkspaceData) {
-  if (task.target.type === "group" && task.target.id === groupId) return true;
-  const group = data.groups.find((item) => item.id === groupId);
-  const memberIds = new Set([
-    ...(group?.memberIds ?? []),
-    ...data.invitations
-      .filter((invitation) => invitation.groupIds?.includes(groupId))
-      .map((invitation) => invitation.id),
-  ]);
-  if (task.target.type === "user" && memberIds.has(task.target.id)) return true;
-  return [...taskResponsibleIds(task)].some((id) => memberIds.has(id));
+function taskMatchesGroup(task: Task, groupId: string) {
+  return task.target.type === "group" && task.target.id === groupId;
 }
 
 type TaskLayoutPreferences = {
@@ -258,17 +246,6 @@ function TasksPage() {
       recurrence: getDefaultRecurrence(dueDate),
     };
   });
-
-  const applyStatusFilter = (status: TaskStatus | "all") => {
-    setActive(status);
-    navigate({
-      search: (current) => ({
-        ...current,
-        status: status === "all" ? undefined : status,
-      }),
-      replace: true,
-    });
-  };
 
   const applyScopeFilter = (scope: TaskScope) => {
     setTaskScope(scope);
@@ -373,7 +350,7 @@ function TasksPage() {
         if (!data) return true;
         if (selectedDepartmentId) return taskMatchesDepartment(task, selectedDepartmentId, data);
         if (selectedCollaboratorId) return taskMatchesCollaborator(task, selectedCollaboratorId);
-        if (selectedGroupId) return taskMatchesGroup(task, selectedGroupId, data);
+        if (selectedGroupId) return taskMatchesGroup(task, selectedGroupId);
         return true;
       }),
     [data, organizerTaskRows, selectedCollaboratorId, selectedDepartmentId, selectedGroupId],
@@ -517,7 +494,6 @@ function TasksPage() {
       hasPermission(permissionSet, key),
     );
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
-  const currentUserIsAdmin = isAdminUser({ currentUser, employees, permissionGroups });
   const isPersonalWorkspace = company.kind === "personal";
   const showResponsible = canSeePeopleContext && !isPersonalWorkspace;
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
@@ -1022,9 +998,7 @@ function TasksPage() {
                   })
                 : directoryMode === "groups"
                   ? groups.map((group) => {
-                      const count = tasks.filter((task) =>
-                        taskMatchesGroup(task, group.id, data),
-                      ).length;
+                      const count = tasks.filter((task) => taskMatchesGroup(task, group.id)).length;
                       const selected = selectedGroupId === group.id;
                       return (
                         <button
@@ -1145,7 +1119,7 @@ function TasksPage() {
                 )}
                 {selectedDirectoryGroup && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Tarefas do grupo e atividades atribuídas aos seus integrantes
+                    Somente tarefas destinadas a este grupo
                   </p>
                 )}
               </div>
@@ -1191,118 +1165,6 @@ function TasksPage() {
                   Nova
                 </button>
               </>
-            )}
-          </div>
-
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className={cn(
-                    "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-bold transition",
-                    (active !== "all" || taskScope !== "all") &&
-                      "border-primary/25 bg-primary/8 text-primary",
-                  )}
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                  Filtros
-                  {(active !== "all" || taskScope !== "all") && (
-                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground">
-                      {Number(active !== "all") + Number(taskScope !== "all")}
-                    </span>
-                  )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-3">
-                <div>
-                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                    Status
-                  </p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {statusFilters.map((filter) => {
-                      const count =
-                        filter.key === "all"
-                          ? taskRows.length
-                          : taskRows.filter((task) => task.status === filter.key).length;
-                      return (
-                        <button
-                          key={filter.key}
-                          type="button"
-                          onClick={() => applyStatusFilter(filter.key)}
-                          className={cn(
-                            "flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
-                            active === filter.key && "bg-primary/10 text-primary",
-                          )}
-                        >
-                          <span className="inline-flex items-center gap-2">
-                            <Check
-                              className={cn(
-                                "h-3.5 w-3.5",
-                                active === filter.key ? "opacity-100" : "opacity-0",
-                              )}
-                            />
-                            {filter.label}
-                          </span>
-                          <span className="text-[10px] tabular-nums text-muted-foreground">
-                            {count}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {currentUserIsAdmin && !isPersonalWorkspace && (
-                  <div className="mt-3 border-t border-border/60 pt-3">
-                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                      Prazo e atribuição
-                    </p>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {adminScopeFilters.map((filter) => (
-                        <button
-                          key={filter.key}
-                          type="button"
-                          onClick={() => applyScopeFilter(filter.key)}
-                          className={cn(
-                            "flex items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold transition hover:bg-muted",
-                            taskScope === filter.key && "bg-primary/10 text-primary",
-                          )}
-                        >
-                          <Check
-                            className={cn(
-                              "h-3.5 w-3.5",
-                              taskScope === filter.key ? "opacity-100" : "opacity-0",
-                            )}
-                          />
-                          {filter.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </PopoverContent>
-            </Popover>
-
-            {active !== "all" && (
-              <button
-                type="button"
-                onClick={() => applyStatusFilter("all")}
-                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
-              >
-                {statusFilters.find((filter) => filter.key === active)?.label}
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-            {taskScope !== "all" && (
-              <button
-                type="button"
-                onClick={() => applyScopeFilter("all")}
-                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary"
-              >
-                {adminScopeFilters.find((filter) => filter.key === taskScope)?.label}
-                <X className="h-3.5 w-3.5" />
-              </button>
             )}
           </div>
 

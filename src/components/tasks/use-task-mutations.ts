@@ -44,6 +44,7 @@ export function useTaskMutations(options?: {
       dueDate: string;
       target: { type: TargetType; id: string };
       responsibleId: string;
+      responsibleIds?: string[];
       reviewerId?: string;
       requiresReview: boolean;
       tags: string[];
@@ -84,6 +85,7 @@ export function useTaskMutations(options?: {
       dueDate: string;
       target: { type: TargetType; id: string };
       responsibleId: string;
+      responsibleIds?: string[];
       tags: string[];
       recurrence?: RecurrenceInput;
     }) => updateTaskDetails({ data: payload }),

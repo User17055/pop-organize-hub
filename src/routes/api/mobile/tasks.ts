@@ -22,10 +22,7 @@ const mobileTaskSchema = z.object({
     .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
     .max(12)
     .optional()
-    .default([])
-    .refine((times) => times.length === 0 || times.length >= 2, {
-      message: "Informe pelo menos dois horários, ou nenhum.",
-    }),
+    .default([]),
   duration: z.string().max(100),
   recurrenceRule: z.string().max(100),
   recurrenceDetail: z.string().max(500),

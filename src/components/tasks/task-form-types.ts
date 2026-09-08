@@ -13,6 +13,7 @@ export type TaskFormState = {
   dueDate: string;
   targetKey: string;
   responsibleId: string;
+  responsibleIds: string[];
   reviewerId: string;
   requiresReview: boolean;
   tags: string;
@@ -28,6 +29,7 @@ export type TaskEditState = {
   tags: string;
   targetKey: string;
   responsibleId: string;
+  responsibleIds: string[];
   recurrence: RecurrenceFormState;
 };
 
@@ -205,7 +207,7 @@ export function recurrenceFromForm(recurrence: RecurrenceFormState): RecurrenceI
       frequency: recurrence.frequency,
       excludedWeekDays:
         recurrence.excludedWeekDays.length > 0 ? recurrence.excludedWeekDays : undefined,
-      times: times.length >= 2 ? times : undefined,
+      times: times.length >= 1 ? times : undefined,
       endDate,
     };
   }
@@ -284,7 +286,7 @@ export function recurrenceLabel(recurrence?: TaskRecurrence) {
                     : `A cada ${interval} ${plural(interval, "dia", "dias")}`;
 
   const labelWithTimes =
-    recurrence.frequency === "daily" && (recurrence.times?.length ?? 0) >= 2
+    recurrence.frequency === "daily" && (recurrence.times?.length ?? 0) >= 1
       ? `${label} às ${recurrence.times!.join(", ")}`
       : label;
 

@@ -5386,10 +5386,6 @@ private fun TasksScreen(
         val taskId = editingTaskId ?: return
         val index = tasks.indexOfFirst { it.id == taskId }
         if (index < 0 || editTitle.trim().length < 3) return
-        if (editRecurrenceTimes.isNotEmpty() && editRecurrenceTimes.size < 2) {
-            Toast.makeText(context, "Informe pelo menos dois horários", Toast.LENGTH_SHORT).show()
-            return
-        }
         val original = tasks[index]
         if (!canEditTask(original)) {
             Toast.makeText(context, "Você pode visualizar, mas não editar esta tarefa", Toast.LENGTH_SHORT).show()
@@ -5423,7 +5419,7 @@ private fun TasksScreen(
                 add(editRecurrence)
                 if (editRecurrenceInterval > 1) add("a cada $editRecurrenceInterval")
                 if (detailSummary.isNotBlank()) add(detailSummary)
-                if (editRecurrenceTimes.size >= 2) add(editRecurrenceTimes.sorted().joinToString(" e "))
+                if (editRecurrenceTimes.isNotEmpty()) add(editRecurrenceTimes.sorted().joinToString(" e "))
                 when (editRecurrenceEnd) {
                     "Após" -> add("${storedEndValue} ocorrências")
                     "Em uma data" -> add("até $editRecurrenceEndValue")
@@ -5489,10 +5485,6 @@ private fun TasksScreen(
 
     fun addTask() {
         if (newTaskTitle.trim().length < 3) return
-        if (newTaskRecurrenceTimes.isNotEmpty() && newTaskRecurrenceTimes.size < 2) {
-            Toast.makeText(context, "Informe pelo menos dois horários", Toast.LENGTH_SHORT).show()
-            return
-        }
         val selectedDueDate = LocalDate.now().plusDays(newTaskDateOffset.toLong())
         val recurrenceEndValue = when (newTaskRecurrenceEnd) {
             "Após" -> newTaskRecurrenceCount.toString()
@@ -5558,7 +5550,7 @@ private fun TasksScreen(
                         add(newTaskRecurrence)
                         if (newTaskRecurrenceInterval > 1) add("a cada $newTaskRecurrenceInterval")
                         if (recurrenceDetailSummary.isNotBlank()) add(recurrenceDetailSummary)
-                        if (newTaskRecurrenceTimes.size >= 2) {
+                        if (newTaskRecurrenceTimes.isNotEmpty()) {
                             add(newTaskRecurrenceTimes.sorted().joinToString(" e "))
                         }
                         when (newTaskRecurrenceEnd) {
@@ -6439,9 +6431,7 @@ private fun TasksScreen(
                                                     baseTime = editDueTime,
                                                     onTimesChange = { updatedTimes ->
                                                         editRecurrenceTimes = updatedTimes
-                                                        if (updatedTimes.isNotEmpty()) {
-                                                            editDueTime = updatedTimes.minOrNull().orEmpty()
-                                                        }
+                                                        editDueTime = updatedTimes.minOrNull().orEmpty()
                                                     },
                                                 )
                                             }
@@ -6983,7 +6973,7 @@ private fun TasksScreen(
                         onEndDateChange = { newTaskRecurrenceEndDate = it },
                         onTimesChange = { updatedTimes ->
                             newTaskRecurrenceTimes = updatedTimes
-                            if (updatedTimes.isNotEmpty()) newTaskTime = updatedTimes.minOrNull().orEmpty()
+                            newTaskTime = updatedTimes.minOrNull().orEmpty()
                         },
                         )
                     }
@@ -7454,6 +7444,10 @@ private fun DailyTimesPicker(
 ) {
     var editingIndex by remember { mutableStateOf<Int?>(null) }
     val enabled = times.size >= 2
+    val timePattern = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
+    val singleTime = times.firstOrNull()?.takeIf { it.matches(timePattern) }
+        ?: baseTime.takeIf { it.matches(timePattern) }
+        ?: ""
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -7464,17 +7458,46 @@ private fun DailyTimesPicker(
                 checked = enabled,
                 onCheckedChange = { checked ->
                     if (checked) {
-                        val first = baseTime.takeIf { it.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) } ?: "09:00"
+                        val first = singleTime.ifBlank { "09:00" }
                         val firstHour = first.substringBefore(":").toIntOrNull() ?: 9
                         val second = "%02d:%s".format((firstHour + 4) % 24, first.substringAfter(":"))
                         onTimesChange(listOf(first, second).distinct().sorted())
                     } else {
-                        onTimesChange(emptyList())
+                        onTimesChange(singleTime.takeIf(String::isNotBlank)?.let(::listOf).orEmpty())
                     }
                 },
             )
         }
-        if (enabled) {
+        if (!enabled) {
+            Surface(
+                onClick = { editingIndex = 0 },
+                color = PopSurface,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.AccessTime, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(9.dp))
+                    Text(
+                        singleTime.ifBlank { "Definir horário" },
+                        color = if (singleTime.isBlank()) PopMuted else PopText,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (singleTime.isNotBlank()) {
+                        IconButton(
+                            onClick = { onTimesChange(emptyList()) },
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(Icons.Rounded.Close, "Remover horário", tint = PopMuted, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+        } else {
             times.sorted().forEachIndexed { index, time ->
                 Surface(
                     onClick = { editingIndex = index },
@@ -7509,7 +7532,7 @@ private fun DailyTimesPicker(
     }
 
     editingIndex?.let { index ->
-        val currentTime = times.getOrNull(index) ?: "12:00"
+        val currentTime = times.getOrNull(index) ?: singleTime.ifBlank { "12:00" }
         key(index, currentTime) {
             val pickerState = rememberTimePickerState(
                 initialHour = currentTime.substringBefore(":").toIntOrNull() ?: 12,
@@ -7527,7 +7550,7 @@ private fun DailyTimesPicker(
                             val updated = times.toMutableList().apply {
                                 if (index in indices) set(index, selected) else add(selected)
                             }.distinct().sorted()
-                            if (updated.size >= 2) onTimesChange(updated)
+                            if (updated.isNotEmpty()) onTimesChange(updated)
                             editingIndex = null
                         },
                     ) { Text("Confirmar", color = PopBlue, fontWeight = FontWeight.Bold) }

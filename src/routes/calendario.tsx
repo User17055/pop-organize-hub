@@ -72,6 +72,7 @@ function CalendarPage() {
       dueDate,
       targetKey: "",
       responsibleId: "",
+      responsibleIds: [],
       reviewerId: "",
       requiresReview: false,
       tags: "",
@@ -87,6 +88,7 @@ function CalendarPage() {
     tags: "",
     targetKey: "",
     responsibleId: "",
+    responsibleIds: [],
     recurrence: {
       frequency: "none",
       weekDays: [],
@@ -272,6 +274,7 @@ function CalendarPage() {
       dueDate,
       targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : "",
       responsibleId: "",
+      responsibleIds: [],
       reviewerId: "",
       requiresReview: false,
       tags: "",
@@ -295,6 +298,7 @@ function CalendarPage() {
       dueDate: submittedForm.dueDate,
       target: { type, id },
       responsibleId,
+      responsibleIds: type === "user" ? [id] : submittedForm.responsibleIds,
       reviewerId:
         !isPersonalWorkspace && submittedForm.requiresReview
           ? submittedForm.reviewerId || undefined
@@ -326,6 +330,11 @@ function CalendarPage() {
       tags: sourceTask.tags.join(", "),
       targetKey: `${sourceTask.target.type}:${sourceTask.target.id}`,
       responsibleId: sourceTask.responsibleId,
+      responsibleIds: [
+        ...new Set(
+          [sourceTask.responsibleId, ...(sourceTask.responsibleIds ?? [])].filter(Boolean),
+        ),
+      ],
       recurrence: recurrenceToForm(sourceTask.recurrence, sourceTask.dueDate),
     });
     updateTaskMutation.reset();
@@ -343,6 +352,7 @@ function CalendarPage() {
       dueDate: editForm.dueDate,
       target: { type: selectedType, id: selectedId },
       responsibleId: selectedType === "user" ? selectedId : editForm.responsibleId,
+      responsibleIds: selectedType === "user" ? [selectedId] : editForm.responsibleIds,
       tags: editForm.tags
         .split(",")
         .map((tag) => tag.trim())

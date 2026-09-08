@@ -312,7 +312,9 @@ function FuncionariosPage() {
       <div className="md:hidden">
         {employees.map((employee) => {
           const department = getDepartment(employee.departmentId);
-          const taskCount = tasks.filter((task) => task.responsibleId === employee.id).length;
+          const taskCount = tasks.filter((task) =>
+            [task.responsibleId, ...(task.responsibleIds ?? [])].includes(employee.id),
+          ).length;
           const isOwner = employee.id === ownerId;
           return (
             <button

@@ -149,6 +149,23 @@ export function TaskDetailDrawer({
                   ? "Aguardando aceite do convite"
                   : employee.role,
             }));
+  const selectedDepartment = departments.find((department) => department.id === selectedTargetId);
+  const selectedGroup = groups.find((group) => group.id === selectedTargetId);
+  const availableResponsibleEmployees =
+    selectedTargetType === "department"
+      ? employees.filter(
+          (employee) =>
+            employee.departmentId === selectedTargetId ||
+            selectedDepartment?.memberIds?.includes(employee.id),
+        )
+      : selectedTargetType === "group"
+        ? employees.filter((employee) => selectedGroup?.memberIds.includes(employee.id))
+        : employees;
+  const selectedResponsibleIds =
+    selectedTargetType === "user" ? [selectedTargetId] : editForm.responsibleIds;
+  const selectedResponsibleNames = selectedResponsibleIds
+    .map((id) => getEmployee(id)?.name)
+    .filter((name): name is string => Boolean(name));
 
   useEffect(
     () => () => {
@@ -507,37 +524,52 @@ export function TaskDetailDrawer({
               )}
             </button>
 
-            <div className="col-span-2 flex items-center gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
+            <div className="col-span-2 flex items-start gap-3 rounded-[14px] bg-muted/28 p-3 sm:col-span-1">
               <EmployeeAvatar
-                employee={getEmployee(
-                  selectedTargetType === "user" ? selectedTargetId : task.responsibleId,
-                )}
+                employee={getEmployee(selectedResponsibleIds[0])}
                 departments={departments}
               />
               <div className="flex-1 min-w-0">
                 <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                  Responsável
+                  Responsáveis
                 </div>
                 {permissions.canEditContent && selectedTargetType !== "user" ? (
-                  <GlassSelect
-                    value={editForm.responsibleId}
-                    options={[
-                      { value: "", label: "Sem responsável" },
-                      ...employees.map((employee) => ({
-                        value: employee.id,
-                        label: `${employee.name}${employee.role === "Convite pendente" ? " (convite pendente)" : ""}`,
-                      })),
-                    ]}
-                    onChange={(responsibleId) =>
-                      onEditFormChange((current) => ({ ...current, responsibleId }))
-                    }
-                    compact
-                  />
+                  <div className="mt-1 max-h-36 space-y-1 overflow-y-auto">
+                    {availableResponsibleEmployees.map((employee) => {
+                      const selected = editForm.responsibleIds.includes(employee.id);
+                      return (
+                        <button
+                          key={employee.id}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() =>
+                            onEditFormChange((current) => {
+                              const responsibleIds = selected
+                                ? current.responsibleIds.filter((id) => id !== employee.id)
+                                : [...current.responsibleIds, employee.id];
+                              return {
+                                ...current,
+                                responsibleId: responsibleIds[0] ?? "",
+                                responsibleIds,
+                              };
+                            })
+                          }
+                          className={cn(
+                            "flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 text-left text-[11px] font-semibold transition",
+                            selected ? "bg-primary/10 text-primary" : "hover:bg-background/70",
+                          )}
+                        >
+                          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded border">
+                            {selected && <Check className="h-3 w-3" />}
+                          </span>
+                          <span className="truncate">{employee.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <div className="mt-0.5 truncate text-xs font-semibold text-foreground">
-                    {getEmployee(
-                      selectedTargetType === "user" ? selectedTargetId : task.responsibleId,
-                    )?.name ??
+                    {selectedResponsibleNames.join(", ") ||
                       (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
                   </div>
                 )}
@@ -587,7 +619,8 @@ export function TaskDetailDrawer({
                       onEditFormChange((current) => ({
                         ...current,
                         targetKey: `${type}:${firstId}`,
-                        responsibleId: type === "user" ? "" : current.responsibleId,
+                        responsibleId: "",
+                        responsibleIds: [],
                       }));
                     }}
                     className={cn(
@@ -613,6 +646,8 @@ export function TaskDetailDrawer({
                         onEditFormChange((current) => ({
                           ...current,
                           targetKey: `${selectedTargetType}:${option.id}`,
+                          responsibleId: "",
+                          responsibleIds: [],
                         }))
                       }
                       className={cn(

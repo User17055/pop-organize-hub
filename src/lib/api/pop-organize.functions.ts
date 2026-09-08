@@ -1433,6 +1433,24 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
       } else if (!permissions.canChangeStatus) {
         throw createHttpError("Você não tem permissão para alterar o status desta tarefa.", 403);
       }
+      // Espelha a regra que o endpoint móvel aplica em `replaceMobileTasks`: uma ocorrência
+      // recorrente só pode ser concluída quando chegar a sua data. Lá a violação é coagida em
+      // silêncio, porque recusar cancelaria a carga inteira do aparelho, inclusive as exclusões que
+      // vão junto; aqui é uma tarefa só, e ignorar o clique não explicaria nada a quem clicou.
+      //
+      // Este era o caminho que ainda gravava ocorrência futura concluída. O móvel já estava
+      // fechado, e o Android usa o mesmo endpoint — então sobrava o painel.
+      if (
+        nextStatus === "completed" &&
+        task.recurrence &&
+        (task.recurrenceOccurrence ?? 1) > 1 &&
+        task.dueDate > today()
+      ) {
+        throw createHttpError(
+          "Uma ocorrência recorrente só pode ser concluída quando chegar a sua data.",
+          409,
+        );
+      }
       const wasCompleted = task.status === "completed";
       task.status = nextStatus;
       if (nextStatus === "completed" && !wasCompleted) {

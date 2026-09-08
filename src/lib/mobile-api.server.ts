@@ -1810,7 +1810,17 @@ export async function replaceMobileTasks(
           existing.title = normalizeMobileTaskTitle(item.title);
           existing.description = item.description.trim();
           existing.priority = priority(item.priority);
-          existing.dueDate = item.dueDate;
+          // A data de uma ocorrência materializada é a IDENTIDADE dela: é o que a distingue das
+          // outras linhas da mesma série, e o materializeRecurringTasks usa exatamente isso para
+          // saber o que já existe. Adotar a data que o aparelho manda tirava a série de fase de
+          // forma permanente, e também para o Android e o painel — foi assim que o app quebrou
+          // dado ao fingir "excluir só esta ocorrência" avançando a data localmente.
+          //
+          // A guarda é ESTREITA de propósito: só a ocorrência (a que tem recurrenceParentId). A
+          // tarefa modelo continua aceitando data nova, porque mudar a data de início da série é
+          // edição legítima — o painel faz isso, e o app do André pode ter tela para isso. Na
+          // operação normal isto é no-op: o aparelho devolve a mesma data que recebeu.
+          if (!existing.recurrenceParentId) existing.dueDate = item.dueDate;
           const responsibleIds = mobileResponsibleIds(workspace, account.id, item);
           existing.responsibleId = responsibleIds[0] ?? "";
           existing.responsibleIds = responsibleIds;

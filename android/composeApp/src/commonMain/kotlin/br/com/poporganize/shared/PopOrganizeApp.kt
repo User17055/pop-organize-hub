@@ -1722,7 +1722,14 @@ private fun TaskRow(
             //
             // Para o REVISOR nada muda: ele cai no outro ramo do servidor e conclui normalmente.
             val aguardaRevisao = task.awaitingReview && !task.isReviewer
-            if (mostrarAcoes) IconButton(onClick = onToggle, enabled = !aguardaRevisao) {
+            // `canComplete` vem do servidor e cobre os dois sentidos (la ele e
+            // `permissions.canComplete || permissions.canReopen`). Sem isto o circulo era clicavel
+            // para quem o servidor ia recusar, e a tarefa marcava e desmarcava sozinha na
+            // sincronizacao seguinte -- o mesmo sintoma da tarefa em revisao, por outra causa.
+            if (mostrarAcoes) IconButton(
+                onClick = onToggle,
+                enabled = task.canComplete && !aguardaRevisao,
+            ) {
                 Icon(
                     when {
                         aguardaRevisao -> Icons.Rounded.HourglassEmpty
@@ -1890,20 +1897,27 @@ private fun TaskRow(
                             },
                         )
                     }
-                    DropdownMenuItem(
-                        text = { Text("Excluir atividade", color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Rounded.DeleteOutline,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        },
-                        onClick = {
-                            showMenu = false
-                            onDelete()
-                        },
-                    )
+                    // Sem `canDelete` o menu oferecia excluir a quem o servidor ia recusar com
+                    // 403: a linha sumia da tela, a sincronizacao falhava, e ela voltava. Melhor
+                    // nao oferecer do que desfazer na cara de quem clicou.
+                    if (task.canDelete) {
+                        DropdownMenuItem(
+                            text = {
+                                Text("Excluir atividade", color = MaterialTheme.colorScheme.error)
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Rounded.DeleteOutline,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                onDelete()
+                            },
+                        )
+                    }
                 }
             }
         }

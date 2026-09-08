@@ -137,6 +137,15 @@ data class PopTask(
     val awaitingReview: Boolean = false,
     val recurrenceExcludedDates: List<String> = emptyList(),
 
+    // Do servidor, e usados para NAO oferecer o que ele vai recusar. Ver a nota no ApiTask sobre o
+    // default `true`.
+    //
+    // `canEdit` existe no ApiTask e NAO foi trazido para ca de proposito: nao ha tela de editar
+    // tarefa existente neste app, entao ele nao teria consumidor. Campo carregado sem uso apodrece
+    // -- quando a tela existir, ele desce em uma linha.
+    val canComplete: Boolean = true,
+    val canDelete: Boolean = true,
+
     // Cofre da recorrencia: as palavras do servidor, guardadas cruas e devolvidas intactas.
     //
     // O RecurrenceKind acima so consegue representar quatro casos, e o servidor guarda mais: de
@@ -373,6 +382,19 @@ data class ApiTask(
     // montar esta lista aqui nem tentar devolve-la.
     val recurrenceSeriesId: String = "",
     val recurrenceExcludedDates: List<String> = emptyList(),
+
+    // O que o SERVIDOR diz que esta pessoa pode fazer com esta tarefa. Ele ja mandava os tres desde
+    // sempre e o app ignorava os tres, decidindo por conta propria -- nao era perda de dado (o
+    // servidor recalcula na escrita e nunca confia no que o aparelho manda), era divergencia
+    // esperando acontecer: oferecer um botao que o servidor vai recusar.
+    //
+    // DEFAULT `true`, e isso importa mais do que parece. Contra servidor desatualizado as chaves
+    // nao vem, o kotlinx aplica o default, e o app precisa se comportar como se comportava antes --
+    // nao travar todas as acoes de todo mundo. Default `false` aqui seria uma regressao silenciosa
+    // em toda instalacao que falasse com um servidor antigo.
+    val canEdit: Boolean = true,
+    val canComplete: Boolean = true,
+    val canDelete: Boolean = true,
 )
 
 @Serializable

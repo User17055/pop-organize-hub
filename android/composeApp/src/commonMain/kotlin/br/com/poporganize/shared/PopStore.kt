@@ -380,11 +380,16 @@ class PopStore(private val platform: PopPlatformServices) {
     // `deleteTask` comum, agora que o servidor registra a exclusao; a segunda avancava data
     // localmente, que e exatamente o que nao se pode fazer.
     //
-    // Em resumo: o servidor RECRIA a ocorrencia apagada (materializeRecurringTasks) e o app nao tem
-    // como marcar data excluida nem identificar a serie, porque o contrato movel nao traz esses
-    // dois campos. Enquanto isso, o PUT faz `existing.dueDate = item.dueDate` -- adota a data do
-    // aparelho --, entao avancar a data localmente tirava a serie de fase de forma permanente, e
-    // tambem para o Android e o painel.
+    // O QUE MUDOU EM 04/09, porque este comentario dizia o contrario ate entao: o contrato movel
+    // passou a trazer `recurrenceSeriesId` e `recurrenceExcludedDates`, e o servidor passou a
+    // registrar sozinho a data excluida nas linhas que sobram da serie quando uma ocorrencia e
+    // apagada pelo endpoint movel. Ou seja, o `materializeRecurringTasks` nao recria mais o que o
+    // app apagou, e o app nao precisa marcar nada -- so apagar.
+    //
+    // O que continua valendo, e por isso a segunda funcao nao volta: avancar `dueDate` localmente
+    // tirava a serie de fase de forma permanente, tambem para o Android e o painel. Desde 08/09 o
+    // servidor tambem se defende disso (nao adota data de ocorrencia materializada), mas a regra
+    // aqui e a mesma: NENHUM caminho do app mexe na data de uma ocorrencia.
 
     fun addMember(name: String, email: String, role: String) {
         val sectorId = selectedCompany?.sectors?.firstOrNull()?.id
@@ -769,6 +774,8 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     isReviewer = isReviewer,
     awaitingReview = awaitingReview,
     recurrenceExcludedDates = recurrenceExcludedDates,
+    canComplete = canComplete,
+    canDelete = canDelete,
     assignee = assignee,
     assignees = assignees,
     assignedBy = assignedBy,

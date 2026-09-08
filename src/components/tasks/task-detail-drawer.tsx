@@ -562,6 +562,7 @@ export function TaskDetailDrawer({
                           <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded border">
                             {selected && <Check className="h-3 w-3" />}
                           </span>
+                          <EmployeeAvatar employee={employee} departments={departments} size="xs" />
                           <span className="truncate">{employee.name}</span>
                         </button>
                       );

@@ -276,6 +276,7 @@ function TasksPage() {
     onCreated: () => {
       setShowForm(false);
     },
+    onUpdated: () => setSelectedTaskId(null),
     onDeleted: () => {
       setSelectedTaskId(null);
       setShowDeleteDialog(false);

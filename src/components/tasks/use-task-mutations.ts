@@ -18,6 +18,7 @@ import type { RecurrenceInput } from "./task-form-types";
 export function useTaskMutations(options?: {
   onCompleted?: (taskId: string) => void;
   onCreated?: () => void;
+  onUpdated?: () => void;
   onDeleted?: () => void;
   onCommented?: () => void;
 }) {
@@ -90,6 +91,7 @@ export function useTaskMutations(options?: {
       recurrence?: RecurrenceInput;
     }) => updateTaskDetails({ data: payload }),
     onSuccess: () => {
+      options?.onUpdated?.();
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });

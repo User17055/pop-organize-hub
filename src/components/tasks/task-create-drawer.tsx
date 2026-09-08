@@ -14,6 +14,7 @@ import { resolveTaskReviewManagerId } from "@/lib/permissions";
 import { Field } from "@/components/form-field";
 import { GlassDatePicker } from "./glass-date-picker";
 import { GlassSelect, RecurrenceFields } from "./recurrence-fields";
+import { EmployeeAvatar } from "./employee-avatar";
 import type { TaskFormState } from "./task-form-types";
 
 const inputClass =
@@ -459,6 +460,11 @@ export function TaskCreateDrawer({
                                     <span className="flex h-4 w-4 items-center justify-center rounded border">
                                       {selected && <Check className="h-3 w-3" />}
                                     </span>
+                                    <EmployeeAvatar
+                                      employee={employee}
+                                      departments={departments}
+                                      size="xs"
+                                    />
                                     <span className="truncate">{employee.name}</span>
                                   </button>
                                 );

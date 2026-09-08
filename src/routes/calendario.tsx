@@ -114,6 +114,7 @@ function CalendarPage() {
     deleteSubtaskMutation,
   } = useTaskMutations({
     onCreated: () => setShowCreateForm(false),
+    onUpdated: () => setSelectedTaskId(null),
     onCompleted: () => setSelectedTaskId(null),
     onDeleted: () => {
       setSelectedTaskId(null);

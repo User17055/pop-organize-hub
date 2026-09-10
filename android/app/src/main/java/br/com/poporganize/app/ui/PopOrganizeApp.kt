@@ -23,8 +23,12 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -2341,6 +2345,7 @@ private fun LoginScreen(
                 googleLogo = true,
                 enabled = !isGoogleSignInPending,
                 showLoader = isGoogleSignInPending,
+                bouncingLoader = true,
                 onClick = ::startGoogleSignIn,
             )
             Spacer(Modifier.height(12.dp))
@@ -2450,6 +2455,7 @@ private fun LoginActionButton(
     googleLogo: Boolean = false,
     enabled: Boolean = true,
     showLoader: Boolean = false,
+    bouncingLoader: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
@@ -2461,11 +2467,15 @@ private fun LoginActionButton(
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (showLoader) {
-                CircularProgressIndicator(
-                    color = foreground,
-                    strokeWidth = 3.dp,
-                    modifier = Modifier.size(27.dp),
-                )
+                if (bouncingLoader) {
+                    GoogleBouncingDots()
+                } else {
+                    CircularProgressIndicator(
+                        color = foreground,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(27.dp),
+                    )
+                }
             } else if (googleLogo) {
                 Image(
                     painter = painterResource(R.drawable.google_logo),
@@ -2488,6 +2498,43 @@ private fun LoginActionButton(
                     letterSpacing = .15.sp,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun GoogleBouncingDots() {
+    val transition = rememberInfiniteTransition(label = "Google login")
+    val offsets = List(3) { index ->
+        val delay = index * 120
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 0f,
+            animationSpec = infiniteRepeatable(
+                animation = keyframes {
+                    durationMillis = 900
+                    0f at 0
+                    0f at delay
+                    -6f at delay + 150
+                    0f at delay + 300
+                    0f at 900
+                },
+            ),
+            label = "Google dot ${index + 1}",
+        )
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        offsets.forEach { offset ->
+            Box(
+                Modifier
+                    .offset(y = offset.value.dp)
+                    .size(8.dp)
+                    .background(Color(0xFF4285F4), CircleShape),
+            )
         }
     }
 }

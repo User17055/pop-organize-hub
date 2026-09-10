@@ -226,6 +226,7 @@ function TasksPage() {
       dueDate,
       targetKey: "",
       responsibleId: "",
+      responsibleIds: [],
       reviewerId: "",
       requiresReview: false,
       tags: "",
@@ -243,6 +244,7 @@ function TasksPage() {
       tags: "",
       targetKey: "",
       responsibleId: "",
+      responsibleIds: [],
       recurrence: getDefaultRecurrence(dueDate),
     };
   });
@@ -274,6 +276,7 @@ function TasksPage() {
     onCreated: () => {
       setShowForm(false);
     },
+    onUpdated: () => setSelectedTaskId(null),
     onDeleted: () => {
       setSelectedTaskId(null);
       setShowDeleteDialog(false);
@@ -326,6 +329,9 @@ function TasksPage() {
       tags: task.tags.join(", "),
       targetKey: `${task.target.type}:${task.target.id}`,
       responsibleId: task.responsibleId,
+      responsibleIds: [
+        ...new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean)),
+      ],
       recurrence: recurrenceToForm(task.recurrence, task.dueDate),
     });
     updateTaskMutation.reset();
@@ -546,6 +552,7 @@ function TasksPage() {
       dueDate,
       targetKey: isPersonalWorkspace ? `user:${currentUser.id}` : "",
       responsibleId: "",
+      responsibleIds: [],
       reviewerId: "",
       requiresReview: false,
       tags: "",
@@ -567,6 +574,9 @@ function TasksPage() {
       tags: task.tags.join(", "),
       targetKey: `${task.target.type}:${task.target.id}`,
       responsibleId: task.responsibleId,
+      responsibleIds: [
+        ...new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean)),
+      ],
       recurrence: recurrenceToForm(task.recurrence, task.dueDate),
     });
     updateTaskMutation.reset();
@@ -585,6 +595,7 @@ function TasksPage() {
       dueDate: submittedForm.dueDate,
       target: { type, id },
       responsibleId,
+      responsibleIds: type === "user" ? [id] : submittedForm.responsibleIds,
       reviewerId:
         !isPersonalWorkspace && submittedForm.requiresReview
           ? submittedForm.reviewerId || undefined
@@ -615,6 +626,7 @@ function TasksPage() {
       dueDate: editForm.dueDate,
       target: { type: selectedType, id: selectedId },
       responsibleId: selectedType === "user" ? selectedId : editForm.responsibleId,
+      responsibleIds: selectedType === "user" ? [selectedId] : editForm.responsibleIds,
       tags: editForm.tags
         .split(",")
         .map((tag) => tag.trim())

@@ -14,6 +14,7 @@ import { resolveTaskReviewManagerId } from "@/lib/permissions";
 import { Field } from "@/components/form-field";
 import { GlassDatePicker } from "./glass-date-picker";
 import { GlassSelect, RecurrenceFields } from "./recurrence-fields";
+import { EmployeeAvatar } from "./employee-avatar";
 import type { TaskFormState } from "./task-form-types";
 
 const inputClass =
@@ -74,6 +75,7 @@ export function TaskCreateDrawer({
       ? resolveTaskReviewManagerId({
           target: { type: draftTargetType, id: draftTargetId },
           responsibleId: draft.responsibleId,
+          responsibleIds: draft.responsibleIds,
           employees,
           departments,
           groups,
@@ -352,6 +354,7 @@ export function TaskCreateDrawer({
                                   ...current,
                                   targetKey: options.length === 1 ? options[0]!.value : "",
                                   responsibleId: "",
+                                  responsibleIds: [],
                                 }));
                               }}
                               className={cn(
@@ -393,40 +396,80 @@ export function TaskCreateDrawer({
                                 ...current,
                                 targetKey,
                                 responsibleId: "",
+                                responsibleIds: [],
                               }))
                             }
                           />
                         </Field>
                         {!isUserTarget && draft.targetKey && (
-                          <Field
-                            label={
-                              isDepartmentTarget
-                                ? "Responsável do setor (opcional)"
-                                : isGroupTarget
-                                  ? "Responsável do grupo (opcional)"
-                                  : "Responsável"
-                            }
-                          >
-                            <GlassSelect
-                              value={draft.responsibleId}
-                              options={[
-                                {
-                                  value: "",
-                                  label: isDepartmentTarget
-                                    ? "Setor inteiro"
-                                    : isGroupTarget
-                                      ? "Grupo inteiro"
-                                      : "Sem responsável",
-                                },
-                                ...availableEmployees.map((employee) => ({
-                                  value: employee.id,
-                                  label: employee.name,
-                                })),
-                              ]}
-                              onChange={(responsibleId) =>
-                                setDraft((current) => ({ ...current, responsibleId }))
-                              }
-                            />
+                          <Field label="Responsáveis (opcional)">
+                            <div className="task-create-input max-h-44 space-y-1 overflow-y-auto rounded-md border p-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDraft((current) => ({
+                                    ...current,
+                                    responsibleId: "",
+                                    responsibleIds: [],
+                                  }))
+                                }
+                                className={cn(
+                                  "flex min-h-8 w-full items-center gap-2 rounded px-2 text-left text-xs font-medium transition",
+                                  draft.responsibleIds.length === 0
+                                    ? "bg-primary/10 text-primary"
+                                    : "hover:bg-muted",
+                                )}
+                              >
+                                <span className="flex h-4 w-4 items-center justify-center rounded border">
+                                  {draft.responsibleIds.length === 0 && (
+                                    <Check className="h-3 w-3" />
+                                  )}
+                                </span>
+                                {isDepartmentTarget
+                                  ? "Setor inteiro"
+                                  : isGroupTarget
+                                    ? "Grupo inteiro"
+                                    : "Sem responsável específico"}
+                              </button>
+                              {availableEmployees.map((employee) => {
+                                const selected = draft.responsibleIds.includes(employee.id);
+                                return (
+                                  <button
+                                    key={employee.id}
+                                    type="button"
+                                    aria-pressed={selected}
+                                    onClick={() =>
+                                      setDraft((current) => {
+                                        const responsibleIds = selected
+                                          ? current.responsibleIds.filter(
+                                              (id) => id !== employee.id,
+                                            )
+                                          : [...current.responsibleIds, employee.id];
+                                        return {
+                                          ...current,
+                                          responsibleId: responsibleIds[0] ?? "",
+                                          responsibleIds,
+                                        };
+                                      })
+                                    }
+                                    className={cn(
+                                      "flex min-h-8 w-full items-center gap-2 rounded px-2 text-left text-xs font-medium transition",
+                                      selected ? "bg-primary/10 text-primary" : "hover:bg-muted",
+                                    )}
+                                  >
+                                    <span className="flex h-4 w-4 items-center justify-center rounded border">
+                                      {selected && <Check className="h-3 w-3" />}
+                                    </span>
+                                    <EmployeeAvatar
+                                      employee={employee}
+                                      departments={departments}
+                                      size="xs"
+                                    />
+                                    <span className="truncate">{employee.name}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </Field>
                         )}
                       </div>

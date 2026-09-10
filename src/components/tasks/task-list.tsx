@@ -119,6 +119,15 @@ function TaskListImpl({
     return map;
   }, [employees]);
   const getEmployee = (id: string) => employeeById.get(id);
+  const getResponsibleEmployees = (task: Task) => {
+    const ids =
+      task.target.type === "user"
+        ? [task.target.id]
+        : [...new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean))];
+    return ids
+      .map((id) => getEmployee(id))
+      .filter((employee): employee is Employee => Boolean(employee));
+  };
   const layout = useTaskListLayout();
   const permissionsByTaskId = useMemo(() => {
     const map = new Map<string, ReturnType<typeof getTaskPermissions>>();
@@ -359,9 +368,7 @@ function TaskListImpl({
             </TableHeader>
             <TableBody className="[&_tr:last-child]:border-b">
               {tasks.map((task) => {
-                const emp = getEmployee(
-                  task.responsibleId || (task.target.type === "user" ? task.target.id : ""),
-                );
+                const responsibleEmployees = getResponsibleEmployees(task);
                 const overdue = isOverdue(task);
                 const permissions = permissionsByTaskId.get(task.id)!;
                 const progress = subtaskProgress(task);
@@ -468,12 +475,29 @@ function TaskListImpl({
                         {showResponsible && (
                           <TableCell className="px-4 py-4">
                             <div className="flex items-center gap-2">
-                              <EmployeeAvatar employee={emp} departments={departments} size="sm" />
-                              <span className="truncate text-sm font-medium text-foreground/75">
-                                {emp?.name ??
-                                  (task.target.type === "department"
+                              {responsibleEmployees.length > 0 && (
+                                <div className="flex shrink-0 -space-x-1.5">
+                                  {responsibleEmployees.slice(0, 3).map((employee) => (
+                                    <EmployeeAvatar
+                                      key={employee.id}
+                                      employee={employee}
+                                      departments={departments}
+                                      size="sm"
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                              <span
+                                className="truncate text-sm font-medium text-foreground/75"
+                                title={responsibleEmployees
+                                  .map((employee) => employee.name)
+                                  .join(", ")}
+                              >
+                                {responsibleEmployees.length > 0
+                                  ? `${responsibleEmployees[0]!.name}${responsibleEmployees.length > 1 ? ` +${responsibleEmployees.length - 1}` : ""}`
+                                  : task.target.type === "department"
                                     ? "Setor inteiro"
-                                    : "Sem responsável")}
+                                    : "Sem responsável"}
                               </span>
                             </div>
                           </TableCell>
@@ -557,9 +581,7 @@ function TaskListImpl({
         <div className="flex flex-col gap-3 lg:hidden">
           <AnimatePresence initial={false}>
             {tasks.map((task, index) => {
-              const emp = getEmployee(
-                task.responsibleId || (task.target.type === "user" ? task.target.id : ""),
-              );
+              const responsibleEmployees = getResponsibleEmployees(task);
               const overdue = isOverdue(task);
               const permissions = permissionsByTaskId.get(task.id)!;
               const progress = subtaskProgress(task);
@@ -721,13 +743,19 @@ function TaskListImpl({
 
                   {showResponsible && (
                     <div
-                      className="shrink-0"
+                      className="flex shrink-0 -space-x-2"
                       title={
-                        emp?.name ??
+                        responsibleEmployees.map((employee) => employee.name).join(", ") ||
                         (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")
                       }
                     >
-                      <EmployeeAvatar employee={emp} departments={departments} />
+                      {responsibleEmployees.slice(0, 3).map((employee) => (
+                        <EmployeeAvatar
+                          key={employee.id}
+                          employee={employee}
+                          departments={departments}
+                        />
+                      ))}
                     </div>
                   )}
 

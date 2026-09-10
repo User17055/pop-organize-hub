@@ -163,11 +163,64 @@ export function getManagerDepartmentAccess(input: {
   return { mode, departmentIds };
 }
 
+/**
+ * Setores que podem ser expostos nas telas de estrutura/equipe.
+ *
+ * Administradores recebem `null` (sem recorte). Um colaborador comum recebe apenas o setor em
+ * que está cadastrado. Um gestor recebe também todos os setores que representa, além dos setores
+ * adicionais que um administrador tenha liberado explicitamente.
+ */
+export function getVisibleDepartmentIds(input: {
+  currentUser?: PermissionEmployee | null;
+  employees: PermissionInput["employees"];
+  departments: PermissionInput["departments"];
+  permissionGroups?: PermissionGroup[];
+}) {
+  const userId = input.currentUser?.id;
+  if (!userId) return new Set<string>();
+  if (
+    isAdminUser({
+      currentUser: input.currentUser,
+      employees: input.employees,
+      permissionGroups: input.permissionGroups,
+    })
+  ) {
+    return null;
+  }
+
+  const employee = input.employees.find((item) => item.id === userId);
+  const managedDepartmentIds = input.departments
+    .filter((department) => department.managerId === userId)
+    .map((department) => department.id);
+  const isManager = managedDepartmentIds.length > 0;
+  const mode = isManager ? (employee?.departmentAccessMode ?? "own") : "own";
+  if (mode === "all") return null;
+
+  return new Set(
+    [
+      employee?.departmentId,
+      ...managedDepartmentIds,
+      ...(mode === "selected" ? (employee?.visibleDepartmentIds ?? []) : []),
+    ].filter((id): id is string => Boolean(id)),
+  );
+}
+
 export function canViewTask(input: PermissionInput) {
   const userId = input.currentUser?.id;
   if (!userId) return false;
 
   const currentEmployee = input.employees.find((item) => item.id === userId);
+  if (isAdmin(input)) return true;
+
+  if (input.permissionGroups) {
+    const set = resolvePermissionSet({
+      currentUser: input.currentUser,
+      employees: input.employees,
+      permissionGroups: input.permissionGroups,
+    });
+    if (hasPermission(set, "tasks.viewAll")) return true;
+  }
+
   const managerAccess = getManagerDepartmentAccess({
     currentUser: input.currentUser,
     employees: input.employees,
@@ -200,18 +253,8 @@ export function canViewTask(input: PermissionInput) {
       const group = input.groups.find((item) => item.id === input.task.target.id);
       return group?.leaderId === userId || group?.memberIds.includes(userId) || false;
     }
+    if (input.task.target.type === "company") return true;
     return false;
-  }
-
-  if (isAdmin(input)) return true;
-
-  if (input.permissionGroups) {
-    const set = resolvePermissionSet({
-      currentUser: input.currentUser,
-      employees: input.employees,
-      permissionGroups: input.permissionGroups,
-    });
-    if (hasPermission(set, "tasks.viewAll")) return true;
   }
 
   if (effectiveReviewManagerId(input) === userId) return true;

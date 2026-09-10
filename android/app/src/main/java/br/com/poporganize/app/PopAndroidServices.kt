@@ -6,6 +6,7 @@ import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
 import android.util.Base64
+import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
@@ -85,7 +86,8 @@ class PopAndroidServices(private val activity: Activity) : PopPlatformServices {
                     }
                 }
             }
-        } catch (_: GetCredentialCancellationException) {
+        } catch (error: GetCredentialCancellationException) {
+            Log.w("PopGoogleLogin", "Google credential selection was not authorized", error)
             AuthResult.Cancelled
         } catch (_: NoCredentialException) {
             AuthResult.Failure("Nenhuma conta Google está disponível neste aparelho.")

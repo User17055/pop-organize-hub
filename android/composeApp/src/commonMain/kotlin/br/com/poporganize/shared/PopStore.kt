@@ -720,6 +720,7 @@ private fun ApiWorkspace.toPermissions() = WorkspacePermissions(
     isOwner = isOwner,
     canCreateTasks = canCreateTasks,
     canAssignTasks = canAssignTasks,
+    canViewDepartments = canViewDepartments,
     canManageEmployees = canManageEmployees,
     canManageDepartments = canManageDepartments,
     canManageGroups = canManageGroups,

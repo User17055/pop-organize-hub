@@ -21,8 +21,8 @@ android {
         applicationId "br.com.poporganize.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 6
-        versionName "1.0.5"
+        versionCode 7
+        versionName "1.0.6"
         manifestPlaceholders = [appLabel: "Pop Organize"]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "POP_API_BASE_URL", "\"${popApiBaseUrl.replace('\\', '\\\\').replace('"', '\\"')}\""
@@ -81,6 +81,8 @@ dependencies {
     implementation 'androidx.credentials:credentials:1.6.0'
     implementation 'androidx.credentials:credentials-play-services-auth:1.6.0'
     implementation 'com.google.android.libraries.identity.googleid:googleid:1.2.0'
+    // Compatibility path for Android 13 and older devices whose credential provider is outdated.
+    implementation 'com.google.android.gms:play-services-auth:21.6.0'
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'

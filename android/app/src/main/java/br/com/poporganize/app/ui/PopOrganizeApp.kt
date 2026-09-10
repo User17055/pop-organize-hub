@@ -234,6 +234,9 @@ import br.com.poporganize.app.BuildConfig
 import br.com.poporganize.app.notifications.NotificationTaskSnapshot
 import br.com.poporganize.app.notifications.saveNotificationTaskSnapshot
 import br.com.poporganize.app.notifications.showAssignedTaskNotification
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
@@ -2012,6 +2015,89 @@ private fun LoginScreen(
     var isEmailPending by remember { mutableStateOf(false) }
     var isGoogleSignInPending by remember { mutableStateOf(false) }
 
+    suspend fun completeGoogleSignIn(
+        idToken: String,
+        id: String,
+        name: String,
+        email: String,
+        photoUrl: String,
+    ) {
+        val apiSession = authenticateGoogleWithApi(idToken)
+        onGoogleSignedIn(
+            GoogleAccount(
+                id = id,
+                name = name,
+                email = email,
+                photoUrl = photoUrl,
+                apiToken = apiSession.token,
+            ),
+        )
+    }
+
+    val legacyGoogleClient = remember(activity, googleWebClientId) {
+        if (activity == null || googleWebClientId.isBlank() || googleWebClientId.startsWith("YOUR_")) {
+            null
+        } else {
+            val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestIdToken(googleWebClientId)
+                .requestEmail()
+                .build()
+            GoogleSignIn.getClient(activity, options)
+        }
+    }
+    val legacyGoogleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) {
+            isGoogleSignInPending = false
+            Toast.makeText(context, "Login com Google cancelado.", Toast.LENGTH_SHORT).show()
+            return@rememberLauncherForActivityResult
+        }
+        coroutineScope.launch {
+            try {
+                val account = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                    .getResult(ApiException::class.java)
+                val idToken = account.idToken
+                    ?: throw IllegalStateException("O Google não retornou uma credencial válida.")
+                completeGoogleSignIn(
+                    idToken = idToken,
+                    id = account.id.orEmpty().ifBlank { account.email.orEmpty() },
+                    name = account.displayName.orEmpty(),
+                    email = account.email.orEmpty(),
+                    photoUrl = account.photoUrl?.toString().orEmpty(),
+                )
+            } catch (error: ApiException) {
+                Log.e("PopGoogleLogin", "Compatibility sign-in failed: ${error.statusCode}", error)
+                val message = when (error.statusCode) {
+                    7 -> "Sem conexão com o Google. Verifique a internet e tente novamente."
+                    10 -> "O acesso do Google ainda não está liberado para este aplicativo."
+                    12501 -> "Login com Google cancelado."
+                    else -> "Não foi possível entrar com Google (código ${error.statusCode})."
+                }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            } catch (error: Exception) {
+                Log.e("PopGoogleLogin", "Compatibility sign-in failed", error)
+                Toast.makeText(
+                    context,
+                    error.localizedMessage ?: "Não foi possível conectar ao servidor.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                isGoogleSignInPending = false
+            }
+        }
+    }
+
+    fun startCompatibleGoogleSignIn() {
+        val client = legacyGoogleClient
+        if (client == null) {
+            Toast.makeText(context, "Não foi possível abrir o login do Google.", Toast.LENGTH_LONG).show()
+            return
+        }
+        isGoogleSignInPending = true
+        legacyGoogleLauncher.launch(client.signInIntent)
+    }
+
     fun startGoogleSignIn() {
         if (activity == null) {
             Toast.makeText(
@@ -2027,6 +2113,13 @@ private fun LoginScreen(
                 "Configure o ID do cliente Web do Google em strings.xml.",
                 Toast.LENGTH_LONG,
             ).show()
+            return
+        }
+
+        // Credential Manager depends on a sufficiently recent credential provider. Older Android
+        // devices use Google's compatibility activity, avoiding the provider cancelling silently.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startCompatibleGoogleSignIn()
             return
         }
 
@@ -2053,15 +2146,12 @@ private fun LoginScreen(
                 }
 
                 val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                val apiSession = authenticateGoogleWithApi(googleCredential.idToken)
-                onGoogleSignedIn(
-                    GoogleAccount(
-                        id = googleCredential.id,
-                        name = googleCredential.displayName.orEmpty(),
-                        email = googleCredential.id,
-                        photoUrl = googleCredential.profilePictureUri?.toString().orEmpty(),
-                        apiToken = apiSession.token,
-                    ),
+                completeGoogleSignIn(
+                    idToken = googleCredential.idToken,
+                    id = googleCredential.id,
+                    name = googleCredential.displayName.orEmpty(),
+                    email = googleCredential.id,
+                    photoUrl = googleCredential.profilePictureUri?.toString().orEmpty(),
                 )
             } catch (error: GetCredentialCancellationException) {
                 Log.w("PopGoogleLogin", "Google credential selection was not authorized", error)

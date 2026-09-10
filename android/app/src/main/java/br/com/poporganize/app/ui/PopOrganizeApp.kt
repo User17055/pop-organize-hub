@@ -838,6 +838,7 @@ private data class ApiWorkspaceSummary(
     val kind: String,
     val isOwner: Boolean,
     val canCreateTasks: Boolean,
+    val canViewDepartments: Boolean,
     val canManageEmployees: Boolean,
     val canManageDepartments: Boolean,
     val canManageGroups: Boolean,
@@ -932,6 +933,7 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         kind = item.optString("kind"),
                         isOwner = item.optBoolean("isOwner", false),
                         canCreateTasks = item.optBoolean("canCreateTasks", false),
+                        canViewDepartments = item.optBoolean("canViewDepartments", false),
                         canManageEmployees = item.optBoolean("canManageEmployees", false),
                         canManageDepartments = item.optBoolean("canManageDepartments", false),
                         canManageGroups = item.optBoolean("canManageGroups", false),
@@ -2537,6 +2539,7 @@ private fun PopMainContent(
     val companyOwnership = remember { mutableStateListOf<Boolean>() }
     val companyDescriptions = remember { mutableStateListOf<String>() }
     val companyCanCreateTasks = remember { mutableStateListOf<Boolean>() }
+    val companyCanViewDepartments = remember { mutableStateListOf<Boolean>() }
     val companyCanManageEmployees = remember { mutableStateListOf<Boolean>() }
     val companyCanManageDepartments = remember { mutableStateListOf<Boolean>() }
     val companyCanManageGroups = remember { mutableStateListOf<Boolean>() }
@@ -2762,6 +2765,8 @@ private fun PopMainContent(
         companyDescriptions.addAll(companies.map { it.description.trim() })
         companyCanCreateTasks.clear()
         companyCanCreateTasks.addAll(companies.map { it.canCreateTasks })
+        companyCanViewDepartments.clear()
+        companyCanViewDepartments.addAll(companies.map { it.canViewDepartments })
         companyCanManageEmployees.clear()
         companyCanManageEmployees.addAll(companies.map { it.canManageEmployees })
         companyCanManageDepartments.clear()
@@ -3292,6 +3297,7 @@ private fun PopMainContent(
                         companyPermissionGroups = companyPermissionGroups,
                         tasks = tasks,
                         workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
+                        canViewDepartments = companyCanViewDepartments.getOrElse(selectedCompanyIndex) { false },
                         canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                         canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
                         canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
@@ -3339,6 +3345,7 @@ private fun PopMainContent(
                 companyPermissionGroups = companyPermissionGroups,
                 tasks = tasks,
                 workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
+                canViewDepartments = companyCanViewDepartments.getOrElse(selectedCompanyIndex) { false },
                 canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                 canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
                 canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
@@ -8782,6 +8789,7 @@ private fun MoreScreen(
     companyPermissionGroups: MutableList<PermissionGroup>,
     tasks: List<PopTask>,
     workspaceId: String,
+    canViewDepartments: Boolean,
     canManageEmployees: Boolean,
     canManageDepartments: Boolean,
     canManageGroups: Boolean,
@@ -8957,7 +8965,7 @@ private fun MoreScreen(
                 )
             }
         }
-    } else if (activeManagementPage == "sectors") {
+    } else if (activeManagementPage == "sectors" && canViewDepartments) {
         Dialog(
             onDismissRequest = { activeManagementPage = null },
             properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -9166,12 +9174,14 @@ private fun MoreScreen(
                                 onClick = { activeManagementPage = "groups" },
                                 modifier = Modifier.weight(1f),
                             )
-                            MoreShortcut(
-                                icon = Icons.Rounded.AccountTree,
-                                title = "Setores",
-                                onClick = { activeManagementPage = "sectors" },
-                                modifier = Modifier.weight(1f),
-                            )
+                            if (canViewDepartments) {
+                                MoreShortcut(
+                                    icon = Icons.Rounded.AccountTree,
+                                    title = "Setores",
+                                    onClick = { activeManagementPage = "sectors" },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                             MoreShortcut(
                                 icon = Icons.Rounded.BarChart,
                                 title = "Relatórios",

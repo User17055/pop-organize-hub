@@ -767,7 +767,11 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
                         onPage = { morePage = it },
                     )
                     MorePage.Team -> TeamScreen(store)
-                    MorePage.Sectors -> SectorsScreen(store)
+                    MorePage.Sectors -> if (store.permissions.canViewDepartments) {
+                        SectorsScreen(store)
+                    } else {
+                        MoreScreen(store = store, onPage = { morePage = it })
+                    }
                     MorePage.Groups -> GroupsScreen(store)
                     MorePage.Settings -> SettingsScreen(store, platform)
                 }
@@ -2384,12 +2388,14 @@ private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
                     "${company!!.members.size} pessoas cadastradas",
                 ) { onPage(MorePage.Team) }
             }
-            item {
-                MoreItem(
-                    Icons.Rounded.Apartment,
-                    "Setores",
-                    "${company!!.sectors.size} setores",
-                ) { onPage(MorePage.Sectors) }
+            if (store.permissions.canViewDepartments) {
+                item {
+                    MoreItem(
+                        Icons.Rounded.Apartment,
+                        "Setores",
+                        "${company!!.sectors.size} setores",
+                    ) { onPage(MorePage.Sectors) }
+                }
             }
             item {
                 MoreItem(

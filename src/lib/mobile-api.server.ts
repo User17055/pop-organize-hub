@@ -19,7 +19,7 @@ import {
 } from "./database.server";
 import { allPermissionKeys, departmentColors, type PermissionKey, type Task } from "./domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "./permission-groups";
-import { canViewTask, getTaskPermissions } from "./permissions";
+import { canViewTask, getTaskPermissions, getVisibleDepartmentIds } from "./permissions";
 import { materializeRecurringTasks } from "./recurrence.server";
 
 const MOBILE_SESSION_EXPIRY = "9999-12-31T23:59:59.999Z";
@@ -113,6 +113,24 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         permissionGroups: workspace.permissionGroups,
       });
       const isCompany = (workspace.company.kind ?? "company") === "company";
+      const visibleDepartmentIds = isCompany
+        ? getVisibleDepartmentIds({
+            currentUser,
+            employees: workspace.employees,
+            departments: workspace.departments,
+            permissionGroups: workspace.permissionGroups,
+          })
+        : null;
+      const visibleEmployeeIds = new Set(
+        workspace.employees
+          .filter(
+            (employee) =>
+              employee.id === userId ||
+              !visibleDepartmentIds ||
+              visibleDepartmentIds.has(employee.departmentId),
+          )
+          .map((employee) => employee.id),
+      );
       const departmentName = (id: string) =>
         formatDepartmentName(
           workspace.departments.find((department) => department.id === id)?.name ?? "",
@@ -125,13 +143,14 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         isOwner: workspace.company.ownerId === userId,
         canCreateTasks: hasPermission(permissionSet, "tasks.create"),
         canAssignTasks: isCompany && hasPermission(permissionSet, "tasks.assign"),
+        canViewDepartments: isCompany && hasPermission(permissionSet, "pages.departments"),
         canManageEmployees: isCompany && hasPermission(permissionSet, "manage.employees"),
         canManageDepartments: isCompany && hasPermission(permissionSet, "manage.departments"),
         canManageGroups: isCompany && hasPermission(permissionSet, "manage.groups"),
         canManagePermissions: isCompany && hasPermission(permissionSet, "manage.permissions"),
         employees: [
           ...(isCompany
-            ? workspace.employees
+            ? workspace.employees.filter((employee) => visibleEmployeeIds.has(employee.id))
             : workspace.employees.filter((employee) => employee.id === userId)
           ).map((employee) => {
             const linkedAccount = platform.accounts.find(
@@ -158,24 +177,36 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
               pending: false,
             };
           }),
-          ...workspace.invitations.map((invitation) => ({
-            id: invitation.id,
-            name: invitation.name,
-            email: invitation.email,
-            photoUrl: "",
-            role: invitation.role,
-            isOwner: false,
-            sectorId: invitation.departmentId,
-            sector: departmentName(invitation.departmentId),
-            groupIds: invitation.groupIds ?? [],
-            pending: true,
-          })),
+          ...workspace.invitations
+            .filter(
+              (invitation) =>
+                !isCompany ||
+                !visibleDepartmentIds ||
+                visibleDepartmentIds.has(invitation.departmentId),
+            )
+            .map((invitation) => ({
+              id: invitation.id,
+              name: invitation.name,
+              email: invitation.email,
+              photoUrl: "",
+              role: invitation.role,
+              isOwner: false,
+              sectorId: invitation.departmentId,
+              sector: departmentName(invitation.departmentId),
+              groupIds: invitation.groupIds ?? [],
+              pending: true,
+            })),
         ],
-        sectors: workspace.departments.map((department) => ({
-          id: department.id,
-          name: formatDepartmentName(department.name),
-          description: department.description ?? "",
-        })),
+        sectors: workspace.departments
+          .filter(
+            (department) =>
+              !isCompany || !visibleDepartmentIds || visibleDepartmentIds.has(department.id),
+          )
+          .map((department) => ({
+            id: department.id,
+            name: formatDepartmentName(department.name),
+            description: department.description ?? "",
+          })),
         groups: workspace.groups.map((group) => ({
           id: group.id,
           name: group.name,
@@ -1199,45 +1230,19 @@ export async function respondToMobileInvitation(
 function visibleMobileTasks(workspace: Database, account: PlatformDatabase["accounts"][number]) {
   const currentUser = workspace.employees.find((employee) => employee.id === account.id);
   if (!currentUser) return [];
-  const isAdministrator =
-    workspace.company.ownerId === currentUser.id ||
-    isAdminUser({
-      currentUser,
-      employees: workspace.employees,
-      permissionGroups: workspace.permissionGroups,
-    });
-  const currentGroupIds = new Set(
-    workspace.groups
-      .filter(
-        (group) => group.leaderId === currentUser.id || group.memberIds.includes(currentUser.id),
-      )
-      .map((group) => group.id),
-  );
 
   return workspace.tasks
     .map((task) => task as NativeTask)
-    .filter((task) => {
-      const canView = canViewTask({
+    .filter((task) =>
+      canViewTask({
         task,
         currentUser,
         employees: workspace.employees,
         departments: workspace.departments,
         groups: workspace.groups,
         permissionGroups: workspace.permissionGroups,
-      });
-      if (!canView) return false;
-      if (workspace.company.kind === "personal" || isAdministrator) return true;
-
-      const isDirectTask =
-        (task.target.type === "user" && task.target.id === currentUser.id) ||
-        task.responsibleId === currentUser.id ||
-        (task.responsibleIds ?? []).includes(currentUser.id);
-      const isDepartmentTask =
-        task.target.type === "department" && task.target.id === currentUser.departmentId;
-      const isGroupTask = task.target.type === "group" && currentGroupIds.has(task.target.id);
-
-      return isDirectTask || isDepartmentTask || isGroupTask;
-    })
+      }),
+    )
     .map((task) => taskToMobileTask(task, workspace, currentUser));
 }
 

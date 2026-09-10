@@ -3,6 +3,7 @@ package br.com.poporganize.app.ui
 import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.graphics.Bitmap
@@ -11,6 +12,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.os.Build
 import android.util.Base64
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -379,6 +381,12 @@ private val MOBILE_API_BASE_URL = BuildConfig.POP_API_BASE_URL.trimEnd('/')
 private const val LIGHT_THEME_STORAGE = "pop_organize_light_theme"
 private const val LOCAL_PREFERENCES = "pop_organize_local"
 private val googleProfileImageCache = mutableMapOf<String, ImageBitmap>()
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 private fun generateGoogleSignInNonce(byteLength: Int = 32): String {
     val bytes = ByteArray(byteLength)
@@ -1987,8 +1995,9 @@ private fun LoginScreen(
     onEmailSignedIn: (GoogleAccount) -> Unit,
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
     val coroutineScope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val credentialManager = remember(activity, context) { CredentialManager.create(activity ?: context) }
     val googleWebClientId = context.getString(R.string.google_web_client_id).trim()
     var showEmail by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
@@ -2000,6 +2009,14 @@ private fun LoginScreen(
     var isGoogleSignInPending by remember { mutableStateOf(false) }
 
     fun startGoogleSignIn() {
+        if (activity == null) {
+            Toast.makeText(
+                context,
+                "Não foi possível abrir o login do Google. Feche e abra o aplicativo novamente.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
         if (googleWebClientId.isBlank() || googleWebClientId.startsWith("YOUR_")) {
             Toast.makeText(
                 context,
@@ -2019,7 +2036,9 @@ private fun LoginScreen(
         isGoogleSignInPending = true
         coroutineScope.launch {
             try {
-                val response = credentialManager.getCredential(context, request)
+                // Credential Manager needs an Activity context to present Google's account chooser
+                // reliably across Android versions and manufacturer customizations.
+                val response = credentialManager.getCredential(activity, request)
                 val credential = response.credential
                 if (
                     credential !is CustomCredential ||
@@ -2040,8 +2059,13 @@ private fun LoginScreen(
                         apiToken = apiSession.token,
                     ),
                 )
-            } catch (_: GetCredentialCancellationException) {
-                Toast.makeText(context, "Login com Google cancelado.", Toast.LENGTH_SHORT).show()
+            } catch (error: GetCredentialCancellationException) {
+                Log.w("PopGoogleLogin", "Google credential selection was not authorized", error)
+                Toast.makeText(
+                    context,
+                    "O Google não concluiu o acesso. Tente novamente; se continuar, atualize o Google Play Services ou entre com e-mail.",
+                    Toast.LENGTH_LONG,
+                ).show()
             } catch (_: NoCredentialException) {
                 Toast.makeText(
                     context,

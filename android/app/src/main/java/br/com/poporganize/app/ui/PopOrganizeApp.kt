@@ -3,6 +3,7 @@ package br.com.poporganize.app.ui
 import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.graphics.Bitmap
@@ -11,6 +12,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.os.Build
 import android.util.Base64
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -21,8 +23,12 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -379,6 +385,12 @@ private val MOBILE_API_BASE_URL = BuildConfig.POP_API_BASE_URL.trimEnd('/')
 private const val LIGHT_THEME_STORAGE = "pop_organize_light_theme"
 private const val LOCAL_PREFERENCES = "pop_organize_local"
 private val googleProfileImageCache = mutableMapOf<String, ImageBitmap>()
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 private fun generateGoogleSignInNonce(byteLength: Int = 32): String {
     val bytes = ByteArray(byteLength)
@@ -838,6 +850,7 @@ private data class ApiWorkspaceSummary(
     val kind: String,
     val isOwner: Boolean,
     val canCreateTasks: Boolean,
+    val canViewDepartments: Boolean,
     val canManageEmployees: Boolean,
     val canManageDepartments: Boolean,
     val canManageGroups: Boolean,
@@ -932,6 +945,7 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         kind = item.optString("kind"),
                         isOwner = item.optBoolean("isOwner", false),
                         canCreateTasks = item.optBoolean("canCreateTasks", false),
+                        canViewDepartments = item.optBoolean("canViewDepartments", false),
                         canManageEmployees = item.optBoolean("canManageEmployees", false),
                         canManageDepartments = item.optBoolean("canManageDepartments", false),
                         canManageGroups = item.optBoolean("canManageGroups", false),
@@ -1985,8 +1999,9 @@ private fun LoginScreen(
     onEmailSignedIn: (GoogleAccount) -> Unit,
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
     val coroutineScope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val credentialManager = remember(activity, context) { CredentialManager.create(activity ?: context) }
     val googleWebClientId = context.getString(R.string.google_web_client_id).trim()
     var showEmail by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
@@ -1998,6 +2013,14 @@ private fun LoginScreen(
     var isGoogleSignInPending by remember { mutableStateOf(false) }
 
     fun startGoogleSignIn() {
+        if (activity == null) {
+            Toast.makeText(
+                context,
+                "Não foi possível abrir o login do Google. Feche e abra o aplicativo novamente.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
         if (googleWebClientId.isBlank() || googleWebClientId.startsWith("YOUR_")) {
             Toast.makeText(
                 context,
@@ -2017,7 +2040,9 @@ private fun LoginScreen(
         isGoogleSignInPending = true
         coroutineScope.launch {
             try {
-                val response = credentialManager.getCredential(context, request)
+                // Credential Manager needs an Activity context to present Google's account chooser
+                // reliably across Android versions and manufacturer customizations.
+                val response = credentialManager.getCredential(activity, request)
                 val credential = response.credential
                 if (
                     credential !is CustomCredential ||
@@ -2038,8 +2063,13 @@ private fun LoginScreen(
                         apiToken = apiSession.token,
                     ),
                 )
-            } catch (_: GetCredentialCancellationException) {
-                Toast.makeText(context, "Login com Google cancelado.", Toast.LENGTH_SHORT).show()
+            } catch (error: GetCredentialCancellationException) {
+                Log.w("PopGoogleLogin", "Google credential selection was not authorized", error)
+                Toast.makeText(
+                    context,
+                    "O Google não concluiu o acesso. Tente novamente; se continuar, atualize o Google Play Services ou entre com e-mail.",
+                    Toast.LENGTH_LONG,
+                ).show()
             } catch (_: NoCredentialException) {
                 Toast.makeText(
                     context,
@@ -2315,6 +2345,7 @@ private fun LoginScreen(
                 googleLogo = true,
                 enabled = !isGoogleSignInPending,
                 showLoader = isGoogleSignInPending,
+                bouncingLoader = true,
                 onClick = ::startGoogleSignIn,
             )
             Spacer(Modifier.height(12.dp))
@@ -2424,6 +2455,7 @@ private fun LoginActionButton(
     googleLogo: Boolean = false,
     enabled: Boolean = true,
     showLoader: Boolean = false,
+    bouncingLoader: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
@@ -2435,11 +2467,15 @@ private fun LoginActionButton(
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (showLoader) {
-                CircularProgressIndicator(
-                    color = foreground,
-                    strokeWidth = 3.dp,
-                    modifier = Modifier.size(27.dp),
-                )
+                if (bouncingLoader) {
+                    GoogleBouncingDots()
+                } else {
+                    CircularProgressIndicator(
+                        color = foreground,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(27.dp),
+                    )
+                }
             } else if (googleLogo) {
                 Image(
                     painter = painterResource(R.drawable.google_logo),
@@ -2462,6 +2498,43 @@ private fun LoginActionButton(
                     letterSpacing = .15.sp,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun GoogleBouncingDots() {
+    val transition = rememberInfiniteTransition(label = "Google login")
+    val offsets = List(3) { index ->
+        val delay = index * 120
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 0f,
+            animationSpec = infiniteRepeatable(
+                animation = keyframes {
+                    durationMillis = 900
+                    0f at 0
+                    0f at delay
+                    -6f at delay + 150
+                    0f at delay + 300
+                    0f at 900
+                },
+            ),
+            label = "Google dot ${index + 1}",
+        )
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        offsets.forEach { offset ->
+            Box(
+                Modifier
+                    .offset(y = offset.value.dp)
+                    .size(8.dp)
+                    .background(Color(0xFF4285F4), CircleShape),
+            )
         }
     }
 }
@@ -2537,6 +2610,7 @@ private fun PopMainContent(
     val companyOwnership = remember { mutableStateListOf<Boolean>() }
     val companyDescriptions = remember { mutableStateListOf<String>() }
     val companyCanCreateTasks = remember { mutableStateListOf<Boolean>() }
+    val companyCanViewDepartments = remember { mutableStateListOf<Boolean>() }
     val companyCanManageEmployees = remember { mutableStateListOf<Boolean>() }
     val companyCanManageDepartments = remember { mutableStateListOf<Boolean>() }
     val companyCanManageGroups = remember { mutableStateListOf<Boolean>() }
@@ -2762,6 +2836,8 @@ private fun PopMainContent(
         companyDescriptions.addAll(companies.map { it.description.trim() })
         companyCanCreateTasks.clear()
         companyCanCreateTasks.addAll(companies.map { it.canCreateTasks })
+        companyCanViewDepartments.clear()
+        companyCanViewDepartments.addAll(companies.map { it.canViewDepartments })
         companyCanManageEmployees.clear()
         companyCanManageEmployees.addAll(companies.map { it.canManageEmployees })
         companyCanManageDepartments.clear()
@@ -3292,6 +3368,7 @@ private fun PopMainContent(
                         companyPermissionGroups = companyPermissionGroups,
                         tasks = tasks,
                         workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
+                        canViewDepartments = companyCanViewDepartments.getOrElse(selectedCompanyIndex) { false },
                         canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                         canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
                         canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
@@ -3339,6 +3416,7 @@ private fun PopMainContent(
                 companyPermissionGroups = companyPermissionGroups,
                 tasks = tasks,
                 workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
+                canViewDepartments = companyCanViewDepartments.getOrElse(selectedCompanyIndex) { false },
                 canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                 canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
                 canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
@@ -5386,10 +5464,6 @@ private fun TasksScreen(
         val taskId = editingTaskId ?: return
         val index = tasks.indexOfFirst { it.id == taskId }
         if (index < 0 || editTitle.trim().length < 3) return
-        if (editRecurrenceTimes.isNotEmpty() && editRecurrenceTimes.size < 2) {
-            Toast.makeText(context, "Informe pelo menos dois horários", Toast.LENGTH_SHORT).show()
-            return
-        }
         val original = tasks[index]
         if (!canEditTask(original)) {
             Toast.makeText(context, "Você pode visualizar, mas não editar esta tarefa", Toast.LENGTH_SHORT).show()
@@ -5423,7 +5497,7 @@ private fun TasksScreen(
                 add(editRecurrence)
                 if (editRecurrenceInterval > 1) add("a cada $editRecurrenceInterval")
                 if (detailSummary.isNotBlank()) add(detailSummary)
-                if (editRecurrenceTimes.size >= 2) add(editRecurrenceTimes.sorted().joinToString(" e "))
+                if (editRecurrenceTimes.isNotEmpty()) add(editRecurrenceTimes.sorted().joinToString(" e "))
                 when (editRecurrenceEnd) {
                     "Após" -> add("${storedEndValue} ocorrências")
                     "Em uma data" -> add("até $editRecurrenceEndValue")
@@ -5489,10 +5563,6 @@ private fun TasksScreen(
 
     fun addTask() {
         if (newTaskTitle.trim().length < 3) return
-        if (newTaskRecurrenceTimes.isNotEmpty() && newTaskRecurrenceTimes.size < 2) {
-            Toast.makeText(context, "Informe pelo menos dois horários", Toast.LENGTH_SHORT).show()
-            return
-        }
         val selectedDueDate = LocalDate.now().plusDays(newTaskDateOffset.toLong())
         val recurrenceEndValue = when (newTaskRecurrenceEnd) {
             "Após" -> newTaskRecurrenceCount.toString()
@@ -5558,7 +5628,7 @@ private fun TasksScreen(
                         add(newTaskRecurrence)
                         if (newTaskRecurrenceInterval > 1) add("a cada $newTaskRecurrenceInterval")
                         if (recurrenceDetailSummary.isNotBlank()) add(recurrenceDetailSummary)
-                        if (newTaskRecurrenceTimes.size >= 2) {
+                        if (newTaskRecurrenceTimes.isNotEmpty()) {
                             add(newTaskRecurrenceTimes.sorted().joinToString(" e "))
                         }
                         when (newTaskRecurrenceEnd) {
@@ -6439,9 +6509,7 @@ private fun TasksScreen(
                                                     baseTime = editDueTime,
                                                     onTimesChange = { updatedTimes ->
                                                         editRecurrenceTimes = updatedTimes
-                                                        if (updatedTimes.isNotEmpty()) {
-                                                            editDueTime = updatedTimes.minOrNull().orEmpty()
-                                                        }
+                                                        editDueTime = updatedTimes.minOrNull().orEmpty()
                                                     },
                                                 )
                                             }
@@ -6983,7 +7051,7 @@ private fun TasksScreen(
                         onEndDateChange = { newTaskRecurrenceEndDate = it },
                         onTimesChange = { updatedTimes ->
                             newTaskRecurrenceTimes = updatedTimes
-                            if (updatedTimes.isNotEmpty()) newTaskTime = updatedTimes.minOrNull().orEmpty()
+                            newTaskTime = updatedTimes.minOrNull().orEmpty()
                         },
                         )
                     }
@@ -7454,6 +7522,10 @@ private fun DailyTimesPicker(
 ) {
     var editingIndex by remember { mutableStateOf<Int?>(null) }
     val enabled = times.size >= 2
+    val timePattern = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
+    val singleTime = times.firstOrNull()?.takeIf { it.matches(timePattern) }
+        ?: baseTime.takeIf { it.matches(timePattern) }
+        ?: ""
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -7464,17 +7536,46 @@ private fun DailyTimesPicker(
                 checked = enabled,
                 onCheckedChange = { checked ->
                     if (checked) {
-                        val first = baseTime.takeIf { it.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) } ?: "09:00"
+                        val first = singleTime.ifBlank { "09:00" }
                         val firstHour = first.substringBefore(":").toIntOrNull() ?: 9
                         val second = "%02d:%s".format((firstHour + 4) % 24, first.substringAfter(":"))
                         onTimesChange(listOf(first, second).distinct().sorted())
                     } else {
-                        onTimesChange(emptyList())
+                        onTimesChange(singleTime.takeIf(String::isNotBlank)?.let(::listOf).orEmpty())
                     }
                 },
             )
         }
-        if (enabled) {
+        if (!enabled) {
+            Surface(
+                onClick = { editingIndex = 0 },
+                color = PopSurface,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.AccessTime, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(9.dp))
+                    Text(
+                        singleTime.ifBlank { "Definir horário" },
+                        color = if (singleTime.isBlank()) PopMuted else PopText,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (singleTime.isNotBlank()) {
+                        IconButton(
+                            onClick = { onTimesChange(emptyList()) },
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(Icons.Rounded.Close, "Remover horário", tint = PopMuted, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+        } else {
             times.sorted().forEachIndexed { index, time ->
                 Surface(
                     onClick = { editingIndex = index },
@@ -7509,7 +7610,7 @@ private fun DailyTimesPicker(
     }
 
     editingIndex?.let { index ->
-        val currentTime = times.getOrNull(index) ?: "12:00"
+        val currentTime = times.getOrNull(index) ?: singleTime.ifBlank { "12:00" }
         key(index, currentTime) {
             val pickerState = rememberTimePickerState(
                 initialHour = currentTime.substringBefore(":").toIntOrNull() ?: 12,
@@ -7527,7 +7628,7 @@ private fun DailyTimesPicker(
                             val updated = times.toMutableList().apply {
                                 if (index in indices) set(index, selected) else add(selected)
                             }.distinct().sorted()
-                            if (updated.size >= 2) onTimesChange(updated)
+                            if (updated.isNotEmpty()) onTimesChange(updated)
                             editingIndex = null
                         },
                     ) { Text("Confirmar", color = PopBlue, fontWeight = FontWeight.Bold) }
@@ -8759,6 +8860,7 @@ private fun MoreScreen(
     companyPermissionGroups: MutableList<PermissionGroup>,
     tasks: List<PopTask>,
     workspaceId: String,
+    canViewDepartments: Boolean,
     canManageEmployees: Boolean,
     canManageDepartments: Boolean,
     canManageGroups: Boolean,
@@ -8934,7 +9036,7 @@ private fun MoreScreen(
                 )
             }
         }
-    } else if (activeManagementPage == "sectors") {
+    } else if (activeManagementPage == "sectors" && canViewDepartments) {
         Dialog(
             onDismissRequest = { activeManagementPage = null },
             properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -9143,12 +9245,14 @@ private fun MoreScreen(
                                 onClick = { activeManagementPage = "groups" },
                                 modifier = Modifier.weight(1f),
                             )
-                            MoreShortcut(
-                                icon = Icons.Rounded.AccountTree,
-                                title = "Setores",
-                                onClick = { activeManagementPage = "sectors" },
-                                modifier = Modifier.weight(1f),
-                            )
+                            if (canViewDepartments) {
+                                MoreShortcut(
+                                    icon = Icons.Rounded.AccountTree,
+                                    title = "Setores",
+                                    onClick = { activeManagementPage = "sectors" },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                             MoreShortcut(
                                 icon = Icons.Rounded.BarChart,
                                 title = "Relatórios",

@@ -18,6 +18,7 @@ import type { RecurrenceInput } from "./task-form-types";
 export function useTaskMutations(options?: {
   onCompleted?: (taskId: string) => void;
   onCreated?: () => void;
+  onUpdated?: () => void;
   onDeleted?: () => void;
   onCommented?: () => void;
 }) {
@@ -44,6 +45,7 @@ export function useTaskMutations(options?: {
       dueDate: string;
       target: { type: TargetType; id: string };
       responsibleId: string;
+      responsibleIds?: string[];
       reviewerId?: string;
       requiresReview: boolean;
       tags: string[];
@@ -84,10 +86,12 @@ export function useTaskMutations(options?: {
       dueDate: string;
       target: { type: TargetType; id: string };
       responsibleId: string;
+      responsibleIds?: string[];
       tags: string[];
       recurrence?: RecurrenceInput;
     }) => updateTaskDetails({ data: payload }),
     onSuccess: () => {
+      options?.onUpdated?.();
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });

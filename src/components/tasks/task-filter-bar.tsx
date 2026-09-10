@@ -47,11 +47,15 @@ export function taskMatchesFilters(
   filters: TaskFilterState,
   context: { employees: Employee[]; groups: Group[] },
 ) {
+  const taskResponsibleIds = [task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean);
   if (filters.targetTypes.length > 0 && !filters.targetTypes.includes(task.target.type)) {
     return false;
   }
   if (filters.priorities.length > 0 && !filters.priorities.includes(task.priority)) return false;
-  if (filters.responsibleIds.length > 0 && !filters.responsibleIds.includes(task.responsibleId)) {
+  if (
+    filters.responsibleIds.length > 0 &&
+    !filters.responsibleIds.some((id) => taskResponsibleIds.includes(id))
+  ) {
     return false;
   }
   if (filters.tags.length > 0 && !filters.tags.some((tag) => task.tags.includes(tag))) {
@@ -59,11 +63,14 @@ export function taskMatchesFilters(
   }
 
   if (filters.departmentIds.length > 0) {
-    const responsible = context.employees.find((employee) => employee.id === task.responsibleId);
+    const responsibles = context.employees.filter((employee) =>
+      taskResponsibleIds.includes(employee.id),
+    );
     const matchesTarget =
       task.target.type === "department" && filters.departmentIds.includes(task.target.id);
-    const matchesResponsible =
-      responsible && filters.departmentIds.includes(responsible.departmentId);
+    const matchesResponsible = responsibles.some((responsible) =>
+      filters.departmentIds.includes(responsible.departmentId),
+    );
     if (!matchesTarget && !matchesResponsible) return false;
   }
 
@@ -71,7 +78,8 @@ export function taskMatchesFilters(
     const matchesTarget = task.target.type === "group" && filters.groupIds.includes(task.target.id);
     const matchesMember = context.groups.some(
       (group) =>
-        filters.groupIds.includes(group.id) && group.memberIds.includes(task.responsibleId),
+        filters.groupIds.includes(group.id) &&
+        taskResponsibleIds.some((id) => group.memberIds.includes(id)),
     );
     if (!matchesTarget && !matchesMember) return false;
   }
@@ -193,7 +201,9 @@ export function TaskFilterBar({
       .map((group) => ({ value: group.id, label: group.name }));
   }, [groups, tasks]);
   const responsibleOptions = useMemo(() => {
-    const ids = new Set(tasks.map((task) => task.responsibleId).filter(Boolean));
+    const ids = new Set(
+      tasks.flatMap((task) => [task.responsibleId, ...(task.responsibleIds ?? [])]).filter(Boolean),
+    );
     return employees
       .filter((employee) => ids.has(employee.id))
       .map((employee) => ({ value: employee.id, label: employee.name }));

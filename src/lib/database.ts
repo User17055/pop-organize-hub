@@ -9,7 +9,7 @@ import type {
   TaskFolder,
   TaskListDefinition,
 } from "./domain";
-import { canViewTask, getManagerDepartmentAccess } from "./permissions";
+import { canViewTask, getVisibleDepartmentIds } from "./permissions";
 
 export type EmployeeRecord = Employee & {
   passwordHash: string;
@@ -152,17 +152,16 @@ export function sanitizeDatabase(
   if (!currentEmployee) {
     throw Object.assign(new Error("Usuário da sessão não encontrado."), { statusCode: 401 });
   }
-  const managerAccess = getManagerDepartmentAccess({
+  const visibleDepartmentIds = getVisibleDepartmentIds({
     currentUser: currentEmployee,
     employees: allEmployees,
     departments: db.departments,
+    permissionGroups: db.permissionGroups,
   });
-  const scopedDepartmentIds =
-    managerAccess && managerAccess.mode !== "all" ? managerAccess.departmentIds : null;
-  const employees = scopedDepartmentIds
+  const employees = visibleDepartmentIds
     ? allEmployees.filter(
         (employee) =>
-          employee.id === currentUserId || scopedDepartmentIds.has(employee.departmentId),
+          employee.id === currentUserId || visibleDepartmentIds.has(employee.departmentId),
       )
     : allEmployees;
   const departmentNames = new Map(
@@ -172,7 +171,7 @@ export function sanitizeDatabase(
   for (const invitation of db.invitations) employeeNames.set(invitation.id, invitation.name);
   const groupNames = new Map(db.groups.map((group) => [group.id, group.name]));
   const departments = db.departments
-    .filter((department) => !scopedDepartmentIds || scopedDepartmentIds.has(department.id))
+    .filter((department) => !visibleDepartmentIds || visibleDepartmentIds.has(department.id))
     .map((department) => ({
       ...department,
       name: departmentNames.get(department.id)!,
@@ -226,7 +225,7 @@ export function sanitizeDatabase(
         : db.invitations
             .filter(
               (invitation) =>
-                !scopedDepartmentIds || scopedDepartmentIds.has(invitation.departmentId),
+                !visibleDepartmentIds || visibleDepartmentIds.has(invitation.departmentId),
             )
             .map(({ tokenHash, ...invitation }) => invitation),
     workspaces: workspaces

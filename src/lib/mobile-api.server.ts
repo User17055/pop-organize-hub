@@ -57,9 +57,29 @@ export type MobileTask = {
   recurrenceEndMode: string;
   recurrenceEndValue: string;
   recurrenceOccurrence: number;
+  // Identifica a série a que esta ocorrência pertence, para o aplicativo conseguir excluir
+  // "toda a recorrência". Mesma expressão que o recurrence.server.ts usa.
+  recurrenceSeriesId?: string;
+  // Sem isto o aplicativo não tem como dizer "exclua só esta data": o
+  // materializeRecurringTasks recria a linha apagada na chamada seguinte.
+  recurrenceExcludedDates?: string[];
   canEdit?: boolean;
   canComplete?: boolean;
   canDelete?: boolean;
+  // Só de leitura, calculados aqui a cada resposta. O aplicativo precisa dos dois para
+  // distinguir "aguarda revisão" de "pendente" — sem eles ele mostra um círculo comum, a
+  // pessoa marca, o servidor devolve para waiting_review e a marcação parece voltar sozinha.
+  // Não entram no mobileTaskSchema de propósito: são do servidor para o aplicativo, e o zod
+  // sem .strict() os descarta na volta, então não ficam guardados velhos dentro do nativeData.
+  requiresReview?: boolean;
+  isReviewer?: boolean;
+  // requiresReview sozinho não basta: ele é verdadeiro tanto na tarefa que ainda não foi tocada
+  // quanto na que já está esperando o revisor, e as duas chegam com completed: false. Sem
+  // distinguir as duas o aplicativo não sabe se deve oferecer "concluir" ou dizer "aguarda
+  // revisão". Vai como booleano, e não como o status cru, porque string de estado atravessando o
+  // fio é a família de bug mais cara deste projeto — os dois lados escrevendo a mesma ideia com
+  // palavras diferentes, sem ninguém reclamar em voz alta.
+  awaitingReview?: boolean;
   assignmentType?: string;
   assignmentTargetId?: string;
   assignmentTargetLabel?: string;
@@ -1449,9 +1469,14 @@ function taskToMobileTask(
     recurrenceEndMode: native?.recurrenceEndMode ?? recurrence.endMode,
     recurrenceEndValue: native?.recurrenceEndValue ?? recurrence.endValue,
     recurrenceOccurrence: native?.recurrenceOccurrence ?? task.recurrenceOccurrence ?? 1,
+    recurrenceSeriesId: task.recurrenceParentId ?? task.id,
+    recurrenceExcludedDates: task.recurrenceExcludedDates ?? [],
     canEdit: permissions.canEditContent,
     canComplete: permissions.canComplete || permissions.canReopen,
     canDelete: permissions.canDelete,
+    requiresReview: task.requiresReview ?? false,
+    isReviewer: task.reviewerId === currentUser.id,
+    awaitingReview: task.status === "waiting_review",
     assignmentType: native?.assignmentType ?? task.target.type,
     assignmentTargetId: native?.assignmentTargetId ?? task.target.id,
     assignmentTargetLabel: native?.assignmentTargetLabel ?? task.target.label,
@@ -1702,6 +1727,22 @@ export async function replaceMobileTasks(
       }
       workspace.tasks.splice(taskIndex, 1);
       deleted += 1;
+      // Apagar a linha não bastava: o materializeRecurringTasks caminha do modelo até hoje e
+      // recria toda data que não esteja em recurrenceExcludedDates, então a ocorrência
+      // excluída voltava na chamada seguinte. Registrar a data nas tarefas que sobraram da
+      // série é o mesmo que o painel faz em "somente esta data", e o materialize lê a exclusão
+      // de qualquer linha da série, não só do modelo. Quando a série inteira é apagada não
+      // sobra ninguém para anotar — e também não sobra modelo de onde materializar, então
+      // "toda a recorrência" funciona sem isto.
+      if (task.recurrence) {
+        const seriesId = task.recurrenceParentId ?? task.id;
+        for (const sibling of workspace.tasks) {
+          if ((sibling.recurrenceParentId ?? sibling.id) !== seriesId) continue;
+          sibling.recurrenceExcludedDates = Array.from(
+            new Set([...(sibling.recurrenceExcludedDates ?? []), task.dueDate]),
+          );
+        }
+      }
     }
 
     for (const item of tasks) {
@@ -1762,13 +1803,29 @@ export async function replaceMobileTasks(
                 ? "waiting_review"
                 : "completed";
           }
-          if (!completed && permissions.canReopen) existing.status = "reopened";
+          // Espelha reviewAwareStatus (src/routes/v2.tsx): só sair de "waiting_review" é
+          // reabertura de verdade; desmarcar uma tarefa concluída volta para "pending". Daqui
+          // saía "reopened" em qualquer caso, e como "pending" só era atribuído na criação,
+          // nenhuma tarefa voltava a Pendente depois de concluída uma vez — o painel mostrava
+          // "Pendente 0" com tarefa claramente em aberto.
+          if (!completed && permissions.canReopen)
+            existing.status = existing.status === "waiting_review" ? "reopened" : "pending";
         }
         if (permissions.canEditContent || existing.nativeOwnerId === account.id) {
           existing.title = normalizeMobileTaskTitle(item.title);
           existing.description = item.description.trim();
           existing.priority = priority(item.priority);
-          existing.dueDate = item.dueDate;
+          // A data de uma ocorrência materializada é a IDENTIDADE dela: é o que a distingue das
+          // outras linhas da mesma série, e o materializeRecurringTasks usa exatamente isso para
+          // saber o que já existe. Adotar a data que o aparelho manda tirava a série de fase de
+          // forma permanente, e também para o Android e o painel — foi assim que o app quebrou
+          // dado ao fingir "excluir só esta ocorrência" avançando a data localmente.
+          //
+          // A guarda é ESTREITA de propósito: só a ocorrência (a que tem recurrenceParentId). A
+          // tarefa modelo continua aceitando data nova, porque mudar a data de início da série é
+          // edição legítima — o painel faz isso, e o app do André pode ter tela para isso. Na
+          // operação normal isto é no-op: o aparelho devolve a mesma data que recebeu.
+          if (!existing.recurrenceParentId) existing.dueDate = item.dueDate;
           const responsibleIds = mobileResponsibleIds(workspace, account.id, item);
           existing.responsibleId = responsibleIds[0] ?? "";
           existing.responsibleIds = responsibleIds;

@@ -10,7 +10,14 @@ export const Route = createFileRoute("/api/health")({
           validateRuntimeEnvironment();
           await checkDatabaseHealth();
           return Response.json(
-            { status: "ok", database: "ok", timestamp: new Date().toISOString() },
+            {
+              status: "ok",
+              database: "ok",
+              timestamp: new Date().toISOString(),
+              // Embutido na compilação (ver vite.config.ts). Responde "que código está no ar",
+              // que antes não dava para perguntar ao servidor de jeito nenhum.
+              commit: (import.meta.env.VITE_APP_COMMIT as string | undefined) ?? "desconhecido",
+            },
             { headers: { "cache-control": "no-store" } },
           );
         } catch (error) {

@@ -132,6 +132,21 @@ data class PopTask(
     val recurrenceSeriesId: String? = null,
     val serverId: String? = null,
 
+    // So de leitura, vindos do servidor. Ver a nota no ApiTask sobre por que nao sao cofre.
+    val requiresReview: Boolean = false,
+    val isReviewer: Boolean = false,
+    val awaitingReview: Boolean = false,
+    val recurrenceExcludedDates: List<String> = emptyList(),
+
+    // Do servidor, e usados para NAO oferecer o que ele vai recusar. Ver a nota no ApiTask sobre o
+    // default `true`.
+    //
+    // `canEdit` existe no ApiTask e NAO foi trazido para ca de proposito: nao ha tela de editar
+    // tarefa existente neste app, entao ele nao teria consumidor. Campo carregado sem uso apodrece
+    // -- quando a tela existir, ele desce em uma linha.
+    val canComplete: Boolean = true,
+    val canDelete: Boolean = true,
+
     // Cofre da recorrencia: as palavras do servidor, guardadas cruas e devolvidas intactas.
     //
     // O RecurrenceKind acima so consegue representar quatro casos, e o servidor guarda mais: de
@@ -148,6 +163,28 @@ data class PopTask(
     val recurrenceEndMode: String = "Nunca",
     val recurrenceEndValue: String = "",
     val recurrenceOccurrence: Int = 1,
+
+    // Os horarios do dia, quando a serie repete mais de uma vez por dia. Entra no cofre pela mesma
+    // razao dos seis acima. Ver a nota no ApiTask sobre as tres regras do schema e sobre por que
+    // este NAO e nulavel, ao contrario do `assignees`.
+    val recurrenceTimes: List<String> = emptyList(),
+
+    // Segundo cofre, mesma ideia do de cima e pelo mesmo motivo: o PUT reescreve sem condicao, e o
+    // que o iPhone nao carregar volta como default do construtor e apaga o que estava la -- para o
+    // Android e para o painel tambem.
+    //
+    // A diferenca em relacao a recorrencia e que estes CINCO CAMPOS JA EXISTIAM no ApiTask. Nunca
+    // faltaram no fio: faltavam aqui. O toApiTask() os reconstruia do zero a cada sincronizacao,
+    // entao o app vinha mandando "Sem lembrete", "" e "Sem duracao" por cima do que o servidor
+    // guardava, sem nunca ter lido o valor real.
+    //
+    // O iPhone nao interpreta nenhum deles. So carrega e devolve.
+    val assignee: String = "",
+    val assignees: List<String>? = null,
+    val assignedBy: String = "",
+    val reminder: String = "Sem lembrete",
+    val attachmentName: String = "",
+    val duration: String = "Sem duração",
 )
 
 @Serializable
@@ -270,6 +307,13 @@ data class ApiTask(
     val completed: Boolean = false,
     val description: String = "",
     val assignee: String = "",
+    // NULO de proposito, e nunca lista vazia. O servidor faz
+    // `Array.isArray(item.assignees) ? item.assignees : [item.assignee]`, e `Array.isArray([])` e
+    // `true` -- mandar `[]` entraria no primeiro ramo com zero nomes e gravaria
+    // `responsibleIds = []`, apagando os responsaveis de toda tarefa sincronizada. Com nulo e
+    // `explicitNulls = false` a chave sai do JSON, o `.optional()` do zod aceita a ausencia, e o
+    // servidor cai no ramo de tras, que e o comportamento que ja existia.
+    val assignees: List<String>? = null,
     val assignedBy: String = "",
     val createdBy: String = "",
     val recurrence: String = "Não repetir",
@@ -283,10 +327,76 @@ data class ApiTask(
     val recurrenceEndMode: String = "Nunca",
     val recurrenceEndValue: String = "",
     val recurrenceOccurrence: Int = 1,
+
+    // Os horarios de uma tarefa que repete varias vezes ao dia, ate 12. O servidor manda em
+    // `taskToMobileTask` e LE DE VOLTA em `mobileTaskRecurrence` (`times: item.recurrenceTimes`),
+    // no ramo "Diaria". Sem este campo o iPhone apagava os horarios de toda tarefa diaria que
+    // sincronizasse -- o quarto caso da mesma familia, depois da recorrencia, do `assignees` e dos
+    // campos de lembrete, anexo e duracao.
+    //
+    // NAO e nulavel, ao contrario do `assignees` acima, e a assimetria convida ao erro: o zod
+    // deste campo tem `.optional().default([])`, entao omitir a chave e mandar lista vazia caem no
+    // MESMO lugar. Nao existe ramo de tras para cair, como havia no `assignees`. O que preserva o
+    // dado aqui nao e o nulo -- e carregar o valor verdadeiro e devolve-lo intacto.
+    //
+    // TRES REGRAS NO SCHEMA, e a terceira ja derrubou a sincronizacao inteira uma vez:
+    //
+    //   1. regex ^([01]\d|2[0-3]):[0-5]\d$ -- string fora de HH:MM reprova;
+    //   2. `.max(12)` -- teto rigido;
+    //   3. `.refine(t => t.length === 0 || t.length >= 2)` -- "informe pelo menos dois horarios,
+    //      ou nenhum". LISTA DE UM ELEMENTO E RECUSADA. E como `tasks` e um array, um item ruim
+    //      reprova a CARGA TODA e nada sincroniza. Foi assim que este campo travou tudo antes
+    //      (ver o comentario do toggleTask, no PopStore).
+    //
+    // Por isso aqui e cofre PURO: entra como veio, sai como veio. O valor do servidor ja satisfaz
+    // as tres. **Nunca montar esta lista no app** -- em especial nunca `listOf(dueTime)`, que e o
+    // atalho obvio e cai direto na regra 3.
+    val recurrenceTimes: List<String> = emptyList(),
     val assignmentType: String? = null,
     val assignmentTargetId: String? = null,
     val assignmentTargetLabel: String? = null,
     val checklist: List<ChecklistItem> = emptyList(),
+
+    // OS QUATRO ABAIXO SAO SO DE LEITURA, e por isso nao sao cofre. O servidor os recalcula a
+    // cada resposta e os DESCARTA na volta: o mobileTaskSchema nao os declara, e um z.object sem
+    // .strict() ignora campo desconhecido em vez de recusar. Nao ha dado do usuario a preservar
+    // aqui -- ao contrario dos dois cofres acima, onde nao carregar o valor o apagava.
+    //
+    // requiresReview e isReviewer existem porque a tarefa que aguarda revisao chegava como
+    // pendente: a pessoa marcava, o servidor a devolvia para "waiting_review", a leitura seguinte
+    // trazia completed = false e a marcacao parecia voltar sozinha. Sem estes dois o app nao
+    // consegue nem avisar antes nem explicar depois -- e o resultado ainda MUDA POR PESSOA,
+    // porque quem e o revisor cai no outro ramo do servidor e para ele a conclusao funciona.
+    val requiresReview: Boolean = false,
+    val isReviewer: Boolean = false,
+
+    // `requiresReview` sozinho nao basta: ele e verdadeiro tanto na tarefa que ninguem tocou
+    // quanto na que ja esta esperando o revisor, e as duas chegam com `completed = false`. Este
+    // diz qual das duas. Booleano, e nao o status cru, para nao trazer mais uma string de estado
+    // para o fio -- palavra que so existe de um lado e a familia de bug mais cara daqui.
+    val awaitingReview: Boolean = false,
+
+    // recurrenceSeriesId e o `recurrenceParentId ?: id` do servidor. Sem ele "toda a recorrencia"
+    // casava exatamente UMA tarefa e parecia ter acertado.
+    //
+    // recurrenceExcludedDates sao as datas que o materializeRecurringTasks nao recria. O app so
+    // precisa LER: quem registra a exclusao e o proprio servidor, ao apagar a ocorrencia. Nao
+    // montar esta lista aqui nem tentar devolve-la.
+    val recurrenceSeriesId: String = "",
+    val recurrenceExcludedDates: List<String> = emptyList(),
+
+    // O que o SERVIDOR diz que esta pessoa pode fazer com esta tarefa. Ele ja mandava os tres desde
+    // sempre e o app ignorava os tres, decidindo por conta propria -- nao era perda de dado (o
+    // servidor recalcula na escrita e nunca confia no que o aparelho manda), era divergencia
+    // esperando acontecer: oferecer um botao que o servidor vai recusar.
+    //
+    // DEFAULT `true`, e isso importa mais do que parece. Contra servidor desatualizado as chaves
+    // nao vem, o kotlinx aplica o default, e o app precisa se comportar como se comportava antes --
+    // nao travar todas as acoes de todo mundo. Default `false` aqui seria uma regressao silenciosa
+    // em toda instalacao que falasse com um servidor antigo.
+    val canEdit: Boolean = true,
+    val canComplete: Boolean = true,
+    val canDelete: Boolean = true,
 )
 
 @Serializable

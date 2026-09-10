@@ -63,6 +63,7 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.ListAlt
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -889,9 +890,9 @@ private fun WorkspaceHeader(store: PopStore) {
                     }
                 }
             }
-            // Sem este respiro o nome do espaco encostava no logotipo: com "Clinica Sao Francisco"
-            // no cabecalho, o chevron de trocar de espaco ficava colado no "P" da marca e os dois
-            // liam como um bloco so.
+            // Sem este respiro o nome do espaco encostava no logotipo: com um nome de empresa
+            // longo no cabecalho, o chevron de trocar de espaco ficava colado no "P" da marca e os
+            // dois liam como um bloco so.
             Spacer(Modifier.width(12.dp))
             // Reduzido de 24sp para 16sp. Em 24 o logotipo era o MAIOR texto do cabecalho -- maior
             // que o nome do espaco, que e a informacao que a pessoa precisa ler ali. Marca nao
@@ -937,7 +938,7 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
     //
     // Segundo erro (este, corrigido em 27/08): o conserto anterior juntou hoje + atrasadas em
     // aberto numa lista so, com o argumento de que "atrasada tambem e para hoje". Defensavel no
-    // papel, desmentido pelo primeiro contato com dado real. No iPhone, na SAO FRANCISCO, o cartao
+    // papel, desmentido pelo primeiro contato com dado real. No iPhone, num espaco real, o cartao
     // anunciou **"349 tarefas para hoje"** com o anel em **0%**: eram 348 atrasadas de uma
     // importacao de planilha e UMA tarefa vencendo no dia. O maior texto da tela virou um numero
     // sem uso, e o anel, um enfeite travado em zero.
@@ -1141,30 +1142,94 @@ private fun ProgressRing(progress: Float) {
     }
 }
 
+private data class GrupoDeTarefas(
+    val titulo: String,
+    val tarefas: List<PopTask>,
+    val abreFechado: Boolean,
+)
+
+/**
+ * Agrupa a lista de Tarefas por ONDE a tarefa mora, nao por quem responde.
+ *
+ * O agrupamento antigo perguntava so `kind == Sector` e jogava TODO o resto num balde chamado
+ * "Sem setor". Isso produziu o mesmo defeito duas vezes:
+ *
+ *  - em 27/08, no Meu espaco, onde nao existe setor: tudo caia no balde unico, que aparecia
+ *    fechado e escondia a lista inteira, com "8 pendentes" escrito logo acima;
+ *  - em 01/09, numa empresa que tem setores: a tarefa atribuida a uma PESSOA caia no mesmo balde,
+ *    que entao virava cabecalho fechado no fim da ordem alfabetica. Nao dava para editar nem
+ *    excluir, porque a aba Tarefas e onde essas operacoes acontecem.
+ *
+ * O conserto de 27/08 (`flatList`) tratou so o caso em que TUDO cai no balde. Este trata a classe:
+ * **nao existe mais balde.** Todo alvo vira um grupo com nome verdadeiro, e nenhum nome mente
+ * sobre o que ha dentro.
+ *
+ * A ordem coloca setores e grupos primeiro, e o que e de pessoa por ultimo -- pedido do Guilherme,
+ * que preferiu o fim ao topo. O que conserta o defeito nao e a posicao e sim `abreFechado`: os
+ * grupos de pessoa e de empresa nascem **abertos**. Setor continua nascendo fechado, que era uma
+ * decisao anterior e boa quando ha varios.
+ *
+ * No Meu espaco nao ha alvo nenhum para agrupar, entao volta uma lista so, sem cabecalho.
+ */
+private fun agruparTarefas(
+    tasks: List<PopTask>,
+    espaco: WorkspaceKind,
+    meuNome: String,
+): List<GrupoDeTarefas> {
+    if (espaco == WorkspaceKind.Personal) {
+        return listOf(GrupoDeTarefas("", tasks.sortedWith(taskListOrder), abreFechado = false))
+    }
+    fun souEu(task: PopTask) =
+        meuNome.isNotBlank() && task.assignment.label.equals(meuNome, ignoreCase = true)
+    fun titulo(task: PopTask) = when (task.assignment.kind) {
+        AssignmentKind.Sector, AssignmentKind.Group -> task.assignment.label
+        AssignmentKind.None -> "Toda a empresa"
+        AssignmentKind.Person -> if (souEu(task)) "Minhas tarefas" else task.assignment.label
+    }
+    // Setores e grupos (0) antes da empresa (1), das outras pessoas (2) e das minhas (3).
+    fun ordem(task: PopTask) = when (task.assignment.kind) {
+        AssignmentKind.Sector, AssignmentKind.Group -> 0
+        AssignmentKind.None -> 1
+        AssignmentKind.Person -> if (souEu(task)) 3 else 2
+    }
+    return tasks.groupBy { ordem(it) to titulo(it) }
+        .toList()
+        // toSortedMap() vem de java.util e nao existe no commonMain; ordenar a lista de pares
+        // pela ordem e depois pelo nome da o mesmo resultado.
+        .sortedWith(compareBy({ it.first.first }, { it.first.second }))
+        .map { (chave, doGrupo) ->
+            GrupoDeTarefas(
+                titulo = chave.second,
+                tarefas = doGrupo.sortedWith(taskListOrder),
+                abreFechado = chave.first == 0,
+            )
+        }
+}
+
 @Composable
 private fun TasksScreen(store: PopStore) {
     val tasks = store.visibleTasks
     var removingId by remember { mutableStateOf<String?>(null) }
     var selectedTask by remember { mutableStateOf<PopTask?>(null) }
     var pendingDeleteTask by remember { mutableStateOf<PopTask?>(null) }
-    // Guardar os expandidos, e nao os recolhidos, para que os setores comecem fechados e um setor
-    // criado depois tambem entre fechado, sem precisar ser descoberto e adicionado ao conjunto.
-    var expandedSectors by remember { mutableStateOf(emptySet<String>()) }
+    // Guarda quem o usuario ALTERNOU, nao quem esta aberto.
+    //
+    // Antes guardava os expandidos, o que so funcionava porque todo grupo nascia fechado. Agora
+    // nem todo grupo nasce fechado -- os de pessoa e de empresa nascem abertos --, e um conjunto
+    // de "abertos" nao consegue representar "este, que nasce aberto, o usuario fechou".
+    // Guardando o desvio em relacao ao padrao, um conjunto so cobre os dois casos, e um grupo
+    // criado depois continua entrando com o padrao dele sem precisar ser descoberto.
+    var alternados by remember { mutableStateOf(emptySet<String>()) }
     val scope = rememberCoroutineScope()
     // Pessoas entram junto de setores e grupos: AssignmentKind.Person ja existia e ja e convertido
     // nos dois sentidos (toApiTask/toPopTask), mas nunca tinha sido oferecido na interface.
     val moveTargets = rememberMoveTargets(store)
-    // toSortedMap() vem de java.util e nao existe no commonMain; a lista de pares ordenada
-    // preserva a mesma ordenacao natural por nome de setor.
-    val groupedTasks = remember(tasks) {
-        tasks.groupBy {
-            if (it.assignment.kind == AssignmentKind.Sector) it.assignment.label else "Sem setor"
-        }.toList()
-            .sortedBy { it.first }
-            .map { (sector, sectorTasks) -> sector to sectorTasks.sortedWith(taskListOrder) }
-    }
-    // Um unico grupo, e chamado "Sem setor", significa que nao ha setor nenhum para agrupar.
-    val flatList = groupedTasks.size == 1 && groupedTasks[0].first == "Sem setor"
+    val meuNome = store.state.currentUser?.name.orEmpty()
+    val espaco = store.state.workspace
+    val groupedTasks = remember(tasks, espaco, meuNome) { agruparTarefas(tasks, espaco, meuNome) }
+    // Grupo unico e sem titulo e o Meu espaco: nao ha alvo nenhum para agrupar, entao a lista sai
+    // plana, sem cabecalho.
+    val flatList = groupedTasks.size == 1 && groupedTasks[0].titulo.isEmpty()
 
     fun deleteWithAnimation(task: PopTask, action: () -> Unit) {
         pendingDeleteTask = null
@@ -1204,13 +1269,10 @@ private fun TasksScreen(store: PopStore) {
         if (tasks.isEmpty()) {
             item { EmptyState("Seu espaço está livre", "Toque em + para criar a primeira tarefa.") }
         }
-        groupedTasks.forEach { (sector, sectorTasks) ->
+        groupedTasks.forEach { grupo ->
+            val sector = grupo.titulo
+            val sectorTasks = grupo.tarefas
             // Sem agrupamento real, nao ha cabecalho de grupo.
-            //
-            // Os setores comecam fechados de proposito -- decisao anterior, e certa quando existem
-            // varios. Mas no Meu espaco nao existe setor nenhum: tudo cai num unico "Sem setor",
-            // que entao aparecia fechado e escondia a lista inteira. Abrir a aba Tarefas mostrava
-            // uma tela vazia dizendo "8 pendentes" logo acima. Encontrado rodando a previa.
             if (flatList) {
                 items(sectorTasks, key = { it.id }) { task ->
                     AnimatedVisibility(
@@ -1230,15 +1292,37 @@ private fun TasksScreen(store: PopStore) {
                 }
                 return@forEach
             }
+            // Aberto = o padrao do grupo, invertido se o usuario tiver alternado este.
+            val expanded = if (grupo.abreFechado) sector in alternados else sector !in alternados
             item(key = "sector-$sector") {
-                val expanded = sector in expandedSectors
                 val pending = sectorTasks.count { !it.completed }
+                // Quantas deste grupo sao PARA HOJE.
+                //
+                // A contagem de pendentes responde "quanto falta neste grupo"; esta responde
+                // "quanto falta AGORA", que e a pergunta de quem abre o aplicativo em pe, no
+                // corredor. Quando ha alguma para hoje, ela substitui a de pendentes em vez de se
+                // somar a ela: as duas juntas ("2 hoje · 5 pendentes") sao a string mais longa que
+                // este cabecalho jamais teria, e ele divide a linha com um nome de setor que pode
+                // ser comprido. Assim a string fica MENOR que a de hoje, sem risco de quebrar
+                // linha, e o total continua a um toque de distancia.
+                //
+                // ATRASO vem antes de HOJE, e isso foi conserto: a primeira versao contava so
+                // `dueDate == hoje` e deixava o ramo de pendentes de fora quando havia alguma de
+                // hoje. Um grupo com 1 de hoje e 12 atrasadas anunciava "1 hoje" -- o numero MENOS
+                // urgente dos dois -- enquanto o calendario mostrava as 12 em vermelho. Duas telas,
+                // dois recados.
+                //
+                // `todayIso()` icado para fora do `count`: la dentro ele le o relogio e converte
+                // fuso uma vez POR TAREFA, a cada recomposicao do cabecalho.
+                val hojeIso = todayIso()
+                val atrasadas = sectorTasks.count { !it.completed && it.dueDate < hojeIso }
+                val hoje = sectorTasks.count { !it.completed && it.dueDate == hojeIso }
                 Surface(
                     modifier = Modifier.fillMaxWidth().clickable {
-                        expandedSectors = if (expanded) {
-                            expandedSectors - sector
+                        alternados = if (sector in alternados) {
+                            alternados - sector
                         } else {
-                            expandedSectors + sector
+                            alternados + sector
                         }
                     },
                     shape = RoundedCornerShape(14.dp),
@@ -1250,10 +1334,21 @@ private fun TasksScreen(store: PopStore) {
                     ) {
                         Text(sector, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         Text(
-                            // Com o setor fechado o que importa e quanto falta, nao o total.
-                            if (pending == 0) "tudo concluído" else plural(pending, "pendente", "pendentes"),
-                            color = if (pending == 0) PopGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                            // Com o grupo fechado o que importa e quanto falta, nao o total.
+                            when {
+                                pending == 0 -> "tudo concluído"
+                                atrasadas > 0 -> "$atrasadas em atraso"
+                                hoje > 0 -> "$hoje hoje"
+                                else -> plural(pending, "pendente", "pendentes")
+                            },
+                            color = when {
+                                pending == 0 -> PopGreen
+                                atrasadas > 0 -> PopRed
+                                hoje > 0 -> PopBlue
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                             fontSize = 12.sp,
+                            fontWeight = if (atrasadas > 0 || hoje > 0) FontWeight.Bold else FontWeight.Normal,
                         )
                         Icon(
                             if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
@@ -1263,7 +1358,7 @@ private fun TasksScreen(store: PopStore) {
                     }
                 }
             }
-            if (sector in expandedSectors) {
+            if (expanded) {
                 items(sectorTasks, key = { it.id }) { task ->
                     AnimatedVisibility(
                         visible = removingId != task.id,
@@ -1297,8 +1392,8 @@ private fun TasksScreen(store: PopStore) {
         TaskDeleteDialog(
             task = task,
             onDismiss = { pendingDeleteTask = null },
-            // So chega aqui tarefa NAO recorrente: o dialogo nao oferece exclusao para serie.
-            onDeleteAll = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
+            onDelete = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
+            onDeleteSeries = { deleteWithAnimation(task) { store.deleteTaskSeries(task.id) } },
         )
     }
 }
@@ -1389,9 +1484,45 @@ private fun TaskDetailsDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // Isto dizia "Responsável" e mostrava o ALVO: numa tarefa de setor saia
+                // "Responsável: Comercial", que e um setor e nao uma pessoa. Sao dois campos
+                // distintos no servidor (`target` e `responsibleIds`), e a partir do build 12 os
+                // dois chegam ate aqui.
                 if (task.assignment.label != "Sem responsável") {
                     Text(
-                        "Responsável: ${task.assignment.label}",
+                        if (task.assignment.kind == AssignmentKind.Person) {
+                            "Responsável: ${task.assignment.label}"
+                        } else {
+                            "Em: ${task.assignment.label}"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (task.assignment.kind != AssignmentKind.Person) {
+                    val daLista = task.assignees.orEmpty().filter { it.isNotBlank() }
+                    val responsaveis = if (daLista.isNotEmpty()) {
+                        daLista
+                    } else if (task.assignee.isNotBlank()) {
+                        listOf(task.assignee)
+                    } else {
+                        emptyList()
+                    }
+                    if (responsaveis.isNotEmpty()) {
+                        Text(
+                            "Responsável: ${responsaveis.joinToString(", ")}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (task.reminder.isNotBlank() && task.reminder != "Sem lembrete") {
+                    Text(
+                        "Lembrete: ${task.reminder}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (task.duration.isNotBlank() && task.duration != "Sem duração") {
+                    Text(
+                        "Duração: ${task.duration}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1453,9 +1584,9 @@ private fun TaskDetailsDialog(
 }
 
 /**
- * Confirmacao de exclusao. Numa tarefa comum, confirma e exclui. Numa tarefa RECORRENTE nao oferece
- * exclusao nenhuma: explica que o aplicativo ainda nao consegue e manda usar o painel. O porque
- * esta no comentario do `confirmButton`, abaixo.
+ * Confirmacao de exclusao. Numa tarefa comum, confirma e exclui. Numa tarefa RECORRENTE oferece as
+ * duas saidas: somente esta data, ou a serie inteira. As duas ficaram desligadas do build 9 ate
+ * 04/09 porque o contrato movel nao tinha como sustenta-las; o historico esta no `confirmButton`.
  *
  * Recebe a acao pronta em vez do store porque quem chama e que sabe animar a saida da linha antes
  * de a tarefa sumir de fato.
@@ -1464,7 +1595,8 @@ private fun TaskDetailsDialog(
 private fun TaskDeleteDialog(
     task: PopTask,
     onDismiss: () -> Unit,
-    onDeleteAll: () -> Unit,
+    onDelete: () -> Unit,
+    onDeleteSeries: () -> Unit,
 ) {
     val isRecurring = task.recurrence != RecurrenceKind.None
     AlertDialog(
@@ -1478,8 +1610,8 @@ private fun TaskDeleteDialog(
         text = {
             Text(
                 if (isRecurring) {
-                    "Excluir atividades que se repetem ainda não funciona pelo aplicativo — nem " +
-                        "uma data só, nem a série inteira. Use o painel web."
+                    "“${task.title}” se repete. Excluir somente esta data mantém as outras; " +
+                        "excluir a recorrência apaga a série inteira."
                 } else {
                     "Confirma a exclusão de “${task.title}”?"
                 },
@@ -1493,44 +1625,39 @@ private fun TaskDeleteDialog(
         // margem apertada: era sobreposicao, com o texto de um lendo em cima do outro. Visto em
         // aparelho em 27/08, no build 7.
         //
-        // TAREFA RECORRENTE NAO OFERECE EXCLUSAO, e isto nao e escolha de produto -- o aplicativo
-        // nao consegue. Ate 31/08/2026 havia dois botoes aqui, "Somente esta data" e "Toda a
-        // recorrencia", e NENHUM dos dois funcionava:
+        // POR QUE ESTES DOIS BOTOES FICARAM DESLIGADOS DO BUILD 9 ATE 04/09/2026, e o que mudou.
+        // Vale ler antes de mexer, porque cada um dos tres motivos abaixo estragava dado de um
+        // jeito diferente, e o terceiro estragava para o Android e para o painel tambem.
         //
-        // 1. O servidor RECRIA a ocorrencia apagada. `materializeRecurringTasks`
+        // 1. O servidor RECRIAVA a ocorrencia apagada. `materializeRecurringTasks`
         //    (src/lib/recurrence.server.ts) caminha da data do modelo ate hoje e cria toda data que
-        //    nao esteja entre as existentes nem em `recurrenceExcludedDates`. Esse campo nao existe
-        //    no contrato movel, entao nao ha como dizer "pule esta data": apagar de verdade, por
-        //    `pendingDeletedServerIds`, seria desfeito na chamada seguinte.
-        // 2. Nao ha id de serie deste lado. O servidor tem (`recurrenceParentId`) e nao envia, e o
-        //    `toPopTask` nao preenche `recurrenceSeriesId` -- toda tarefa vinda do servidor tem
-        //    null ali. "Toda a recorrencia" casava exatamente UMA tarefa e parecia ter acertado.
-        // 3. Pior: "Somente esta data" avancava a `dueDate` localmente, e como todo `update`
-        //    reenvia a lista visivel inteira, o servidor gravava essa data -- o PUT faz
+        //    nao esteja entre as existentes nem em `recurrenceExcludedDates`, e nao havia como
+        //    dizer "pule esta data". RESOLVIDO no servidor, e nao aqui: ao apagar uma ocorrencia
+        //    pelo endpoint movel ele registra a data nas linhas que sobram da serie, que e o mesmo
+        //    que o painel ja fazia. O app so precisa apagar; nao monta nem devolve exclusao.
+        // 2. Nao havia id de serie deste lado -- `recurrenceSeriesId` era null em toda tarefa
+        //    vinda do servidor, e "toda a recorrencia" casava exatamente UMA linha. RESOLVIDO: o
+        //    servidor manda `recurrenceParentId ?: id` e o `toPopTask` o carrega.
+        // 3. "Somente esta data" avancava a `dueDate` localmente, e como todo `update` reenvia a
+        //    lista visivel inteira, o servidor gravava essa data -- o PUT faz
         //    `existing.dueDate = item.dueDate`, ADOTA o que o aparelho manda. A serie saia de fase
-        //    de forma PERMANENTE, tambem para o Android e para o painel.
-        //
-        // Religar depende de o servidor expor dois campos no `MobileTask`: `recurrenceSeriesId`
-        // (que seria `task.recurrenceParentId ?? task.id`, como o proprio recurrence.server.ts ja
-        // calcula) e `recurrenceExcludedDates`. Sem risco de ordem entre as pontas: o
-        // `mobileTaskSchema` e um `z.object` sem `.strict()`, entao campo desconhecido e
-        // descartado, nao recusado. Ate la, dizer a verdade custa menos que estragar dado.
+        //    de forma PERMANENTE. NAO VOLTOU, e nao pode voltar: hoje "somente esta data" e uma
+        //    exclusao comum, e nenhum caminho daqui mexe em `dueDate`.
         confirmButton = {
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                if (isRecurring) {
-                    TextButton(onClick = onDismiss) { Text("Entendi") }
-                } else {
-                    Button(
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        onClick = onDeleteAll,
-                    ) {
-                        Text("Excluir")
-                    }
-                    TextButton(onClick = onDismiss) { Text("Cancelar") }
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = if (isRecurring) onDeleteSeries else onDelete,
+                ) {
+                    Text(if (isRecurring) "Toda a recorrência" else "Excluir")
                 }
+                if (isRecurring) {
+                    TextButton(onClick = onDelete) { Text("Somente esta data") }
+                }
+                TextButton(onClick = onDismiss) { Text("Cancelar") }
             }
         },
     )
@@ -1539,6 +1666,24 @@ private fun TaskDeleteDialog(
 @Composable
 private fun TaskRow(
     task: PopTask,
+    /**
+     * A hora desta linha na agenda do calendario, ou `null` fora dela.
+     *
+     * Nao e `task.dueTime`: uma serie que repete varias vezes ao dia rende varias linhas da mesma
+     * tarefa, cada uma com o seu horario. String vazia significa "nesta agenda, sem hora marcada".
+     *
+     * `null` desliga a calha E devolve o rotulo de data, porque fora de um cabecalho de dia a data
+     * e a unica pista de prazo que a linha tem.
+     */
+    horario: String? = null,
+    /**
+     * Falso nas linhas repetidas da mesma tarefa dentro de um dia. Ver `CalendarRow.Entry.comAcoes`.
+     *
+     * O menu `⋮` CONTINUA em todas: reatribuir e excluir valem para a tarefa inteira, e fazer isso
+     * a partir de qualquer uma das linhas dela nao surpreende ninguem. O circulo e outra coisa --
+     * ele diz um ESTADO, e o estado e um so.
+     */
+    mostrarAcoes: Boolean = true,
     moveTargets: List<AssignmentTarget>,
     onOpen: () -> Unit,
     onToggle: () -> Unit,
@@ -1566,16 +1711,74 @@ private fun TaskRow(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onToggle) {
+            // Largura de um IconButton, para a calha e os titulos seguirem alinhados na coluna
+            // mesmo nas linhas que nao mostram o circulo.
+            if (!mostrarAcoes) Spacer(Modifier.width(48.dp))
+            // Tarefa que EXIGE revisao e ja foi enviada para ela nao aceita toque de quem nao e o
+            // revisor, e o motivo esta no servidor: o `replaceMobileTasks` so mexe no status
+            // quando o `completed` que chega difere do que ele tem, e para ele "waiting_review"
+            // ja nao e concluida. O toque nao fazia nada, sem aviso nenhum.
+            //
+            // Antes de o servidor mandar estes campos era pior: a tarefa em revisao chegava como
+            // um circulo vazio comum, a pessoa marcava, o servidor a devolvia para revisao e a
+            // leitura seguinte trazia `completed = false` -- do lado de quem usa, o aplicativo
+            // "desmarcou sozinho". Era o mesmo sintoma que ja custou uma investigacao inteira.
+            //
+            // Para o REVISOR nada muda: ele cai no outro ramo do servidor e conclui normalmente.
+            val aguardaRevisao = task.awaitingReview && !task.isReviewer
+            // `canComplete` vem do servidor e cobre os dois sentidos (la ele e
+            // `permissions.canComplete || permissions.canReopen`). Sem isto o circulo era clicavel
+            // para quem o servidor ia recusar, e a tarefa marcava e desmarcava sozinha na
+            // sincronizacao seguinte -- o mesmo sintoma da tarefa em revisao, por outra causa.
+            if (mostrarAcoes) IconButton(
+                onClick = onToggle,
+                enabled = task.canComplete && !aguardaRevisao,
+            ) {
                 Icon(
-                    if (task.completed) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-                    if (task.completed) "Reabrir" else "Concluir",
+                    when {
+                        aguardaRevisao -> Icons.Rounded.HourglassEmpty
+                        task.completed -> Icons.Rounded.CheckCircle
+                        else -> Icons.Rounded.RadioButtonUnchecked
+                    },
+                    when {
+                        aguardaRevisao -> "Aguarda revisão"
+                        task.completed -> "Reabrir"
+                        else -> "Concluir"
+                    },
                     // Era um "check" colorido pela prioridade em toda tarefa PENDENTE, o que lia
                     // como se ja estivesse concluida -- e a cor da prioridade ja aparece no rotulo
                     // ao lado, entao o icone repetia a informacao e mentia sobre o estado. Circulo
                     // vazio para pendente, circulo marcado para concluida: o icone passa a dizer o
                     // estado, e a cor passa a dizer a acao.
-                    tint = if (task.completed) PopGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = when {
+                        aguardaRevisao -> PopOrange
+                        task.completed -> PopGreen
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            // A calha. Largura FIXA de proposito: e o que faz os horarios se alinharem coluna
+            // abaixo, e alinhados eles podem ser lidos de relance como um dia. Deixando a largura
+            // ao texto, "9:00" e "14:30" sairiam desencontrados e a coluna deixaria de ser regua.
+            if (horario != null) {
+                Text(
+                    // Sem hora marcada mostra um travessao, nao vazio: o vazio leria como falha de
+                    // desenho, o travessao diz que a tarefa e do dia mas nao tem hora.
+                    horario.ifBlank { "—" },
+                    color = if (task.completed) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    // Sem isto, escala de fonte grande (Dynamic Type) quebraria "14:30" em duas
+                    // linhas dentro dos 40dp, esticando o cartao e destruindo justamente o
+                    // alinhamento de coluna que a calha existe para criar. A previa nao pega isso:
+                    // no desktop a escala e sempre 1.0.
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.width(40.dp),
                 )
             }
             Column(Modifier.weight(1f)) {
@@ -1590,7 +1793,15 @@ private fun TaskRow(
                         },
                         modifier = Modifier.weight(1f),
                     )
-                    if (isUrgent) {
+                    // Na agenda o rotulo escrito sai, e a borda vermelha do cartao fica sozinha
+                    // dizendo a urgencia.
+                    //
+                    // Nao e economia gratuita: medido na previa, a calha mais o circulo mais o
+                    // `⋮` mais este rotulo deixavam o titulo com largura para TRES linhas --
+                    // "Retorno da / Mel — pós- / cirúrgico". A calha existe para tornar o dia
+                    // legivel de relance, e nao para picar o titulo. Fora da agenda nada muda:
+                    // lá não há calha e o rotulo continua.
+                    if (isUrgent && horario == null) {
                         Spacer(Modifier.width(8.dp))
                         Text("Urgente", color = PopRed, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                     }
@@ -1606,23 +1817,51 @@ private fun TaskRow(
                 Spacer(Modifier.height(5.dp))
                 val dateTint = if (isOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        // Era a data ISO crua: "2026-08-20 • 09:00". Ninguem le uma agenda assim.
-                        taskDateLabel(task.dueDate, task.dueTime, todayDate()),
-                        color = dateTint,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    // Na agenda o cabecalho do dia ja diz a data e a calha ja diz a hora: repetir
+                    // "Hoje • 14:30" aqui gastava justamente a largura que a calha passou a usar.
+                    if (horario == null) {
+                        Text(
+                            // Era a data ISO crua: "2026-08-20 • 09:00". Ninguem le assim.
+                            taskDateLabel(task.dueDate, task.dueTime, todayDate()),
+                            color = dateTint,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                     // Antes so os detalhes contavam que a tarefa se repete, e era preciso abrir
                     // uma por uma para descobrir.
                     if (task.recurrence != RecurrenceKind.None) {
-                        Spacer(Modifier.width(6.dp))
+                        // O espaco separava o icone do rotulo de data. Na agenda nao ha rotulo de
+                        // data, entao ele viraria recuo perdido no comeco da linha.
+                        if (horario == null) Spacer(Modifier.width(6.dp))
                         Icon(
                             Icons.Rounded.Repeat,
                             task.recurrence.label,
                             tint = dateTint,
                             modifier = Modifier.size(13.dp),
                         )
+                        // Qual ocorrencia da serie -- e o que faz duas linhas com o MESMO titulo
+                        // pararem de parecer tarefa duplicada.
+                        //
+                        // No servidor cada ocorrencia e uma linha propria (cloneOccurrence, ligadas
+                        // por recurrenceParentId), e o materializeRecurringTasks cria as que
+                        // faltam caminhando ate hoje -- em toda leitura E em toda escrita. Entao a
+                        // ocorrencia nova aparece de repente, colada a uma acao sem relacao
+                        // nenhuma, e a lista mostrava dois cartoes iguais distinguidos so por
+                        // "Ontem"/"Hoje" em corpo 11. Foi lido como "a tarefa que eu concluí
+                        // voltou", em 01/09.
+                        //
+                        // O numero ja vinha no cofre da recorrencia desde o build 8; so nunca
+                        // tinha sido mostrado.
+                        if (task.recurrenceOccurrence > 1) {
+                            Spacer(Modifier.width(3.dp))
+                            Text(
+                                "${task.recurrenceOccurrence}ª",
+                                color = dateTint,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 }
             }
@@ -1662,20 +1901,27 @@ private fun TaskRow(
                             },
                         )
                     }
-                    DropdownMenuItem(
-                        text = { Text("Excluir atividade", color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Rounded.DeleteOutline,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        },
-                        onClick = {
-                            showMenu = false
-                            onDelete()
-                        },
-                    )
+                    // Sem `canDelete` o menu oferecia excluir a quem o servidor ia recusar com
+                    // 403: a linha sumia da tela, a sincronizacao falhava, e ela voltava. Melhor
+                    // nao oferecer do que desfazer na cara de quem clicou.
+                    if (task.canDelete) {
+                        DropdownMenuItem(
+                            text = {
+                                Text("Excluir atividade", color = MaterialTheme.colorScheme.error)
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Rounded.DeleteOutline,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                onDelete()
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -1911,7 +2157,32 @@ private sealed interface CalendarRow {
     data class PastHeader(val overdueCount: Int, val total: Int) : CalendarRow
     data class DayHeader(val date: LocalDate) : CalendarRow
     data class Section(val date: LocalDate, val label: String) : CalendarRow
-    data class Entry(val task: PopTask) : CalendarRow
+
+    /**
+     * Uma tarefa posicionada na agenda. O `horario` NAO e um campo da tarefa: e a posicao dela
+     * dentro do dia, produzida por `expandirDia`. Uma serie que repete tres vezes ao dia gera
+     * TRES Entry da mesma tarefa, com horarios diferentes -- e por isso que o horario entra na
+     * chave da LazyColumn.
+     *
+     * `null` significa "fora de uma agenda de dia": e o caso das linhas de "Atrasadas", que nao
+     * tem cabecalho de dia acima e por isso precisam mostrar a data.
+     */
+    data class Entry(
+        val task: PopTask,
+        val horario: String? = null,
+        /**
+         * Falso nas linhas REPETIDAS da mesma tarefa no mesmo dia.
+         *
+         * Uma serie de tres horarios rende tres linhas, mas o servidor guarda UMA linha por DATA --
+         * nao existe conclusao por horario no contrato. Com o circulo em todas, concluir a das 8h
+         * marcaria as tres, inclusive a das 20h que ninguem fez. Melhor nao oferecer a acao do que
+         * oferece-la mentindo.
+         */
+        val comAcoes: Boolean = true,
+    ) : CalendarRow
+
+    /** A regua do "agora", so no dia de hoje e so entre tarefas com horario. */
+    data class Now(val hora: String) : CalendarRow
 }
 
 private fun calendarRowKey(row: CalendarRow): String = when (row) {
@@ -1920,7 +2191,11 @@ private fun calendarRowKey(row: CalendarRow): String = when (row) {
     // A data entra na chave porque "Agenda do dia" se repete a cada dia, e chave repetida derruba
     // a LazyColumn em tempo de execucao, nao de compilacao.
     is CalendarRow.Section -> "secao-${row.date}-${row.label}"
-    is CalendarRow.Entry -> "tarefa-${row.task.id}"
+    // O horario entra na chave porque a MESMA tarefa aparece mais de uma vez no mesmo dia quando
+    // a serie repete varias vezes ao dia -- e chave repetida derruba a LazyColumn em tempo de
+    // execucao, nao de compilacao.
+    is CalendarRow.Entry -> "tarefa-${row.task.id}-${row.horario ?: "sem-hora"}"
+    is CalendarRow.Now -> "agora"
 }
 
 /**
@@ -1938,16 +2213,117 @@ private val taskListOrder = compareBy<PopTask>(
     { -it.priority.ordinal },
 )
 
+/** Uma tarefa posicionada num horario do dia. Ver `expandirDia`. */
+private data class NaAgenda(val task: PopTask, val horario: String?)
+
 /**
- * Dentro de um dia do calendario a cascata e outra, de proposito: a data ja e a mesma para todos,
- * entao quem manda e o horario, e a prioridade so desempata quem nao tem hora marcada.
+ * Dentro de um dia a cascata e outra, de proposito: a data ja e a mesma para todos, entao quem
+ * manda e o HORARIO.
+ *
+ * O horario vem antes de `completed`, ao contrario da `taskListOrder` da aba Tarefas. Nao e
+ * descuido: numa lista de afazeres o que importa e o que falta fazer, e pendente sobe; numa agenda
+ * o que importa e a ordem do dia, e uma tarefa das 9h concluida vem antes de uma das 10h pendente
+ * porque foi isso que aconteceu. E a mesma ordem que o painel web adotou.
  */
-private val dayTaskOrder = compareBy<PopTask>(
-    { it.completed },
-    { it.dueTime.isBlank() },
-    { it.dueTime },
-    { -it.priority.ordinal },
+private val agendaOrder = compareBy<NaAgenda>(
+    // Sem horario vai para o fim. "99:99" nao e hora valida e nunca colide com uma de verdade.
+    { it.horario ?: "99:99" },
+    { it.task.completed },
+    { -it.task.priority.ordinal },
+    { it.task.title },
 )
+
+/**
+ * Os horarios de uma tarefa dentro de um dia.
+ *
+ * `recurrenceTimes` manda quando existe: e o campo que guarda os horarios de uma serie que repete
+ * varias vezes ao dia, e o `dueTime` de uma tarefa assim e so o primeiro deles. Mesma precedencia
+ * que o painel web usa.
+ *
+ * Lista vazia significa "sem hora marcada", que e diferente de "nao aparece": a tarefa entra na
+ * agenda, no fim do dia, sob "Sem horário definido".
+ */
+private fun horariosDaTarefa(task: PopTask): List<String> {
+    // `horaComparavel` porque o `dueTime` e texto livre dos dois lados do fio e pode chegar "9:00".
+    // O `recurrenceTimes` ja vem validado por regex e nao precisaria, mas passar os dois pelo mesmo
+    // caminho evita que a lista saia com formatos misturados na mesma coluna.
+    val doCofre = task.recurrenceTimes.filter { it.isNotBlank() }.map { horaComparavel(it) }
+    if (doCofre.isNotEmpty()) return doCofre.distinct().sorted()
+    return if (task.dueTime.isNotBlank()) listOf(horaComparavel(task.dueTime)) else emptyList()
+}
+
+/**
+ * Abre as tarefas de um dia em uma linha POR HORARIO, e ordena.
+ *
+ * Uma serie que repete as 8h, 14h e 20h ocupa tres lugares na agenda do dia, e nao um -- e o que
+ * torna a lista uma agenda em vez de um resumo. O servidor guarda uma linha por DATA
+ * (materializeRecurringTasks), nunca uma por horario, entao esta expansao e local e nao vai para o
+ * fio: `toApiTask` continua enviando uma tarefa so.
+ */
+private fun expandirDia(tasks: List<PopTask>): List<NaAgenda> =
+    tasks.flatMap { task ->
+        val horarios = horariosDaTarefa(task)
+        if (horarios.isEmpty()) listOf(NaAgenda(task, null)) else horarios.map { NaAgenda(task, it) }
+    }.sortedWith(agendaOrder)
+
+/**
+ * Os nomes de quem esta encarregado de uma tarefa.
+ *
+ * O `assignee` do servidor e `assignees.join(", ")` -- numa tarefa com dois responsaveis ele
+ * chega como "Ana, Bruno" numa string so. Sem separar, o nome composto nao casa com funcionario
+ * nenhum, e o filtro por setor perderia a tarefa.
+ */
+private fun responsaveisDaTarefa(task: PopTask): List<String> {
+    val daLista = task.assignees.orEmpty().filter { it.isNotBlank() }
+    if (daLista.isNotEmpty()) return daLista
+    // "Sem responsável" e a string LITERAL que o servidor manda quando nao ha ninguem
+    // (`assignees.join(", ") || "Sem responsável"`), e nao um nome. Sem esta guarda a funcao
+    // devolveria uma pessoa inexistente e o proximo a usa-la herdaria a mentira.
+    return task.assignee.split(",")
+        .map { it.trim() }
+        .filter { it.isNotBlank() && !it.equals("Sem responsável", ignoreCase = true) }
+}
+
+/**
+ * A que setores uma tarefa pertence, para o filtro do calendario.
+ *
+ * Nao e "o alvo da tarefa": regra portada do `getCalendarTaskDepartmentIds` do painel web, que
+ * vive em `src/components/calendar/calendar-task.ts` -- **na `main`, ainda nao mesclada aqui**;
+ * procurar por ele nesta branch nao acha nada. Uma tarefa entra num setor se
+ *
+ *   - o ALVO dela e aquele setor; ou
+ *   - alguem ligado a ela pertence ao setor -- o alvo quando e pessoa, cada responsavel, e os
+ *     membros do grupo quando o alvo e um grupo.
+ *
+ * Sem a segunda regra, filtrar "Comercial" esconderia a tarefa que o gerente do Comercial atribuiu
+ * a uma pessoa da equipe dele, que e justamente o que ele quer ver.
+ *
+ * Responsavel casa por NOME, nao por id, porque nome e a unica coisa que o fio carrega. E o mesmo
+ * critério que o servidor usa em `mobileResponsibleId`.
+ */
+private fun setoresDaTarefa(task: PopTask, company: CompanyWorkspace?): Set<String> {
+    if (company == null) return emptySet()
+    val setores = mutableSetOf<String>()
+    if (task.assignment.kind == AssignmentKind.Sector) task.assignment.id?.let { setores += it }
+
+    val pessoas = mutableSetOf<CompanyMember>()
+    when (task.assignment.kind) {
+        AssignmentKind.Person ->
+            company.members.firstOrNull { it.id == task.assignment.id }?.let { pessoas += it }
+        AssignmentKind.Group ->
+            company.groups.firstOrNull { it.id == task.assignment.id }
+                ?.memberIds.orEmpty()
+                .forEach { id -> company.members.firstOrNull { it.id == id }?.let { pessoas += it } }
+        AssignmentKind.Sector, AssignmentKind.None -> Unit
+    }
+    responsaveisDaTarefa(task).forEach { nome ->
+        company.members.firstOrNull { it.name.equals(nome, ignoreCase = true) }?.let { pessoas += it }
+    }
+    pessoas.forEach { pessoa -> pessoa.sectorId?.takeIf { it.isNotBlank() }?.let { setores += it } }
+
+    // Setor que nao existe mais na empresa nao pode aparecer no filtro nem casar com ele.
+    return setores.filter { id -> company.sectors.any { it.id == id } }.toSet()
+}
 
 /**
  * Calendario: grade mensal no topo, agenda continua embaixo.
@@ -1962,6 +2338,21 @@ private fun CalendarScreen(store: PopStore) {
     // Lido a cada recomposicao em vez de guardado num remember: e uma leitura de relogio barata, e
     // um app deixado aberto durante a virada da meia-noite continua chamando de "Hoje" o dia certo.
     val today = todayDate()
+    // Mesma razao do `today`: leitura de relogio barata, e a regua do "agora" acompanha.
+    //
+    // Ela se reposiciona a cada recomposicao, NAO num temporizador. Rolar, tocar ou atualizar a
+    // recoloca; deixar a tela parada por uma hora a deixa uma hora atrasada. Um relogio proprio
+    // gastaria bateria para mover um tracinho, e a decisao foi nao ter.
+    val agora = horaAgora()
+    // `selectedCompany` e "a ULTIMA empresa escolhida", nao "estamos numa empresa" -- sem esta
+    // guarda o filtro por setor apareceria dentro do Meu Espaco, oferecendo os setores da empresa.
+    val company = store.selectedCompany.takeIf { store.state.workspace == WorkspaceKind.Company }
+
+    var setorFiltro by remember { mutableStateOf<String?>(null) }
+    var soPendentes by remember { mutableStateOf(false) }
+    // Trocar de espaco troca a lista de setores. Um id que nao existe mais no espaco novo nao
+    // casaria com tarefa nenhuma e a agenda apareceria vazia, sem nada na tela explicando por que.
+    LaunchedEffect(company?.id) { setorFiltro = null }
 
     var selectedDate by remember { mutableStateOf(today) }
     var visibleYear by remember { mutableIntStateOf(today.year) }
@@ -1978,10 +2369,22 @@ private fun CalendarScreen(store: PopStore) {
     // Uma tarefa com dueDate vazio ou fora do ISO nao tem lugar num calendario. A tela antiga a
     // agrupava sob um cabecalho em branco; aqui ela fica de fora da agenda, mas o rodape diz
     // quantas sao, para que nao sumam sem aviso.
-    val dated = remember(tasks) {
-        tasks.mapNotNull { task -> parseIsoDate(task.dueDate)?.let { date -> date to task } }
+    // O filtro entra ANTES do `dated`, e isso nao e detalhe de organizacao.
+    //
+    // A grade do mes acende um ponto nos dias que tem tarefa, e ela le o `tasksByDate`, que sai
+    // daqui. Filtrando so a lista de baixo, a grade continuaria acendendo dias que a agenda
+    // filtrada nao entrega -- prometendo um dia que o toque nao cumpre. Filtrando na origem, a
+    // grade e a agenda contam a mesma historia de graca.
+    val filtradas = remember(tasks, setorFiltro, soPendentes, company) {
+        tasks.filter { task ->
+            (!soPendentes || !task.completed) &&
+                (setorFiltro == null || setorFiltro in setoresDaTarefa(task, company))
+        }
     }
-    val undatedCount = tasks.size - dated.size
+    val dated = remember(filtradas) {
+        filtradas.mapNotNull { task -> parseIsoDate(task.dueDate)?.let { date -> date to task } }
+    }
+    val undatedCount = filtradas.size - dated.size
     val tasksByDate = remember(dated) { dated.groupBy({ it.first }, { it.second }) }
 
     // Tudo que ficou para tras entra aqui, concluido ou nao. Filtrar so as pendentes deixaria a
@@ -1998,7 +2401,7 @@ private fun CalendarScreen(store: PopStore) {
         tasksByDate.filterKeys { it >= today }.toList().sortedBy { it.first }
     }
 
-    val rows = remember(past, overdueCount, upcoming, pastExpanded, today) {
+    val rows = remember(past, overdueCount, upcoming, pastExpanded, today, agora) {
         buildList<CalendarRow> {
             if (past.isNotEmpty()) {
                 add(CalendarRow.PastHeader(overdueCount = overdueCount, total = past.size))
@@ -2006,19 +2409,35 @@ private fun CalendarScreen(store: PopStore) {
             }
             upcoming.forEach { (date, dayTasks) ->
                 add(CalendarRow.DayHeader(date))
-                val sorted = dayTasks.sortedWith(dayTaskOrder)
-                val timed = sorted.filter { it.dueTime.isNotBlank() }
-                val untimed = sorted.filter { it.dueTime.isBlank() }
+                val naAgenda = expandirDia(dayTasks)
+                val comHora = naAgenda.filter { it.horario != null }
+                val semHora = naAgenda.filter { it.horario == null }
                 // Os dois rotulos so aparecem quando existem os dois grupos: num dia em que tudo
                 // tem horario, "Agenda do dia" sozinho nao separa coisa nenhuma.
-                if (timed.isNotEmpty() && untimed.isNotEmpty()) {
-                    add(CalendarRow.Section(date, "Agenda do dia"))
-                    timed.forEach { add(CalendarRow.Entry(it)) }
-                    add(CalendarRow.Section(date, "Sem horário definido"))
-                    untimed.forEach { add(CalendarRow.Entry(it)) }
-                } else {
-                    sorted.forEach { add(CalendarRow.Entry(it)) }
+                val separar = comHora.isNotEmpty() && semHora.isNotEmpty()
+                if (separar) add(CalendarRow.Section(date, "Agenda do dia"))
+                // A regua do agora entra so HOJE, e so onde ha horario para dividir: num dia
+                // futuro ela nao significa nada, e num dia sem hora marcada nao ha regua nenhuma.
+                var faltaOAgora = date == today && comHora.isNotEmpty()
+                // `add` devolve true so na PRIMEIRA vez que ve o id -- e exatamente "esta e a
+                // primeira linha desta tarefa neste dia".
+                val jaVista = mutableSetOf<String>()
+                comHora.forEach { item ->
+                    val hora = item.horario ?: ""
+                    if (faltaOAgora && hora >= agora) {
+                        add(CalendarRow.Now(agora))
+                        faltaOAgora = false
+                    }
+                    add(CalendarRow.Entry(item.task, item.horario, jaVista.add(item.task.id)))
                 }
+                // Tudo de hoje ja passou: a regua vai para o fim, em vez de nao aparecer.
+                if (faltaOAgora) add(CalendarRow.Now(agora))
+                if (separar) add(CalendarRow.Section(date, "Sem horário definido"))
+                // String VAZIA, e nao `null`: vazia diz "nesta agenda, sem hora marcada" -- mantem a
+                // calha (com um travessao) e portanto o alinhamento com as linhas de cima, e continua
+                // suprimindo o rotulo de data, que aqui repetiria o cabecalho do dia. `null` e
+                // reservado para linha FORA de agenda, como as de "Atrasadas".
+                semHora.forEach { add(CalendarRow.Entry(it.task, "")) }
             }
         }
     }
@@ -2089,6 +2508,17 @@ private fun CalendarScreen(store: PopStore) {
                         },
                     ) { Text("Hoje") }
                 }
+                // Espaco pessoal nao tem setor, e empresa sem setor cadastrado teria um filtro de
+                // uma opcao so. Nos dois casos a barra nao aparece.
+                if (company != null && company.sectors.isNotEmpty()) {
+                    CalendarFilterBar(
+                        sectors = company.sectors.sortedBy { it.name.lowercase() },
+                        setorFiltro = setorFiltro,
+                        onSetor = { setorFiltro = it },
+                        soPendentes = soPendentes,
+                        onSoPendentes = { soPendentes = it },
+                    )
+                }
                 CalendarMonthGrid(
                     year = visibleYear,
                     month = visibleMonth,
@@ -2106,7 +2536,14 @@ private fun CalendarScreen(store: PopStore) {
 
         if (rows.isEmpty()) {
             item(key = "vazio") {
-                EmptyState("Nenhum prazo", "As tarefas com data aparecerão aqui.")
+                // Com filtro ligado, "Nenhum prazo" seria falso: as tarefas existem e estao
+                // escondidas por uma escolha da propria pessoa. Dizer qual escolha e o que
+                // devolve o caminho de volta.
+                if (setorFiltro != null || soPendentes) {
+                    EmptyState("Nada com este filtro", "Troque o setor ou desligue “Só pendentes”.")
+                } else {
+                    EmptyState("Nenhum prazo", "As tarefas com data aparecerão aqui.")
+                }
             }
         }
 
@@ -2171,6 +2608,19 @@ private fun CalendarScreen(store: PopStore) {
                     fontWeight = FontWeight.SemiBold,
                 )
 
+                is CalendarRow.Now -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        row.hora,
+                        color = PopRed,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.width(40.dp),
+                    )
+                    Box(Modifier.weight(1f).height(2.dp).background(PopRed.copy(alpha = .5f)))
+                }
+
                 is CalendarRow.Entry -> AnimatedVisibility(
                     visible = removingId != row.task.id,
                     enter = fadeIn() + expandVertically(),
@@ -2178,6 +2628,8 @@ private fun CalendarScreen(store: PopStore) {
                 ) {
                     TaskRow(
                         task = row.task,
+                        horario = row.horario,
+                        mostrarAcoes = row.comAcoes,
                         moveTargets = moveTargets,
                         onOpen = { selectedTask = row.task },
                         onToggle = { store.toggleTask(row.task.id) },
@@ -2217,9 +2669,128 @@ private fun CalendarScreen(store: PopStore) {
         TaskDeleteDialog(
             task = task,
             onDismiss = { pendingDeleteTask = null },
-            // So chega aqui tarefa NAO recorrente: o dialogo nao oferece exclusao para serie.
-            onDeleteAll = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
+            onDelete = { deleteWithAnimation(task) { store.deleteTask(task.id) } },
+            onDeleteSeries = { deleteWithAnimation(task) { store.deleteTaskSeries(task.id) } },
         )
+    }
+}
+
+/**
+ * Filtros da agenda: por setor, e "só pendentes".
+ *
+ * NAO ha checagem de administrador aqui, e a ausencia e deliberada. Quem nao e administrador ja
+ * recebe do servidor so o que pode ver, entao o filtro dele teria uma opcao so -- e a condicao de
+ * exibicao de quem chama (ha empresa, e ha setor cadastrado) resolve esse caso sozinha, sem
+ * inventar uma regra de permissao no aplicativo que possa divergir da do servidor. O painel web
+ * chegou a mesma decisao.
+ */
+@Composable
+private fun CalendarFilterBar(
+    sectors: List<CompanySector>,
+    setorFiltro: String?,
+    onSetor: (String?) -> Unit,
+    soPendentes: Boolean,
+    onSoPendentes: (Boolean) -> Unit,
+) {
+    var aberto by remember { mutableStateOf(false) }
+    val nomeAtual = sectors.firstOrNull { it.id == setorFiltro }?.name ?: "Todos os setores"
+    val ativo = setorFiltro != null
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f)) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().clickable { aberto = true },
+                shape = RoundedCornerShape(12.dp),
+                color = if (ativo) {
+                    PopBlue.copy(alpha = .14f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f)
+                },
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 12.dp, top = 9.dp, end = 6.dp, bottom = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Rounded.Apartment,
+                        null,
+                        tint = if (ativo) PopBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        nomeAtual,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        color = if (ativo) PopBlue else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(
+                        Icons.Rounded.ExpandMore,
+                        "Escolher setor",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            DropdownMenu(expanded = aberto, onDismissRequest = { aberto = false }) {
+                DropdownMenuItem(
+                    text = { Text("Todos os setores") },
+                    trailingIcon = {
+                        if (setorFiltro == null) Icon(Icons.Rounded.Check, null, tint = PopBlue)
+                    },
+                    onClick = {
+                        onSetor(null)
+                        aberto = false
+                    },
+                )
+                sectors.forEach { setor ->
+                    DropdownMenuItem(
+                        text = { Text(setor.name) },
+                        leadingIcon = { Icon(Icons.Rounded.Apartment, null) },
+                        trailingIcon = {
+                            if (setor.id == setorFiltro) Icon(Icons.Rounded.Check, null, tint = PopBlue)
+                        },
+                        onClick = {
+                            onSetor(setor.id)
+                            aberto = false
+                        },
+                    )
+                }
+            }
+        }
+        Surface(
+            modifier = Modifier.clickable { onSoPendentes(!soPendentes) },
+            shape = RoundedCornerShape(12.dp),
+            color = if (soPendentes) {
+                PopBlue.copy(alpha = .14f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f)
+            },
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    if (soPendentes) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                    null,
+                    tint = if (soPendentes) PopBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(15.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "Só pendentes",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (soPendentes) PopBlue else MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
     }
 }
 
@@ -2830,11 +3401,12 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     var priority by remember { mutableStateOf(Priority.Medium) }
     var assignmentKind by remember { mutableStateOf(AssignmentKind.None) }
     var assignment by remember { mutableStateOf(AssignmentTarget()) }
+    var responsaveis by remember { mutableStateOf(emptyList<String>()) }
     var checklistText by remember { mutableStateOf("") }
     var recurrence by remember { mutableStateOf(RecurrenceKind.None) }
     // Mesma armadilha do rememberMoveTargets: `selectedCompany` sobrevive a troca para o Meu
     // Espaco. O dialogo "Nova tarefa" abria no espaco pessoal com "Atribuir para" listando as
-    // pessoas e os setores da SAO FRANCISCO -- e criar assim mandaria o id de alguem de outro
+    // pessoas e os setores da empresa -- e criar assim mandaria o id de alguem de outro
     // espaco na carga. Encontrado em aparelho em 27/08.
     val company = store.selectedCompany.takeIf { store.state.workspace == WorkspaceKind.Company }
     val assignmentOptions = when (assignmentKind) {
@@ -2842,6 +3414,22 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
         AssignmentKind.Person -> company?.members.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }
         AssignmentKind.Sector -> company?.sectors.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }
         AssignmentKind.Group -> company?.groups.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }
+    }
+    // Quem pode responder, DENTRO do que ja foi escolhido.
+    //
+    // So faz sentido para setor e grupo: com alvo Pessoa a propria pessoa ja e a responsavel (o
+    // `toApiTask` resolve isso), e "Sem responsável" -- que no espaco de empresa vira alvo
+    // `company` -- nao delimita ninguem, entao a lista seria a empresa inteira e nao ajudaria a
+    // escolher. Sem um alvo especifico escolhido, tambem nao ha de onde recortar.
+    val candidatos = when {
+        assignment.id == null -> emptyList()
+        assignmentKind == AssignmentKind.Sector ->
+            company?.members.orEmpty().filter { it.sectorId == assignment.id }
+        assignmentKind == AssignmentKind.Group ->
+            company?.groups.orEmpty().firstOrNull { it.id == assignment.id }
+                ?.memberIds.orEmpty()
+                .mapNotNull { id -> company?.members.orEmpty().firstOrNull { it.id == id } }
+        else -> emptyList()
     }
 
     AlertDialog(
@@ -2854,7 +3442,15 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(dueDate, { dueDate = it }, label = { Text("Data AAAA-MM-DD") }, modifier = Modifier.weight(1f))
-                        OutlinedTextField(dueTime, { dueTime = it }, label = { Text("Hora") }, modifier = Modifier.weight(.65f))
+                        OutlinedTextField(
+                            dueTime,
+                            { dueTime = it },
+                            label = { Text("Hora") },
+                            // Nao valida formato -- o servidor tambem nao --, mas tira do caminho o
+                            // teclado de texto e torna "9:00" bem menos provavel que "09:00".
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(.65f),
+                        )
                     }
                 }
                 item {
@@ -2905,7 +3501,14 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                             AssignmentKind.entries.forEach {
                                 FilterChip(
                                     selected = assignmentKind == it,
-                                    onClick = { assignmentKind = it; assignment = AssignmentTarget() },
+                                    // Zerar o responsavel junto e obrigatorio: a lista de
+                                    // candidatos e recortada pelo alvo, e um nome que sobrou do
+                                    // alvo anterior seria enviado sem aparecer na tela.
+                                    onClick = {
+                                        assignmentKind = it
+                                        assignment = AssignmentTarget()
+                                        responsaveis = emptyList()
+                                    },
                                     label = { Text(it.label, fontSize = 10.sp) },
                                 )
                             }
@@ -2915,7 +3518,58 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                 assignmentOptions.forEach { option ->
-                                    FilterChip(selected = assignment.id == option.id, onClick = { assignment = option }, label = { Text(option.label) })
+                                    FilterChip(
+                                        selected = assignment.id == option.id,
+                                        // Zerar o responsavel junto: a lista de candidatos e
+                                        // recortada pelo alvo, e um nome que sobrou do setor
+                                        // anterior seria enviado sem aparecer na tela.
+                                        onClick = {
+                                            assignment = option
+                                            responsaveis = emptyList()
+                                        },
+                                        label = { Text(option.label) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    // Vem DEPOIS da escolha do alvo, e nao antes, porque e recortado por ela: sem
+                    // um setor escolhido nao ha de onde tirar candidato, e a lista nem aparece.
+                    if (candidatos.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Responsável (opcional)", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    // Dizer isto na tela evita a duvida que o proprio recurso
+                                    // cria: escolher uma pessoa aqui NAO tira a tarefa de onde
+                                    // ela esta.
+                                    "A tarefa continua aparecendo em ${assignment.label}.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.sp,
+                                )
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    candidatos.forEach { pessoa ->
+                                        val escolhida = pessoa.name in responsaveis
+                                        FilterChip(
+                                            selected = escolhida,
+                                            // O teto de tres e do SERVIDOR, nao gosto meu: com
+                                            // quatro nomes o schema reprova a carga inteira.
+                                            // Parar de aceitar no terceiro e melhor que deixar
+                                            // escolher e perder na sincronizacao, calado.
+                                            enabled = escolhida || responsaveis.size < 3,
+                                            onClick = {
+                                                responsaveis = if (escolhida) {
+                                                    responsaveis - pessoa.name
+                                                } else {
+                                                    responsaveis + pessoa.name
+                                                }
+                                            },
+                                            label = { Text(pessoa.name, fontSize = 10.sp) },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -2939,6 +3593,7 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                         assignment = assignment,
                         checklistTitles = checklistText.lines(),
                         recurrence = recurrence,
+                        responsaveis = responsaveis,
                     )
                     onDismiss()
                 },

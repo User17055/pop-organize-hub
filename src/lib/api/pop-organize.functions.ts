@@ -30,6 +30,7 @@ import {
   type Task,
   type TargetType,
 } from "../domain";
+import { invalidateNativeShadow } from "../native-shadow";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
 import {
   canViewTask,
@@ -852,7 +853,10 @@ export const leaveCompany = createServerFn({ method: "POST" }).handler(async () 
     if (!owner) throw createHttpError("Dono da empresa não encontrado.", 409);
 
     for (const task of workspace.tasks) {
-      if (task.responsibleId === account.id) task.responsibleId = owner.id;
+      if (task.responsibleId === account.id) {
+        task.responsibleId = owner.id;
+        invalidateNativeShadow(task, "responsible");
+      }
       if (task.reviewerId === account.id) task.reviewerId = owner.id;
       if (task.target.type === "user" && task.target.id === account.id) {
         task.target = {
@@ -860,6 +864,7 @@ export const leaveCompany = createServerFn({ method: "POST" }).handler(async () 
           id: workspace.company.id,
           label: "Empresa inteira",
         };
+        invalidateNativeShadow(task, "target");
       }
     }
     for (const department of workspace.departments) {
@@ -1428,6 +1433,24 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
       } else if (!permissions.canChangeStatus) {
         throw createHttpError("Você não tem permissão para alterar o status desta tarefa.", 403);
       }
+      // Espelha a regra que o endpoint móvel aplica em `replaceMobileTasks`: uma ocorrência
+      // recorrente só pode ser concluída quando chegar a sua data. Lá a violação é coagida em
+      // silêncio, porque recusar cancelaria a carga inteira do aparelho, inclusive as exclusões que
+      // vão junto; aqui é uma tarefa só, e ignorar o clique não explicaria nada a quem clicou.
+      //
+      // Este era o caminho que ainda gravava ocorrência futura concluída. O móvel já estava
+      // fechado, e o Android usa o mesmo endpoint — então sobrava o painel.
+      if (
+        nextStatus === "completed" &&
+        task.recurrence &&
+        (task.recurrenceOccurrence ?? 1) > 1 &&
+        task.dueDate > today()
+      ) {
+        throw createHttpError(
+          "Uma ocorrência recorrente só pode ser concluída quando chegar a sua data.",
+          409,
+        );
+      }
       const wasCompleted = task.status === "completed";
       task.status = nextStatus;
       if (nextStatus === "completed" && !wasCompleted) {
@@ -1509,6 +1532,7 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       task.responsibleIds = nextResponsibleIds.length ? nextResponsibleIds : undefined;
       task.tags = data.tags;
       task.recurrence = nextRecurrence;
+      invalidateNativeShadow(task, "dueDate", "target", "responsible", "recurrence");
       return task;
     });
   });
@@ -1849,6 +1873,7 @@ export const deleteTask = createServerFn({ method: "POST" })
         task.dueDate = nextDueDate;
         task.status = "pending";
         task.recurrenceOccurrence = (task.recurrenceOccurrence ?? 1) + 1;
+        invalidateNativeShadow(task, "dueDate", "recurrenceOccurrence");
         task.recurrenceExcludedDates = Array.from(
           new Set([...(task.recurrenceExcludedDates ?? []), occurrenceDate]),
         );
@@ -2227,11 +2252,15 @@ export const deleteEmployee = createServerFn({ method: "POST" })
         department.memberIds = department.memberIds?.filter((memberId) => memberId !== data.id);
       });
       db.tasks.forEach((task) => {
+        const wasResponsible =
+          task.responsibleId === data.id || (task.responsibleIds?.includes(data.id) ?? false);
         if (task.responsibleId === data.id) task.responsibleId = "";
         task.responsibleIds = task.responsibleIds?.filter((id) => id !== data.id);
         if (task.reviewerId === data.id) task.reviewerId = undefined;
+        if (wasResponsible) invalidateNativeShadow(task, "responsible");
         if (task.target.type === "user" && task.target.id === data.id) {
           task.target = { type: "company", id: db.company.id, label: db.company.name };
+          invalidateNativeShadow(task, "target");
         }
       });
       return { ok: true, id: data.id };
@@ -2484,6 +2513,7 @@ export const deleteGroup = createServerFn({ method: "POST" })
       db.tasks.forEach((task) => {
         if (task.target.type === "group" && task.target.id === data.id) {
           task.target = { type: "company", id: db.company.id, label: db.company.name };
+          invalidateNativeShadow(task, "target");
         }
       });
       return { ok: true, id: data.id };

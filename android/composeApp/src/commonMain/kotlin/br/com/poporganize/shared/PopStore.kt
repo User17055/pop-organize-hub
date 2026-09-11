@@ -72,23 +72,26 @@ class PopStore(private val platform: PopPlatformServices) {
         }
 
     /**
-     * Quem pode mexer em checklist.
+     * Quem pode mexer em checklist. **Quem decide e o servidor**, em `permissions.isAdmin`.
      *
-     * Parece adivinhacao por texto de cargo, mas nao e: **esta e a regra que o servidor enforca**.
-     * Nao existe permissao de checklist no conjunto que ele calcula -- os dois pontos que gravam
-     * subtarefa em mobile-api.server.ts conferem `currentUser.role.includes("admin")` na mao.
-     * Trocar isto por `permissions` faria a interface decidir por um criterio e o servidor por
-     * outro, que e como nascem as recusas silenciosas.
+     * Ate aqui esta regra era reproduzida localmente, adivinhando pelo texto do cargo, e isso
+     * estava certo enquanto o servidor enforcava subtarefa do mesmo jeito. Deixou de estar: o
+     * `isAdminUser` que o PUT consulta passou a reconhecer tambem quem esta em grupo de permissao
+     * com todas as permissoes, e o aplicativo nao. Quem tem cargo sem "admin" no texto mas o grupo
+     * cheio -- o caso comum de quem administra sem ser dono -- ficava sem marcar checklist no
+     * telefone **enquanto o servidor teria aceitado**. Reproduzir a regra do outro lado e a familia
+     * de bug mais cara deste repositorio; a saida e o servidor mandar o resultado pronto.
      *
-     * O `isOwner` existe porque o servidor **reescreve o cargo antes de enviar**: o proprietario
-     * sai como "Proprietário" na lista de membros, enquanto o cargo cru, que ele mesmo confere na
-     * escrita, continua "Administrador". Sem esta linha o dono da empresa -- o unico que nao pode
-     * ter o acesso reduzido -- era justamente quem ficava sem editar checklist, e o addTask ainda
-     * descartava a checklist dele localmente antes de tentar enviar.
+     * O ramo de baixo so roda quando o campo nao veio, isto e, contra servidor anterior a ele. Ele
+     * e a regra antiga inteira, inclusive o `isOwner` -- que existe porque o servidor **reescreve o
+     * cargo antes de enviar**: o proprietario sai como "Proprietário" na lista de membros, enquanto
+     * o cargo cru, que ele mesmo confere na escrita, continua "Administrador". Sem essa linha o
+     * dono da empresa era justamente quem ficava sem editar checklist.
      */
     val isCurrentUserAdmin: Boolean
         get() {
             if (state.workspace == WorkspaceKind.Personal) return true
+            permissions.isAdmin?.let { return it }
             if (permissions.isOwner) return true
             val email = state.currentUser?.email ?: return false
             return selectedCompany?.members
@@ -718,6 +721,7 @@ class PopStore(private val platform: PopPlatformServices) {
 
 private fun ApiWorkspace.toPermissions() = WorkspacePermissions(
     isOwner = isOwner,
+    isAdmin = isAdmin,
     canCreateTasks = canCreateTasks,
     canAssignTasks = canAssignTasks,
     canViewCalendar = canViewCalendar,

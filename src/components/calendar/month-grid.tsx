@@ -31,6 +31,7 @@ export function MonthGrid({
   tasksByDay,
   selectedDay,
   onSelectDay,
+  onOpenTask,
   employees,
   departments,
   groups,
@@ -40,6 +41,7 @@ export function MonthGrid({
   tasksByDay: Map<string, Task[]>;
   selectedDay: Date | null;
   onSelectDay: (day: Date) => void;
+  onOpenTask: (task: Task) => void;
   employees: Employee[];
   departments: Department[];
   groups: Group[];
@@ -83,10 +85,17 @@ export function MonthGrid({
           const overflow = dayTasks.length - visibleTasks.length;
 
           return (
-            <button
+            <div
               key={key}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() => onSelectDay(day)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectDay(day);
+                }
+              }}
               className={cn(
                 "pressable flex min-h-[66px] flex-col overflow-hidden rounded-[15px] border border-border/45 bg-background/62 p-1.5 text-left align-top outline-none hover:border-primary/24 hover:bg-background/90 focus-visible:ring-2 focus-visible:ring-primary/20 sm:min-h-[112px] sm:rounded-[18px] sm:p-2",
                 fullHeight && "sm:min-h-0 md:p-1.5 xl:p-2",
@@ -126,8 +135,13 @@ export function MonthGrid({
               {/* Desktop/tablet: dot + truncated title */}
               <div className="mt-1 hidden min-h-0 flex-1 space-y-1 overflow-hidden sm:block xl:mt-1.5">
                 {visibleTasks.map((task) => (
-                  <div
+                  <button
                     key={task.id}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenTask(task);
+                    }}
                     className="rounded-full border border-border/50 bg-white/68 px-2 py-0.5 text-[10px] font-medium leading-4 text-foreground/72 xl:text-[11px]"
                     title={`${getCalendarTaskFirstTime(task) ? `${getCalendarTaskFirstTime(task)} · ` : ""}${task.title} · ${getCalendarTaskDepartmentLabel(task, { employees, departments, groups })}`}
                   >
@@ -154,7 +168,7 @@ export function MonthGrid({
                         </span>
                       </span>
                     </span>
-                  </div>
+                  </button>
                 ))}
                 {overflow > 0 && (
                   <div className="text-[10px] font-medium leading-3 text-muted-foreground xl:text-[11px]">
@@ -162,7 +176,7 @@ export function MonthGrid({
                   </div>
                 )}
               </div>
-            </button>
+            </div>
           );
         })}
       </div>

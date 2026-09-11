@@ -24,6 +24,7 @@ import {
   withoutPassword,
 } from "../database";
 import {
+  adminOnlyPermissionKeys,
   allPermissionKeys,
   departmentColors,
   type PermissionKey,
@@ -1444,7 +1445,8 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
         nextStatus === "completed" &&
         task.recurrence &&
         (task.recurrenceOccurrence ?? 1) > 1 &&
-        task.dueDate > today()
+        task.dueDate > today() &&
+        !permissions.canCompleteAnytime
       ) {
         throw createHttpError(
           "Uma ocorrência recorrente só pode ser concluída quando chegar a sua data.",
@@ -2565,7 +2567,9 @@ export const createPermissionGroup = createServerFn({ method: "POST" })
         id: nextId("pg", db.permissionGroups),
         name: data.name,
         description: data.description,
-        permissions: data.permissions,
+        permissions: data.permissions.filter(
+          (permission) => !adminOnlyPermissionKeys.includes(permission),
+        ),
       };
       db.permissionGroups.push(group);
       applyPermissionGroupMembers(db, group.id, data.memberIds);
@@ -2585,7 +2589,9 @@ export const updatePermissionGroup = createServerFn({ method: "POST" })
       group.name = data.name;
       group.description = data.description;
       if (!group.isSystem) {
-        group.permissions = data.permissions;
+        group.permissions = data.permissions.filter(
+          (permission) => !adminOnlyPermissionKeys.includes(permission),
+        );
       }
       applyPermissionGroupMembers(db, group.id, data.memberIds);
       return group;

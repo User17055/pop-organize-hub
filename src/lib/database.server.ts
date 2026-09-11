@@ -586,9 +586,14 @@ function normalizeDatabase(value: Database): Database {
   const now = Date.now();
   const departments = value.departments ?? [];
   const groups = value.groups ?? [];
-  const permissionGroups = value.permissionGroups?.length
-    ? value.permissionGroups
-    : initialPermissionGroups();
+  const permissionGroups = (
+    value.permissionGroups?.length ? value.permissionGroups : initialPermissionGroups()
+  ).map((group) => ({
+    ...group,
+    permissions: group.isSystem
+      ? [...allPermissionKeys]
+      : group.permissions.filter((permission) => permission !== "tasks.completeAnytime"),
+  }));
   // Migration: databases created before permission groups existed get a
   // sensible group assigned based on the employee's current role/hierarchy.
   const employees = (value.employees ?? []).map((employee) =>

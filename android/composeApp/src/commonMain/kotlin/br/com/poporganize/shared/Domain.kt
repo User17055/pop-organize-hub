@@ -156,6 +156,7 @@ data class PopTask(
     // tarefa existente neste app, entao ele nao teria consumidor. Campo carregado sem uso apodrece
     // -- quando a tela existir, ele desce em uma linha.
     val canComplete: Boolean = true,
+    val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,
 
     // Cofre da recorrencia: as palavras do servidor, guardadas cruas e devolvidas intactas.
@@ -414,6 +415,7 @@ data class ApiTask(
     // em toda instalacao que falasse com um servidor antigo.
     val canEdit: Boolean = true,
     val canComplete: Boolean = true,
+    val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,
 )
 

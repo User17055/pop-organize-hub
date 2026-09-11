@@ -585,6 +585,13 @@ function CalendarPage() {
           tasksByDay={tasksByDay}
           selectedDay={selectedDay}
           onSelectDay={setSelectedDay}
+          onOpenTask={(task) => {
+            const available = tasks.some(
+              (sourceTask) => sourceTask.id === task.id && sourceTask.dueDate === task.dueDate,
+            );
+            if (available) openTask(task);
+            else setSelectedDay(new Date(`${task.dueDate}T12:00:00`));
+          }}
           employees={assignmentMembers}
           departments={departments}
           groups={groups}

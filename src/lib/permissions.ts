@@ -17,6 +17,7 @@ export type TaskPermissions = {
   canEditContent: boolean;
   canChangeStatus: boolean;
   canComplete: boolean;
+  canCompleteAnytime: boolean;
   canReopen: boolean;
   canApproveReview: boolean;
   canRejectReview: boolean;
@@ -425,6 +426,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
     : () => true;
 
   const canComplete = base.canComplete && allowed("tasks.complete");
+  const canCompleteAnytime = isAdmin(input) && allowed("tasks.completeAnytime");
   const canReopen = base.canComplete && allowed("tasks.reopen");
 
   return {
@@ -434,6 +436,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
       allowed("tasks.changeStatus") &&
       (!isWaitingReview || isAssignedReviewer),
     canComplete: canComplete && (!isWaitingReview || isAssignedReviewer),
+    canCompleteAnytime,
     canReopen: canReopen && (!isWaitingReview || isAssignedReviewer),
     canApproveReview: isWaitingReview && isAssignedReviewer && canComplete,
     canRejectReview: isWaitingReview && isAssignedReviewer && canReopen,

@@ -21,7 +21,12 @@ import {
   updatePermissionGroup,
 } from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
-import { permissionCatalog, type PermissionGroup, type PermissionKey } from "@/lib/domain";
+import {
+  adminOnlyPermissionKeys,
+  permissionCatalog,
+  type PermissionGroup,
+  type PermissionKey,
+} from "@/lib/domain";
 import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 import { cn } from "@/lib/utils";
 
@@ -381,7 +386,10 @@ function PermissoesPage() {
               <div className="space-y-3">
                 {permissionCatalog.map((category) => {
                   const keys = category.items.map((item) => item.key);
-                  const allSelected = keys.every((key) => form.permissions.includes(key));
+                  const editableKeys = form.isSystem
+                    ? keys
+                    : keys.filter((key) => !adminOnlyPermissionKeys.includes(key));
+                  const allSelected = editableKeys.every((key) => form.permissions.includes(key));
                   return (
                     <div
                       key={category.category}
@@ -394,40 +402,46 @@ function PermissoesPage() {
                         <button
                           type="button"
                           disabled={form.isSystem}
-                          onClick={() => toggleCategory(keys)}
+                          onClick={() => toggleCategory(editableKeys)}
                           className="text-xs font-medium text-primary hover:underline disabled:opacity-40 disabled:no-underline"
                         >
                           {allSelected ? "Desmarcar tudo" : "Marcar tudo"}
                         </button>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                        {category.items.map((item) => (
-                          <label
-                            key={item.key}
-                            className={cn(
-                              "flex items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors",
-                              form.permissions.includes(item.key)
-                                ? "border-primary/25 bg-primary/[0.055]"
-                                : "border-transparent",
-                              form.isSystem ? "opacity-60" : "cursor-pointer hover:bg-muted/60",
-                            )}
-                          >
-                            <Checkbox
-                              checked={form.permissions.includes(item.key)}
-                              disabled={form.isSystem}
-                              onCheckedChange={() => togglePermission(item.key)}
-                              className="mt-0.5"
-                            />
-                            <span className="min-w-0">
-                              <span className="block text-sm font-medium leading-tight">
-                                {item.label}
+                        {category.items.map((item) => {
+                          const adminOnly = adminOnlyPermissionKeys.includes(item.key);
+                          const disabled = form.isSystem || adminOnly;
+                          return (
+                            <label
+                              key={item.key}
+                              className={cn(
+                                "flex items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors",
+                                form.permissions.includes(item.key)
+                                  ? "border-primary/25 bg-primary/[0.055]"
+                                  : "border-transparent",
+                                disabled ? "opacity-60" : "cursor-pointer hover:bg-muted/60",
+                              )}
+                            >
+                              <Checkbox
+                                checked={form.permissions.includes(item.key)}
+                                disabled={disabled}
+                                onCheckedChange={() => {
+                                  if (!disabled) togglePermission(item.key);
+                                }}
+                                className="mt-0.5"
+                              />
+                              <span className="min-w-0">
+                                <span className="block text-sm font-medium leading-tight">
+                                  {item.label}
+                                </span>
+                                <span className="block text-[11px] text-muted-foreground">
+                                  {item.hint}
+                                </span>
                               </span>
-                              <span className="block text-[11px] text-muted-foreground">
-                                {item.hint}
-                              </span>
-                            </span>
-                          </label>
-                        ))}
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   );

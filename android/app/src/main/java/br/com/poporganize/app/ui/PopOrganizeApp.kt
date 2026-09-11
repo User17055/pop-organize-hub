@@ -5934,7 +5934,7 @@ private fun TasksScreen(
                     Image(
                         painter = painterResource(R.drawable.empty_tasks),
                         contentDescription = "Ainda não tem tarefas por aqui",
-                        contentScale = ContentScale.Crop,
+                        contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(290.dp)

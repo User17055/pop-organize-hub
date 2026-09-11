@@ -115,56 +115,66 @@ Depende de ver o app rodando num iPhone, o que depende do login:
 
 ## 5. Textos da página do produto — prontos para colar
 
-Escritos em 2026-09-10. **Contados por script, não estimados** — a tabela abaixo saiu da mesma
-execução que gerou os textos, então os números batem com o que está aqui.
+Reescritos em 2026-09-11. **Contados por script, não estimados.**
+
+> **Correção do Guilherme, e ela valia:** a primeira versão falava só de equipe e deixava o **Meu
+> Espaço** de fora. O app também serve quem usa sozinho, para rotina e hábito, e isso é metade do
+> produto — além de ampliar muito o público na loja. A descrição agora abre com os dois e dá uma
+> seção a cada um.
 
 | Campo | Limite | Usado | Folga |
 | --- | --- | --- | --- |
-| Subtítulo | 30 | **29** | 1 |
-| Texto promocional | 170 | **143** | 27 |
+| Subtítulo | 30 | **27** | 3 |
+| Texto promocional | 170 | **132** | 38 |
 | Palavras-chave | 100 | **92** | 8 |
-| Descrição | 4000 | **1593** | 2407 |
+| Descrição | 4000 | **1794** | 2206 |
 
-> Os limites vieram da própria página do App Store Connect (contadores 170, 4.000 e 100). O
-> subtítulo não aparece naquela tela: ele fica em **Informações do app**, não na versão.
+> Os limites vieram da própria página do App Store Connect. O subtítulo não aparece naquela tela:
+> ele fica em **Informações do app**, não na versão.
 
 ### Subtítulo
 
 ```
-Tarefas e rotinas do seu time
+Tarefas da equipe e as suas
 ```
 
 ### Texto promocional
 
-Pode ser trocado sem enviar build novo — é o único campo assim. Serve para anunciar o que mudou.
+Pode ser trocado sem enviar build novo — é o único campo assim.
 
 ```
-Organize o que a equipe precisa fazer por setor, grupo ou pessoa. Rotinas que se repetem sozinhas e um calendário que mostra o dia por horário.
+Organize o que a equipe precisa fazer — e o que é só seu. Rotinas que se repetem sozinhas e uma agenda que mostra o dia por horário.
 ```
 
 ### Palavras-chave
 
 ```
-tarefas,equipe,empresa,setor,checklist,rotina,recorrente,agenda,produtividade,gestão,delegar
+tarefas,equipe,empresa,setor,checklist,rotina,hábitos,recorrente,agenda,produtividade,gestão
 ```
 
-Sem espaço depois da vírgula, de propósito: espaço conta caractere e não ajuda em nada. **Nenhuma
-palavra repete o nome do app nem o subtítulo** — a Apple já indexa os dois, e repetir só gasta os
-100 caracteres.
+Sem espaço depois da vírgula: espaço conta caractere e não ajuda. **Nenhuma palavra repete o nome do
+app nem o subtítulo** — a Apple já indexa os dois.
 
 ### Descrição
 
 ```
-Pop Organize é o aplicativo de tarefas para quem trabalha em equipe.
+Pop Organize organiza o que precisa ser feito — o da sua equipe e o seu.
 
-Organize o que a sua empresa precisa fazer por setor, por grupo ou por pessoa, acompanhe tudo em um calendário e deixe as rotinas se repetirem sozinhas.
+No espaço da empresa, as atividades vão para setores, grupos ou pessoas, com prazo, prioridade e checklist. No Meu Espaço ficam só as suas: a rotina do dia, os hábitos, o que se repete toda semana. Os dois convivem no mesmo aplicativo, separados, e você troca entre eles quando quiser.
 
-COMO O TRABALHO SE ORGANIZA
+SÓ SEU — O MEU ESPAÇO
 
-• Espaço da empresa e espaço pessoal, separados. O que é seu não se mistura com o que é do time.
+• Suas tarefas pessoais, invisíveis para a empresa.
+• Rotinas que se repetem sozinhas, no horário que você marcar.
+• O mesmo calendário, mostrando só o que é seu.
+
+PARA A EQUIPE — O ESPAÇO DA EMPRESA
+
 • Tarefas atribuídas à empresa inteira, a um setor, a um grupo ou a até três pessoas.
-• Prioridade, prazo, horário e descrição em cada tarefa.
+• Prioridade, prazo, horário e descrição em cada uma.
 • Checklist dentro da tarefa, para o que tem etapas.
+• Grupos de permissão definem quem cria, edita, conclui, move e exclui.
+• Tarefas que exigem revisão vão para o gestor responsável antes de contar como concluídas.
 
 ROTINAS QUE SE REPETEM
 
@@ -179,14 +189,9 @@ O CALENDÁRIO
 • Agenda do dia em ordem de horário, como se espera de uma agenda.
 • Filtro por setor, para quem administra olhar um time de cada vez.
 
-REVISÃO E PERMISSÕES
-
-• Tarefas que exigem revisão vão para o gestor responsável antes de contar como concluídas.
-• Grupos de permissão definem quem cria, edita, conclui, move e exclui.
-
 FUNCIONA JUNTO COM O PAINEL WEB
 
-O aplicativo conversa com o mesmo espaço que a sua equipe usa no navegador. O que muda no telefone aparece no painel, e o que muda no painel aparece no telefone.
+O aplicativo conversa com o mesmo espaço que você usa no navegador. O que muda no telefone aparece no painel, e o que muda no painel aparece no telefone.
 
 PARA ENTRAR
 
@@ -197,25 +202,19 @@ Entre com a Apple, com o Google ou com o seu e-mail. Você pode excluir a sua co
 
 | Campo | O que colocar |
 | --- | --- |
-| **URL de suporte** | `https://app.poporganize.com.br` — mas veja o aviso abaixo |
+| **URL de suporte** | `https://app.poporganize.com.br/suporte` — depois do deploy |
 | **URL de marketing** | opcional; pode deixar vazio |
 | **Copyright** | o ano seguido da razão social da conta Apple — que é o nome que aparecerá como vendedor na loja, e não "Pop Organize". Não fica anotado aqui por ser dado da empresa; o Guilherme tem. |
 | **Versão** | ⚠️ conferir se bate com o `MARKETING_VERSION` do projeto Xcode — um build só aparece em "Adicionar compilação" sob o registro cuja versão é igual à dele |
 
-> ⚠️ **A URL de suporte merece atenção.** A Apple espera uma página onde a pessoa consiga **pedir
-> ajuda** — um contato, um e-mail, um formulário. Apontar para a tela de login do painel já foi
-> motivo de rejeição em outros apps (Review 1.5). Se `app.poporganize.com.br` cair direto no login,
-> vale criar uma página simples com um e-mail de contato antes de enviar. **Isto é candidato, não
-> fato:** não testei o que essa URL mostra para quem não tem conta.
-
 ### O que estes textos afirmam, e por que dá para afirmar
 
-Nenhuma frase acima descreve recurso que o app não tenha. Cada bloco corresponde a algo que existe
-no código: espaço pessoal e de empresa (`WorkspaceKind`), alvo empresa/setor/grupo/pessoa
-(`AssignmentKind`), até três responsáveis, checklist (`ChecklistItem`), as seis recorrências
-incluindo personalizada (`RecurrenceFrequency`), múltiplos horários (`recurrenceTimes`), fim por
-data (`recurrenceEndMode`), excluir ocorrência ou série (desde 04/09), grade e agenda do
-calendário, filtro por setor (build 13), fluxo de revisão (`requiresReview`) e grupos de permissão.
+Nenhuma frase descreve recurso que o app não tenha. Cada bloco corresponde a algo no código: os dois
+espaços (`WorkspaceKind`), alvo empresa/setor/grupo/pessoa (`AssignmentKind`), até três
+responsáveis, checklist (`ChecklistItem`), as seis recorrências incluindo personalizada
+(`RecurrenceFrequency`), múltiplos horários (`recurrenceTimes`), fim por data
+(`recurrenceEndMode`), excluir ocorrência ou série, grade e agenda do calendário, filtro por setor,
+fluxo de revisão (`requiresReview`) e grupos de permissão.
 
 **Descrição que promete o que o app não faz é rejeição na revisão**, e é o tipo de erro que ninguém
 percebe até chegar lá.

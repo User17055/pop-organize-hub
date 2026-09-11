@@ -140,6 +140,16 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         permissionGroups: workspace.permissionGroups,
       });
       const isCompany = (workspace.company.kind ?? "company") === "company";
+      // A mesma expressao que o PUT usa para aceitar ou recusar subtarefa (ver `isAdministrator`
+      // em replaceMobileTasks). Enviar o resultado pronto evita que o aplicativo tente reproduzir
+      // a regra: ele so conhecia dono e cargo com "admin" no texto, e desde que `isAdminUser`
+      // passou a reconhecer grupo de permissao cheio os dois lados discordavam de quem e
+      // administrador -- o servidor aceitava a checklist que o aplicativo nem oferecia.
+      const isAdministrator = isAdminUser({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
       const visibleDepartmentIds = isCompany
         ? getVisibleDepartmentIds({
             currentUser,
@@ -168,6 +178,7 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         description: workspace.company.description ?? "",
         kind: workspace.company.kind ?? "company",
         isOwner: workspace.company.ownerId === userId,
+        isAdmin: isAdministrator,
         canCreateTasks: hasPermission(permissionSet, "tasks.create"),
         canAssignTasks: isCompany && hasPermission(permissionSet, "tasks.assign"),
         canViewCalendar: !isCompany || hasPermission(permissionSet, "pages.calendar"),

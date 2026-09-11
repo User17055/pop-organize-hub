@@ -94,6 +94,12 @@ data class CompanyGroup(
 @Serializable
 data class WorkspacePermissions(
     val isOwner: Boolean = false,
+    /**
+     * Se o servidor considera esta pessoa administradora. Nulo quando o campo nao veio -- servidor
+     * antigo --, e nesse caso `isCurrentUserAdmin` volta a decidir sozinho pelo cargo. Nao pode ser
+     * `false` por default: rebaixaria todo administrador que falasse com um servidor desatualizado.
+     */
+    val isAdmin: Boolean? = null,
     val canCreateTasks: Boolean = false,
     val canAssignTasks: Boolean = false,
     val canViewCalendar: Boolean = false,
@@ -277,6 +283,8 @@ data class ApiWorkspace(
     val description: String = "",
     val kind: String = "company",
     val isOwner: Boolean = false,
+    /** Ausente em servidor anterior a este campo; ver `WorkspacePermissions.isAdmin`. */
+    val isAdmin: Boolean? = null,
     val canCreateTasks: Boolean = false,
     val canAssignTasks: Boolean = false,
     val canViewCalendar: Boolean = false,

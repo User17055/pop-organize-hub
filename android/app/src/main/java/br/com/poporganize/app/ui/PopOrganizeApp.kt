@@ -2048,13 +2048,11 @@ private fun LoginScreen(
     val legacyGoogleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        if (result.resultCode != Activity.RESULT_OK) {
-            isGoogleSignInPending = false
-            Toast.makeText(context, "Login com Google cancelado.", Toast.LENGTH_SHORT).show()
-            return@rememberLauncherForActivityResult
-        }
         coroutineScope.launch {
             try {
+                // O Google Sign-In carrega o status detalhado no Intent inclusive quando a Activity
+                // retorna RESULT_CANCELED. Ler apenas resultCode escondia erros de configuração
+                // (como DEVELOPER_ERROR/10) sob a mensagem genérica de login cancelado.
                 val account = GoogleSignIn.getSignedInAccountFromIntent(result.data)
                     .getResult(ApiException::class.java)
                 val idToken = account.idToken

@@ -268,6 +268,13 @@ function GruposPage() {
       <Sheet open={showForm} onOpenChange={setShowForm}>
         <SheetContent
           side="left"
+          // O menu do GlassSelect (campo "Líder") é portalizado para o `document.body`, então fica
+          // FORA deste SheetContent. Sem esta guarda, escolher um líder conta como clique fora e o
+          // Radix fecha a gaveta inteira antes de a escolha ser salva.
+          onPointerDownOutside={(event) => {
+            const target = event.target as Element | null;
+            if (target?.closest?.(".task-create-select-menu")) event.preventDefault();
+          }}
           className="w-full gap-0 overflow-hidden border-r border-primary/15 bg-card p-0 shadow-[24px_0_60px_-32px_rgba(15,92,190,0.45)] sm:max-w-[460px]"
         >
           <form onSubmit={handleSubmit} className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto]">

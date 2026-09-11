@@ -350,7 +350,21 @@ export function GlassSelect({
             ref={menuRef}
             className="task-create-select-menu fixed z-[260] rounded-md border p-1"
             role="listbox"
-            style={menuStyle ?? { opacity: 0, pointerEvents: "none" }}
+            // `pointerEvents: "auto"` nao e decorativo: o menu e portalizado para o `document.body`,
+            // e um Dialog/Sheet do Radix aberto marca o proprio `body` com `pointer-events: none`
+            // enquanto durar. O menu herdava isso e ficava *pintado mas nao clicavel* -- o clique
+            // atravessava e acertava o que estivesse embaixo, dentro do Sheet. Em `grupos.tsx` isso
+            // fazia o seletor de lider nunca gravar e ainda desmarcar um membro da lista.
+            //
+            // Medido na pagina antes de consertar: `getComputedStyle(opcao).pointerEvents` era
+            // "none" e `document.elementFromPoint` no centro da opcao devolvia o bloco "Membros".
+            //
+            // Nao muda nada onde nao ha Sheet -- `auto` ja e o comportamento normal ali.
+            style={
+              menuStyle
+                ? { ...menuStyle, pointerEvents: "auto" }
+                : { opacity: 0, pointerEvents: "none" }
+            }
           >
             {options.map((option) => (
               <button

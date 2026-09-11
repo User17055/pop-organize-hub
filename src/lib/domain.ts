@@ -82,6 +82,7 @@ export type PermissionKey =
   | "tasks.edit"
   | "tasks.changeStatus"
   | "tasks.complete"
+  | "tasks.completeAnytime"
   | "tasks.reopen"
   | "tasks.delete"
   | "tasks.comment"
@@ -116,6 +117,8 @@ export interface PermissionGroup {
   isSystem?: boolean;
 }
 
+export const adminOnlyPermissionKeys: PermissionKey[] = ["tasks.completeAnytime"];
+
 export const permissionCatalog: Array<{
   category: string;
   items: Array<{ key: PermissionKey; label: string; hint: string }>;
@@ -131,6 +134,11 @@ export const permissionCatalog: Array<{
         hint: "Mover entre pendente/andamento/revisão",
       },
       { key: "tasks.complete", label: "Concluir tarefas", hint: "Marcar tarefas como concluídas" },
+      {
+        key: "tasks.completeAnytime",
+        label: "Concluir antes da data",
+        hint: "Exclusivo do Administrador: conclui ocorrências futuras",
+      },
       { key: "tasks.reopen", label: "Reabrir tarefas", hint: "Reabrir tarefas concluídas" },
       { key: "tasks.delete", label: "Excluir tarefas", hint: "Remover tarefas permanentemente" },
       { key: "tasks.comment", label: "Comentar", hint: "Escrever comentários nas tarefas" },

@@ -17,7 +17,13 @@ import {
   readDatabase,
   verifyGoogleCredential,
 } from "./database.server";
-import { allPermissionKeys, departmentColors, type PermissionKey, type Task } from "./domain";
+import {
+  adminOnlyPermissionKeys,
+  allPermissionKeys,
+  departmentColors,
+  type PermissionKey,
+  type Task,
+} from "./domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "./permission-groups";
 import { canViewTask, getTaskPermissions, getVisibleDepartmentIds } from "./permissions";
 import { materializeRecurringTasks } from "./recurrence.server";
@@ -65,6 +71,7 @@ export type MobileTask = {
   recurrenceExcludedDates?: string[];
   canEdit?: boolean;
   canComplete?: boolean;
+  canCompleteAnytime?: boolean;
   canDelete?: boolean;
   // Só de leitura, calculados aqui a cada resposta. O aplicativo precisa dos dois para
   // distinguir "aguarda revisão" de "pendente" — sem eles ele mostra um círculo comum, a
@@ -830,8 +837,10 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
     const description =
       typeof input.description === "string" ? input.description.trim().slice(0, 200) : "";
     const permissions = Array.isArray(input.permissions)
-      ? input.permissions.filter((value): value is PermissionKey =>
-          allPermissionKeys.includes(value as PermissionKey),
+      ? input.permissions.filter(
+          (value): value is PermissionKey =>
+            allPermissionKeys.includes(value as PermissionKey) &&
+            !adminOnlyPermissionKeys.includes(value as PermissionKey),
         )
       : [];
     const memberIds = Array.isArray(input.memberIds)
@@ -1478,6 +1487,7 @@ function taskToMobileTask(
     recurrenceExcludedDates: task.recurrenceExcludedDates ?? [],
     canEdit: permissions.canEditContent,
     canComplete: permissions.canComplete || permissions.canReopen,
+    canCompleteAnytime: permissions.canCompleteAnytime,
     canDelete: permissions.canDelete,
     requiresReview: task.requiresReview ?? false,
     isReviewer: task.reviewerId === currentUser.id,
@@ -1755,7 +1765,8 @@ export async function replaceMobileTasks(
         item.completed &&
         item.recurrenceOccurrence > 1 &&
         /^\d{4}-\d{2}-\d{2}$/.test(item.dueDate) &&
-        item.dueDate > today;
+        item.dueDate > today &&
+        !isAdministrator;
       // Uma ocorrência futura continua pendente no servidor, mas não pode
       // cancelar a sincronização inteira (inclusive exclusões já solicitadas).
       const completed = item.completed && !isFutureRecurringCompletion;

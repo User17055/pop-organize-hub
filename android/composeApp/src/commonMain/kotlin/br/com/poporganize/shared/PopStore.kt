@@ -274,7 +274,7 @@ class PopStore(private val platform: PopPlatformServices) {
         // estritamente exigidos que no ApiTask tem valor padrao -- entao todo campo novo passa a
         // ser enviado sempre, com o proprio padrao. Foi assim que `recurrenceTimes` travou tudo do
         // lado do servidor. Quando o schema do servidor for afrouxado, trocar esta regra pelo flag.
-        if (!alvo.completed && ocorrenciaFuturaDeSerie(alvo)) {
+        if (!alvo.completed && ocorrenciaFuturaDeSerie(alvo) && !alvo.canCompleteAnytime) {
             message = "Esta ocorrência ainda não chegou. Ela pode ser concluída no dia dela."
             return
         }
@@ -781,6 +781,7 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     awaitingReview = awaitingReview,
     recurrenceExcludedDates = recurrenceExcludedDates,
     canComplete = canComplete,
+    canCompleteAnytime = canCompleteAnytime,
     canDelete = canDelete,
     assignee = assignee,
     assignees = assignees,

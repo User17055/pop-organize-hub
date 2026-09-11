@@ -301,6 +301,7 @@ private data class PopTask(
     val recurrenceOccurrence: Int = 1,
     val canEdit: Boolean = true,
     val canComplete: Boolean = true,
+    val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,
     val serverId: String = "",
     val assignmentType: String = "user",
@@ -535,6 +536,7 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 recurrenceOccurrence = item.optInt("recurrenceOccurrence", 1).coerceAtLeast(1),
                 canEdit = item.optBoolean("canEdit", true),
                 canComplete = item.optBoolean("canComplete", true),
+                canCompleteAnytime = item.optBoolean("canCompleteAnytime", false),
                 canDelete = item.optBoolean("canDelete", true),
                 assignmentType = item.optString("assignmentType", "user"),
                 assignmentTargetId = item.optString("assignmentTargetId"),
@@ -773,6 +775,7 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("recurrenceOccurrence", task.recurrenceOccurrence)
                 .put("canEdit", task.canEdit)
                 .put("canComplete", task.canComplete)
+                .put("canCompleteAnytime", task.canCompleteAnytime)
                 .put("canDelete", task.canDelete)
                 .put("assignmentType", task.assignmentType)
                 .put("assignmentTargetId", task.assignmentTargetId)
@@ -3366,6 +3369,12 @@ private fun PopMainContent(
                                     Toast.makeText(
                                         context,
                                         "Somente o responsável pode concluir esta tarefa",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                } else if (isFutureRecurrence(task) && !task.canCompleteAnytime) {
+                                    Toast.makeText(
+                                        context,
+                                        "Somente o administrador pode concluir antes da data",
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 } else {
@@ -8708,7 +8717,7 @@ private fun CalendarDayAgenda(
             modifier = Modifier.padding(top = 8.dp, bottom = 10.dp),
         )
         timedTasks.forEach { task ->
-            val unavailable = task.calendarProjection || isFutureRecurrence(task, today)
+            val unavailable = task.calendarProjection
             TaskRow(
                 task = task,
                 onClick = if (unavailable) null else ({ onOpenTask(task) }),
@@ -8727,7 +8736,7 @@ private fun CalendarDayAgenda(
             modifier = Modifier.padding(top = if (timedTasks.isEmpty()) 8.dp else 14.dp, bottom = 4.dp),
         )
         untimedTasks.forEach { task ->
-            val unavailable = task.calendarProjection || isFutureRecurrence(task, today)
+            val unavailable = task.calendarProjection
             TaskRow(
                 task,
                 onClick = if (unavailable) null else ({ onOpenTask(task) }),
@@ -11334,6 +11343,7 @@ private val permissionCatalog = listOf(
             PermissionCatalogItem("tasks.edit", "Editar tarefas"),
             PermissionCatalogItem("tasks.changeStatus", "Alterar status"),
             PermissionCatalogItem("tasks.complete", "Concluir tarefas"),
+            PermissionCatalogItem("tasks.completeAnytime", "Concluir antes da data (somente administrador)"),
             PermissionCatalogItem("tasks.reopen", "Reabrir tarefas"),
             PermissionCatalogItem("tasks.delete", "Excluir tarefas"),
             PermissionCatalogItem("tasks.comment", "Comentar"),
@@ -11490,10 +11500,12 @@ private fun PermissionGroupEditorDialog(
                                         modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 5.dp),
                                     )
                                     category.items.forEachIndexed { index, permission ->
+                                        val adminOnly = permission.key == "tasks.completeAnytime"
+                                        val permissionEnabled = !isSystem && !adminOnly
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .clickable(enabled = !isSystem) {
+                                                .clickable(enabled = permissionEnabled) {
                                                     selectedPermissions =
                                                         if (permission.key in selectedPermissions) {
                                                             selectedPermissions - permission.key
@@ -11513,7 +11525,7 @@ private fun PermissionGroupEditorDialog(
                                                         selectedPermissions - permission.key
                                                     }
                                                 },
-                                                enabled = !isSystem,
+                                                enabled = permissionEnabled,
                                                 modifier = Modifier.size(36.dp),
                                             )
                                             Spacer(Modifier.width(2.dp))

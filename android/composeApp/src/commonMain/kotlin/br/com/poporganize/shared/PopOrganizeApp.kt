@@ -619,6 +619,12 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
     var tab by remember { mutableStateOf(MainTab.Dashboard) }
     var morePage by remember { mutableStateOf(MorePage.Menu) }
     var showTaskEditor by remember { mutableStateOf(false) }
+    val canViewCalendar =
+        store.state.workspace != WorkspaceKind.Company || store.permissions.canViewCalendar
+
+    LaunchedEffect(canViewCalendar, tab) {
+        if (!canViewCalendar && tab == MainTab.Calendar) tab = MainTab.Dashboard
+    }
 
     // store.message carrega o retorno das acoes de servidor (criar empresa, criar setor,
     // convidar pessoa, sincronizar). Ate agora ela so aparecia dentro de Configuracoes, entao
@@ -706,7 +712,9 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
                         .height(49.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    MainTab.entries.forEach { item ->
+                    MainTab.entries.filter { item ->
+                        item != MainTab.Calendar || canViewCalendar
+                    }.forEach { item ->
                         val selected = tab == item
                         val cor = if (selected) {
                             PopBlue
@@ -767,13 +775,21 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
                         store = store,
                         onPage = { morePage = it },
                     )
-                    MorePage.Team -> TeamScreen(store)
+                    MorePage.Team -> if (store.permissions.canViewEmployees) {
+                        TeamScreen(store)
+                    } else {
+                        MoreScreen(store = store, onPage = { morePage = it })
+                    }
                     MorePage.Sectors -> if (store.permissions.canViewDepartments) {
                         SectorsScreen(store)
                     } else {
                         MoreScreen(store = store, onPage = { morePage = it })
                     }
-                    MorePage.Groups -> GroupsScreen(store)
+                    MorePage.Groups -> if (store.permissions.canViewGroups) {
+                        GroupsScreen(store)
+                    } else {
+                        MoreScreen(store = store, onPage = { morePage = it })
+                    }
                     MorePage.Settings -> SettingsScreen(store, platform)
                 }
             }
@@ -2950,14 +2966,21 @@ private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
         item { AccountCard(store) }
         // Empresa antes de Aplicativo: quem abre esta aba vem atras de equipe, setor ou grupo.
         // Configuracoes e o destino raro, e destino raro vai para o fim da lista.
-        if (inCompany) {
+        if (
+            inCompany &&
+            (store.permissions.canViewEmployees ||
+                store.permissions.canViewDepartments ||
+                store.permissions.canViewGroups)
+        ) {
             item { SectionTitle("Empresa") }
-            item {
-                MoreItem(
-                    Icons.Rounded.Person,
-                    "Equipe",
-                    "${company!!.members.size} pessoas cadastradas",
-                ) { onPage(MorePage.Team) }
+            if (store.permissions.canViewEmployees) {
+                item {
+                    MoreItem(
+                        Icons.Rounded.Person,
+                        "Equipe",
+                        "${company!!.members.size} pessoas cadastradas",
+                    ) { onPage(MorePage.Team) }
+                }
             }
             if (store.permissions.canViewDepartments) {
                 item {
@@ -2968,12 +2991,14 @@ private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
                     ) { onPage(MorePage.Sectors) }
                 }
             }
-            item {
-                MoreItem(
-                    Icons.Rounded.Groups,
-                    "Grupos",
-                    "${company!!.groups.size} grupos",
-                ) { onPage(MorePage.Groups) }
+            if (store.permissions.canViewGroups) {
+                item {
+                    MoreItem(
+                        Icons.Rounded.Groups,
+                        "Grupos",
+                        "${company!!.groups.size} grupos",
+                    ) { onPage(MorePage.Groups) }
+                }
             }
         }
         item { SectionTitle("Aplicativo") }

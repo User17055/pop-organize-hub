@@ -5929,6 +5929,20 @@ private fun TasksScreen(
                 }
                 Text("${pendingTasks.size} atividades pendentes", color = PopMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
             }
+            if (filtered.isEmpty()) {
+                item {
+                    Image(
+                        painter = painterResource(R.drawable.empty_tasks),
+                        contentDescription = "Ainda não tem tarefas por aqui",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(290.dp)
+                            .padding(horizontal = 28.dp)
+                            .clipToBounds(),
+                    )
+                }
+            }
             itemsIndexed(displayedPendingTasks, key = { _, task -> task.id }) { _, task ->
                 val isCompleting = completingTaskId == task.id
                 val taskSlotHeight by animateDpAsState(

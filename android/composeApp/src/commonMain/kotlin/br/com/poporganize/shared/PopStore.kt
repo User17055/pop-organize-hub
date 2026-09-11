@@ -264,8 +264,8 @@ class PopStore(private val platform: PopPlatformServices) {
 
     fun toggleTask(taskId: String) {
         val alvo = state.tasks.firstOrNull { it.id == taskId } ?: return
-        // Concluir ocorrencia FUTURA de serie recorrente e recusado pelo servidor com 409
-        // (mobile-api.server.ts:1702) -- e a recusa derruba a carga INTEIRA, nao so o item errado.
+        // Concluir atividade FUTURA sem a permissao exclusiva do Administrador e recusado pelo
+        // servidor -- e uma recusa nao pode derrubar a carga INTEIRA por causa de um item errado.
         // O toque errado na agenda custava a sincronizacao do aparelho inteiro ate alguem perceber.
         //
         // A fonte fiel seria o flag `canComplete`, que o servidor ja manda e o app ignora. Le-lo
@@ -274,8 +274,8 @@ class PopStore(private val platform: PopPlatformServices) {
         // estritamente exigidos que no ApiTask tem valor padrao -- entao todo campo novo passa a
         // ser enviado sempre, com o proprio padrao. Foi assim que `recurrenceTimes` travou tudo do
         // lado do servidor. Quando o schema do servidor for afrouxado, trocar esta regra pelo flag.
-        if (!alvo.completed && ocorrenciaFuturaDeSerie(alvo) && !alvo.canCompleteAnytime) {
-            message = "Esta ocorrência ainda não chegou. Ela pode ser concluída no dia dela."
+        if (!alvo.completed && tarefaFutura(alvo) && !alvo.canCompleteAnytime) {
+            message = "Somente o administrador pode concluir uma atividade antes da data."
             return
         }
         update { copy(tasks = tasks.map { if (it.id == taskId) it.copy(completed = !it.completed) else it }) }
@@ -674,8 +674,7 @@ class PopStore(private val platform: PopPlatformServices) {
      * Espelha a guarda de `mobile-api.server.ts:1702`. Comparacao de String funciona porque as
      * datas sao ISO `AAAA-MM-DD`, em que ordem lexicografica e ordem cronologica.
      */
-    private fun ocorrenciaFuturaDeSerie(task: PopTask): Boolean =
-        task.recurrenceOccurrence > 1 && task.dueDate > todayIso()
+    private fun tarefaFutura(task: PopTask): Boolean = task.dueDate > todayIso()
 
     /**
      * O que NAO pode ir na carga, porque o servidor recusa a carga inteira por causa dele.
@@ -708,7 +707,7 @@ class PopStore(private val platform: PopPlatformServices) {
      * ocorrencias ja gravadas assim.
      */
     private fun cargaAceitavel(tasks: List<PopTask>): List<PopTask> =
-        tasks.filterNot { it.completed && ocorrenciaFuturaDeSerie(it) }
+        tasks.filterNot { it.completed && tarefaFutura(it) && !it.canCompleteAnytime }
 
     private fun persist() = platform.saveState(json.encodeToString(state))
 

@@ -137,7 +137,7 @@ export const permissionCatalog: Array<{
       {
         key: "tasks.completeAnytime",
         label: "Concluir antes da data",
-        hint: "Exclusivo do Administrador: conclui ocorrências futuras",
+        hint: "Exclusivo do Administrador: conclui atividades com data futura",
       },
       { key: "tasks.reopen", label: "Reabrir tarefas", hint: "Reabrir tarefas concluídas" },
       { key: "tasks.delete", label: "Excluir tarefas", hint: "Remover tarefas permanentemente" },

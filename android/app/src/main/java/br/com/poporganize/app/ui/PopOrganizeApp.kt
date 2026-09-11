@@ -1152,6 +1152,10 @@ private fun isFutureRecurrence(task: PopTask, today: LocalDate = LocalDate.now()
         task.recurrenceOccurrence > 1 &&
         runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isAfter(today) == true
 
+private fun isFutureTask(task: PopTask, today: LocalDate = LocalDate.now()): Boolean =
+    !task.completed &&
+        runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isAfter(today) == true
+
 private suspend fun loadRemoteTasks(apiToken: String, workspaceId: String = ""): List<PopTask> = withContext(Dispatchers.IO) {
     val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
         requestMethod = "GET"
@@ -3371,7 +3375,7 @@ private fun PopMainContent(
                                         "Somente o responsável pode concluir esta tarefa",
                                         Toast.LENGTH_SHORT,
                                     ).show()
-                                } else if (isFutureRecurrence(task) && !task.canCompleteAnytime) {
+                                } else if (isFutureTask(task) && !task.canCompleteAnytime) {
                                     Toast.makeText(
                                         context,
                                         "Somente o administrador pode concluir antes da data",
@@ -5466,6 +5470,14 @@ private fun TasksScreen(
             return
         }
         val markingCompleted = !task.completed
+        if (markingCompleted && isFutureTask(task) && !task.canCompleteAnytime) {
+            Toast.makeText(
+                context,
+                "Somente o administrador pode concluir antes da data",
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
         if (markingCompleted) {
             if (completingTaskId == task.id) return
             completingTaskId = task.id

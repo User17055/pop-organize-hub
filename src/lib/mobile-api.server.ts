@@ -1761,15 +1761,14 @@ export async function replaceMobileTasks(
     }
 
     for (const item of tasks) {
-      const isFutureRecurringCompletion =
+      const isFutureCompletion =
         item.completed &&
-        item.recurrenceOccurrence > 1 &&
         /^\d{4}-\d{2}-\d{2}$/.test(item.dueDate) &&
         item.dueDate > today &&
         !isAdministrator;
-      // Uma ocorrência futura continua pendente no servidor, mas não pode
+      // Uma atividade futura continua pendente no servidor, mas não pode
       // cancelar a sincronização inteira (inclusive exclusões já solicitadas).
-      const completed = item.completed && !isFutureRecurringCompletion;
+      const completed = item.completed && !isFutureCompletion;
       const existing = workspace.tasks.find((rawTask) => {
         const task = rawTask as NativeTask;
         return (

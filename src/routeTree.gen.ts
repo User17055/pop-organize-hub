@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as V2RouteImport } from './routes/v2'
 import { Route as TermosRouteImport } from './routes/termos'
 import { Route as TarefasRouteImport } from './routes/tarefas'
+import { Route as SuporteRouteImport } from './routes/suporte'
 import { Route as SetoresRouteImport } from './routes/setores'
 import { Route as RelatoriosRouteImport } from './routes/relatorios'
 import { Route as PrivacidadeRouteImport } from './routes/privacidade'
@@ -49,6 +50,11 @@ const TermosRoute = TermosRouteImport.update({
 const TarefasRoute = TarefasRouteImport.update({
   id: '/tarefas',
   path: '/tarefas',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SuporteRoute = SuporteRouteImport.update({
+  id: '/suporte',
+  path: '/suporte',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SetoresRoute = SetoresRouteImport.update({
@@ -182,6 +188,7 @@ export interface FileRoutesByFullPath {
   '/privacidade': typeof PrivacidadeRoute
   '/relatorios': typeof RelatoriosRoute
   '/setores': typeof SetoresRoute
+  '/suporte': typeof SuporteRoute
   '/tarefas': typeof TarefasRoute
   '/termos': typeof TermosRoute
   '/v2': typeof V2Route
@@ -210,6 +217,7 @@ export interface FileRoutesByTo {
   '/privacidade': typeof PrivacidadeRoute
   '/relatorios': typeof RelatoriosRoute
   '/setores': typeof SetoresRoute
+  '/suporte': typeof SuporteRoute
   '/tarefas': typeof TarefasRoute
   '/termos': typeof TermosRoute
   '/v2': typeof V2Route
@@ -239,6 +247,7 @@ export interface FileRoutesById {
   '/privacidade': typeof PrivacidadeRoute
   '/relatorios': typeof RelatoriosRoute
   '/setores': typeof SetoresRoute
+  '/suporte': typeof SuporteRoute
   '/tarefas': typeof TarefasRoute
   '/termos': typeof TermosRoute
   '/v2': typeof V2Route
@@ -269,6 +278,7 @@ export interface FileRouteTypes {
     | '/privacidade'
     | '/relatorios'
     | '/setores'
+    | '/suporte'
     | '/tarefas'
     | '/termos'
     | '/v2'
@@ -297,6 +307,7 @@ export interface FileRouteTypes {
     | '/privacidade'
     | '/relatorios'
     | '/setores'
+    | '/suporte'
     | '/tarefas'
     | '/termos'
     | '/v2'
@@ -325,6 +336,7 @@ export interface FileRouteTypes {
     | '/privacidade'
     | '/relatorios'
     | '/setores'
+    | '/suporte'
     | '/tarefas'
     | '/termos'
     | '/v2'
@@ -354,6 +366,7 @@ export interface RootRouteChildren {
   PrivacidadeRoute: typeof PrivacidadeRoute
   RelatoriosRoute: typeof RelatoriosRoute
   SetoresRoute: typeof SetoresRoute
+  SuporteRoute: typeof SuporteRoute
   TarefasRoute: typeof TarefasRoute
   TermosRoute: typeof TermosRoute
   V2Route: typeof V2Route
@@ -391,6 +404,13 @@ declare module '@tanstack/react-router' {
       path: '/tarefas'
       fullPath: '/tarefas'
       preLoaderRoute: typeof TarefasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/suporte': {
+      id: '/suporte'
+      path: '/suporte'
+      fullPath: '/suporte'
+      preLoaderRoute: typeof SuporteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/setores': {
@@ -570,6 +590,7 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacidadeRoute: PrivacidadeRoute,
   RelatoriosRoute: RelatoriosRoute,
   SetoresRoute: SetoresRoute,
+  SuporteRoute: SuporteRoute,
   TarefasRoute: TarefasRoute,
   TermosRoute: TermosRoute,
   V2Route: V2Route,

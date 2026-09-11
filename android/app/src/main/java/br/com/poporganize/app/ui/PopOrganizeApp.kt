@@ -853,7 +853,12 @@ private data class ApiWorkspaceSummary(
     val kind: String,
     val isOwner: Boolean,
     val canCreateTasks: Boolean,
+    val canViewCalendar: Boolean,
+    val canViewGroups: Boolean,
     val canViewDepartments: Boolean,
+    val canViewReports: Boolean,
+    val canViewEmployees: Boolean,
+    val canViewCompany: Boolean,
     val canManageEmployees: Boolean,
     val canManageDepartments: Boolean,
     val canManageGroups: Boolean,
@@ -948,7 +953,12 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         kind = item.optString("kind"),
                         isOwner = item.optBoolean("isOwner", false),
                         canCreateTasks = item.optBoolean("canCreateTasks", false),
+                        canViewCalendar = item.optBoolean("canViewCalendar", false),
+                        canViewGroups = item.optBoolean("canViewGroups", false),
                         canViewDepartments = item.optBoolean("canViewDepartments", false),
+                        canViewReports = item.optBoolean("canViewReports", false),
+                        canViewEmployees = item.optBoolean("canViewEmployees", false),
+                        canViewCompany = item.optBoolean("canViewCompany", false),
                         canManageEmployees = item.optBoolean("canManageEmployees", false),
                         canManageDepartments = item.optBoolean("canManageDepartments", false),
                         canManageGroups = item.optBoolean("canManageGroups", false),
@@ -2698,7 +2708,11 @@ private fun PopMainContent(
     val companyOwnership = remember { mutableStateListOf<Boolean>() }
     val companyDescriptions = remember { mutableStateListOf<String>() }
     val companyCanCreateTasks = remember { mutableStateListOf<Boolean>() }
+    val companyCanViewCalendar = remember { mutableStateListOf<Boolean>() }
+    val companyCanViewGroups = remember { mutableStateListOf<Boolean>() }
     val companyCanViewDepartments = remember { mutableStateListOf<Boolean>() }
+    val companyCanViewReports = remember { mutableStateListOf<Boolean>() }
+    val companyCanViewEmployees = remember { mutableStateListOf<Boolean>() }
     val companyCanManageEmployees = remember { mutableStateListOf<Boolean>() }
     val companyCanManageDepartments = remember { mutableStateListOf<Boolean>() }
     val companyCanManageGroups = remember { mutableStateListOf<Boolean>() }
@@ -2764,7 +2778,15 @@ private fun PopMainContent(
     }
     val canCreateTask =
         workSpace == WorkSpace.Personal || companyCanCreateTasks.getOrElse(selectedCompanyIndex) { false }
+    val canViewCalendar =
+        workSpace != WorkSpace.Company || companyCanViewCalendar.getOrElse(selectedCompanyIndex) { false }
     val selectedNativeTaskList = taskLists.firstOrNull { it.id == selectedTaskListId }
+
+    LaunchedEffect(canViewCalendar, destination) {
+        if (!canViewCalendar && destination == PopDestination.Calendar) {
+            destination = PopDestination.Dashboard
+        }
+    }
 
     LaunchedEffect(
         sessionMode,
@@ -2924,8 +2946,16 @@ private fun PopMainContent(
         companyDescriptions.addAll(companies.map { it.description.trim() })
         companyCanCreateTasks.clear()
         companyCanCreateTasks.addAll(companies.map { it.canCreateTasks })
+        companyCanViewCalendar.clear()
+        companyCanViewCalendar.addAll(companies.map { it.canViewCalendar })
+        companyCanViewGroups.clear()
+        companyCanViewGroups.addAll(companies.map { it.canViewGroups })
         companyCanViewDepartments.clear()
         companyCanViewDepartments.addAll(companies.map { it.canViewDepartments })
+        companyCanViewReports.clear()
+        companyCanViewReports.addAll(companies.map { it.canViewReports })
+        companyCanViewEmployees.clear()
+        companyCanViewEmployees.addAll(companies.map { it.canViewEmployees })
         companyCanManageEmployees.clear()
         companyCanManageEmployees.addAll(companies.map { it.canManageEmployees })
         companyCanManageDepartments.clear()
@@ -3234,6 +3264,7 @@ private fun PopMainContent(
             bottomBar = {
                 PopBottomBar(
                     selected = destination,
+                    showCalendar = canViewCalendar,
                     onSelect = { selectedDestination ->
                         if (selectedDestination == PopDestination.More) {
                             showMoreSheet = true
@@ -3456,7 +3487,10 @@ private fun PopMainContent(
                         companyPermissionGroups = companyPermissionGroups,
                         tasks = tasks,
                         workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
+                        canViewGroups = companyCanViewGroups.getOrElse(selectedCompanyIndex) { false },
                         canViewDepartments = companyCanViewDepartments.getOrElse(selectedCompanyIndex) { false },
+                        canViewReports = companyCanViewReports.getOrElse(selectedCompanyIndex) { false },
+                        canViewEmployees = companyCanViewEmployees.getOrElse(selectedCompanyIndex) { false },
                         canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                         canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
                         canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
@@ -3504,7 +3538,10 @@ private fun PopMainContent(
                 companyPermissionGroups = companyPermissionGroups,
                 tasks = tasks,
                 workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty(),
+                canViewGroups = companyCanViewGroups.getOrElse(selectedCompanyIndex) { false },
                 canViewDepartments = companyCanViewDepartments.getOrElse(selectedCompanyIndex) { false },
+                canViewReports = companyCanViewReports.getOrElse(selectedCompanyIndex) { false },
+                canViewEmployees = companyCanViewEmployees.getOrElse(selectedCompanyIndex) { false },
                 canManageEmployees = companyCanManageEmployees.getOrElse(selectedCompanyIndex) { false },
                 canManageDepartments = companyCanManageDepartments.getOrElse(selectedCompanyIndex) { false },
                 canManageGroups = companyCanManageGroups.getOrElse(selectedCompanyIndex) { false },
@@ -5348,15 +5385,12 @@ private fun TasksScreen(
         }
     }
 
-    val taskFilters = if (selectedTaskList != null) {
-        listOf("Todas", "Atrasadas", "Hoje", "Próximas")
-    } else if (isTaskAdmin && workSpace == WorkSpace.Company) {
-        listOf("Hoje", "Atrasadas", "Próximas", "Para mim", "Setor", "Grupo", "Todas")
-    } else {
-        listOf("Hoje", "Atrasadas", "Próximas")
-    }
+    // Os filtros descrevem recortes das tarefas que o servidor JÁ autorizou. Eles não concedem
+    // acesso adicional e, por isso, ficam disponíveis para todos os perfis. "Todas" significa
+    // todas as tarefas visíveis para esta pessoa, nunca todas as tarefas da empresa.
+    val taskFilters = listOf("Hoje", "Atrasadas", "Próximas", "Para mim", "Setor", "Grupo", "Todas")
 
-    LaunchedEffect(workSpace, isTaskAdmin, selectedTaskList?.id) {
+    LaunchedEffect(workSpace, selectedTaskList?.id) {
         if (selectedFilter !in taskFilters) {
             selectedFilter = if (selectedTaskList != null) "Todas" else "Hoje"
         }
@@ -8948,7 +8982,10 @@ private fun MoreScreen(
     companyPermissionGroups: MutableList<PermissionGroup>,
     tasks: List<PopTask>,
     workspaceId: String,
+    canViewGroups: Boolean,
     canViewDepartments: Boolean,
+    canViewReports: Boolean,
+    canViewEmployees: Boolean,
     canManageEmployees: Boolean,
     canManageDepartments: Boolean,
     canManageGroups: Boolean,
@@ -8964,6 +9001,9 @@ private fun MoreScreen(
     onDismiss: () -> Unit,
 ) {
     val isGuest = sessionMode == SessionMode.Guest
+    val hasPrimaryCompanyPage = canViewGroups || canViewDepartments || canViewReports
+    val hasSecondaryCompanyPage = canViewEmployees || canManagePermissions
+    val hasVisibleCompanyPage = hasPrimaryCompanyPage || hasSecondaryCompanyPage
     val context = LocalContext.current
     val managementScope = rememberCoroutineScope()
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -9068,7 +9108,7 @@ private fun MoreScreen(
         }
     }
 
-    if (activeManagementPage == "reports") {
+    if (activeManagementPage == "reports" && canViewReports) {
         Dialog(
             onDismissRequest = { activeManagementPage = null },
             properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -9090,7 +9130,7 @@ private fun MoreScreen(
                 )
             }
         }
-    } else if (activeManagementPage == "employees") {
+    } else if (activeManagementPage == "employees" && canViewEmployees) {
         Dialog(
             onDismissRequest = { activeManagementPage = null },
             properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -9150,7 +9190,7 @@ private fun MoreScreen(
                 )
             }
         }
-    } else if (activeManagementPage == "groups") {
+    } else if (activeManagementPage == "groups" && canViewGroups) {
         Dialog(
             onDismissRequest = { activeManagementPage = null },
             properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -9176,7 +9216,7 @@ private fun MoreScreen(
                 )
             }
         }
-    } else if (activeManagementPage == "permissions") {
+    } else if (activeManagementPage == "permissions" && canManagePermissions) {
         Dialog(
             onDismissRequest = { activeManagementPage = null },
             properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -9322,17 +9362,25 @@ private fun MoreScreen(
                         }
                     }
 
-                    if (!isGuest && workSpace == WorkSpace.Company && companyNames.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            MoreShortcut(
-                                icon = Icons.Rounded.Groups,
-                                title = "Grupos",
-                                onClick = { activeManagementPage = "groups" },
-                                modifier = Modifier.weight(1f),
-                            )
+                    if (
+                        !isGuest &&
+                        workSpace == WorkSpace.Company &&
+                        companyNames.isNotEmpty() &&
+                        hasVisibleCompanyPage
+                    ) {
+                        if (hasPrimaryCompanyPage) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (canViewGroups) {
+                                    MoreShortcut(
+                                        icon = Icons.Rounded.Groups,
+                                        title = "Grupos",
+                                        onClick = { activeManagementPage = "groups" },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
                             if (canViewDepartments) {
                                 MoreShortcut(
                                     icon = Icons.Rounded.AccountTree,
@@ -9341,29 +9389,38 @@ private fun MoreScreen(
                                     modifier = Modifier.weight(1f),
                                 )
                             }
-                            MoreShortcut(
-                                icon = Icons.Rounded.BarChart,
-                                title = "Relatórios",
-                                onClick = { activeManagementPage = "reports" },
-                                modifier = Modifier.weight(1f),
-                            )
+                                if (canViewReports) {
+                                    MoreShortcut(
+                                        icon = Icons.Rounded.BarChart,
+                                        title = "Relatórios",
+                                        onClick = { activeManagementPage = "reports" },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            MoreShortcut(
-                                icon = Icons.Rounded.Groups,
-                                title = "Funcionários",
-                                onClick = { activeManagementPage = "employees" },
-                                modifier = Modifier.weight(1f),
-                            )
-                            MoreShortcut(
-                                icon = Icons.Rounded.Shield,
-                                title = "Permissões",
-                                onClick = { activeManagementPage = "permissions" },
-                                modifier = Modifier.weight(1f),
-                            )
+                        if (hasSecondaryCompanyPage) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (canViewEmployees) {
+                                    MoreShortcut(
+                                        icon = Icons.Rounded.Groups,
+                                        title = "Funcionários",
+                                        onClick = { activeManagementPage = "employees" },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                if (canManagePermissions) {
+                                    MoreShortcut(
+                                        icon = Icons.Rounded.Shield,
+                                        title = "Permissões",
+                                        onClick = { activeManagementPage = "permissions" },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -12225,7 +12282,11 @@ private fun MoreAccountAction(
 }
 
 @Composable
-private fun PopBottomBar(selected: PopDestination, onSelect: (PopDestination) -> Unit) {
+private fun PopBottomBar(
+    selected: PopDestination,
+    showCalendar: Boolean,
+    onSelect: (PopDestination) -> Unit,
+) {
     Box(
         Modifier
             .fillMaxWidth()
@@ -12244,7 +12305,9 @@ private fun PopBottomBar(selected: PopDestination, onSelect: (PopDestination) ->
                 Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                PopDestination.entries.forEach { item ->
+                PopDestination.entries.filter { item ->
+                    item != PopDestination.Calendar || showCalendar
+                }.forEach { item ->
                     val active = selected == item
                     val scale by animateFloatAsState(
                         targetValue = if (active) 1.045f else 1f,

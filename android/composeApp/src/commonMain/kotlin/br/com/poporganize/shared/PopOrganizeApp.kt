@@ -1208,6 +1208,15 @@ private fun agruparTarefas(
         AssignmentKind.None -> 1
         AssignmentKind.Person -> if (souEu(task)) 3 else 2
     }
+    // Fechar setor e grupo por padrao foi decidido contra uma empresa de 16 setores e 361 tarefas,
+    // onde abrir tudo daria uma rolagem infinita. Numa empresa pequena a mesma regra produz o
+    // defeito oposto, e ele foi medido em aparelho: um espaco com 13 tarefas abria a aba Tarefas
+    // como SETE cabecalhos fechados e nenhuma tarefa a vista -- um indice, nao uma lista.
+    //
+    // O que decide nao e quantos cabecalhos ha, e sim se a lista inteira cabe numa olhada. Contar
+    // cabecalhos erraria nos dois sentidos: 3 setores com 200 tarefas rolaria sem fim, e 10 setores
+    // com uma tarefa cada cabem folgados.
+    val listaCurta = tasks.size <= LIMITE_PARA_ABRIR_TUDO
     return tasks.groupBy { ordem(it) to titulo(it) }
         .toList()
         // toSortedMap() vem de java.util e nao existe no commonMain; ordenar a lista de pares
@@ -1217,10 +1226,20 @@ private fun agruparTarefas(
             GrupoDeTarefas(
                 titulo = chave.second,
                 tarefas = doGrupo.sortedWith(taskListOrder),
-                abreFechado = chave.first == 0,
+                abreFechado = chave.first == 0 && !listaCurta,
             )
         }
 }
+
+/**
+ * Ate quantas tarefas a aba Tarefas nasce com tudo aberto.
+ *
+ * Nao e numero magico: 20 e mais ou menos o que uma empresa pequena tem em aberto num dia, e e o
+ * ponto em que a rolagem deixa de ser leitura e vira procura. `alternados` guarda o DESVIO em
+ * relacao a este padrao, entao quem fechar um cabecalho continua com ele fechado mesmo que a lista
+ * encolha depois.
+ */
+private const val LIMITE_PARA_ABRIR_TUDO = 20
 
 @Composable
 private fun TasksScreen(store: PopStore) {
@@ -1439,13 +1458,15 @@ private fun rememberMoveTargets(store: PopStore): List<AssignmentTarget> {
             emptyList()
         } else {
             buildList {
-                company?.members.orEmpty().forEach {
+                // `activeMembers`: oferecer um convite pendente como responsavel mandaria ao
+                // servidor um nome que ele nao resolve, e a tarefa voltaria sem responsavel.
+                company?.activeMembers.orEmpty().forEach {
                     add(AssignmentTarget(AssignmentKind.Person, it.id, it.name))
                 }
-                company?.sectors.orEmpty().forEach {
+                company?.sectors.orEmpty().sortedBy { it.name.lowercase() }.forEach {
                     add(AssignmentTarget(AssignmentKind.Sector, it.id, it.name))
                 }
-                company?.groups.orEmpty().forEach {
+                company?.groups.orEmpty().sortedBy { it.name.lowercase() }.forEach {
                     add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
                 }
                 add(AssignmentTarget(AssignmentKind.None, null, "Sem responsável"))
@@ -1777,25 +1798,66 @@ private fun TaskRow(
             // abaixo, e alinhados eles podem ser lidos de relance como um dia. Deixando a largura
             // ao texto, "9:00" e "14:30" sairiam desencontrados e a coluna deixaria de ser regua.
             if (horario != null) {
-                Text(
-                    // Sem hora marcada mostra um travessao, nao vazio: o vazio leria como falha de
-                    // desenho, o travessao diz que a tarefa e do dia mas nao tem hora.
-                    horario.ifBlank { "—" },
-                    color = if (task.completed) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    // Sem isto, escala de fonte grande (Dynamic Type) quebraria "14:30" em duas
-                    // linhas dentro dos 40dp, esticando o cartao e destruindo justamente o
-                    // alinhamento de coluna que a calha existe para criar. A previa nao pega isso:
-                    // no desktop a escala e sempre 1.0.
-                    maxLines = 1,
-                    softWrap = false,
+                // A calha guarda a hora E o selo de recorrencia, um sob o outro.
+                //
+                // O selo ficava numa linha propria abaixo do titulo, e na agenda aquela linha nao
+                // tinha mais nada: o rotulo de data e omitido porque o cabecalho do dia e a calha
+                // ja dizem quando e. Medido na previa, a 393dp: o cartao tinha ~101dp de altura e
+                // ~25dp iam para uma linha que mostrava um glifo de 9dp. A calha, ao lado, tinha
+                // folga vertical sobrando.
+                //
+                // **Por que nao foi por largura.** A tentativa obvia era caber o titulo em uma
+                // linha so. Medido: "Assar a fornada da manhã" pede ~206dp e ha 174dp. Recuperar
+                // 32dp exigiria encolher os dois alvos de toque abaixo dos 44dp que a Apple pede
+                // E o corpo do texto. Altura sai de graca; largura sairia caro.
+                Column(
                     modifier = Modifier.width(40.dp),
-                )
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        // Sem hora marcada mostra um travessao, nao vazio: o vazio leria como falha
+                        // de desenho, o travessao diz que a tarefa e do dia mas nao tem hora.
+                        horario.ifBlank { "—" },
+                        color = if (task.completed) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        // Sem isto, escala de fonte grande (Dynamic Type) quebraria "14:30" em duas
+                        // linhas dentro dos 40dp, esticando o cartao e destruindo justamente o
+                        // alinhamento de coluna que a calha existe para criar. A previa nao pega
+                        // isso: no desktop a escala e sempre 1.0.
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                    if (task.recurrence != RecurrenceKind.None) {
+                        Spacer(Modifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Rounded.Repeat,
+                                task.recurrence.label,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(11.dp),
+                            )
+                            // Qual ocorrencia da serie. Ver a nota longa no rodape sobre por que
+                            // este numero existe: sem ele duas linhas com o MESMO titulo leem como
+                            // tarefa duplicada.
+                            if (task.recurrenceOccurrence > 1) {
+                                Spacer(Modifier.width(2.dp))
+                                Text(
+                                    "${task.recurrenceOccurrence}ª",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
+                        }
+                    }
+                }
             }
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1830,12 +1892,18 @@ private fun TaskRow(
                         maxLines = 2,
                     )
                 }
-                Spacer(Modifier.height(5.dp))
-                val dateTint = if (isOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Na agenda o cabecalho do dia ja diz a data e a calha ja diz a hora: repetir
-                    // "Hoje • 14:30" aqui gastava justamente a largura que a calha passou a usar.
-                    if (horario == null) {
+                // O rodape so existe FORA da agenda.
+                //
+                // Na agenda o cabecalho do dia ja diz a data, a calha diz a hora, e o selo de
+                // recorrencia subiu para a calha -- entao nao sobrava nada para mostrar aqui. A
+                // Row continuava sendo criada mesmo assim, e uma linha vazia mais o espacador
+                // custavam ~25dp dos ~101dp do cartao. Com ela fora, cabe um cartao a mais na
+                // mesma dobra.
+                if (horario == null) {
+                    Spacer(Modifier.height(5.dp))
+                    val dateTint =
+                        if (isOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             // Era a data ISO crua: "2026-08-20 • 09:00". Ninguem le assim.
                             taskDateLabel(task.dueDate, task.dueTime, todayDate()),
@@ -1843,13 +1911,10 @@ private fun TaskRow(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
-                    }
                     // Antes so os detalhes contavam que a tarefa se repete, e era preciso abrir
                     // uma por uma para descobrir.
                     if (task.recurrence != RecurrenceKind.None) {
-                        // O espaco separava o icone do rotulo de data. Na agenda nao ha rotulo de
-                        // data, entao ele viraria recuo perdido no comeco da linha.
-                        if (horario == null) Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(6.dp))
                         Icon(
                             Icons.Rounded.Repeat,
                             task.recurrence.label,
@@ -1878,6 +1943,7 @@ private fun TaskRow(
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
+                    }
                     }
                 }
             }
@@ -2229,6 +2295,169 @@ private val taskListOrder = compareBy<PopTask>(
     { -it.priority.ordinal },
 )
 
+/**
+ * O codigo de dia da semana que atravessa o fio. Identico nos dois lados, conferido literalmente:
+ * `dayTokens` em `mobile-api.server.ts` na escrita e o `dayMap` na leitura, e o mesmo mapa no app
+ * Android. 1 = segunda ... 7 = domingo, que e o que `isoDayNumber` devolve.
+ *
+ * A semantica do `recurrenceDetail` MUDA conforme a regra, e trocar as duas inverte o resultado:
+ * em "Diária" ele lista os dias a PULAR, em "Semanal" os dias a INCLUIR, e em "Mensal" e o dia do
+ * mes escrito como numero.
+ */
+private val codigoDoDia = mapOf(
+    "S" to 1, "T" to 2, "Q" to 3, "Q2" to 4, "S2" to 5, "Sá" to 6, "D" to 7,
+)
+
+/**
+ * A proxima data de uma serie, a partir de uma data qualquer dela.
+ *
+ * Portado do app Android (`advanceRecurrenceDate`), que e codigo ja provado em producao, com uma
+ * traducao obrigatoria: la e `java.time` (`plusDays`, `plusMonths`, `withDayOfMonth`,
+ * `lengthOfMonth`), que nao existe no commonMain. Aqui tudo sai de `DatePeriod`, do construtor de
+ * `LocalDate` e dos ajudantes do `PopDates.kt` -- as mesmas APIs que ja compilaram verdes, pela
+ * regra de nao apostar em binding de Kotlin/Native sem gastar um build inteiro para descobrir.
+ *
+ * Devolve nulo para regra que nao se sabe avancar, inclusive "Personalizada": o dominio nao a
+ * representa, e chutar uma data seria pior que nao desenhar ponto nenhum.
+ */
+private fun advanceRecurrenceDate(task: PopTask, from: LocalDate): LocalDate? {
+    val intervalo = task.recurrenceInterval.coerceAtLeast(1)
+    val dias = task.recurrenceDetail.split(",").mapNotNull { codigoDoDia[it.trim()] }
+    return when (task.recurrenceRule) {
+        "Diária" -> {
+            val excluidos = dias.toSet()
+            var proxima = from.plus(DatePeriod(days = intervalo))
+            // Teto de 7: se a pessoa excluir os sete dias da semana, sem ele o laco nao termina.
+            var tentativas = 0
+            while (isoDayNumber(proxima) in excluidos && tentativas < 7) {
+                proxima = proxima.plus(DatePeriod(days = 1))
+                tentativas += 1
+            }
+            if (isoDayNumber(proxima) in excluidos) null else proxima
+        }
+        "Semanal" -> {
+            val escolhidos = dias.sorted().ifEmpty { listOf(isoDayNumber(from)) }
+            val diaAtual = isoDayNumber(from)
+            val inicioDaSemana = from.plus(DatePeriod(days = -(diaAtual - 1)))
+            val aindaNestaSemana = escolhidos.firstOrNull { it > diaAtual }
+            if (aindaNestaSemana != null) {
+                inicioDaSemana.plus(DatePeriod(days = aindaNestaSemana - 1))
+            } else {
+                inicioDaSemana
+                    .plus(DatePeriod(days = 7 * intervalo))
+                    .plus(DatePeriod(days = escolhidos.first() - 1))
+            }
+        }
+        "Mensal" -> {
+            val alvo = from.plus(DatePeriod(months = intervalo))
+            // Dia 31 em fevereiro nao existe. O `plus` ja acomoda o mes, e o `coerceIn` acomoda o
+            // dia pedido: uma serie do dia 31 cai no dia 28 ou 29 e volta ao 31 no mes seguinte.
+            val ultimoDia = daysInMonth(alvo.year, alvo.monthNumber)
+            val dia = task.recurrenceDetail.trim().toIntOrNull()?.coerceIn(1, ultimoDia)
+                ?: from.dayOfMonth.coerceAtMost(ultimoDia)
+            LocalDate(alvo.year, alvo.monthNumber, dia)
+        }
+        "Anual" -> from.plus(DatePeriod(years = intervalo))
+        else -> null
+    }
+}
+
+/** Prefixo do id de uma ocorrencia que so existe na tela. Ver `projetarOcorrencias`. */
+private const val PREFIXO_PROJECAO = "proj:"
+
+/** Teto de voltas por serie, para que dado estranho nao trave a interface. */
+private const val LIMITE_DE_PROJECAO = 400
+
+internal fun ehProjecao(task: PopTask): Boolean = task.id.startsWith(PREFIXO_PROJECAO)
+
+/**
+ * As ocorrencias futuras de cada serie, ate `ate`, que o servidor ainda nao materializou.
+ *
+ * **Por que isto existe.** O servidor cria a linha de uma ocorrencia recorrente dia a dia, quando
+ * chega a data. Ate aqui o calendario so desenhava o que ja era registro, entao um mes inteiro de
+ * tarefa diaria aparecia com um punhado de pontos: o dia de hoje aceso e os proximos vazios. Quem
+ * tem tarefa todo dia via um calendario que dizia que nao tinha nada para fazer.
+ *
+ * **Por que a projecao entra ANTES do agrupamento por data, e nao so na grade.** A grade e a agenda
+ * leem a mesma fonte de proposito -- ha um comentario na tela dizendo isso. Projetar so na grade
+ * acenderia um ponto que o toque nao cumpre, que e exatamente o defeito que aquela decisao evita.
+ *
+ * **O que NAO se projeta:**
+ * - data que a pessoa apagou (`recurrenceExcludedDates`), senao a tela ressuscitaria justamente o
+ *   que ela mandou sumir;
+ * - data que ja existe como registro, para a ocorrencia real nao aparecer em dobro;
+ * - alem do fim da serie, nos dois modos que o contrato tem ("Após" N vezes e "Em uma data");
+ * - **nada ANTES de `de`**, que a tela passa como hoje. O passado e o que o servidor registrou, e
+ *   so ele sabe o que de fato aconteceu. Projetar para tras inventaria tarefas atrasadas que
+ *   ninguem pode concluir, porque nao existe linha do outro lado para marcar -- engordaria o
+ *   contador de "Atrasadas" com fantasmas.
+ *
+ * A copia sai com `serverId` nulo, sem checklist marcada e com `completed = false`: ela nao e uma
+ * linha do servidor, e mostrar o progresso da ocorrencia de hoje numa data futura seria mentira.
+ */
+private fun projetarOcorrencias(
+    tasks: List<PopTask>,
+    de: LocalDate,
+    ate: LocalDate,
+): List<PopTask> {
+    // A chave da serie. `recurrenceSeriesId` e o caminho certo -- e o `recurrenceParentId ?: id` do
+    // servidor --, mas ele pode vir nulo contra servidor anterior ao build 14.
+    //
+    // **Cair para o `id` da tarefa seria pior que nao projetar.** Duas ocorrencias reais da mesma
+    // serie viram DUAS series, cada uma com seu proprio conjunto de "datas que ja existem": a
+    // projecao da primeira nao enxerga a data real da segunda e desenha uma ocorrencia fantasma
+    // por cima de uma tarefa que existe de verdade. O usuario ve a mesma tarefa duas vezes no
+    // mesmo dia -- exatamente o sintoma "a tarefa que eu concluí voltou" que ja custou uma
+    // investigacao inteira neste projeto.
+    //
+    // O recuo e por titulo e alvo, que sao identicos entre ocorrencias da mesma serie.
+    fun serieDe(task: PopTask) = task.recurrenceSeriesId?.takeIf { it.isNotBlank() }
+        ?: "${task.title}|${task.assignment.kind}|${task.assignment.id.orEmpty()}"
+    val jaExistem = tasks.mapTo(mutableSetOf()) { "${serieDe(it)}:${it.dueDate}" }
+    val projetadas = mutableListOf<PopTask>()
+
+    tasks.filter { it.recurrenceRule.isNotBlank() && it.recurrenceRule != "Não repetir" }
+        .groupBy { serieDe(it) }
+        .forEach { (serie, daSerie) ->
+            // O modelo e a ocorrencia MAIS RECENTE da serie: e dela que o servidor partiria, e e
+            // ela que carrega a contagem de ocorrencias em dia.
+            val modelo = daSerie.maxByOrNull { it.dueDate } ?: return@forEach
+            var data = parseIsoDate(modelo.dueDate) ?: return@forEach
+            var ocorrencia = modelo.recurrenceOccurrence
+            var voltas = 0
+
+            while (voltas < LIMITE_DE_PROJECAO) {
+                data = advanceRecurrenceDate(modelo, data) ?: break
+                ocorrencia += 1
+                voltas += 1
+                if (data > ate) break
+
+                val dentroDoFim = when (modelo.recurrenceEndMode) {
+                    "Após" -> ocorrencia <= (modelo.recurrenceEndValue.trim().toIntOrNull() ?: 1)
+                    "Em uma data" ->
+                        parseIsoDate(modelo.recurrenceEndValue)?.let { data <= it } ?: true
+                    else -> true
+                }
+                if (!dentroDoFim) break
+
+                if (data < de) continue
+                val iso = data.toString()
+                if (iso in modelo.recurrenceExcludedDates) continue
+                if (!jaExistem.add("$serie:$iso")) continue
+
+                projetadas += modelo.copy(
+                    id = "$PREFIXO_PROJECAO$serie:$iso",
+                    serverId = null,
+                    dueDate = iso,
+                    completed = false,
+                    recurrenceOccurrence = ocorrencia,
+                    checklist = modelo.checklist.map { it.copy(done = false) },
+                )
+            }
+        }
+    return projetadas
+}
+
 /** Uma tarefa posicionada num horario do dia. Ver `expandirDia`. */
 private data class NaAgenda(val task: PopTask, val horario: String?)
 
@@ -2322,18 +2551,27 @@ private fun setoresDaTarefa(task: PopTask, company: CompanyWorkspace?): Set<Stri
     val setores = mutableSetOf<String>()
     if (task.assignment.kind == AssignmentKind.Sector) task.assignment.id?.let { setores += it }
 
+    // `activeMembers` e propriedade CALCULADA: cada acesso filtra a lista inteira de novo. Esta
+    // funcao roda uma vez por tarefa do espaco, entao ler tres vezes aqui dentro multiplicava o
+    // filtro por 3x o numero de tarefas -- num espaco de centenas de tarefas isso pesa. Uma vez so.
+    val pessoasReais = company.activeMembers
     val pessoas = mutableSetOf<CompanyMember>()
     when (task.assignment.kind) {
         AssignmentKind.Person ->
-            company.members.firstOrNull { it.id == task.assignment.id }?.let { pessoas += it }
+            pessoasReais.firstOrNull { it.id == task.assignment.id }?.let { pessoas += it }
         AssignmentKind.Group ->
             company.groups.firstOrNull { it.id == task.assignment.id }
                 ?.memberIds.orEmpty()
-                .forEach { id -> company.members.firstOrNull { it.id == id }?.let { pessoas += it } }
+                .forEach { id ->
+                    pessoasReais.firstOrNull { it.id == id }?.let { pessoas += it }
+                }
         AssignmentKind.Sector, AssignmentKind.None -> Unit
     }
     responsaveisDaTarefa(task).forEach { nome ->
-        company.members.firstOrNull { it.name.equals(nome, ignoreCase = true) }?.let { pessoas += it }
+        // Aqui o casamento e por NOME, e e justamente onde o convite pendente mais engana: ele tem
+        // o mesmo nome da pessoa de verdade e um `sectorId` proprio, entao entraria arrastando um
+        // setor para o filtro do calendario.
+        pessoasReais.firstOrNull { it.name.equals(nome, ignoreCase = true) }?.let { pessoas += it }
     }
     pessoas.forEach { pessoa -> pessoa.sectorId?.takeIf { it.isNotBlank() }?.let { setores += it } }
 
@@ -2397,10 +2635,27 @@ private fun CalendarScreen(store: PopStore) {
                 (setorFiltro == null || setorFiltro in setoresDaTarefa(task, company))
         }
     }
-    val dated = remember(filtradas) {
-        filtradas.mapNotNull { task -> parseIsoDate(task.dueDate)?.let { date -> date to task } }
+    // As ocorrencias que o servidor ainda nao materializou, ate o fim do mes que esta na tela.
+    //
+    // Entram AQUI, junto das reais, e nao so na grade: a grade e a agenda leem a mesma fonte de
+    // proposito (ver o comentario acima), e acender um ponto que a agenda nao entrega e justamente
+    // o defeito que aquela decisao evita.
+    //
+    // A chave inclui o mes visivel, entao navegar para frente recalcula e a serie continua
+    // aparecendo em vez de acabar na virada do mes.
+    val fimDoMesVisivel = remember(visibleYear, visibleMonth) {
+        LocalDate(visibleYear, visibleMonth, daysInMonth(visibleYear, visibleMonth))
     }
-    val undatedCount = filtradas.size - dated.size
+    val comProjecao = remember(filtradas, today, fimDoMesVisivel) {
+        filtradas + projetarOcorrencias(filtradas, today, fimDoMesVisivel)
+    }
+    val dated = remember(comProjecao) {
+        comProjecao.mapNotNull { task -> parseIsoDate(task.dueDate)?.let { date -> date to task } }
+    }
+    // Conta sobre `filtradas`, e nao `dated.size`. Desde que a projecao entrou, `dated` tem MAIS
+    // linhas que `filtradas`, e a subtracao antiga devolvia numero negativo -- o rodape passaria a
+    // anunciar "-8 tarefas sem data".
+    val undatedCount = filtradas.count { parseIsoDate(it.dueDate) == null }
     val tasksByDate = remember(dated) { dated.groupBy({ it.first }, { it.second }) }
 
     // Tudo que ficou para tras entra aqui, concluido ou nao. Filtrar so as pendentes deixaria a
@@ -2444,7 +2699,11 @@ private fun CalendarScreen(store: PopStore) {
                         add(CalendarRow.Now(agora))
                         faltaOAgora = false
                     }
-                    add(CalendarRow.Entry(item.task, item.horario, jaVista.add(item.task.id)))
+                    // Ocorrencia projetada nao tem linha no servidor: concluir ou excluir nao teria
+                    // onde pegar, e o `toggleTask` sairia calado sem fazer nada. Mesma regra da
+                    // linha repetida -- melhor nao oferecer a acao do que oferece-la mentindo.
+                    val comAcoes = jaVista.add(item.task.id) && !ehProjecao(item.task)
+                    add(CalendarRow.Entry(item.task, item.horario, comAcoes))
                 }
                 // Tudo de hoje ja passou: a regua vai para o fim, em vez de nao aparecer.
                 if (faltaOAgora) add(CalendarRow.Now(agora))
@@ -2509,7 +2768,12 @@ private fun CalendarScreen(store: PopStore) {
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        "${dated.count { !it.second.completed }} em aberto",
+                        // Conta so o que EXISTE, nunca a projecao. Medido na previa: com as
+                        // ocorrencias projetadas entrando na conta, cinco tarefas viraram "34 em
+                        // aberto", e numa empresa com meia duzia de series diarias passaria de
+                        // noventa. O numero descreveria o calendario, nao o trabalho -- e leria
+                        // como uma empresa afogada.
+                        "${dated.count { !it.second.completed && !ehProjecao(it.second) }} em aberto",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         modifier = Modifier.weight(1f).padding(bottom = 4.dp),
@@ -2978,7 +3242,7 @@ private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
                     MoreItem(
                         Icons.Rounded.Person,
                         "Equipe",
-                        "${company!!.members.size} pessoas cadastradas",
+                        "${company!!.activeMembers.size} pessoas cadastradas",
                     ) { onPage(MorePage.Team) }
                 }
             }
@@ -3127,7 +3391,9 @@ private fun TeamScreen(store: PopStore) {
     // Convidar alguem exige um setor: addMember() usa o primeiro setor da empresa como destino.
     val hasSector = company?.sectors?.isNotEmpty() == true
     val canAdd = store.permissions.canManageEmployees && hasSector
-    val members = company?.members.orEmpty()
+    // So gente de verdade. Os convites pendentes chegam nesta mesma lista e tem o MESMO nome das
+    // pessoas que ja aceitaram, entao sem o filtro a Equipe mostra cada pessoa duas vezes.
+    val members = company?.activeMembers.orEmpty()
     EntityListScreen(
         header = if (members.size == 1) "1 pessoa cadastrada" else "${members.size} pessoas cadastradas",
         emptyTitle = "Nenhum colaborador",
@@ -3159,8 +3425,14 @@ private fun SectorsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     var showEditor by remember { mutableStateOf(false) }
     val canAdd = store.permissions.canManageDepartments
-    val sectors = company?.sectors.orEmpty()
-    val members = company?.members.orEmpty()
+    // Ordem alfabetica, e nao a de criacao. O aplicativo ja se contradizia: a aba Tarefas agrupa
+    // por nome e a barra de filtro do calendario ordena, mas esta tela saia "Administrativo, Salao,
+    // Cozinha, Balcao, Estoque" -- a ordem em que foram cadastrados, que nao significa nada para
+    // quem procura um setor.
+    val sectors = company?.sectors.orEmpty().sortedBy { it.name.lowercase() }
+    // O contador de cada setor sai daqui. Com `members` cru ele dobrava: convite pendente carrega
+    // `sectorId` e tem o mesmo nome de quem ja aceitou.
+    val members = company?.activeMembers.orEmpty()
     EntityListScreen(
         header = "Estrutura por setores",
         emptyTitle = "Nenhum setor",
@@ -3194,16 +3466,24 @@ private fun GroupsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     var showEditor by remember { mutableStateOf(false) }
     val canAdd = store.permissions.canManageGroups
+    // Ids de quem e pessoa de verdade, em conjunto, montado UMA vez.
+    val idsReais = company?.activeMembers.orEmpty().mapTo(mutableSetOf()) { it.id }
     EntityListScreen(
         header = "Grupos de trabalho",
         emptyTitle = "Nenhum grupo",
         emptyDetail = if (canAdd) null else "Somente quem administra a empresa pode criar grupos.",
-        items = company?.groups.orEmpty().map { group ->
+        items = company?.groups.orEmpty().sortedBy { it.name.lowercase() }.map { group ->
+            // Contar `memberIds` cru repetiria aqui o erro que o `pending` acabou de resolver nos
+            // setores: convite pendente pode estar na lista de membros do grupo e inflaria o
+            // numero. Conta-se so quem casa com uma pessoa de verdade.
+            // Fora do `count`: `activeMembers` filtra a lista toda a cada leitura, e ali dentro
+            // seria uma vez por id de membro, de cada grupo.
+            val pessoas = group.memberIds.count { id -> idsReais.contains(id) }
             EntityRow(
                 title = group.name,
                 subtitle = group.description,
                 icon = Icons.Rounded.Groups,
-                badge = if (group.memberIds.size == 1) "1 pessoa" else "${group.memberIds.size} pessoas",
+                badge = if (pessoas == 1) "1 pessoa" else "$pessoas pessoas",
             )
         },
         onAdd = if (canAdd) ({ showEditor = true }) else null,
@@ -3436,9 +3716,11 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     val company = store.selectedCompany.takeIf { store.state.workspace == WorkspaceKind.Company }
     val assignmentOptions = when (assignmentKind) {
         AssignmentKind.None -> emptyList()
-        AssignmentKind.Person -> company?.members.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }
-        AssignmentKind.Sector -> company?.sectors.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }
-        AssignmentKind.Group -> company?.groups.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }
+        AssignmentKind.Person -> company?.activeMembers.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }
+        AssignmentKind.Sector -> company?.sectors.orEmpty().sortedBy { it.name.lowercase() }
+            .map { AssignmentTarget(assignmentKind, it.id, it.name) }
+        AssignmentKind.Group -> company?.groups.orEmpty().sortedBy { it.name.lowercase() }
+            .map { AssignmentTarget(assignmentKind, it.id, it.name) }
     }
     // Quem pode responder, DENTRO do que ja foi escolhido.
     //
@@ -3449,11 +3731,11 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     val candidatos = when {
         assignment.id == null -> emptyList()
         assignmentKind == AssignmentKind.Sector ->
-            company?.members.orEmpty().filter { it.sectorId == assignment.id }
+            company?.activeMembers.orEmpty().filter { it.sectorId == assignment.id }
         assignmentKind == AssignmentKind.Group ->
             company?.groups.orEmpty().firstOrNull { it.id == assignment.id }
                 ?.memberIds.orEmpty()
-                .mapNotNull { id -> company?.members.orEmpty().firstOrNull { it.id == id } }
+                .mapNotNull { id -> company?.activeMembers.orEmpty().firstOrNull { it.id == id } }
         else -> emptyList()
     }
 

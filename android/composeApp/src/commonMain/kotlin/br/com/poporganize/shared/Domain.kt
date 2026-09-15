@@ -69,6 +69,8 @@ data class CompanyMember(
     val email: String,
     val role: String = "Colaborador",
     val sectorId: String? = null,
+    /** Ver `ApiEmployee.pending`. Quem consome isto e `activeMembers`, logo abaixo. */
+    val pending: Boolean = false,
 )
 
 @Serializable
@@ -124,6 +126,20 @@ data class CompanyWorkspace(
     val groups: List<CompanyGroup> = emptyList(),
     val permissions: WorkspacePermissions = WorkspacePermissions(),
 )
+
+/**
+ * As pessoas de verdade do espaco -- `members` sem os convites pendentes.
+ *
+ * **Usar SEMPRE isto, e nunca `members` direto, onde a pergunta for "quem sao as pessoas".** Convite
+ * pendente nao pode ser contado, listado nem escolhido como responsavel: ele nao tem conta, e o
+ * servidor nao resolveria o nome numa gravacao.
+ *
+ * O `members` cru fica acessivel de proposito, para o dia em que a tela Equipe ganhar uma secao de
+ * convites pendentes como a do painel. Hoje o aplicativo nao sabe cancelar convite (so o Android
+ * sabe), entao mostrar seria oferecer o que nao se pode desfazer.
+ */
+val CompanyWorkspace.activeMembers: List<CompanyMember>
+    get() = members.filter { !it.pending }
 
 @Serializable
 data class PopTask(
@@ -309,6 +325,21 @@ data class ApiEmployee(
     val email: String,
     val role: String = "Colaborador",
     val sectorId: String = "",
+    /**
+     * Convite pendente, e nao pessoa de verdade. O servidor manda os dois na MESMA lista
+     * (`mobile-api.server.ts`, o `...workspace.invitations` logo depois dos funcionarios), marcando
+     * o convite com `true`.
+     *
+     * Ate aqui o campo nao existia e o `ignoreUnknownKeys` o descartava calado. Medido em aparelho
+     * num espaco com 7 pessoas e 6 convites pendentes: a tela Equipe anunciava "13 pessoas
+     * cadastradas" e cada setor contava o DOBRO -- porque um convite costuma ter o mesmo nome da
+     * pessoa que depois aceita, entao a duplicata nao parece duplicata.
+     *
+     * Default `false`, nunca `true`: contra servidor que nao mande o campo, todo mundo continua
+     * contando como pessoa -- que e o comportamento de hoje. `true` por default sumiria com a
+     * equipe inteira.
+     */
+    val pending: Boolean = false,
 )
 
 @Serializable

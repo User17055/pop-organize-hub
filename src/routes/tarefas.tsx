@@ -13,6 +13,7 @@ import { ErrorState, LoadingState } from "@/components/data-state";
 import { PENDING_TASK_KEY } from "@/components/notifications-menu";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
 import type { PermissionKey, TargetType, Task, TaskStatus, WorkspaceData } from "@/lib/domain";
+import { unassignedResponsibleLabel } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import {
@@ -1415,8 +1416,7 @@ function TasksPage() {
                         >
                           {showResponsible && (
                             <span className="truncate">
-                              {emp?.name ??
-                                (task.target.type === "department" ? "Setor inteiro" : "")}
+                              {emp?.name ?? unassignedResponsibleLabel(task.target.type)}
                             </span>
                           )}
                           <span>

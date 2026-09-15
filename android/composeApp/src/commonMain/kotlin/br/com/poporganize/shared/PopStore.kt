@@ -94,7 +94,10 @@ class PopStore(private val platform: PopPlatformServices) {
             permissions.isAdmin?.let { return it }
             if (permissions.isOwner) return true
             val email = state.currentUser?.email ?: return false
-            return selectedCompany?.members
+            // `activeMembers`, e nao `members`: um CONVITE pendente com cargo administrativo nao
+            // pode conceder poder a ninguem -- ele nem tem conta ainda. Este e um caminho de
+            // permissao, entao a lista tem de ser so de gente de verdade.
+            return selectedCompany?.activeMembers
                 ?.firstOrNull { it.email.equals(email, ignoreCase = true) }
                 ?.role
                 ?.contains("admin", ignoreCase = true) == true
@@ -567,6 +570,7 @@ class PopStore(private val platform: PopPlatformServices) {
                         email = employee.email,
                         role = employee.role,
                         sectorId = employee.sectorId.ifBlank { null },
+                        pending = employee.pending,
                     )
                 },
                 sectors = workspace.sectors,

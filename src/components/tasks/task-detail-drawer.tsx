@@ -33,7 +33,7 @@ import type {
   Task,
   TaskStatus,
 } from "@/lib/domain";
-import { priorityLabels } from "@/lib/domain";
+import { priorityLabels, unassignedResponsibleLabel } from "@/lib/domain";
 import type { TaskPermissions } from "@/lib/permissions";
 import { EmployeeAvatar } from "./employee-avatar";
 import { GlassDatePicker } from "./glass-date-picker";
@@ -571,7 +571,7 @@ export function TaskDetailDrawer({
                 ) : (
                   <div className="mt-0.5 truncate text-xs font-semibold text-foreground">
                     {selectedResponsibleNames.join(", ") ||
-                      (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
+                      unassignedResponsibleLabel(task.target.type)}
                   </div>
                 )}
               </div>

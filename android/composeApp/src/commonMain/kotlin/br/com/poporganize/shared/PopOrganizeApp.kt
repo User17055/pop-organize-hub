@@ -2400,7 +2400,19 @@ private fun projetarOcorrencias(
     de: LocalDate,
     ate: LocalDate,
 ): List<PopTask> {
-    fun serieDe(task: PopTask) = task.recurrenceSeriesId?.takeIf { it.isNotBlank() } ?: task.id
+    // A chave da serie. `recurrenceSeriesId` e o caminho certo -- e o `recurrenceParentId ?: id` do
+    // servidor --, mas ele pode vir nulo contra servidor anterior ao build 14.
+    //
+    // **Cair para o `id` da tarefa seria pior que nao projetar.** Duas ocorrencias reais da mesma
+    // serie viram DUAS series, cada uma com seu proprio conjunto de "datas que ja existem": a
+    // projecao da primeira nao enxerga a data real da segunda e desenha uma ocorrencia fantasma
+    // por cima de uma tarefa que existe de verdade. O usuario ve a mesma tarefa duas vezes no
+    // mesmo dia -- exatamente o sintoma "a tarefa que eu concluí voltou" que ja custou uma
+    // investigacao inteira neste projeto.
+    //
+    // O recuo e por titulo e alvo, que sao identicos entre ocorrencias da mesma serie.
+    fun serieDe(task: PopTask) = task.recurrenceSeriesId?.takeIf { it.isNotBlank() }
+        ?: "${task.title}|${task.assignment.kind}|${task.assignment.id.orEmpty()}"
     val jaExistem = tasks.mapTo(mutableSetOf()) { "${serieDe(it)}:${it.dueDate}" }
     val projetadas = mutableListOf<PopTask>()
 
@@ -2539,15 +2551,19 @@ private fun setoresDaTarefa(task: PopTask, company: CompanyWorkspace?): Set<Stri
     val setores = mutableSetOf<String>()
     if (task.assignment.kind == AssignmentKind.Sector) task.assignment.id?.let { setores += it }
 
+    // `activeMembers` e propriedade CALCULADA: cada acesso filtra a lista inteira de novo. Esta
+    // funcao roda uma vez por tarefa do espaco, entao ler tres vezes aqui dentro multiplicava o
+    // filtro por 3x o numero de tarefas -- num espaco de centenas de tarefas isso pesa. Uma vez so.
+    val pessoasReais = company.activeMembers
     val pessoas = mutableSetOf<CompanyMember>()
     when (task.assignment.kind) {
         AssignmentKind.Person ->
-            company.activeMembers.firstOrNull { it.id == task.assignment.id }?.let { pessoas += it }
+            pessoasReais.firstOrNull { it.id == task.assignment.id }?.let { pessoas += it }
         AssignmentKind.Group ->
             company.groups.firstOrNull { it.id == task.assignment.id }
                 ?.memberIds.orEmpty()
                 .forEach { id ->
-                    company.activeMembers.firstOrNull { it.id == id }?.let { pessoas += it }
+                    pessoasReais.firstOrNull { it.id == id }?.let { pessoas += it }
                 }
         AssignmentKind.Sector, AssignmentKind.None -> Unit
     }
@@ -2555,8 +2571,7 @@ private fun setoresDaTarefa(task: PopTask, company: CompanyWorkspace?): Set<Stri
         // Aqui o casamento e por NOME, e e justamente onde o convite pendente mais engana: ele tem
         // o mesmo nome da pessoa de verdade e um `sectorId` proprio, entao entraria arrastando um
         // setor para o filtro do calendario.
-        company.activeMembers.firstOrNull { it.name.equals(nome, ignoreCase = true) }
-            ?.let { pessoas += it }
+        pessoasReais.firstOrNull { it.name.equals(nome, ignoreCase = true) }?.let { pessoas += it }
     }
     pessoas.forEach { pessoa -> pessoa.sectorId?.takeIf { it.isNotBlank() }?.let { setores += it } }
 
@@ -3451,6 +3466,8 @@ private fun GroupsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     var showEditor by remember { mutableStateOf(false) }
     val canAdd = store.permissions.canManageGroups
+    // Ids de quem e pessoa de verdade, em conjunto, montado UMA vez.
+    val idsReais = company?.activeMembers.orEmpty().mapTo(mutableSetOf()) { it.id }
     EntityListScreen(
         header = "Grupos de trabalho",
         emptyTitle = "Nenhum grupo",
@@ -3459,9 +3476,9 @@ private fun GroupsScreen(store: PopStore) {
             // Contar `memberIds` cru repetiria aqui o erro que o `pending` acabou de resolver nos
             // setores: convite pendente pode estar na lista de membros do grupo e inflaria o
             // numero. Conta-se so quem casa com uma pessoa de verdade.
-            val pessoas = group.memberIds.count { id ->
-                company?.activeMembers.orEmpty().any { it.id == id }
-            }
+            // Fora do `count`: `activeMembers` filtra a lista toda a cada leitura, e ali dentro
+            // seria uma vez por id de membro, de cada grupo.
+            val pessoas = group.memberIds.count { id -> idsReais.contains(id) }
             EntityRow(
                 title = group.name,
                 subtitle = group.description,

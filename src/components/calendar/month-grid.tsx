@@ -80,7 +80,14 @@ export function MonthGrid({
           const inMonth = isSameMonth(day, month);
           const today = isToday(day);
           const selected = selectedDay ? isSameDay(day, selectedDay) : false;
-          const visibleTasks = dayTasks.slice(0, 3);
+          // Três pastilhas MAIS a linha "+N mais" não cabem na altura da célula, e o contêiner é
+          // `overflow-hidden`: o que sobrava escondido era justamente o aviso de que havia mais.
+          // O dia aparentava ter exatamente três tarefas, e um mês inteiro de série diária lia como
+          // um mês vazio.
+          //
+          // Quando há transbordo, a célula cede UMA pastilha para caber o aviso. Sem transbordo,
+          // as três continuam.
+          const visibleTasks = dayTasks.slice(0, dayTasks.length > 3 ? 2 : 3);
           const mobileVisibleTasks = dayTasks.slice(0, 4);
           const overflow = dayTasks.length - visibleTasks.length;
 

@@ -1798,25 +1798,66 @@ private fun TaskRow(
             // abaixo, e alinhados eles podem ser lidos de relance como um dia. Deixando a largura
             // ao texto, "9:00" e "14:30" sairiam desencontrados e a coluna deixaria de ser regua.
             if (horario != null) {
-                Text(
-                    // Sem hora marcada mostra um travessao, nao vazio: o vazio leria como falha de
-                    // desenho, o travessao diz que a tarefa e do dia mas nao tem hora.
-                    horario.ifBlank { "—" },
-                    color = if (task.completed) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    // Sem isto, escala de fonte grande (Dynamic Type) quebraria "14:30" em duas
-                    // linhas dentro dos 40dp, esticando o cartao e destruindo justamente o
-                    // alinhamento de coluna que a calha existe para criar. A previa nao pega isso:
-                    // no desktop a escala e sempre 1.0.
-                    maxLines = 1,
-                    softWrap = false,
+                // A calha guarda a hora E o selo de recorrencia, um sob o outro.
+                //
+                // O selo ficava numa linha propria abaixo do titulo, e na agenda aquela linha nao
+                // tinha mais nada: o rotulo de data e omitido porque o cabecalho do dia e a calha
+                // ja dizem quando e. Medido na previa, a 393dp: o cartao tinha ~101dp de altura e
+                // ~25dp iam para uma linha que mostrava um glifo de 9dp. A calha, ao lado, tinha
+                // folga vertical sobrando.
+                //
+                // **Por que nao foi por largura.** A tentativa obvia era caber o titulo em uma
+                // linha so. Medido: "Assar a fornada da manhã" pede ~206dp e ha 174dp. Recuperar
+                // 32dp exigiria encolher os dois alvos de toque abaixo dos 44dp que a Apple pede
+                // E o corpo do texto. Altura sai de graca; largura sairia caro.
+                Column(
                     modifier = Modifier.width(40.dp),
-                )
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        // Sem hora marcada mostra um travessao, nao vazio: o vazio leria como falha
+                        // de desenho, o travessao diz que a tarefa e do dia mas nao tem hora.
+                        horario.ifBlank { "—" },
+                        color = if (task.completed) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        // Sem isto, escala de fonte grande (Dynamic Type) quebraria "14:30" em duas
+                        // linhas dentro dos 40dp, esticando o cartao e destruindo justamente o
+                        // alinhamento de coluna que a calha existe para criar. A previa nao pega
+                        // isso: no desktop a escala e sempre 1.0.
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                    if (task.recurrence != RecurrenceKind.None) {
+                        Spacer(Modifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Rounded.Repeat,
+                                task.recurrence.label,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(11.dp),
+                            )
+                            // Qual ocorrencia da serie. Ver a nota longa no rodape sobre por que
+                            // este numero existe: sem ele duas linhas com o MESMO titulo leem como
+                            // tarefa duplicada.
+                            if (task.recurrenceOccurrence > 1) {
+                                Spacer(Modifier.width(2.dp))
+                                Text(
+                                    "${task.recurrenceOccurrence}ª",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
+                        }
+                    }
+                }
             }
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1851,12 +1892,18 @@ private fun TaskRow(
                         maxLines = 2,
                     )
                 }
-                Spacer(Modifier.height(5.dp))
-                val dateTint = if (isOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Na agenda o cabecalho do dia ja diz a data e a calha ja diz a hora: repetir
-                    // "Hoje • 14:30" aqui gastava justamente a largura que a calha passou a usar.
-                    if (horario == null) {
+                // O rodape so existe FORA da agenda.
+                //
+                // Na agenda o cabecalho do dia ja diz a data, a calha diz a hora, e o selo de
+                // recorrencia subiu para a calha -- entao nao sobrava nada para mostrar aqui. A
+                // Row continuava sendo criada mesmo assim, e uma linha vazia mais o espacador
+                // custavam ~25dp dos ~101dp do cartao. Com ela fora, cabe um cartao a mais na
+                // mesma dobra.
+                if (horario == null) {
+                    Spacer(Modifier.height(5.dp))
+                    val dateTint =
+                        if (isOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             // Era a data ISO crua: "2026-08-20 • 09:00". Ninguem le assim.
                             taskDateLabel(task.dueDate, task.dueTime, todayDate()),
@@ -1864,13 +1911,10 @@ private fun TaskRow(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
-                    }
                     // Antes so os detalhes contavam que a tarefa se repete, e era preciso abrir
                     // uma por uma para descobrir.
                     if (task.recurrence != RecurrenceKind.None) {
-                        // O espaco separava o icone do rotulo de data. Na agenda nao ha rotulo de
-                        // data, entao ele viraria recuo perdido no comeco da linha.
-                        if (horario == null) Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(6.dp))
                         Icon(
                             Icons.Rounded.Repeat,
                             task.recurrence.label,
@@ -1899,6 +1943,7 @@ private fun TaskRow(
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
+                    }
                     }
                 }
             }

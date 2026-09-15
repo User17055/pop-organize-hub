@@ -2250,6 +2250,157 @@ private val taskListOrder = compareBy<PopTask>(
     { -it.priority.ordinal },
 )
 
+/**
+ * O codigo de dia da semana que atravessa o fio. Identico nos dois lados, conferido literalmente:
+ * `dayTokens` em `mobile-api.server.ts` na escrita e o `dayMap` na leitura, e o mesmo mapa no app
+ * Android. 1 = segunda ... 7 = domingo, que e o que `isoDayNumber` devolve.
+ *
+ * A semantica do `recurrenceDetail` MUDA conforme a regra, e trocar as duas inverte o resultado:
+ * em "Diária" ele lista os dias a PULAR, em "Semanal" os dias a INCLUIR, e em "Mensal" e o dia do
+ * mes escrito como numero.
+ */
+private val codigoDoDia = mapOf(
+    "S" to 1, "T" to 2, "Q" to 3, "Q2" to 4, "S2" to 5, "Sá" to 6, "D" to 7,
+)
+
+/**
+ * A proxima data de uma serie, a partir de uma data qualquer dela.
+ *
+ * Portado do app Android (`advanceRecurrenceDate`), que e codigo ja provado em producao, com uma
+ * traducao obrigatoria: la e `java.time` (`plusDays`, `plusMonths`, `withDayOfMonth`,
+ * `lengthOfMonth`), que nao existe no commonMain. Aqui tudo sai de `DatePeriod`, do construtor de
+ * `LocalDate` e dos ajudantes do `PopDates.kt` -- as mesmas APIs que ja compilaram verdes, pela
+ * regra de nao apostar em binding de Kotlin/Native sem gastar um build inteiro para descobrir.
+ *
+ * Devolve nulo para regra que nao se sabe avancar, inclusive "Personalizada": o dominio nao a
+ * representa, e chutar uma data seria pior que nao desenhar ponto nenhum.
+ */
+private fun advanceRecurrenceDate(task: PopTask, from: LocalDate): LocalDate? {
+    val intervalo = task.recurrenceInterval.coerceAtLeast(1)
+    val dias = task.recurrenceDetail.split(",").mapNotNull { codigoDoDia[it.trim()] }
+    return when (task.recurrenceRule) {
+        "Diária" -> {
+            val excluidos = dias.toSet()
+            var proxima = from.plus(DatePeriod(days = intervalo))
+            // Teto de 7: se a pessoa excluir os sete dias da semana, sem ele o laco nao termina.
+            var tentativas = 0
+            while (isoDayNumber(proxima) in excluidos && tentativas < 7) {
+                proxima = proxima.plus(DatePeriod(days = 1))
+                tentativas += 1
+            }
+            if (isoDayNumber(proxima) in excluidos) null else proxima
+        }
+        "Semanal" -> {
+            val escolhidos = dias.sorted().ifEmpty { listOf(isoDayNumber(from)) }
+            val diaAtual = isoDayNumber(from)
+            val inicioDaSemana = from.plus(DatePeriod(days = -(diaAtual - 1)))
+            val aindaNestaSemana = escolhidos.firstOrNull { it > diaAtual }
+            if (aindaNestaSemana != null) {
+                inicioDaSemana.plus(DatePeriod(days = aindaNestaSemana - 1))
+            } else {
+                inicioDaSemana
+                    .plus(DatePeriod(days = 7 * intervalo))
+                    .plus(DatePeriod(days = escolhidos.first() - 1))
+            }
+        }
+        "Mensal" -> {
+            val alvo = from.plus(DatePeriod(months = intervalo))
+            // Dia 31 em fevereiro nao existe. O `plus` ja acomoda o mes, e o `coerceIn` acomoda o
+            // dia pedido: uma serie do dia 31 cai no dia 28 ou 29 e volta ao 31 no mes seguinte.
+            val ultimoDia = daysInMonth(alvo.year, alvo.monthNumber)
+            val dia = task.recurrenceDetail.trim().toIntOrNull()?.coerceIn(1, ultimoDia)
+                ?: from.dayOfMonth.coerceAtMost(ultimoDia)
+            LocalDate(alvo.year, alvo.monthNumber, dia)
+        }
+        "Anual" -> from.plus(DatePeriod(years = intervalo))
+        else -> null
+    }
+}
+
+/** Prefixo do id de uma ocorrencia que so existe na tela. Ver `projetarOcorrencias`. */
+private const val PREFIXO_PROJECAO = "proj:"
+
+/** Teto de voltas por serie, para que dado estranho nao trave a interface. */
+private const val LIMITE_DE_PROJECAO = 400
+
+internal fun ehProjecao(task: PopTask): Boolean = task.id.startsWith(PREFIXO_PROJECAO)
+
+/**
+ * As ocorrencias futuras de cada serie, ate `ate`, que o servidor ainda nao materializou.
+ *
+ * **Por que isto existe.** O servidor cria a linha de uma ocorrencia recorrente dia a dia, quando
+ * chega a data. Ate aqui o calendario so desenhava o que ja era registro, entao um mes inteiro de
+ * tarefa diaria aparecia com um punhado de pontos: o dia de hoje aceso e os proximos vazios. Quem
+ * tem tarefa todo dia via um calendario que dizia que nao tinha nada para fazer.
+ *
+ * **Por que a projecao entra ANTES do agrupamento por data, e nao so na grade.** A grade e a agenda
+ * leem a mesma fonte de proposito -- ha um comentario na tela dizendo isso. Projetar so na grade
+ * acenderia um ponto que o toque nao cumpre, que e exatamente o defeito que aquela decisao evita.
+ *
+ * **O que NAO se projeta:**
+ * - data que a pessoa apagou (`recurrenceExcludedDates`), senao a tela ressuscitaria justamente o
+ *   que ela mandou sumir;
+ * - data que ja existe como registro, para a ocorrencia real nao aparecer em dobro;
+ * - alem do fim da serie, nos dois modos que o contrato tem ("Após" N vezes e "Em uma data");
+ * - **nada ANTES de `de`**, que a tela passa como hoje. O passado e o que o servidor registrou, e
+ *   so ele sabe o que de fato aconteceu. Projetar para tras inventaria tarefas atrasadas que
+ *   ninguem pode concluir, porque nao existe linha do outro lado para marcar -- engordaria o
+ *   contador de "Atrasadas" com fantasmas.
+ *
+ * A copia sai com `serverId` nulo, sem checklist marcada e com `completed = false`: ela nao e uma
+ * linha do servidor, e mostrar o progresso da ocorrencia de hoje numa data futura seria mentira.
+ */
+private fun projetarOcorrencias(
+    tasks: List<PopTask>,
+    de: LocalDate,
+    ate: LocalDate,
+): List<PopTask> {
+    fun serieDe(task: PopTask) = task.recurrenceSeriesId?.takeIf { it.isNotBlank() } ?: task.id
+    val jaExistem = tasks.mapTo(mutableSetOf()) { "${serieDe(it)}:${it.dueDate}" }
+    val projetadas = mutableListOf<PopTask>()
+
+    tasks.filter { it.recurrenceRule.isNotBlank() && it.recurrenceRule != "Não repetir" }
+        .groupBy { serieDe(it) }
+        .forEach { (serie, daSerie) ->
+            // O modelo e a ocorrencia MAIS RECENTE da serie: e dela que o servidor partiria, e e
+            // ela que carrega a contagem de ocorrencias em dia.
+            val modelo = daSerie.maxByOrNull { it.dueDate } ?: return@forEach
+            var data = parseIsoDate(modelo.dueDate) ?: return@forEach
+            var ocorrencia = modelo.recurrenceOccurrence
+            var voltas = 0
+
+            while (voltas < LIMITE_DE_PROJECAO) {
+                data = advanceRecurrenceDate(modelo, data) ?: break
+                ocorrencia += 1
+                voltas += 1
+                if (data > ate) break
+
+                val dentroDoFim = when (modelo.recurrenceEndMode) {
+                    "Após" -> ocorrencia <= (modelo.recurrenceEndValue.trim().toIntOrNull() ?: 1)
+                    "Em uma data" ->
+                        parseIsoDate(modelo.recurrenceEndValue)?.let { data <= it } ?: true
+                    else -> true
+                }
+                if (!dentroDoFim) break
+
+                if (data < de) continue
+                val iso = data.toString()
+                if (iso in modelo.recurrenceExcludedDates) continue
+                if (!jaExistem.add("$serie:$iso")) continue
+
+                projetadas += modelo.copy(
+                    id = "$PREFIXO_PROJECAO$serie:$iso",
+                    serverId = null,
+                    dueDate = iso,
+                    completed = false,
+                    recurrenceOccurrence = ocorrencia,
+                    checklist = modelo.checklist.map { it.copy(done = false) },
+                )
+            }
+        }
+    return projetadas
+}
+
 /** Uma tarefa posicionada num horario do dia. Ver `expandirDia`. */
 private data class NaAgenda(val task: PopTask, val horario: String?)
 
@@ -2424,10 +2575,27 @@ private fun CalendarScreen(store: PopStore) {
                 (setorFiltro == null || setorFiltro in setoresDaTarefa(task, company))
         }
     }
-    val dated = remember(filtradas) {
-        filtradas.mapNotNull { task -> parseIsoDate(task.dueDate)?.let { date -> date to task } }
+    // As ocorrencias que o servidor ainda nao materializou, ate o fim do mes que esta na tela.
+    //
+    // Entram AQUI, junto das reais, e nao so na grade: a grade e a agenda leem a mesma fonte de
+    // proposito (ver o comentario acima), e acender um ponto que a agenda nao entrega e justamente
+    // o defeito que aquela decisao evita.
+    //
+    // A chave inclui o mes visivel, entao navegar para frente recalcula e a serie continua
+    // aparecendo em vez de acabar na virada do mes.
+    val fimDoMesVisivel = remember(visibleYear, visibleMonth) {
+        LocalDate(visibleYear, visibleMonth, daysInMonth(visibleYear, visibleMonth))
     }
-    val undatedCount = filtradas.size - dated.size
+    val comProjecao = remember(filtradas, today, fimDoMesVisivel) {
+        filtradas + projetarOcorrencias(filtradas, today, fimDoMesVisivel)
+    }
+    val dated = remember(comProjecao) {
+        comProjecao.mapNotNull { task -> parseIsoDate(task.dueDate)?.let { date -> date to task } }
+    }
+    // Conta sobre `filtradas`, e nao `dated.size`. Desde que a projecao entrou, `dated` tem MAIS
+    // linhas que `filtradas`, e a subtracao antiga devolvia numero negativo -- o rodape passaria a
+    // anunciar "-8 tarefas sem data".
+    val undatedCount = filtradas.count { parseIsoDate(it.dueDate) == null }
     val tasksByDate = remember(dated) { dated.groupBy({ it.first }, { it.second }) }
 
     // Tudo que ficou para tras entra aqui, concluido ou nao. Filtrar so as pendentes deixaria a
@@ -2471,7 +2639,11 @@ private fun CalendarScreen(store: PopStore) {
                         add(CalendarRow.Now(agora))
                         faltaOAgora = false
                     }
-                    add(CalendarRow.Entry(item.task, item.horario, jaVista.add(item.task.id)))
+                    // Ocorrencia projetada nao tem linha no servidor: concluir ou excluir nao teria
+                    // onde pegar, e o `toggleTask` sairia calado sem fazer nada. Mesma regra da
+                    // linha repetida -- melhor nao oferecer a acao do que oferece-la mentindo.
+                    val comAcoes = jaVista.add(item.task.id) && !ehProjecao(item.task)
+                    add(CalendarRow.Entry(item.task, item.horario, comAcoes))
                 }
                 // Tudo de hoje ja passou: a regua vai para o fim, em vez de nao aparecer.
                 if (faltaOAgora) add(CalendarRow.Now(agora))
@@ -2536,7 +2708,12 @@ private fun CalendarScreen(store: PopStore) {
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        "${dated.count { !it.second.completed }} em aberto",
+                        // Conta so o que EXISTE, nunca a projecao. Medido na previa: com as
+                        // ocorrencias projetadas entrando na conta, cinco tarefas viraram "34 em
+                        // aberto", e numa empresa com meia duzia de series diarias passaria de
+                        // noventa. O numero descreveria o calendario, nao o trabalho -- e leria
+                        // como uma empresa afogada.
+                        "${dated.count { !it.second.completed && !ehProjecao(it.second) }} em aberto",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         modifier = Modifier.weight(1f).padding(bottom = 4.dp),

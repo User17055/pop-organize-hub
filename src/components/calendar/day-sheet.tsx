@@ -11,6 +11,7 @@ import {
 import { PriorityBadge, StatusBadge } from "@/components/app-shell";
 import { EmployeeAvatar } from "@/components/tasks/employee-avatar";
 import type { Department, Employee, Group, Task } from "@/lib/domain";
+import { unassignedResponsibleLabel } from "@/lib/domain";
 import {
   getCalendarTaskDepartmentLabel,
   getCalendarTaskTimes,
@@ -120,8 +121,7 @@ export function DaySheet({
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                     <span className="truncate">
-                      {emp?.name ??
-                        (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")}
+                      {emp?.name ?? unassignedResponsibleLabel(task.target.type)}
                     </span>
                     {subtasks.length > 0 && (
                       <span className="task-chip inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1">

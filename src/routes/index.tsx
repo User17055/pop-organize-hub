@@ -3,7 +3,7 @@ import { AppShell, StatusBadge, PriorityBadge } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
 import { getAvatarGradient } from "@/lib/avatar-colors";
-import { statusLabels, type PermissionKey } from "@/lib/domain";
+import { statusLabels, unassignedResponsibleLabel, type PermissionKey } from "@/lib/domain";
 import { EmployeeAvatar } from "@/components/tasks/employee-avatar";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { Plus, TrendingUp, Clock, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
@@ -218,7 +218,7 @@ function Dashboard() {
                     <div className="font-medium text-sm truncate">{t.title}</div>
                     <div className="text-xs text-muted-foreground truncate">
                       {canSeePeopleContext
-                        ? `${emp?.name ?? (t.target.type === "department" ? "Setor inteiro" : "Sem responsável")} - ${t.target.label}`
+                        ? `${emp?.name ?? unassignedResponsibleLabel(t.target.type)} - ${t.target.label}`
                         : t.target.label}
                     </div>
                   </div>

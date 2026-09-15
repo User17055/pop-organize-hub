@@ -26,6 +26,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import type { CurrentUser, Department, Employee, Group, PermissionGroup, Task } from "@/lib/domain";
+import { unassignedResponsibleLabel } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import { EmployeeAvatar } from "./employee-avatar";
 import { isOverdue, taskTargetLabel } from "./task-form-types";
@@ -495,9 +496,7 @@ function TaskListImpl({
                               >
                                 {responsibleEmployees.length > 0
                                   ? `${responsibleEmployees[0]!.name}${responsibleEmployees.length > 1 ? ` +${responsibleEmployees.length - 1}` : ""}`
-                                  : task.target.type === "department"
-                                    ? "Setor inteiro"
-                                    : "Sem responsável"}
+                                  : unassignedResponsibleLabel(task.target.type)}
                               </span>
                             </div>
                           </TableCell>
@@ -746,7 +745,7 @@ function TaskListImpl({
                       className="flex shrink-0 -space-x-2"
                       title={
                         responsibleEmployees.map((employee) => employee.name).join(", ") ||
-                        (task.target.type === "department" ? "Setor inteiro" : "Sem responsável")
+                        unassignedResponsibleLabel(task.target.type)
                       }
                     >
                       {responsibleEmployees.slice(0, 3).map((employee) => (

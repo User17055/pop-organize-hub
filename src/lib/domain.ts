@@ -341,6 +341,35 @@ export interface WorkspaceData {
   canLeaveCompany: boolean;
 }
 
+/**
+ * O que escrever na coluna "Responsável" de uma tarefa que não tem ninguém escolhido pessoalmente.
+ *
+ * Existe porque a regra estava repetida em seis telas como um ternário de DUAS saídas
+ * (`type === "department" ? "Setor inteiro" : "Sem responsável"`), e alvo de **grupo** caía no ramo
+ * errado: uma tarefa do grupo "Abertura da loja" aparecia como "Sem responsável", como se fosse
+ * órfã. O diálogo de criação já dizia "Grupo inteiro" — a palavra certa existia num lugar só.
+ *
+ * O vocabulário aqui é o mesmo do aplicativo (`AssignmentKind` em `Domain.kt`), de propósito: os
+ * dois lados escrevendo a mesma ideia com palavras diferentes é a família de bug mais cara deste
+ * repositório.
+ *
+ * **Isto é rótulo de tela, e só.** O campo `assignee` que o endpoint móvel envia continua mandando
+ * a sentinela `"Sem responsável"`, que o aplicativo filtra por texto literal em três pontos e que o
+ * servidor resolve como NOME DE PESSOA na gravação. Mexer lá renomearia uma pessoa inexistente.
+ */
+export function unassignedResponsibleLabel(targetType: TargetType): string {
+  switch (targetType) {
+    case "department":
+      return "Setor inteiro";
+    case "group":
+      return "Grupo inteiro";
+    case "company":
+      return "Toda a empresa";
+    default:
+      return "Sem responsável";
+  }
+}
+
 export const statusLabels: Record<TaskStatus, string> = {
   pending: "Pendente",
   in_progress: "Em andamento",

@@ -1208,6 +1208,15 @@ private fun agruparTarefas(
         AssignmentKind.None -> 1
         AssignmentKind.Person -> if (souEu(task)) 3 else 2
     }
+    // Fechar setor e grupo por padrao foi decidido contra uma empresa de 16 setores e 361 tarefas,
+    // onde abrir tudo daria uma rolagem infinita. Numa empresa pequena a mesma regra produz o
+    // defeito oposto, e ele foi medido em aparelho: um espaco com 13 tarefas abria a aba Tarefas
+    // como SETE cabecalhos fechados e nenhuma tarefa a vista -- um indice, nao uma lista.
+    //
+    // O que decide nao e quantos cabecalhos ha, e sim se a lista inteira cabe numa olhada. Contar
+    // cabecalhos erraria nos dois sentidos: 3 setores com 200 tarefas rolaria sem fim, e 10 setores
+    // com uma tarefa cada cabem folgados.
+    val listaCurta = tasks.size <= LIMITE_PARA_ABRIR_TUDO
     return tasks.groupBy { ordem(it) to titulo(it) }
         .toList()
         // toSortedMap() vem de java.util e nao existe no commonMain; ordenar a lista de pares
@@ -1217,10 +1226,20 @@ private fun agruparTarefas(
             GrupoDeTarefas(
                 titulo = chave.second,
                 tarefas = doGrupo.sortedWith(taskListOrder),
-                abreFechado = chave.first == 0,
+                abreFechado = chave.first == 0 && !listaCurta,
             )
         }
 }
+
+/**
+ * Ate quantas tarefas a aba Tarefas nasce com tudo aberto.
+ *
+ * Nao e numero magico: 20 e mais ou menos o que uma empresa pequena tem em aberto num dia, e e o
+ * ponto em que a rolagem deixa de ser leitura e vira procura. `alternados` guarda o DESVIO em
+ * relacao a este padrao, entao quem fechar um cabecalho continua com ele fechado mesmo que a lista
+ * encolha depois.
+ */
+private const val LIMITE_PARA_ABRIR_TUDO = 20
 
 @Composable
 private fun TasksScreen(store: PopStore) {
@@ -1439,13 +1458,15 @@ private fun rememberMoveTargets(store: PopStore): List<AssignmentTarget> {
             emptyList()
         } else {
             buildList {
-                company?.members.orEmpty().forEach {
+                // `activeMembers`: oferecer um convite pendente como responsavel mandaria ao
+                // servidor um nome que ele nao resolve, e a tarefa voltaria sem responsavel.
+                company?.activeMembers.orEmpty().forEach {
                     add(AssignmentTarget(AssignmentKind.Person, it.id, it.name))
                 }
-                company?.sectors.orEmpty().forEach {
+                company?.sectors.orEmpty().sortedBy { it.name.lowercase() }.forEach {
                     add(AssignmentTarget(AssignmentKind.Sector, it.id, it.name))
                 }
-                company?.groups.orEmpty().forEach {
+                company?.groups.orEmpty().sortedBy { it.name.lowercase() }.forEach {
                     add(AssignmentTarget(AssignmentKind.Group, it.id, it.name))
                 }
                 add(AssignmentTarget(AssignmentKind.None, null, "Sem responsável"))
@@ -2325,15 +2346,21 @@ private fun setoresDaTarefa(task: PopTask, company: CompanyWorkspace?): Set<Stri
     val pessoas = mutableSetOf<CompanyMember>()
     when (task.assignment.kind) {
         AssignmentKind.Person ->
-            company.members.firstOrNull { it.id == task.assignment.id }?.let { pessoas += it }
+            company.activeMembers.firstOrNull { it.id == task.assignment.id }?.let { pessoas += it }
         AssignmentKind.Group ->
             company.groups.firstOrNull { it.id == task.assignment.id }
                 ?.memberIds.orEmpty()
-                .forEach { id -> company.members.firstOrNull { it.id == id }?.let { pessoas += it } }
+                .forEach { id ->
+                    company.activeMembers.firstOrNull { it.id == id }?.let { pessoas += it }
+                }
         AssignmentKind.Sector, AssignmentKind.None -> Unit
     }
     responsaveisDaTarefa(task).forEach { nome ->
-        company.members.firstOrNull { it.name.equals(nome, ignoreCase = true) }?.let { pessoas += it }
+        // Aqui o casamento e por NOME, e e justamente onde o convite pendente mais engana: ele tem
+        // o mesmo nome da pessoa de verdade e um `sectorId` proprio, entao entraria arrastando um
+        // setor para o filtro do calendario.
+        company.activeMembers.firstOrNull { it.name.equals(nome, ignoreCase = true) }
+            ?.let { pessoas += it }
     }
     pessoas.forEach { pessoa -> pessoa.sectorId?.takeIf { it.isNotBlank() }?.let { setores += it } }
 
@@ -2978,7 +3005,7 @@ private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
                     MoreItem(
                         Icons.Rounded.Person,
                         "Equipe",
-                        "${company!!.members.size} pessoas cadastradas",
+                        "${company!!.activeMembers.size} pessoas cadastradas",
                     ) { onPage(MorePage.Team) }
                 }
             }
@@ -3127,7 +3154,9 @@ private fun TeamScreen(store: PopStore) {
     // Convidar alguem exige um setor: addMember() usa o primeiro setor da empresa como destino.
     val hasSector = company?.sectors?.isNotEmpty() == true
     val canAdd = store.permissions.canManageEmployees && hasSector
-    val members = company?.members.orEmpty()
+    // So gente de verdade. Os convites pendentes chegam nesta mesma lista e tem o MESMO nome das
+    // pessoas que ja aceitaram, entao sem o filtro a Equipe mostra cada pessoa duas vezes.
+    val members = company?.activeMembers.orEmpty()
     EntityListScreen(
         header = if (members.size == 1) "1 pessoa cadastrada" else "${members.size} pessoas cadastradas",
         emptyTitle = "Nenhum colaborador",
@@ -3159,8 +3188,14 @@ private fun SectorsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     var showEditor by remember { mutableStateOf(false) }
     val canAdd = store.permissions.canManageDepartments
-    val sectors = company?.sectors.orEmpty()
-    val members = company?.members.orEmpty()
+    // Ordem alfabetica, e nao a de criacao. O aplicativo ja se contradizia: a aba Tarefas agrupa
+    // por nome e a barra de filtro do calendario ordena, mas esta tela saia "Administrativo, Salao,
+    // Cozinha, Balcao, Estoque" -- a ordem em que foram cadastrados, que nao significa nada para
+    // quem procura um setor.
+    val sectors = company?.sectors.orEmpty().sortedBy { it.name.lowercase() }
+    // O contador de cada setor sai daqui. Com `members` cru ele dobrava: convite pendente carrega
+    // `sectorId` e tem o mesmo nome de quem ja aceitou.
+    val members = company?.activeMembers.orEmpty()
     EntityListScreen(
         header = "Estrutura por setores",
         emptyTitle = "Nenhum setor",
@@ -3198,12 +3233,18 @@ private fun GroupsScreen(store: PopStore) {
         header = "Grupos de trabalho",
         emptyTitle = "Nenhum grupo",
         emptyDetail = if (canAdd) null else "Somente quem administra a empresa pode criar grupos.",
-        items = company?.groups.orEmpty().map { group ->
+        items = company?.groups.orEmpty().sortedBy { it.name.lowercase() }.map { group ->
+            // Contar `memberIds` cru repetiria aqui o erro que o `pending` acabou de resolver nos
+            // setores: convite pendente pode estar na lista de membros do grupo e inflaria o
+            // numero. Conta-se so quem casa com uma pessoa de verdade.
+            val pessoas = group.memberIds.count { id ->
+                company?.activeMembers.orEmpty().any { it.id == id }
+            }
             EntityRow(
                 title = group.name,
                 subtitle = group.description,
                 icon = Icons.Rounded.Groups,
-                badge = if (group.memberIds.size == 1) "1 pessoa" else "${group.memberIds.size} pessoas",
+                badge = if (pessoas == 1) "1 pessoa" else "$pessoas pessoas",
             )
         },
         onAdd = if (canAdd) ({ showEditor = true }) else null,
@@ -3436,9 +3477,11 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     val company = store.selectedCompany.takeIf { store.state.workspace == WorkspaceKind.Company }
     val assignmentOptions = when (assignmentKind) {
         AssignmentKind.None -> emptyList()
-        AssignmentKind.Person -> company?.members.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }
-        AssignmentKind.Sector -> company?.sectors.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }
-        AssignmentKind.Group -> company?.groups.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }
+        AssignmentKind.Person -> company?.activeMembers.orEmpty().map { AssignmentTarget(assignmentKind, it.id, it.name) }
+        AssignmentKind.Sector -> company?.sectors.orEmpty().sortedBy { it.name.lowercase() }
+            .map { AssignmentTarget(assignmentKind, it.id, it.name) }
+        AssignmentKind.Group -> company?.groups.orEmpty().sortedBy { it.name.lowercase() }
+            .map { AssignmentTarget(assignmentKind, it.id, it.name) }
     }
     // Quem pode responder, DENTRO do que ja foi escolhido.
     //
@@ -3449,11 +3492,11 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     val candidatos = when {
         assignment.id == null -> emptyList()
         assignmentKind == AssignmentKind.Sector ->
-            company?.members.orEmpty().filter { it.sectorId == assignment.id }
+            company?.activeMembers.orEmpty().filter { it.sectorId == assignment.id }
         assignmentKind == AssignmentKind.Group ->
             company?.groups.orEmpty().firstOrNull { it.id == assignment.id }
                 ?.memberIds.orEmpty()
-                .mapNotNull { id -> company?.members.orEmpty().firstOrNull { it.id == id } }
+                .mapNotNull { id -> company?.activeMembers.orEmpty().firstOrNull { it.id == id } }
         else -> emptyList()
     }
 

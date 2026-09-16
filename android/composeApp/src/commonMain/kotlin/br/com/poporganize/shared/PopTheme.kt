@@ -1,6 +1,7 @@
 package br.com.poporganize.shared
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -12,8 +13,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import br.com.poporganize.shared.resources.Res
 import br.com.poporganize.shared.resources.poppins_bold
 import br.com.poporganize.shared.resources.poppins_regular
@@ -60,20 +59,16 @@ internal val PopRed = Color(0xFFF2565B)
 private val darkColors = darkColorScheme(
     primary = PopBlue,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFF0E3A66),
-    onPrimaryContainer = Color(0xFFC9E3FF),
-    secondary = PopGlow,
-    onSecondary = Color(0xFF06243F),
-    background = Color(0xFF080D14),
-    onBackground = Color(0xFFEAF1F8),
-    surface = Color(0xFF101822),
-    onSurface = Color(0xFFEAF1F8),
-    surfaceVariant = Color(0xFF18222E),
-    onSurfaceVariant = Color(0xFF8B9AAB),
-    outline = Color(0xFF243141),
-    outlineVariant = Color(0xFF1A2332),
-    error = PopRed,
-    onError = Color.White,
+    primaryContainer = Color(0xFF24292B),
+    onPrimaryContainer = PopBlueDeep,
+    background = Color(0xFF111313),
+    onBackground = Color(0xFFF4F8FD),
+    surface = Color(0xFF1A1D1D),
+    onSurface = Color(0xFFF4F8FD),
+    surfaceVariant = Color(0xFF242727),
+    onSurfaceVariant = Color(0xFFA3AAAA),
+    outline = Color(0xFF303536),
+    error = Color(0xFFE5484D),
 )
 
 // --- Claro -------------------------------------------------------------------------------------
@@ -99,16 +94,14 @@ private val lightColors = lightColorScheme(
     onPrimaryContainer = Color(0xFF074C98),
     secondary = PopBlueDeep,
     onSecondary = Color.White,
-    background = Color(0xFFF6F9FC),
-    onBackground = Color(0xFF10243A), // --foreground do painel web
+    background = Color(0xFFF4F7FA),
+    onBackground = Color(0xFF17212B),
     surface = Color.White,
-    onSurface = Color(0xFF10243A),
-    surfaceVariant = Color(0xFFEDF3F9),
-    onSurfaceVariant = Color(0xFF5F7286),
-    outline = Color(0xFFD8E3ED),
-    outlineVariant = Color(0xFFE8EFF5),
-    error = Color(0xFFC4353A),
-    onError = Color.White,
+    onSurface = Color(0xFF17212B),
+    surfaceVariant = Color(0xFFE9EEF3),
+    onSurfaceVariant = Color(0xFF65717D),
+    outline = Color(0xFFD4DCE4),
+    error = Color(0xFFBA1A1A),
 )
 
 // --- Forma -------------------------------------------------------------------------------------
@@ -116,13 +109,7 @@ private val lightColors = lightColorScheme(
 // O Material 3 usa 4/8/12/16dp. O iOS trabalha com raios bem maiores, e e um dos sinais mais
 // baratos de que o app nao e um Android portado.
 
-private val popShapes = Shapes(
-    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-    small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-    medium = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-    large = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(32.dp),
-)
+private val popShapes = Shapes()
 
 // --- Tipografia --------------------------------------------------------------------------------
 //
@@ -150,37 +137,37 @@ private val popShapes = Shapes(
 @Composable
 private fun poppins() = FontFamily(
     Font(Res.font.poppins_regular, FontWeight.Normal),
-    Font(Res.font.poppins_semibold, FontWeight.Medium),
     Font(Res.font.poppins_semibold, FontWeight.SemiBold),
     Font(Res.font.poppins_bold, FontWeight.Bold),
+    Font(Res.font.poppins_bold, FontWeight.ExtraBold),
 )
 
 @Composable
 private fun popTypography(): Typography {
     val poppins = poppins()
     val base = Typography()
-    fun TextStyle.brand(tracking: Float) = copy(fontFamily = poppins, letterSpacing = tracking.sp)
+    fun TextStyle.brand() = copy(fontFamily = poppins)
     return base.copy(
-        displayLarge = base.displayLarge.brand(-1.5f),
-        displayMedium = base.displayMedium.brand(-1.0f),
-        displaySmall = base.displaySmall.brand(-0.75f),
-        headlineLarge = base.headlineLarge.brand(-0.75f),
-        headlineMedium = base.headlineMedium.brand(-0.5f),
-        headlineSmall = base.headlineSmall.brand(-0.4f),
-        titleLarge = base.titleLarge.brand(-0.3f),
-        titleMedium = base.titleMedium.brand(-0.1f),
-        titleSmall = base.titleSmall.brand(0f),
+        displayLarge = base.displayLarge.brand(),
+        displayMedium = base.displayMedium.brand(),
+        displaySmall = base.displaySmall.brand(),
+        headlineLarge = base.headlineLarge.brand(),
+        headlineMedium = base.headlineMedium.brand(),
+        headlineSmall = base.headlineSmall.brand(),
+        titleLarge = base.titleLarge.brand(),
+        titleMedium = base.titleMedium.brand(),
+        titleSmall = base.titleSmall.brand(),
         // O corpo fica sem tracking negativo: Poppins em tamanho pequeno ja e apertada, e fechar
         // mais prejudica a leitura -- que e o oposto do que se quer numa lista de tarefas.
-        bodyLarge = base.bodyLarge.brand(0f),
-        bodyMedium = base.bodyMedium.brand(0f),
-        bodySmall = base.bodySmall.brand(0f),
+        bodyLarge = base.bodyLarge.brand(),
+        bodyMedium = base.bodyMedium.brand(),
+        bodySmall = base.bodySmall.brand(),
         // Rotulos ganham tracking POSITIVO. Sao curtos, quase sempre em maiuscula ou em negrito
         // pequeno ("Alta", "Hoje", "Pendentes"), e abrir a letra e o que os faz parecer rotulo em
         // vez de texto encolhido.
-        labelLarge = base.labelLarge.brand(0.2f),
-        labelMedium = base.labelMedium.brand(0.4f),
-        labelSmall = base.labelSmall.brand(0.6f),
+        labelLarge = base.labelLarge.brand(),
+        labelMedium = base.labelMedium.brand(),
+        labelSmall = base.labelSmall.brand(),
     )
 }
 
@@ -190,6 +177,5 @@ internal fun PopTheme(light: Boolean, content: @Composable () -> Unit) {
         colorScheme = if (light) lightColors else darkColors,
         typography = popTypography(),
         shapes = popShapes,
-        content = content,
-    )
+    ) { ProvideTextStyle(MaterialTheme.typography.bodyMedium, content) }
 }

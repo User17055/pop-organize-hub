@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -114,6 +115,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.focus.FocusRequester
@@ -125,12 +127,15 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -140,15 +145,35 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.plus
+import org.jetbrains.compose.resources.painterResource
+import br.com.poporganize.shared.resources.Res
+import br.com.poporganize.shared.resources.email_code_message
+import br.com.poporganize.shared.resources.onboarding_organize
+import br.com.poporganize.shared.resources.onboarding_team
+import br.com.poporganize.shared.resources.onboarding_track
 
 @Composable
 fun PopOrganizeApp(platform: PopPlatformServices) {
     val store = remember(platform) { PopStore(platform) }
     val state = store.state
+    val scope = rememberCoroutineScope()
+    var availableUpdate by remember { mutableStateOf<AppUpdate?>(null) }
+    var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
+
+    suspend fun checkForUpdate() {
+        val update = runCatching { platform.availableUpdate() }.getOrNull()
+        availableUpdate = update?.takeUnless { it.version == dismissedUpdateVersion }
+    }
 
     SideEffect { platform.applyTheme(state.theme == PopThemeMode.Light) }
 
-    LaunchedEffect(platform) { platform.observeForeground { store.refreshNow() } }
+    LaunchedEffect(platform) {
+        checkForUpdate()
+        platform.observeForeground {
+            store.refreshNow()
+            scope.launch { checkForUpdate() }
+        }
+    }
 
     PopTheme(light = state.theme == PopThemeMode.Light) {
         Surface(
@@ -161,25 +186,56 @@ fun PopOrganizeApp(platform: PopPlatformServices) {
                 else -> MainScreen(store, platform)
             }
         }
+        availableUpdate?.let { update ->
+            AlertDialog(
+                onDismissRequest = {
+                    dismissedUpdateVersion = update.version
+                    availableUpdate = null
+                },
+                title = { Text("Nova versão disponível", fontWeight = FontWeight.Bold) },
+                text = { Text("A versão ${update.version} do Pop Organize está disponível. Atualize para receber as melhorias mais recentes.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            dismissedUpdateVersion = update.version
+                            availableUpdate = null
+                            platform.openExternalUrl(update.storeUrl)
+                        },
+                    ) { Text("Atualizar") }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            dismissedUpdateVersion = update.version
+                            availableUpdate = null
+                        },
+                    ) { Text("Depois") }
+                },
+            )
+        }
     }
 }
 
 @Composable
-private fun PopLogo(modifier: Modifier = Modifier, fontSize: TextUnit = 24.sp) {
+private fun PopLogo(
+    modifier: Modifier = Modifier,
+    fontSize: TextUnit = 24.sp,
+    color: Color = MaterialTheme.colorScheme.onBackground,
+) {
     // O ponto azul acompanha o tamanho da letra em vez de ser fixo em 17dp: em escala reduzida, um
     // ponto que nao encolhe junto deixa de ser a letra "o" e vira uma bolinha ao lado do texto.
     val dot = with(LocalDensity.current) { (fontSize.toPx() * 0.72f).toDp() }
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = "P",
-            color = MaterialTheme.colorScheme.onBackground,
+            color = color,
             fontSize = fontSize,
             fontWeight = FontWeight.ExtraBold,
         )
         Box(Modifier.padding(horizontal = 1.dp).size(dot).background(PopBlue, CircleShape))
         Text(
             text = "p Organize",
-            color = MaterialTheme.colorScheme.onBackground,
+            color = color,
             fontSize = fontSize,
             fontWeight = FontWeight.ExtraBold,
         )
@@ -196,47 +252,113 @@ private fun OnboardingScreen(onFinish: () -> Unit) {
     var page by remember { mutableIntStateOf(0) }
 
     Column(
-        modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1C1E1E))
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(horizontal = 28.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        PopLogo()
-        AnimatedContent(targetState = page) { index ->
+        PopLogo(fontSize = 29.sp, color = Color.White)
+        AnimatedContent(targetState = page, modifier = Modifier.weight(1f)) { index ->
             val item = pages[index]
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(
-                    modifier = Modifier.size(218.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(52.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Box(
-                        modifier = Modifier.size(126.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(34.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(item.third, null, tint = PopBlue, modifier = Modifier.size(58.dp))
-                    }
-                }
-                Spacer(Modifier.height(34.dp))
-                Text(item.first, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, lineHeight = 36.sp)
-                Spacer(Modifier.height(12.dp))
-                Text(item.second, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            val illustration = when (index) {
+                0 -> Res.drawable.onboarding_organize
+                1 -> Res.drawable.onboarding_team
+                else -> Res.drawable.onboarding_track
+            }
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Image(
+                    painter = painterResource(illustration),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(320.dp),
+                )
+                Spacer(Modifier.height(38.dp))
+                Text(
+                    buildAnnotatedString {
+                        when (index) {
+                            0 -> {
+                                append("Organize ")
+                                withStyle(SpanStyle(color = PopBlue)) { append("tudo") }
+                                append(" em um só lugar")
+                            }
+                            1 -> {
+                                append("Trabalhe junto com sua ")
+                                withStyle(SpanStyle(color = PopBlue)) { append("equipe") }
+                            }
+                            else -> {
+                                append("Acompanhe ")
+                                withStyle(SpanStyle(color = PopBlue)) { append("cada") }
+                                append(" etapa")
+                            }
+                        }
+                    },
+                    color = Color.White,
+                    fontSize = 29.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    lineHeight = 34.sp,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    item.second,
+                    color = Color.White.copy(alpha = .58f),
+                    fontSize = 15.sp,
+                    lineHeight = 24.sp,
+                    textAlign = TextAlign.Center,
+                )
             }
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                pages.indices.forEach { index ->
-                    Box(
-                        Modifier.size(if (index == page) 22.dp else 8.dp, 8.dp)
-                            .background(if (index == page) PopBlue else MaterialTheme.colorScheme.outline, CircleShape),
-                    )
-                }
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            pages.indices.forEach { index ->
+                Box(
+                    Modifier.size(if (index == page) 32.dp else 10.dp, 10.dp)
+                        .background(if (index == page) PopBlue else Color.White, CircleShape),
+                )
             }
-            Spacer(Modifier.height(20.dp))
-            Button(
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                onClick = { if (page < pages.lastIndex) page++ else onFinish() },
-            ) {
-                Text(if (page == pages.lastIndex) "Começar" else "Continuar", fontWeight = FontWeight.Bold)
-            }
+        }
+        Spacer(Modifier.height(30.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OnboardingButton(
+                text = if (page == 0) "Pular" else "Voltar",
+                background = Color.White.copy(alpha = .1f),
+                foreground = Color.White,
+                modifier = Modifier.weight(1f),
+                onClick = { if (page == 0) onFinish() else page-- },
+            )
+            OnboardingButton(
+                text = if (page == pages.lastIndex) "Começar" else "Próximo",
+                background = if (page == pages.lastIndex) Color.White else PopBlue,
+                foreground = if (page == pages.lastIndex) PopBlue else Color.White,
+                modifier = Modifier.weight(1f),
+                onClick = { if (page == pages.lastIndex) onFinish() else page++ },
+            )
+        }
+    }
+}
+
+@Composable
+private fun OnboardingButton(
+    text: String,
+    background: Color,
+    foreground: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        color = background,
+        contentColor = foreground,
+        shape = RoundedCornerShape(18.dp),
+        modifier = modifier.height(56.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -322,6 +444,14 @@ private fun LoginScreen(store: PopStore, platform: PopPlatformServices) {
         ) {
             AnimatedContent(targetState = stage, label = "loginTitle") { current ->
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (current == LoginStage.Code) {
+                        Image(
+                            painter = painterResource(Res.drawable.email_code_message),
+                            contentDescription = "Mensagem com código de confirmação",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxWidth().height(132.dp).padding(bottom = 8.dp),
+                        )
+                    }
                     Text(
                         when (current) {
                             LoginStage.Choose -> "Comece por aqui"

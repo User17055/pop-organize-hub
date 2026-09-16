@@ -1,6 +1,8 @@
 package br.com.poporganize.app
 
 import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -16,9 +18,14 @@ import br.com.poporganize.app.notifications.clearPopNotifications
 import br.com.poporganize.app.notifications.EXTRA_OPEN_TASK_ID
 import br.com.poporganize.app.notifications.schedulePopNotifications
 import br.com.poporganize.app.ui.PopOrganizeApp
+import com.google.android.play.core.appupdate.AppUpdateManager
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.install.model.UpdateAvailability
 
 class MainActivity : ComponentActivity() {
     private var pendingTaskId by mutableStateOf<Int?>(null)
+    private var availableUpdateVersionCode by mutableStateOf<Int?>(null)
+    private val appUpdateManager: AppUpdateManager by lazy { AppUpdateManagerFactory.create(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -36,6 +43,8 @@ class MainActivity : ComponentActivity() {
             PopOrganizeApp(
                 externalTaskId = pendingTaskId,
                 onExternalTaskOpened = { pendingTaskId = null },
+                availableUpdateVersionCode = availableUpdateVersionCode,
+                onOpenUpdate = ::openPlayStore,
             )
         }
     }
@@ -49,6 +58,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         clearPopNotifications(this)
+        checkForUpdate()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -62,4 +72,20 @@ class MainActivity : ComponentActivity() {
 
     private fun Intent.taskIdExtra(): Int? =
         getIntExtra(EXTRA_OPEN_TASK_ID, Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
+
+    private fun checkForUpdate() {
+        appUpdateManager.appUpdateInfo.addOnSuccessListener { info ->
+            availableUpdateVersionCode = info.availableVersionCode()
+                .takeIf { info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE }
+        }
+    }
+
+    private fun openPlayStore() {
+        val webUrl = "https://play.google.com/store/apps/details?id=$packageName"
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName")))
+        } catch (_: ActivityNotFoundException) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(webUrl)))
+        }
+    }
 }

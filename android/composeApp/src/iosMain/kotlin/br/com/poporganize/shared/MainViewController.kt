@@ -227,6 +227,32 @@ private object IosPlatformServices : PopPlatformServices {
         }
     }
 
+    override suspend fun availableUpdate(): AppUpdate? = suspendCancellableCoroutine { continuation ->
+        val bundleId = NSBundle.mainBundle.bundleIdentifier.orEmpty()
+        val currentVersion = NSBundle.mainBundle.objectForInfoDictionaryKey("CFBundleShortVersionString") as? String
+        val lookupUrl = NSURL.URLWithString(
+            "https://itunes.apple.com/lookup?bundleId=$bundleId&country=br",
+        )
+        if (bundleId.isBlank() || currentVersion.isNullOrBlank() || lookupUrl == null) {
+            continuation.resume(null)
+            return@suspendCancellableCoroutine
+        }
+        val task = NSURLSession.sharedSession.dataTaskWithURL(
+            lookupUrl,
+        ) { data: NSData?, _: NSURLResponse?, _: NSError? ->
+            val update = data
+                ?.let { NSString.create(data = it, encoding = NSUTF8StringEncoding)?.toString() }
+                ?.let { body -> runCatching { json.decodeFromString<AppStoreLookupResponse>(body) }.getOrNull() }
+                ?.results
+                ?.firstOrNull()
+                ?.takeIf { result -> isNewerVersion(result.version, currentVersion) && result.trackViewUrl.isNotBlank() }
+                ?.let { result -> AppUpdate(result.version, result.trackViewUrl) }
+            if (continuation.isActive) continuation.resume(update)
+        }
+        continuation.invokeOnCancellation { task.cancel() }
+        task.resume()
+    }
+
     private fun scheduleReminders(reminders: List<Pair<PopTask, LocalDateTime>>, firstName: String) {
         val center = UNUserNotificationCenter.currentNotificationCenter()
         // O aplicativo nao cria outras notificacoes locais, entao recriar a lista mantem tudo em dia.
@@ -302,6 +328,27 @@ private object IosPlatformServices : PopPlatformServices {
             ?: application.windows.filterIsInstance<UIWindow>().firstOrNull()
     }
 }
+
+private fun isNewerVersion(candidate: String, current: String): Boolean {
+    val candidateParts = candidate.split('.').map { it.toIntOrNull() ?: 0 }
+    val currentParts = current.split('.').map { it.toIntOrNull() ?: 0 }
+    val size = maxOf(candidateParts.size, currentParts.size)
+    for (index in 0 until size) {
+        val candidatePart = candidateParts.getOrElse(index) { 0 }
+        val currentPart = currentParts.getOrElse(index) { 0 }
+        if (candidatePart != currentPart) return candidatePart > currentPart
+    }
+    return false
+}
+
+@kotlinx.serialization.Serializable
+private data class AppStoreLookupResponse(val results: List<AppStoreLookupResult> = emptyList())
+
+@kotlinx.serialization.Serializable
+private data class AppStoreLookupResult(
+    val version: String = "",
+    val trackViewUrl: String = "",
+)
 
 @kotlinx.serialization.Serializable
 private data class AppleAuthPayload(

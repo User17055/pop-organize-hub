@@ -1250,6 +1250,8 @@ private val onboardingSlides = listOf(
 fun PopOrganizeApp(
     externalTaskId: Int? = null,
     onExternalTaskOpened: () -> Unit = {},
+    availableUpdateVersionCode: Int? = null,
+    onOpenUpdate: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var lightTheme by remember {
@@ -1261,6 +1263,7 @@ fun PopOrganizeApp(
     PopTheme(lightTheme = lightTheme) {
         val appScope = rememberCoroutineScope()
         var stage by remember { mutableStateOf(AppStage.Splash) }
+        var updateDismissed by remember(availableUpdateVersionCode) { mutableStateOf(false) }
         val notificationPermissionLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission(),
         ) { }
@@ -1445,6 +1448,24 @@ fun PopOrganizeApp(
                     },
                 )
             }
+        }
+        if (availableUpdateVersionCode != null && !updateDismissed && stage != AppStage.Splash) {
+            AlertDialog(
+                onDismissRequest = { updateDismissed = true },
+                title = { Text("Nova versão disponível", fontWeight = FontWeight.Bold) },
+                text = { Text("O Pop Organize tem uma nova versão. Atualize para receber as melhorias mais recentes.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            updateDismissed = true
+                            onOpenUpdate()
+                        },
+                    ) { Text("Atualizar") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { updateDismissed = true }) { Text("Depois") }
+                },
+            )
         }
     }
 }
@@ -5928,20 +5949,6 @@ private fun TasksScreen(
                     }
                 }
                 Text("${pendingTasks.size} atividades pendentes", color = PopMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-            }
-            if (filtered.isEmpty()) {
-                item {
-                    Image(
-                        painter = painterResource(R.drawable.empty_tasks),
-                        contentDescription = "Ainda não tem tarefas por aqui",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(290.dp)
-                            .padding(horizontal = 28.dp)
-                            .clipToBounds(),
-                    )
-                }
             }
             itemsIndexed(displayedPendingTasks, key = { _, task -> task.id }) { _, task ->
                 val isCompleting = completingTaskId == task.id

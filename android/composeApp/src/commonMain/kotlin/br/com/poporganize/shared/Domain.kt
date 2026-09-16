@@ -255,6 +255,8 @@ interface PopPlatformServices {
     ): ApiResponse
     fun updateNotifications(tasks: List<PopTask>, firstName: String)
 
+    suspend fun availableUpdate(): AppUpdate? = null
+
     /**
      * Avisa quando o aplicativo volta do segundo plano, para recarregar os dados do servidor.
      * Tem corpo vazio de proposito: o Android nao consome este modulo e nao pode ser obrigado a
@@ -267,6 +269,8 @@ interface PopPlatformServices {
     fun openSupportEmail()
     fun openExternalUrl(url: String)
 }
+
+data class AppUpdate(val version: String, val storeUrl: String)
 
 data class ApiResponse(val status: Int, val body: String) {
     val successful: Boolean get() = status in 200..299

@@ -1588,8 +1588,25 @@ private fun rememberMoveTargets(store: PopStore): List<AssignmentTarget> {
             emptyList()
         } else {
             buildList {
-                // `activeMembers`: oferecer um convite pendente como responsavel mandaria ao
-                // servidor um nome que ele nao resolve, e a tarefa voltaria sem responsavel.
+                // `activeMembers`, e nao `members`: o app nao oferece convite pendente como
+                // responsavel. CORRECAO de 16/09 -- a justificativa que estava aqui era FALSA.
+                // Ela dizia que o servidor "nao resolve" o convite; ele resolve:
+                // `mobileTaskTarget` procura o alvo `user` em `employees` e, se nao achar, em
+                // `invitations` (mobile-api.server.ts:1587), e o aceite remapeia a atribuicao
+                // inteira via `transferInvitationAssignments`. O painel atribui antes do aceite
+                // DE PROPOSITO, desde o commit "permitir atribuicao antes do aceite".
+                // O motivo real e outro, e e decisao de produto do Guilherme (16/09): atribuir
+                // trabalho a quem ainda nao entrou na empresa nao e o que os APLICATIVOS oferecem.
+                // Nao e divergencia entre iPhone e Android -- o app do Andre faz o mesmo calculo,
+                // com `companyMembers.filterNot { it.pending }`, ao montar quem pode ser
+                // responsavel (android/app/.../ui/PopOrganizeApp.kt, `eligibleResponsibleMembers`).
+                // Quem diverge e o painel, que atribui antes do aceite de proposito.
+                // Mudar de ideia aqui e trocar `activeMembers` por `members`; nada no servidor
+                // impede, e o aceite remapeia sozinho.
+                //
+                // Eu escrevi a frase falsa sem abrir o arquivo do servidor, que e a mesma
+                // armadilha do `role.includes("admin")`: comentario que afirma o que o OUTRO lado
+                // faz vira trava para o proximo conserto. Conferir na fonte antes de repetir.
                 company?.activeMembers.orEmpty().forEach {
                     add(AssignmentTarget(AssignmentKind.Person, it.id, it.name))
                 }

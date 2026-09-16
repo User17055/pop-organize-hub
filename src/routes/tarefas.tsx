@@ -490,6 +490,12 @@ function TasksPage() {
       permissionGroupId: invitation.permissionGroupId,
     })),
   ];
+  // `assignmentMembers` mistura funcionários com convites pendentes DE PROPÓSITO, para permitir
+  // atribuir tarefa antes do aceite. Mas contá-lo como "cadastrados" fazia a Aurora Café anunciar
+  // "13 cadastrados" onde a tela Funcionários e o Dashboard dizem 7 — os dois números certos sobre
+  // coisas diferentes, com a mesma palavra. Quem é cadastrado é funcionário; convite é convite, e
+  // aparece separado porque a lista logo abaixo tem as duas coisas e sumir com os 6 seria pior.
+  const pendingInvitationCount = invitations.length;
   const permissionSet = resolvePermissionSet({
     currentUser,
     employees,
@@ -943,7 +949,10 @@ function TasksPage() {
                 <Users className="mb-2 h-4 w-4" />
                 <span className="block text-sm font-bold">Colaboradores</span>
                 <span className="text-[11px] text-muted-foreground">
-                  {assignmentMembers.length} cadastrados
+                  {employees.length} cadastrados
+                  {pendingInvitationCount > 0
+                    ? ` · ${pendingInvitationCount} ${pendingInvitationCount === 1 ? "convite" : "convites"}`
+                    : ""}
                 </span>
               </button>
               <button

@@ -5305,7 +5305,9 @@ private fun TasksScreen(
     var showTaskTimePicker by remember { mutableStateOf(false) }
     var showTaskYearMenu by remember { mutableStateOf(false) }
     var showCompleted by remember { mutableStateOf(false) }
-    var selectedFilter by remember { mutableStateOf("Hoje") }
+    // A tela precisa nascer mostrando tudo o que o servidor autorizou. Abrir em "Hoje" fazia uma
+    // tarefa recem-criada no painel parecer ausente no celular apenas porque a data era futura.
+    var selectedFilter by remember { mutableStateOf("Todas") }
     var editingTaskId by remember { mutableStateOf<Int?>(null) }
     var completingTaskId by remember { mutableStateOf<Int?>(null) }
     var movingTaskId by remember { mutableStateOf<Int?>(null) }
@@ -5424,10 +5426,10 @@ private fun TasksScreen(
     // todas as tarefas visíveis para esta pessoa, nunca todas as tarefas da empresa.
     val taskFilters = listOf("Hoje", "Atrasadas", "Próximas", "Para mim", "Setor", "Grupo", "Todas")
 
-    LaunchedEffect(workSpace, selectedTaskList?.id) {
-        if (selectedFilter !in taskFilters) {
-            selectedFilter = if (selectedTaskList != null) "Todas" else "Hoje"
-        }
+    LaunchedEffect(workSpace, selectedCompanyIndex, selectedTaskList?.id) {
+        // Um filtro escolhido em outro espaco nao pode fazer a nova empresa parecer sem tarefas.
+        selectedFilter = "Todas"
+        query = ""
     }
 
     val selectedListTaskIds = selectedTaskList?.taskIds?.toSet()
@@ -5435,7 +5437,6 @@ private fun TasksScreen(
         it.serverId.isNotBlank() && it.serverId in selectedListTaskIds
     }
     val filtered = listedTasks
-        .filterNot { isFutureRecurrence(it, today) }
         .filter {
             it.title.contains(query, ignoreCase = true) ||
                 it.description.contains(query, ignoreCase = true) ||

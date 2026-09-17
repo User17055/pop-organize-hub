@@ -299,6 +299,7 @@ private data class PopTask(
     val recurrenceEndMode: String = "Nunca",
     val recurrenceEndValue: String = "",
     val recurrenceOccurrence: Int = 1,
+    val recurrenceSeriesId: String = "",
     val canEdit: Boolean = true,
     val canComplete: Boolean = true,
     val canCompleteAnytime: Boolean = false,
@@ -534,6 +535,7 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 recurrenceEndMode = item.optString("recurrenceEndMode", "Nunca"),
                 recurrenceEndValue = item.optString("recurrenceEndValue"),
                 recurrenceOccurrence = item.optInt("recurrenceOccurrence", 1).coerceAtLeast(1),
+                recurrenceSeriesId = item.optString("recurrenceSeriesId"),
                 canEdit = item.optBoolean("canEdit", true),
                 canComplete = item.optBoolean("canComplete", true),
                 canCompleteAnytime = item.optBoolean("canCompleteAnytime", false),
@@ -773,6 +775,7 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("recurrenceEndMode", task.recurrenceEndMode)
                 .put("recurrenceEndValue", task.recurrenceEndValue)
                 .put("recurrenceOccurrence", task.recurrenceOccurrence)
+                .put("recurrenceSeriesId", task.recurrenceSeriesId)
                 .put("canEdit", task.canEdit)
                 .put("canComplete", task.canComplete)
                 .put("canCompleteAnytime", task.canCompleteAnytime)
@@ -1155,6 +1158,36 @@ private fun isFutureRecurrence(task: PopTask, today: LocalDate = LocalDate.now()
 private fun isFutureTask(task: PopTask, today: LocalDate = LocalDate.now()): Boolean =
     !task.completed &&
         runCatching { LocalDate.parse(task.dueDate) }.getOrNull()?.isAfter(today) == true
+
+/**
+ * No recorte por setor, uma recorrencia representa um compromisso, nao uma pilha de datas.
+ * Mantemos somente a ocorrencia pendente mais antiga de cada serie; depois que ela e concluida,
+ * a proxima ja carregada (ou criada pela sincronizacao) passa a ocupar o lugar. Se a serie acabou,
+ * preservamos apenas sua conclusao mais recente na secao recolhida de concluidas.
+ */
+private fun nearestSectorRecurrences(tasks: List<PopTask>): List<PopTask> {
+    val recurringGroups = tasks
+        .filter { it.recurrenceSeriesId.isNotBlank() }
+        .groupBy(PopTask::recurrenceSeriesId)
+    if (recurringGroups.isEmpty()) return tasks
+
+    val selectedIdentities = recurringGroups.values.mapTo(mutableSetOf()) { occurrences ->
+        val selected = occurrences
+            .filterNot(PopTask::completed)
+            .minWithOrNull(
+                compareBy<PopTask>({ it.dueDate }, { it.dueTime }, { it.recurrenceOccurrence }),
+            )
+            ?: occurrences.maxWithOrNull(
+                compareBy<PopTask>({ it.dueDate }, { it.dueTime }, { it.recurrenceOccurrence }),
+            )!!
+        selected.serverId.ifBlank { selected.id.toString() }
+    }
+
+    return tasks.filter { task ->
+        task.recurrenceSeriesId.isBlank() ||
+            task.serverId.ifBlank { task.id.toString() } in selectedIdentities
+    }
+}
 
 private suspend fun loadRemoteTasks(apiToken: String, workspaceId: String = ""): List<PopTask> = withContext(Dispatchers.IO) {
     val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
@@ -5436,7 +5469,7 @@ private fun TasksScreen(
     val listedTasks = if (selectedListTaskIds == null) tasks else tasks.filter {
         it.serverId.isNotBlank() && it.serverId in selectedListTaskIds
     }
-    val filtered = listedTasks
+    val matchingTasks = listedTasks
         .filter {
             it.title.contains(query, ignoreCase = true) ||
                 it.description.contains(query, ignoreCase = true) ||
@@ -5482,6 +5515,13 @@ private fun TasksScreen(
                 else -> true
             }
         }
+    // O filtro de setor mostra uma fila operacional: uma unica data por recorrencia. Assim uma
+    // rotina da semana nao ocupa varias linhas; ao concluir a atual, a proxima assume o lugar.
+    val filtered = if (selectedFilter == "Setor") {
+        nearestSectorRecurrences(matchingTasks)
+    } else {
+        matchingTasks
+    }
     val pendingTasks = filtered.filterNot { it.completed }
     val completedTasks = filtered.filter { it.completed }
     val displayedPendingTasks = pendingTasks

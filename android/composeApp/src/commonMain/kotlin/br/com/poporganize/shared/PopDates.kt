@@ -88,6 +88,36 @@ internal fun horaAgora(): String {
 internal fun horaComparavel(hora: String): String =
     if (hora.length == 4 && hora[1] == ':') "0$hora" else hora
 
+/** Hora no formato que vai para o servidor, sempre com dois digitos de cada lado. */
+internal fun horaFormatada(hora: Int, minuto: Int): String =
+    "${hora.toString().padStart(2, '0')}:${minuto.toString().padStart(2, '0')}"
+
+/**
+ * Le uma hora escrita de qualquer jeito e devolve (hora, minuto), ou `null` quando nao da para
+ * entender.
+ *
+ * Existe para o seletor de hora saber de onde partir ao abrir. E preciso ser tolerante porque
+ * `dueTime` e texto livre nos DOIS lados do fio -- o schema do servidor e `z.string().max(20)`,
+ * sem regex --, entao o valor guardado pode ter vindo do painel, do Android, ou de uma versao do
+ * aplicativo anterior ao seletor, quando o campo era digitado a mao. Recusar "9:00" por falta de
+ * um zero jogaria fora o valor da pessoa.
+ *
+ * Aceita "22:00", "9:00", "22h00", "2200" e "22". Devolve `null` fora de 00:00-23:59, porque
+ * `TimePickerState` nao aceita valor fora da faixa e estourar aqui derrubaria o dialogo.
+ */
+internal fun horaParaHoraMinuto(hora: String): Pair<Int, Int>? {
+    val digitos = hora.filter(Char::isDigit)
+    val partes: Pair<Int?, Int?> = when (digitos.length) {
+        1, 2 -> digitos.toIntOrNull() to 0
+        3 -> digitos.take(1).toIntOrNull() to digitos.drop(1).toIntOrNull()
+        4 -> digitos.take(2).toIntOrNull() to digitos.drop(2).toIntOrNull()
+        else -> return null
+    }
+    val h = partes.first ?: return null
+    val m = partes.second ?: return null
+    return if (h in 0..23 && m in 0..59) h to m else null
+}
+
 /**
  * Rotulo de prazo de uma linha de tarefa: "Hoje • 09:00", "seg, 25 de agosto".
  *

@@ -686,14 +686,15 @@ private fun mergeRemoteTaskRouting(
     }
 }
 
-private fun recurringSeriesKey(task: PopTask) = listOf(
-    task.title.trim().lowercase(Locale("pt", "BR")),
-    task.assignmentType,
-    task.assignmentTargetId,
-    task.recurrenceRule,
-    task.recurrenceDetail,
-    task.recurrenceInterval.toString(),
-).joinToString("|")
+private fun recurringSeriesKey(task: PopTask): String =
+    task.recurrenceSeriesId.takeIf { it.isNotBlank() } ?: listOf(
+        task.title.trim().lowercase(Locale("pt", "BR")),
+        task.assignmentType,
+        task.assignmentTargetId,
+        task.recurrenceRule,
+        task.recurrenceDetail,
+        task.recurrenceInterval.toString(),
+    ).joinToString("|")
 
 private fun calendarTasksForMonth(tasks: List<PopTask>, month: YearMonth): List<PopTask> {
     val monthStart = month.atDay(1)
@@ -8799,32 +8800,55 @@ private fun CalendarScreen(
             )
         }
         item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { pagerScope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } }) { Icon(Icons.Rounded.ChevronLeft, "Mês anterior") }
+            Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                IconButton(
+                    onClick = { pagerScope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } },
+                    modifier = Modifier.align(Alignment.CenterStart),
+                ) { Icon(Icons.Rounded.ChevronLeft, "Mês anterior") }
                 Text(
                     "${month.month.getDisplayName(TextStyle.FULL, locale).replaceFirstChar { it.uppercase() }} ${month.year}",
                     fontWeight = FontWeight.ExtraBold,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.align(Alignment.Center),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
-                if (workSpace == WorkSpace.Company) {
-                    Box(Modifier.size(48.dp)) {
-                        IconButton(onClick = { showFilters = true }) {
-                            Icon(
-                                Icons.Rounded.FilterList,
-                                "Filtrar calendário",
-                                tint = if (activeFilterCount > 0) PopBlue else PopMuted,
-                            )
-                        }
-                        if (activeFilterCount > 0) {
-                            Box(
-                                Modifier.align(Alignment.TopEnd).padding(top = 7.dp, end = 7.dp)
-                                    .size(8.dp).background(PopBlue, CircleShape),
-                            )
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (workSpace == WorkSpace.Company) {
+                        Box {
+                            Surface(
+                                onClick = { showFilters = true },
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (activeFilterCount > 0) PopBlueSoft else PopSurfaceAlt,
+                                contentColor = if (activeFilterCount > 0) PopBlue else PopMuted,
+                                modifier = Modifier.size(42.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Rounded.FilterList, "Filtrar calendário", modifier = Modifier.size(22.dp))
+                                }
+                            }
+                            if (activeFilterCount > 0) {
+                                Surface(
+                                    color = PopBlue,
+                                    contentColor = Color.White,
+                                    shape = CircleShape,
+                                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp),
+                                ) {
+                                    Text(
+                                        activeFilterCount.toString(),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                    )
+                                }
+                            }
                         }
                     }
+                    IconButton(onClick = { pagerScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } }) {
+                        Icon(Icons.Rounded.ChevronRight, "Próximo mês")
+                    }
                 }
-                IconButton(onClick = { pagerScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } }) { Icon(Icons.Rounded.ChevronRight, "Próximo mês") }
             }
         }
         item {
@@ -9009,16 +9033,76 @@ private fun CalendarFilterOptions(
     selected: String?,
     onSelected: (String?) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = PopBlue, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(label, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.first == selected }?.second ?: allLabel
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 2.dp)) {
+            Surface(color = PopBlueSoft, contentColor = PopBlue, shape = RoundedCornerShape(9.dp)) {
+                Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, modifier = Modifier.size(18.dp))
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(label, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    when (label) {
+                        "Setor" -> "Área responsável pela tarefa"
+                        "Grupo" -> "Equipe ou projeto relacionado"
+                        else -> "Quem deve realizar a tarefa"
+                    },
+                    color = PopMuted,
+                    fontSize = 11.sp,
+                )
+            }
         }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { ChoicePill(allLabel, selected == null) { onSelected(null) } }
-            items(options) { (id, name) ->
-                ChoicePill(name, selected == id) { onSelected(id) }
+
+        Box(Modifier.fillMaxWidth()) {
+            Surface(
+                onClick = { expanded = true },
+                color = PopSurface,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, if (selected != null) PopBlue.copy(alpha = 0.45f) else PopBorder),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(selectedLabel, modifier = Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Rounded.KeyboardArrowDown, null, tint = PopMuted, modifier = Modifier.size(20.dp))
+                }
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.fillMaxWidth(0.88f).heightIn(max = 320.dp),
+                containerColor = PopSurface,
+            ) {
+                listOf<String?>(null).plus(options.map { it.first }).forEach { id ->
+                    val name = options.firstOrNull { it.first == id }?.second ?: allLabel
+                    val isSelected = selected == id
+                    DropdownMenuItem(
+                        text = { Text(name, fontSize = 13.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium) },
+                        leadingIcon = {
+                            Box(
+                                Modifier.size(20.dp).border(
+                                    1.5.dp,
+                                    if (isSelected) PopBlue else PopMuted.copy(alpha = 0.55f),
+                                    CircleShape,
+                                ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (isSelected) Box(Modifier.size(10.dp).background(PopBlue, CircleShape))
+                            }
+                        },
+                        onClick = {
+                            onSelected(id)
+                            expanded = false
+                        },
+                    )
+                }
             }
         }
     }

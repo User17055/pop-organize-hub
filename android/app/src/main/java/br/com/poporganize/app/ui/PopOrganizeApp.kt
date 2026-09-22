@@ -9062,8 +9062,8 @@ private fun CalendarDayAgenda(
             TaskRow(
                 task = task,
                 onClick = if (unavailable) null else ({ onOpenTask(task) }),
-                onToggleComplete = if (unavailable) null else ({ onToggleTaskComplete(task) }),
-                toggleEnabled = !(task.awaitingReview && !task.canComplete),
+                onToggleComplete = { onToggleTaskComplete(task) },
+                toggleEnabled = !unavailable && !(task.awaitingReview && !task.canComplete),
                 leadingTime = task.dueTime,
             )
         }
@@ -9082,8 +9082,8 @@ private fun CalendarDayAgenda(
             TaskRow(
                 task,
                 onClick = if (unavailable) null else ({ onOpenTask(task) }),
-                onToggleComplete = if (unavailable) null else ({ onToggleTaskComplete(task) }),
-                toggleEnabled = !(task.awaitingReview && !task.canComplete),
+                onToggleComplete = { onToggleTaskComplete(task) },
+                toggleEnabled = !unavailable && !(task.awaitingReview && !task.canComplete),
             )
         }
     }

@@ -8820,15 +8820,15 @@ private fun CalendarScreen(
                 ) {
                     if (workSpace == WorkSpace.Company) {
                         Box(
-                            modifier = Modifier.size(width = 66.dp, height = 48.dp),
+                            modifier = Modifier.size(width = 52.dp, height = 48.dp),
                         ) {
                             IconButton(
                                 onClick = { showFilters = true },
-                                modifier = Modifier.align(Alignment.CenterStart),
+                                modifier = Modifier.align(Alignment.Center),
                             ) {
                                 CalendarFilterIcon(
                                     tint = if (activeFilterCount > 0) PopBlue else PopMuted,
-                                    modifier = Modifier.size(width = 22.dp, height = 18.dp),
+                                    modifier = Modifier.size(width = 20.dp, height = 18.dp),
                                 )
                             }
                             if (activeFilterCount > 0) {
@@ -8837,7 +8837,7 @@ private fun CalendarScreen(
                                     contentColor = Color.White,
                                     shape = CircleShape,
                                     modifier = Modifier.align(Alignment.TopEnd)
-                                        .offset(y = 2.dp)
+                                        .offset(x = 8.dp, y = 1.dp)
                                         .size(18.dp),
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
@@ -8923,8 +8923,8 @@ private fun CalendarScreen(
 @Composable
 private fun CalendarFilterIcon(tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier.semantics { contentDescription = "Filtrar calend\u00e1rio" }) {
-        val strokeWidth = 1.5.dp.toPx()
-        val knobRadius = 3.dp.toPx()
+        val strokeWidth = 1.9.dp.toPx()
+        val knobRadius = 3.2.dp.toPx()
         val startX = strokeWidth / 2
         val endX = size.width - strokeWidth / 2
         val firstY = size.height * 0.33f

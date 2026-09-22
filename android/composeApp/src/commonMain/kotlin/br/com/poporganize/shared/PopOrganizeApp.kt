@@ -3341,7 +3341,11 @@ private fun CalendarDayCell(
             markers.forEach { task ->
                 Box(
                     Modifier.size(5.dp).background(
-                        if (task.completed) MaterialTheme.colorScheme.outline else priorityColor(task.priority),
+                        when {
+                            task.completed -> MaterialTheme.colorScheme.outline
+                            task.awaitingReview -> PopPurple
+                            else -> priorityColor(task.priority)
+                        },
                         CircleShape,
                     ),
                 )

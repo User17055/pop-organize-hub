@@ -16,6 +16,7 @@ import br.com.poporganize.app.R
 
 val PopBlue = Color(0xFF1687F8)
 val PopBlueDark = Color(0xFF0864DC)
+val PopPurple = Color(0xFF9A72E5)
 val PopBlueSoft: Color @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.primaryContainer
 val PopBackground: Color @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.background
 val PopSurface: Color @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.surface

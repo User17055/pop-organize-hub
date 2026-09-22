@@ -3,10 +3,19 @@ import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "
 import { createPortal } from "react-dom";
 import { addMonths, endOfMonth, endOfWeek, format, startOfWeek, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Network, SlidersHorizontal, UserRound } from "lucide-react";
+import {
+  Building2,
+  ChevronLeft,
+  ChevronRight,
+  Network,
+  SlidersHorizontal,
+  UserRound,
+  X,
+} from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { AccessRestricted } from "@/components/access-restricted";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
 import { getTaskPermissions } from "@/lib/permissions";
 import type { TargetType, Task } from "@/lib/domain";
@@ -57,6 +66,7 @@ function CalendarPage() {
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [groupFilter, setGroupFilter] = useState("all");
   const [personFilter, setPersonFilter] = useState("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -261,6 +271,34 @@ function CalendarPage() {
   const sortedEmployees = [...employees].sort((left, right) =>
     left.name.localeCompare(right.name, "pt-BR"),
   );
+  const activeFilterCount = [departmentFilter, groupFilter, personFilter].filter(
+    (value) => value !== "all",
+  ).length;
+  const activeFilters = [
+    departmentFilter !== "all"
+      ? {
+          key: "department",
+          label:
+            sortedDepartments.find((department) => department.id === departmentFilter)?.name ??
+            "Setor",
+          clear: () => setDepartmentFilter("all"),
+        }
+      : null,
+    groupFilter !== "all"
+      ? {
+          key: "group",
+          label: sortedGroups.find((group) => group.id === groupFilter)?.name ?? "Grupo",
+          clear: () => setGroupFilter("all"),
+        }
+      : null,
+    personFilter !== "all"
+      ? {
+          key: "person",
+          label: sortedEmployees.find((employee) => employee.id === personFilter)?.name ?? "Pessoa",
+          clear: () => setPersonFilter("all"),
+        }
+      : null,
+  ].filter((filter): filter is NonNullable<typeof filter> => filter !== null);
   const isPersonalWorkspace = company.kind === "personal";
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
   const targetOptions = isPersonalWorkspace
@@ -515,63 +553,161 @@ function CalendarPage() {
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2 md:justify-end">
-          {!isPersonalWorkspace && sortedDepartments.length > 0 && (
-            <label className="task-glass-control flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full px-3 sm:flex-none md:h-9">
-              <SlidersHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="sr-only">Filtrar por setor</span>
-              <select
-                value={departmentFilter}
-                onChange={(event) => setDepartmentFilter(event.target.value)}
-                className="min-w-0 max-w-[220px] bg-transparent text-sm font-semibold text-foreground outline-none"
-                aria-label="Filtrar calendário por setor"
-              >
-                <option value="all">Todos os setores</option>
-                {sortedDepartments.map((department) => (
-                  <option key={department.id} value={department.id}>
-                    {department.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {!isPersonalWorkspace && sortedGroups.length > 0 && (
-            <label className="task-glass-control flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full px-3 sm:flex-none md:h-9">
-              <Network className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="sr-only">Filtrar por grupo</span>
-              <select
-                value={groupFilter}
-                onChange={(event) => setGroupFilter(event.target.value)}
-                className="min-w-0 max-w-[220px] flex-1 bg-transparent text-sm font-semibold text-foreground outline-none sm:flex-none"
-                aria-label="Filtrar calendário por grupo"
-              >
-                <option value="all">Todos os grupos</option>
-                {sortedGroups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {!isPersonalWorkspace && sortedEmployees.length > 0 && (
-            <label className="task-glass-control flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full px-3 sm:flex-none md:h-9">
-              <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="sr-only">Filtrar por pessoa</span>
-              <select
-                value={personFilter}
-                onChange={(event) => setPersonFilter(event.target.value)}
-                className="min-w-0 max-w-[220px] flex-1 bg-transparent text-sm font-semibold text-foreground outline-none sm:flex-none"
-                aria-label="Filtrar calendário por pessoa"
-              >
-                <option value="all">Todas as pessoas</option>
-                {sortedEmployees.map((employee) => (
-                  <option key={employee.id} value={employee.id}>
-                    {employee.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+          {!isPersonalWorkspace &&
+            (sortedDepartments.length > 0 ||
+              sortedGroups.length > 0 ||
+              sortedEmployees.length > 0) && (
+              <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "task-glass-control pressable inline-flex h-10 items-center gap-2 rounded-full border px-3.5 text-sm font-semibold transition md:h-9",
+                      activeFilterCount > 0
+                        ? "border-primary/35 bg-primary/10 text-primary"
+                        : "border-border/70 text-foreground hover:border-primary/30 hover:text-primary",
+                    )}
+                    aria-label={
+                      activeFilterCount > 0
+                        ? `Filtros do calendário, ${activeFilterCount} ativo${activeFilterCount > 1 ? "s" : ""}`
+                        : "Filtros do calendário"
+                    }
+                  >
+                    <SlidersHorizontal className="h-4 w-4" />
+                    Filtros
+                    {activeFilterCount > 0 && (
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground">
+                        {activeFilterCount}
+                      </span>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  sideOffset={8}
+                  className="w-[calc(100vw-2rem)] max-w-[380px] overflow-hidden rounded-[24px] border-border/70 bg-background/95 p-0 shadow-2xl backdrop-blur-xl"
+                >
+                  <div className="border-b border-border/70 px-5 py-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h2 className="font-display text-base font-bold text-foreground">
+                          Filtrar calendário
+                        </h2>
+                        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                          Combine as opções para encontrar as tarefas certas.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFiltersOpen(false)}
+                        className="pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                        aria-label="Fechar filtros"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="max-h-[min(60vh,430px)] space-y-4 overflow-y-auto px-5 py-4">
+                    {sortedDepartments.length > 0 && (
+                      <label className="block space-y-2">
+                        <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                          <Building2 className="h-4 w-4 text-primary" /> Setor
+                        </span>
+                        <select
+                          value={departmentFilter}
+                          onChange={(event) => setDepartmentFilter(event.target.value)}
+                          className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-medium text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                        >
+                          <option value="all">Todos os setores</option>
+                          {sortedDepartments.map((department) => (
+                            <option key={department.id} value={department.id}>
+                              {department.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+
+                    {sortedGroups.length > 0 && (
+                      <label className="block space-y-2">
+                        <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                          <Network className="h-4 w-4 text-primary" /> Grupo
+                        </span>
+                        <select
+                          value={groupFilter}
+                          onChange={(event) => setGroupFilter(event.target.value)}
+                          className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-medium text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                        >
+                          <option value="all">Todos os grupos</option>
+                          {sortedGroups.map((group) => (
+                            <option key={group.id} value={group.id}>
+                              {group.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+
+                    {sortedEmployees.length > 0 && (
+                      <label className="block space-y-2">
+                        <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                          <UserRound className="h-4 w-4 text-primary" /> Pessoa responsável
+                        </span>
+                        <select
+                          value={personFilter}
+                          onChange={(event) => setPersonFilter(event.target.value)}
+                          className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-medium text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                        >
+                          <option value="all">Todas as pessoas</option>
+                          {sortedEmployees.map((employee) => (
+                            <option key={employee.id} value={employee.id}>
+                              {employee.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 border-t border-border/70 bg-muted/35 px-5 py-3.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDepartmentFilter("all");
+                        setGroupFilter("all");
+                        setPersonFilter("all");
+                      }}
+                      disabled={activeFilterCount === 0}
+                      className="text-sm font-semibold text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Limpar filtros
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltersOpen(false)}
+                      className="pressable h-9 rounded-full bg-primary px-5 text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90"
+                    >
+                      Ver tarefas
+                    </button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+
+          {activeFilters.map((filter) => (
+            <button
+              key={filter.key}
+              type="button"
+              onClick={filter.clear}
+              className="pressable inline-flex h-9 max-w-[180px] items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 text-xs font-semibold text-primary transition hover:bg-primary/10"
+              aria-label={`Remover filtro ${filter.label}`}
+            >
+              <span className="truncate">{filter.label}</span>
+              <X className="h-3.5 w-3.5 shrink-0" />
+            </button>
+          ))}
+
           <div className="ml-auto flex items-center gap-2 whitespace-nowrap text-xs text-muted-foreground md:text-sm">
             <span className="h-2 w-2 rounded-full bg-primary" />
             {filteredTasks.length} tarefas

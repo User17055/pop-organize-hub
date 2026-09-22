@@ -119,6 +119,7 @@ import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.LightMode
@@ -304,6 +305,9 @@ private data class PopTask(
     val canComplete: Boolean = true,
     val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,
+    val requiresReview: Boolean = false,
+    val isReviewer: Boolean = false,
+    val awaitingReview: Boolean = false,
     val serverId: String = "",
     val assignmentType: String = "user",
     val assignmentTargetId: String = "",
@@ -540,6 +544,9 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 canComplete = item.optBoolean("canComplete", true),
                 canCompleteAnytime = item.optBoolean("canCompleteAnytime", false),
                 canDelete = item.optBoolean("canDelete", true),
+                requiresReview = item.optBoolean("requiresReview", false),
+                isReviewer = item.optBoolean("isReviewer", false),
+                awaitingReview = item.optBoolean("awaitingReview", false),
                 assignmentType = item.optString("assignmentType", "user"),
                 assignmentTargetId = item.optString("assignmentTargetId"),
                 assignmentTargetLabel = item.optString("assignmentTargetLabel"),
@@ -780,6 +787,9 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("canComplete", task.canComplete)
                 .put("canCompleteAnytime", task.canCompleteAnytime)
                 .put("canDelete", task.canDelete)
+                .put("requiresReview", task.requiresReview)
+                .put("isReviewer", task.isReviewer)
+                .put("awaitingReview", task.awaitingReview)
                 .put("assignmentType", task.assignmentType)
                 .put("assignmentTargetId", task.assignmentTargetId)
                 .put("assignmentTargetLabel", task.assignmentTargetLabel)
@@ -858,6 +868,7 @@ private data class ApiWorkspaceSummary(
     val description: String,
     val kind: String,
     val isOwner: Boolean,
+    val isAdmin: Boolean,
     val canCreateTasks: Boolean,
     val canViewCalendar: Boolean,
     val canViewGroups: Boolean,
@@ -958,6 +969,7 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         description = item.optString("description"),
                         kind = item.optString("kind"),
                         isOwner = item.optBoolean("isOwner", false),
+                        isAdmin = item.optBoolean("isAdmin", false),
                         canCreateTasks = item.optBoolean("canCreateTasks", false),
                         canViewCalendar = item.optBoolean("canViewCalendar", false),
                         canViewGroups = item.optBoolean("canViewGroups", false),
@@ -2767,6 +2779,7 @@ private fun PopMainContent(
     val companyNames = remember { mutableStateListOf<String>() }
     val companyIds = remember { mutableStateListOf<String>() }
     val companyOwnership = remember { mutableStateListOf<Boolean>() }
+    val companyAdministration = remember { mutableStateListOf<Boolean>() }
     val companyDescriptions = remember { mutableStateListOf<String>() }
     val companyCanCreateTasks = remember { mutableStateListOf<Boolean>() }
     val companyCanViewCalendar = remember { mutableStateListOf<Boolean>() }
@@ -2837,6 +2850,11 @@ private fun PopMainContent(
     } else {
         companyTaskGroups.getOrElse(selectedCompanyIndex) { personalTasks }
     }
+    val isTaskAdmin = workSpace == WorkSpace.Personal ||
+        companyAdministration.getOrElse(selectedCompanyIndex) { false }
+    // A pessoa que executou a tarefa continua vendo-a enquanto o superior revisa. O estado e as
+    // permissoes vindos do servidor deixam a acao desabilitada sem retirar a atividade da tela.
+    val displayedTasks = tasks
     val canCreateTask =
         workSpace == WorkSpace.Personal || companyCanCreateTasks.getOrElse(selectedCompanyIndex) { false }
     val canViewCalendar =
@@ -3001,6 +3019,8 @@ private fun PopMainContent(
         companyIds.addAll(companies.map { it.id })
         companyOwnership.clear()
         companyOwnership.addAll(companies.map { it.isOwner })
+        companyAdministration.clear()
+        companyAdministration.addAll(companies.map { it.isAdmin })
         companyNames.clear()
         companyNames.addAll(companies.map { it.name })
         companyDescriptions.clear()
@@ -3347,7 +3367,7 @@ private fun PopMainContent(
             ) { page ->
                 when (page) {
                     PopDestination.Dashboard -> DashboardScreen(
-                        tasks = tasks,
+                        tasks = displayedTasks,
                         canCreateTask = canCreateTask,
                         isGuest = sessionMode == SessionMode.Guest,
                         displayName = when {
@@ -3376,6 +3396,7 @@ private fun PopMainContent(
                     PopDestination.Tasks -> TasksScreen(
                         tasks = tasks,
                         canCreateTask = canCreateTask,
+                        isTaskAdmin = isTaskAdmin,
                         currentUserId = googleAccount?.id.orEmpty(),
                         currentUserName = googleAccount?.name.orEmpty(),
                         workSpace = workSpace,
@@ -3412,8 +3433,11 @@ private fun PopMainContent(
                     )
                     PopDestination.Calendar -> Box(Modifier.fillMaxSize()) {
                         CalendarScreen(
-                            tasks = tasks,
+                            tasks = displayedTasks,
                             canCreateTask = canCreateTask,
+                            companyMembers = companyMembers,
+                            companySectors = companySectors,
+                            companyGroups = companyGroups,
                             workSpace = workSpace,
                             onWorkSpaceChange = ::selectWorkSpace,
                             companyNames = companyNames,
@@ -3439,7 +3463,12 @@ private fun PopMainContent(
                                     val index = tasks.indexOfFirst { it.id == task.id }
                                     if (index >= 0) {
                                         val markingCompleted = !task.completed
-                                        tasks[index] = task.copy(completed = markingCompleted)
+                                        tasks[index] = task.copy(
+                                            completed = markingCompleted,
+                                            awaitingReview = markingCompleted && task.requiresReview && !task.isReviewer,
+                                            canComplete = task.canComplete &&
+                                                (!markingCompleted || !task.requiresReview || task.isReviewer),
+                                        )
                                         if (markingCompleted) {
                                             val nextOccurrence = nextTaskOccurrence(task)
                                             if (
@@ -3477,6 +3506,7 @@ private fun PopMainContent(
                             TasksScreen(
                                 tasks = tasks,
                                 canCreateTask = canCreateTask,
+                                isTaskAdmin = isTaskAdmin,
                                 currentUserId = googleAccount?.id.orEmpty(),
                                 currentUserName = googleAccount?.name.orEmpty(),
                                 workSpace = workSpace,
@@ -3517,6 +3547,7 @@ private fun PopMainContent(
                             TasksScreen(
                                 tasks = tasks,
                                 canCreateTask = canCreateTask,
+                                isTaskAdmin = isTaskAdmin,
                                 currentUserId = googleAccount?.id.orEmpty(),
                                 currentUserName = googleAccount?.name.orEmpty(),
                                 workSpace = workSpace,
@@ -5279,6 +5310,7 @@ private fun ResponsibleSelector(
 private fun TasksScreen(
     tasks: MutableList<PopTask>,
     canCreateTask: Boolean,
+    isTaskAdmin: Boolean,
     currentUserId: String,
     currentUserName: String,
     workSpace: WorkSpace,
@@ -5401,15 +5433,6 @@ private fun TasksScreen(
         }
     }
     val today = LocalDate.now()
-    val isTaskAdmin =
-        workSpace == WorkSpace.Personal ||
-            companyMembers.any {
-                (
-                    it.id.equals(currentUserId, ignoreCase = true) ||
-                        it.name.equals(currentUserName, ignoreCase = true)
-                    ) &&
-                    (it.isOwner || it.role.contains("admin", ignoreCase = true))
-            }
     val currentCompanyMember = companyMembers.firstOrNull {
         it.id.equals(currentUserId, ignoreCase = true) ||
             it.name.equals(currentUserName, ignoreCase = true)
@@ -5547,7 +5570,11 @@ private fun TasksScreen(
                 delay(620)
                 val currentIndex = tasks.indexOfFirst { it.id == task.id }
                 if (currentIndex >= 0) {
-                    tasks[currentIndex] = task.copy(completed = true)
+                    tasks[currentIndex] = task.copy(
+                        completed = true,
+                        awaitingReview = task.requiresReview && !task.isReviewer,
+                        canComplete = task.canComplete && (!task.requiresReview || task.isReviewer),
+                    )
                     val nextOccurrence = nextTaskOccurrence(task)
                     if (
                         nextOccurrence != null &&
@@ -5576,7 +5603,7 @@ private fun TasksScreen(
             }
         } else {
             val index = tasks.indexOfFirst { it.id == task.id }
-            if (index >= 0) tasks[index] = task.copy(completed = false)
+            if (index >= 0) tasks[index] = task.copy(completed = false, awaitingReview = false)
         }
     }
 
@@ -8328,7 +8355,7 @@ private fun TaskCard(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onComplete),
+                    .clickable(enabled = !task.awaitingReview || task.canComplete, onClick = onComplete),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
@@ -8379,7 +8406,13 @@ private fun TaskCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 val dueLabel = displayDueLabel(task)
-                val dueText = if (task.dueTime.isBlank()) dueLabel else "$dueLabel, ${task.dueTime}"
+                val dueText = if (task.awaitingReview) {
+                    "Aguardando revisão"
+                } else if (task.dueTime.isBlank()) {
+                    dueLabel
+                } else {
+                    "$dueLabel, ${task.dueTime}"
+                }
                 val hasRecurrence = task.recurrenceRule != "Não repetir"
                 val hasDescription = task.description.isNotBlank()
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -8414,6 +8447,7 @@ private fun TaskCard(
                         dueText,
                         color = when {
                             isUrgent -> Color.White.copy(alpha = .9f)
+                            task.awaitingReview -> PopPurple
                             isOverdue -> taskPriorityColor("Urgente")
                             else -> PopMuted
                         },
@@ -8445,6 +8479,7 @@ private fun TaskRow(
     task: PopTask,
     onClick: (() -> Unit)? = null,
     onToggleComplete: (() -> Unit)? = null,
+    toggleEnabled: Boolean = true,
     leadingTime: String? = null,
 ) {
     val isOverdue = isTaskOverdue(task)
@@ -8475,13 +8510,17 @@ private fun TaskRow(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onToggleComplete),
+                    .clickable(enabled = toggleEnabled, onClick = onToggleComplete),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
                     modifier = Modifier
                         .size(22.dp)
-                        .border(2.dp, if (task.completed) PopBlue else PopMuted, CircleShape)
+                        .border(
+                            2.dp,
+                            if (task.completed) PopBlue else PopMuted.copy(alpha = if (toggleEnabled) 1f else .4f),
+                            CircleShape,
+                        )
                         .background(if (task.completed) PopBlue else Color.Transparent, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -8525,7 +8564,15 @@ private fun TaskRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (task.completed) {
+                if (task.awaitingReview) {
+                    Text(
+                        " • Aguardando revisão",
+                        color = PopPurple,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                } else if (task.completed) {
                     Text(
                         " • Concluída",
                         color = PopBlue,
@@ -8623,6 +8670,9 @@ private fun taskPriorityColor(priority: String): Color = when (priority) {
 private fun CalendarScreen(
     tasks: List<PopTask>,
     canCreateTask: Boolean,
+    companyMembers: List<CompanyMember>,
+    companySectors: List<CompanySector>,
+    companyGroups: List<CompanyGroup>,
     workSpace: WorkSpace,
     onWorkSpaceChange: (WorkSpace) -> Unit,
     companyNames: List<String>,
@@ -8642,6 +8692,11 @@ private fun CalendarScreen(
     val pagerState = rememberPagerState(initialPage = pagerCenter) { pagerPageCount }
     val pagerScope = rememberCoroutineScope()
     var month by remember { mutableStateOf(anchorMonth) }
+    var showFilters by remember { mutableStateOf(false) }
+    var sectorFilter by remember { mutableStateOf<String?>(null) }
+    var groupFilter by remember { mutableStateOf<String?>(null) }
+    var personFilter by remember { mutableStateOf<String?>(null) }
+    var pendingOnly by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }
             .collect { page -> month = anchorMonth.plusMonths((page - pagerCenter).toLong()) }
@@ -8649,8 +8704,57 @@ private fun CalendarScreen(
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     val locale = remember { Locale("pt", "BR") }
     val today = LocalDate.now()
-    val visibleCalendarTasks = remember(taskSnapshot, month) {
-        calendarTasksForMonth(taskSnapshot, month)
+    val activeMembers = remember(companyMembers) { companyMembers.filterNot { it.pending } }
+    val filteredTaskSnapshot = remember(
+        taskSnapshot,
+        activeMembers,
+        companySectors,
+        companyGroups,
+        sectorFilter,
+        groupFilter,
+        personFilter,
+        pendingOnly,
+        workSpace,
+    ) {
+        val selectedSector = companySectors.firstOrNull { it.id == sectorFilter }
+        val selectedGroup = companyGroups.firstOrNull { it.id == groupFilter }
+        val selectedPerson = activeMembers.firstOrNull { it.id == personFilter }
+        val groupMembers = activeMembers.filter { member ->
+            selectedGroup != null && (member.id in selectedGroup.memberIds || selectedGroup.id in member.groupIds)
+        }
+        taskSnapshot.filter { task ->
+            val responsibleNames = (task.assignees + task.assignee).filter { it.isNotBlank() }
+            val matchesSector = sectorFilter == null ||
+                (task.assignmentType == "department" &&
+                    (task.assignmentTargetId == sectorFilter || task.assignmentTargetLabel == selectedSector?.name)) ||
+                activeMembers.any { member ->
+                    (member.sectorId == sectorFilter || member.sector == selectedSector?.name) &&
+                        responsibleNames.any { it.equals(member.name, ignoreCase = true) }
+                }
+            val matchesGroup = groupFilter == null ||
+                (task.assignmentType == "group" &&
+                    (task.assignmentTargetId == groupFilter || task.assignmentTargetLabel == selectedGroup?.name)) ||
+                groupMembers.any { member ->
+                    responsibleNames.any { it.equals(member.name, ignoreCase = true) }
+                }
+            val matchesPerson = personFilter == null ||
+                (task.assignmentType == "user" &&
+                    (task.assignmentTargetId == personFilter || task.assignmentTargetLabel == selectedPerson?.name)) ||
+                responsibleNames.any { it.equals(selectedPerson?.name, ignoreCase = true) }
+            (!pendingOnly || !task.completed) && matchesSector && matchesGroup && matchesPerson
+        }
+    }
+    val activeFilterCount = listOfNotNull(sectorFilter, groupFilter, personFilter).size +
+        if (pendingOnly) 1 else 0
+    LaunchedEffect(workSpace, selectedCompanyIndex) {
+        sectorFilter = null
+        groupFilter = null
+        personFilter = null
+        pendingOnly = false
+        showFilters = false
+    }
+    val visibleCalendarTasks = remember(filteredTaskSnapshot, month) {
+        calendarTasksForMonth(filteredTaskSnapshot, month)
     }
     val selectedDayTasks = remember(visibleCalendarTasks, selectedDate) {
         visibleCalendarTasks.filter { task -> task.dueDate == selectedDate.toString() }.sortedWith(
@@ -8674,7 +8778,6 @@ private fun CalendarScreen(
         "${selectedDate.dayOfMonth} de $monthName"
     }
     val selectedCountLabel = if (selectedDayTasks.size == 1) "1 tarefa" else "${selectedDayTasks.size} tarefas"
-
     LaunchedEffect(month) {
         if (YearMonth.from(selectedDate) != month) {
             selectedDate = month.atDay(minOf(selectedDate.dayOfMonth, month.lengthOfMonth()))
@@ -8704,6 +8807,23 @@ private fun CalendarScreen(
                     modifier = Modifier.weight(1f),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
+                if (workSpace == WorkSpace.Company) {
+                    Box(Modifier.size(48.dp)) {
+                        IconButton(onClick = { showFilters = true }) {
+                            Icon(
+                                Icons.Rounded.FilterList,
+                                "Filtrar calendário",
+                                tint = if (activeFilterCount > 0) PopBlue else PopMuted,
+                            )
+                        }
+                        if (activeFilterCount > 0) {
+                            Box(
+                                Modifier.align(Alignment.TopEnd).padding(top = 7.dp, end = 7.dp)
+                                    .size(8.dp).background(PopBlue, CircleShape),
+                            )
+                        }
+                    }
+                }
                 IconButton(onClick = { pagerScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } }) { Icon(Icons.Rounded.ChevronRight, "Próximo mês") }
             }
         }
@@ -8717,8 +8837,8 @@ private fun CalendarScreen(
                 val pageTasks = if (pageMonth == month) {
                     visibleCalendarTasks
                 } else {
-                    remember(taskSnapshot, pageMonth) {
-                        calendarTasksForMonth(taskSnapshot, pageMonth)
+                    remember(filteredTaskSnapshot, pageMonth) {
+                        calendarTasksForMonth(filteredTaskSnapshot, pageMonth)
                     }
                 }
                 CalendarGrid(
@@ -8755,6 +8875,153 @@ private fun CalendarScreen(
         }
     }
 
+    if (showFilters) {
+        CalendarFilterSheet(
+            sectors = companySectors.sortedBy { it.name.lowercase() },
+            groups = companyGroups.sortedBy { it.name.lowercase() },
+            people = activeMembers.sortedBy { it.name.lowercase() },
+            sectorFilter = sectorFilter,
+            onSector = { sectorFilter = it },
+            groupFilter = groupFilter,
+            onGroup = { groupFilter = it },
+            personFilter = personFilter,
+            onPerson = { personFilter = it },
+            pendingOnly = pendingOnly,
+            onPendingOnly = { pendingOnly = it },
+            activeCount = activeFilterCount,
+            onDismiss = { showFilters = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CalendarFilterSheet(
+    sectors: List<CompanySector>,
+    groups: List<CompanyGroup>,
+    people: List<CompanyMember>,
+    sectorFilter: String?,
+    onSector: (String?) -> Unit,
+    groupFilter: String?,
+    onGroup: (String?) -> Unit,
+    personFilter: String?,
+    onPerson: (String?) -> Unit,
+    pendingOnly: Boolean,
+    onPendingOnly: (Boolean) -> Unit,
+    activeCount: Int,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = PopBackground,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text("Filtrar calendário", fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        "Combine as opções para encontrar as tarefas certas.",
+                        color = PopMuted,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                    )
+                }
+                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Fechar filtros") }
+            }
+
+            if (sectors.isNotEmpty()) {
+                CalendarFilterOptions(
+                    label = "Setor",
+                    icon = Icons.Rounded.AccountTree,
+                    allLabel = "Todos os setores",
+                    options = sectors.map { it.id to it.name },
+                    selected = sectorFilter,
+                    onSelected = onSector,
+                )
+            }
+            if (groups.isNotEmpty()) {
+                CalendarFilterOptions(
+                    label = "Grupo",
+                    icon = Icons.Rounded.Groups,
+                    allLabel = "Todos os grupos",
+                    options = groups.map { it.id to it.name },
+                    selected = groupFilter,
+                    onSelected = onGroup,
+                )
+            }
+            if (people.isNotEmpty()) {
+                CalendarFilterOptions(
+                    label = "Pessoa responsável",
+                    icon = Icons.Rounded.PersonOutline,
+                    allLabel = "Todas as pessoas",
+                    options = people.map { it.id to it.name },
+                    selected = personFilter,
+                    onSelected = onPerson,
+                )
+            }
+
+            Surface(
+                onClick = { onPendingOnly(!pendingOnly) },
+                color = if (pendingOnly) PopBlueSoft else PopSurface,
+                contentColor = if (pendingOnly) PopBlue else PopText,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (pendingOnly) Icons.Rounded.CheckCircle else Icons.Rounded.PendingActions,
+                        null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text("Mostrar somente pendentes", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TextButton(
+                    enabled = activeCount > 0,
+                    onClick = {
+                        onSector(null)
+                        onGroup(null)
+                        onPerson(null)
+                        onPendingOnly(false)
+                    },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Limpar filtros") }
+                Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Ver tarefas") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarFilterOptions(
+    label: String,
+    icon: ImageVector,
+    allLabel: String,
+    options: List<Pair<String, String>>,
+    selected: String?,
+    onSelected: (String?) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item { ChoicePill(allLabel, selected == null) { onSelected(null) } }
+            items(options) { (id, name) ->
+                ChoicePill(name, selected == id) { onSelected(id) }
+            }
+        }
+    }
 }
 
 private fun nextTaskOccurrence(task: PopTask): Pair<LocalDate, String>? {
@@ -8796,6 +9063,7 @@ private fun CalendarDayAgenda(
                 task = task,
                 onClick = if (unavailable) null else ({ onOpenTask(task) }),
                 onToggleComplete = if (unavailable) null else ({ onToggleTaskComplete(task) }),
+                toggleEnabled = !(task.awaitingReview && !task.canComplete),
                 leadingTime = task.dueTime,
             )
         }
@@ -8815,6 +9083,7 @@ private fun CalendarDayAgenda(
                 task,
                 onClick = if (unavailable) null else ({ onOpenTask(task) }),
                 onToggleComplete = if (unavailable) null else ({ onToggleTaskComplete(task) }),
+                toggleEnabled = !(task.awaitingReview && !task.canComplete),
             )
         }
     }
@@ -8998,8 +9267,11 @@ private fun CalendarGrid(
                                         visibleTasks.forEachIndexed { index, task ->
                                             val angle =
                                                 Math.toRadians((startAngle + angleStep * index).toDouble())
-                                            val dotColor =
-                                                if (task.completed) PopBlue else taskPriorityColor(task.priority)
+                                            val dotColor = when {
+                                                task.completed -> PopBlue
+                                                task.awaitingReview -> PopPurple
+                                                else -> taskPriorityColor(task.priority)
+                                            }
                                             drawCircle(
                                                 color = dotColor,
                                                 radius = 2.dp.toPx(),

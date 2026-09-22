@@ -8819,14 +8819,16 @@ private fun CalendarScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (workSpace == WorkSpace.Company) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        Box(
+                            modifier = Modifier.size(width = 66.dp, height = 48.dp),
                         ) {
-                            IconButton(onClick = { showFilters = true }) {
+                            IconButton(
+                                onClick = { showFilters = true },
+                                modifier = Modifier.align(Alignment.CenterStart),
+                            ) {
                                 CalendarFilterIcon(
                                     tint = if (activeFilterCount > 0) PopBlue else PopMuted,
-                                    modifier = Modifier.size(width = 28.dp, height = 24.dp),
+                                    modifier = Modifier.size(width = 22.dp, height = 18.dp),
                                 )
                             }
                             if (activeFilterCount > 0) {
@@ -8834,7 +8836,9 @@ private fun CalendarScreen(
                                     color = PopBlue,
                                     contentColor = Color.White,
                                     shape = CircleShape,
-                                    modifier = Modifier.size(18.dp),
+                                    modifier = Modifier.align(Alignment.TopEnd)
+                                        .offset(y = 2.dp)
+                                        .size(18.dp),
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Text(activeFilterCount.toString(), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
@@ -8919,8 +8923,8 @@ private fun CalendarScreen(
 @Composable
 private fun CalendarFilterIcon(tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier.semantics { contentDescription = "Filtrar calend\u00e1rio" }) {
-        val strokeWidth = 2.4.dp.toPx()
-        val knobRadius = 3.8.dp.toPx()
+        val strokeWidth = 1.5.dp.toPx()
+        val knobRadius = 3.dp.toPx()
         val startX = strokeWidth / 2
         val endX = size.width - strokeWidth / 2
         val firstY = size.height * 0.33f

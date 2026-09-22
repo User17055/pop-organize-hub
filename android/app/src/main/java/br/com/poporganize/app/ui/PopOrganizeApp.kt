@@ -8817,30 +8817,26 @@ private fun CalendarScreen(
                 ) {
                     if (workSpace == WorkSpace.Company) {
                         Box {
-                            Surface(
-                                onClick = { showFilters = true },
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (activeFilterCount > 0) PopBlueSoft else PopSurfaceAlt,
-                                contentColor = if (activeFilterCount > 0) PopBlue else PopMuted,
-                                modifier = Modifier.size(42.dp),
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Rounded.FilterList, "Filtrar calendário", modifier = Modifier.size(22.dp))
-                                }
+                            IconButton(onClick = { showFilters = true }) {
+                                Icon(
+                                    Icons.Rounded.FilterList,
+                                    "Filtrar calendário",
+                                    tint = if (activeFilterCount > 0) PopBlue else PopMuted,
+                                    modifier = Modifier.size(24.dp),
+                                )
                             }
                             if (activeFilterCount > 0) {
                                 Surface(
                                     color = PopBlue,
                                     contentColor = Color.White,
                                     shape = CircleShape,
-                                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp),
+                                    modifier = Modifier.align(Alignment.TopEnd)
+                                        .offset(x = (-2).dp, y = 8.dp)
+                                        .size(18.dp),
                                 ) {
-                                    Text(
-                                        activeFilterCount.toString(),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                    )
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(activeFilterCount.toString(), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+                                    }
                                 }
                             }
                         }
@@ -9038,11 +9034,7 @@ private fun CalendarFilterOptions(
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 2.dp)) {
-            Surface(color = PopBlueSoft, contentColor = PopBlue, shape = RoundedCornerShape(9.dp)) {
-                Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                    Icon(icon, null, modifier = Modifier.size(18.dp))
-                }
-            }
+            Icon(icon, null, tint = PopBlue, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
             Column {
                 Text(label, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
@@ -9063,7 +9055,6 @@ private fun CalendarFilterOptions(
                 onClick = { expanded = true },
                 color = PopSurface,
                 shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, if (selected != null) PopBlue.copy(alpha = 0.45f) else PopBorder),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(
@@ -9086,15 +9077,8 @@ private fun CalendarFilterOptions(
                     DropdownMenuItem(
                         text = { Text(name, fontSize = 13.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium) },
                         leadingIcon = {
-                            Box(
-                                Modifier.size(20.dp).border(
-                                    1.5.dp,
-                                    if (isSelected) PopBlue else PopMuted.copy(alpha = 0.55f),
-                                    CircleShape,
-                                ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (isSelected) Box(Modifier.size(10.dp).background(PopBlue, CircleShape))
+                            Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                                if (isSelected) Icon(Icons.Rounded.Check, null, tint = PopBlue, modifier = Modifier.size(18.dp))
                             }
                         },
                         onClick = {

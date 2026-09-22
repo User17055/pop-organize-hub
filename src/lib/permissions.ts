@@ -414,6 +414,8 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
   const base = getHierarchyPermissions(input);
   const reviewManagerId = effectiveReviewManagerId(input);
   const isAssignedReviewer = reviewManagerId === input.currentUser?.id;
+  const isAdministrator = isAdmin(input);
+  const canManageReview = isAssignedReviewer || isAdministrator;
   const isWaitingReview = input.task.status === "waiting_review";
 
   const set = resolvePermissionSet({
@@ -426,7 +428,7 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
     : () => true;
 
   const canComplete = base.canComplete && allowed("tasks.complete");
-  const canCompleteAnytime = isAdmin(input) && allowed("tasks.completeAnytime");
+  const canCompleteAnytime = isAdministrator && allowed("tasks.completeAnytime");
   const canReopen = base.canComplete && allowed("tasks.reopen");
 
   return {
@@ -434,12 +436,12 @@ export function getTaskPermissions(input: PermissionInput): TaskPermissions {
     canChangeStatus:
       base.canChangeStatus &&
       allowed("tasks.changeStatus") &&
-      (!isWaitingReview || isAssignedReviewer),
-    canComplete: canComplete && (!isWaitingReview || isAssignedReviewer),
+      (!isWaitingReview || canManageReview),
+    canComplete: canComplete && (!isWaitingReview || canManageReview),
     canCompleteAnytime,
-    canReopen: canReopen && (!isWaitingReview || isAssignedReviewer),
-    canApproveReview: isWaitingReview && isAssignedReviewer && canComplete,
-    canRejectReview: isWaitingReview && isAssignedReviewer && canReopen,
+    canReopen: canReopen && (!isWaitingReview || canManageReview),
+    canApproveReview: isWaitingReview && canManageReview && canComplete,
+    canRejectReview: isWaitingReview && canManageReview && canReopen,
     canDelete: base.canDelete && allowed("tasks.delete"),
     canComment: base.canChangeStatus && allowed("tasks.comment"),
     canAttach: base.canChangeStatus && allowed("tasks.attach"),

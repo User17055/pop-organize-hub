@@ -1501,7 +1501,10 @@ function taskToMobileTask(
     canCompleteAnytime: permissions.canCompleteAnytime,
     canDelete: permissions.canDelete,
     requiresReview: task.requiresReview ?? false,
-    isReviewer: task.reviewerId === currentUser.id,
+    // O administrador pode resolver qualquer fila de revisão, mesmo quando outro superior foi
+    // escolhido como revisor principal. O aplicativo usa este campo para concluir de fato em vez
+    // de reenviar a tarefa para a mesma fila.
+    isReviewer: permissions.canApproveReview,
     awaitingReview: task.status === "waiting_review",
     assignmentType: native?.assignmentType ?? task.target.type,
     assignmentTargetId: native?.assignmentTargetId ?? task.target.id,

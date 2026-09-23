@@ -249,6 +249,7 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             id: department.id,
             name: formatDepartmentName(department.name),
             description: department.description ?? "",
+            managedByCurrentUser: department.managerId === userId,
           })),
         groups: workspace.groups.map((group) => ({
           id: group.id,

@@ -52,6 +52,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -361,7 +362,12 @@ private data class CompanyMember(
     val groupIds: List<String> = emptyList(),
     val permissionGroupId: String = "",
 )
-private data class CompanySector(val name: String, val description: String, val id: String = "")
+private data class CompanySector(
+    val name: String,
+    val description: String,
+    val id: String = "",
+    val managedByCurrentUser: Boolean = false,
+)
 private data class CompanyGroup(
     val name: String,
     val description: String,
@@ -924,6 +930,7 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         sector.optString("name"),
                         sector.optString("description"),
                         sector.optString("id"),
+                        sector.optBoolean("managedByCurrentUser", false),
                     )
                 }
                 val groups = List(groupsJson.length()) { groupIndex ->
@@ -1814,55 +1821,82 @@ private fun PopSplashScreen(entered: Boolean) {
         label = "splash-logo-alpha",
     )
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(Color(0xFF050505)),
         contentAlignment = Alignment.Center,
     ) {
-        Row(
+        val compact = maxWidth < 380.dp
+
+        Column(
             modifier = Modifier.scale(scale),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                text = "P",
-                color = Color.White.copy(alpha = alpha),
-                fontSize = 58.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-3).sp,
-            )
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .scale(alpha.coerceAtLeast(.01f))
-                    .clip(CircleShape)
-                    .background(PopBlue),
-            )
-            Text(
-                text = "p",
-                color = Color.White.copy(alpha = alpha),
-                fontSize = 58.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-3).sp,
-            )
-            Text(
-                text = "Organize",
-                color = Color.White.copy(alpha = alpha),
-                fontSize = 58.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-3).sp,
-                modifier = Modifier.padding(start = 7.dp),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "P",
+                    color = Color.White.copy(alpha = alpha),
+                    fontSize = 58.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-3).sp,
+                )
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .scale(alpha.coerceAtLeast(.01f))
+                        .clip(CircleShape)
+                        .background(PopBlue),
+                )
+                Text(
+                    text = "p",
+                    color = Color.White.copy(alpha = alpha),
+                    fontSize = 58.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-3).sp,
+                )
+                if (!compact) {
+                    Text(
+                        text = "Organize",
+                        color = Color.White.copy(alpha = alpha),
+                        fontSize = 58.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = (-3).sp,
+                        modifier = Modifier.padding(start = 7.dp),
+                    )
+                }
+            }
+            if (compact) {
+                Text(
+                    text = "Organize",
+                    color = Color.White.copy(alpha = alpha),
+                    fontSize = 58.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-3).sp,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun PopWordmark(modifier: Modifier = Modifier, large: Boolean = false, color: Color = PopText) {
+private fun PopWordmark(
+    modifier: Modifier = Modifier,
+    large: Boolean = false,
+    color: Color = PopText,
+    stacked: Boolean = false,
+) {
     val mainSize = if (large) 29.sp else 22.sp
-    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        Text("P", color = color, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
-        Box(Modifier.size(if (large) 19.dp else 14.dp).clip(CircleShape).background(PopBlue))
-        Text("p", color = color, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
-        Text("Organize", color = color, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp, modifier = Modifier.padding(start = if (large) 5.dp else 4.dp))
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("P", color = color, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
+            Box(Modifier.size(if (large) 19.dp else 14.dp).clip(CircleShape).background(PopBlue))
+            Text("p", color = color, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
+            if (!stacked) {
+                Text("Organize", color = color, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp, modifier = Modifier.padding(start = if (large) 5.dp else 4.dp))
+            }
+        }
+        if (stacked) {
+            Text("Organize", color = color, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
+        }
     }
 }
 
@@ -1880,7 +1914,9 @@ private fun OnboardingScreen(onSkip: () -> Unit, onFinish: () -> Unit) {
             .padding(vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        PopWordmark(large = true, color = Color.White)
+        BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            PopWordmark(large = true, color = Color.White, stacked = maxWidth < 380.dp)
+        }
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -2336,7 +2372,9 @@ private fun LoginScreen(
             .padding(horizontal = 28.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        PopWordmark(large = true, color = Color.White)
+        BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            PopWordmark(large = true, color = Color.White, stacked = maxWidth < 380.dp)
+        }
         Column(
             Modifier.weight(1f),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -4572,13 +4610,6 @@ private fun DashboardScreen(
                         "Visão geral",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        if (visibleTasks.size == 1) "1 tarefa" else "${visibleTasks.size} tarefas",
-                        color = PopMuted,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
                     )
                 }
                 Spacer(Modifier.height(10.dp))
@@ -5450,6 +5481,10 @@ private fun TasksScreen(
             }
             .forEach { add(it.id) }
     }
+    val currentMemberSectorIds = buildSet {
+        currentCompanyMember?.sectorId?.takeIf(String::isNotBlank)?.let(::add)
+        companySectors.filter { it.managedByCurrentUser }.mapTo(this) { it.id }
+    }
     fun canCompleteTask(task: PopTask): Boolean = task.canComplete
     fun canEditTask(task: PopTask): Boolean = task.canEdit
 
@@ -5524,17 +5559,12 @@ private fun TasksScreen(
                             it.trim().equals(currentUserName, ignoreCase = true)
                         }
                 "Setor" ->
-                    task.assignmentType == "department" &&
-                        currentCompanyMember != null &&
-                        (
-                            currentCompanyMember.sectorId.isNotBlank() &&
-                                task.assignmentTargetId == currentCompanyMember.sectorId ||
-                                currentCompanyMember.sector.isNotBlank() &&
-                                task.assignmentTargetLabel.equals(
-                                    currentCompanyMember.sector,
-                                    ignoreCase = true,
-                                )
-                            )
+                    companySectors
+                        .asSequence()
+                        .filter { it.id in currentMemberSectorIds }
+                        .any { sector ->
+                            task.belongsToSector(sector.id, sector.name, companyMembers)
+                        }
                 "Grupo" ->
                     task.assignmentType == "group" &&
                         task.assignmentTargetId in currentMemberGroupIds

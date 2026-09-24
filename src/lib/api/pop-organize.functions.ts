@@ -174,6 +174,7 @@ const createEmployeeSchema = z.object({
   role: z.string().trim().min(2),
   departmentId: z.string().min(1),
   status: z.enum(["active", "inactive"]).default("active"),
+  canCreateTasks: z.boolean().optional(),
   permissionGroupId: z
     .union([z.literal(""), z.string().min(1)])
     .optional()
@@ -2116,6 +2117,7 @@ export const createEmployee = createServerFn({ method: "POST" })
         departmentId: data.departmentId,
         status: data.status,
         permissionGroupId: data.permissionGroupId,
+        canCreateTasks: data.canCreateTasks,
         invitedById: currentUserId,
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + INVITATION_MAX_AGE_SECONDS * 1000).toISOString(),
@@ -2195,7 +2197,9 @@ export const updateEmployee = createServerFn({ method: "POST" })
       // grupo de permissao. Nome, avatar e senha seguem pelo updateProfile.
       if (
         employee.id === currentUserId &&
-        (data.role !== employee.role || data.permissionGroupId !== employee.permissionGroupId)
+        (data.role !== employee.role ||
+          data.permissionGroupId !== employee.permissionGroupId ||
+          data.canCreateTasks !== employee.canCreateTasks)
       ) {
         throw createHttpError("Você não pode alterar o próprio cargo ou grupo de permissão.", 403);
       }
@@ -2204,6 +2208,7 @@ export const updateEmployee = createServerFn({ method: "POST" })
       employee.departmentId = data.departmentId;
       employee.status = data.status;
       employee.permissionGroupId = data.permissionGroupId;
+      employee.canCreateTasks = data.canCreateTasks;
 
       // A conta e a fonte canonica do nome durante a normalizacao do banco. Manter apenas o
       // registro do colaborador atualizado fazia o nome antigo voltar no carregamento seguinte.
@@ -2402,6 +2407,7 @@ export const acceptInvitation = createServerFn({ method: "POST" })
         departmentId: invitation.departmentId,
         status: invitation.status,
         permissionGroupId: invitation.permissionGroupId,
+        canCreateTasks: invitation.canCreateTasks,
         passwordHash: account.passwordHash,
         googleSubject: account.googleSubject,
       };

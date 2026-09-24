@@ -228,6 +228,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import androidx.credentials.CredentialManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
@@ -361,6 +364,7 @@ private data class CompanyMember(
     val sectorId: String = "",
     val groupIds: List<String> = emptyList(),
     val permissionGroupId: String = "",
+    val canCreateTasks: Boolean = false,
 )
 private data class CompanySector(
     val name: String,
@@ -400,8 +404,13 @@ private const val ASSIGNED_TASKS_SEEN_PREFIX = "pop_organize_assigned_tasks_seen
 private const val LAST_WORKSPACE_STORAGE_PREFIX = "pop_organize_last_workspace_"
 private const val PERSONAL_WORKSPACE_STORAGE_VALUE = "personal"
 private val MOBILE_API_BASE_URL = BuildConfig.POP_API_BASE_URL.trimEnd('/')
+private const val ACTIVE_TASK_REFRESH_INTERVAL_MS = 2_000L
+private const val WORKSPACE_REFRESH_INTERVAL_MS = 15_000L
 private const val LIGHT_THEME_STORAGE = "pop_organize_light_theme"
 private const val LOCAL_PREFERENCES = "pop_organize_local"
+
+private data class CachedRemoteTasks(val etag: String, val tasks: List<PopTask>)
+private val remoteTasksCache = mutableMapOf<String, CachedRemoteTasks>()
 private val googleProfileImageCache = mutableMapOf<String, ImageBitmap>()
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
@@ -958,6 +967,7 @@ private suspend fun loadMobileWorkspaces(apiToken: String): List<ApiWorkspaceSum
                         sectorId = employee.optString("sectorId"),
                         groupIds = List(groupIdsJson.length()) { groupIndex -> groupIdsJson.optString(groupIndex) },
                         permissionGroupId = employee.optString("permissionGroupId"),
+                        canCreateTasks = employee.optBoolean("canCreateTasks", false),
                     )
                 }
                 val permissionGroups = List(permissionGroupsJson.length()) { permissionGroupIndex ->
@@ -1213,6 +1223,8 @@ private fun nearestSectorRecurrences(tasks: List<PopTask>): List<PopTask> {
 }
 
 private suspend fun loadRemoteTasks(apiToken: String, workspaceId: String = ""): List<PopTask> = withContext(Dispatchers.IO) {
+    val cacheKey = "$apiToken::$workspaceId"
+    val cached = synchronized(remoteTasksCache) { remoteTasksCache[cacheKey] }
     val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
         requestMethod = "GET"
         connectTimeout = 15_000
@@ -1220,16 +1232,26 @@ private suspend fun loadRemoteTasks(apiToken: String, workspaceId: String = ""):
         setRequestProperty("Authorization", "Bearer $apiToken")
         if (workspaceId.isNotBlank()) setRequestProperty("X-Workspace-Id", workspaceId)
         setRequestProperty("Accept", "application/json")
+        cached?.etag?.takeIf { it.isNotBlank() }?.let { setRequestProperty("If-None-Match", it) }
     }
     try {
         val responseCode = connection.responseCode
+        if (responseCode == java.net.HttpURLConnection.HTTP_NOT_MODIFIED && cached != null) {
+            return@withContext cached.tasks
+        }
         val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
             ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
         val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
         if (responseCode !in 200..299) {
             throw IllegalStateException(response.optString("error", "Falha ao carregar tarefas."))
         }
-        decodeTasks(response.optJSONArray("tasks")?.toString(), emptyList())
+        val tasks = decodeTasks(response.optJSONArray("tasks")?.toString(), emptyList())
+        connection.getHeaderField("ETag")?.takeIf { it.isNotBlank() }?.let { etag ->
+            synchronized(remoteTasksCache) {
+                remoteTasksCache[cacheKey] = CachedRemoteTasks(etag, tasks.toList())
+            }
+        }
+        tasks
     } finally {
         connection.disconnect()
     }
@@ -2802,6 +2824,7 @@ private fun PopMainContent(
     onAccountPhotoChanged: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val navigationScope = rememberCoroutineScope()
     var destination by remember { mutableStateOf(PopDestination.Dashboard) }
     var showMoreSheet by remember { mutableStateOf(false) }
@@ -3242,14 +3265,15 @@ private fun PopMainContent(
         }
     }
 
-    LaunchedEffect(sessionMode, googleAccount?.apiToken) {
+    LaunchedEffect(sessionMode, googleAccount?.apiToken, lifecycleOwner) {
         val account = googleAccount ?: return@LaunchedEffect
         val token = account.apiToken
         if (sessionMode != SessionMode.Guest && token.isNotBlank()) {
-            while (true) {
-                runCatching { loadMobileWorkspaces(token) }.onSuccess { workspaces ->
-                    applyCompanyWorkspaces(workspaces)
-                    companyIds.forEachIndexed { index, workspaceId ->
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (true) {
+                    runCatching { loadMobileWorkspaces(token) }.onSuccess { workspaces ->
+                        applyCompanyWorkspaces(workspaces)
+                        companyIds.forEachIndexed { index, workspaceId ->
                         val companyTasks = companyTaskGroups.getOrNull(index)
                         val localJson = companyTasks?.let(::tasksToJson)?.toString()
                         val lastSyncedJson = lastSyncedCompanyTasks[workspaceId]
@@ -3303,24 +3327,27 @@ private fun PopMainContent(
                                 }
                             }
                         }
+                        }
+                        assignmentAlertsReady = true
                     }
-                    assignmentAlertsReady = true
+                    runCatching { loadMobileInvitations(token) }.onSuccess { invitations ->
+                        pendingInvitations.clear()
+                        pendingInvitations.addAll(invitations)
+                    }
+                    delay(WORKSPACE_REFRESH_INTERVAL_MS)
                 }
-                runCatching { loadMobileInvitations(token) }.onSuccess { invitations ->
-                    pendingInvitations.clear()
-                    pendingInvitations.addAll(invitations)
-                }
-                delay(15_000)
             }
         }
     }
 
-    LaunchedEffect(sessionMode, googleAccount?.apiToken) {
+    LaunchedEffect(sessionMode, googleAccount?.apiToken, lifecycleOwner) {
         if (sessionMode != SessionMode.Guest && !googleAccount?.apiToken.isNullOrBlank()) {
-            refreshRemoteTasks(showFeedback = true)
-            while (true) {
-                delay(15_000)
-                refreshRemoteTasks()
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                refreshRemoteTasks(showFeedback = true)
+                while (true) {
+                    delay(ACTIVE_TASK_REFRESH_INTERVAL_MS)
+                    refreshRemoteTasks()
+                }
             }
         }
     }
@@ -5563,7 +5590,7 @@ private fun TasksScreen(
                         .asSequence()
                         .filter { it.id in currentMemberSectorIds }
                         .any { sector ->
-                            task.belongsToSector(sector.id, sector.name, companyMembers)
+                            task.belongsToSector(sector.id, sector.name)
                         }
                 "Grupo" ->
                     task.assignmentType == "group" &&
@@ -8753,24 +8780,14 @@ private fun CalendarScreen(
         val selectedSector = companySectors.firstOrNull { it.id == sectorFilter }
         val selectedGroup = companyGroups.firstOrNull { it.id == groupFilter }
         val selectedPerson = activeMembers.firstOrNull { it.id == personFilter }
-        val groupMembers = activeMembers.filter { member ->
-            selectedGroup != null && (member.id in selectedGroup.memberIds || selectedGroup.id in member.groupIds)
-        }
         taskSnapshot.filter { task ->
             val responsibleNames = (task.assignees + task.assignee).filter { it.isNotBlank() }
             val matchesSector = sectorFilter == null ||
                 (task.assignmentType == "department" &&
-                    (task.assignmentTargetId == sectorFilter || task.assignmentTargetLabel == selectedSector?.name)) ||
-                activeMembers.any { member ->
-                    (member.sectorId == sectorFilter || member.sector == selectedSector?.name) &&
-                        responsibleNames.any { it.equals(member.name, ignoreCase = true) }
-                }
+                    (task.assignmentTargetId == sectorFilter || task.assignmentTargetLabel == selectedSector?.name))
             val matchesGroup = groupFilter == null ||
                 (task.assignmentType == "group" &&
-                    (task.assignmentTargetId == groupFilter || task.assignmentTargetLabel == selectedGroup?.name)) ||
-                groupMembers.any { member ->
-                    responsibleNames.any { it.equals(member.name, ignoreCase = true) }
-                }
+                    (task.assignmentTargetId == groupFilter || task.assignmentTargetLabel == selectedGroup?.name))
             val matchesPerson = personFilter == null ||
                 (task.assignmentType == "user" &&
                     (task.assignmentTargetId == personFilter || task.assignmentTargetLabel == selectedPerson?.name)) ||
@@ -9493,11 +9510,13 @@ private fun MoreScreen(
     var editingMemberSectorId by remember { mutableStateOf("") }
     var editingMemberGroupIds by remember { mutableStateOf(setOf<String>()) }
     var editingMemberRole by remember { mutableStateOf("Colaborador") }
+    var editingMemberCanCreateTasks by remember { mutableStateOf(true) }
     var memberName by remember { mutableStateOf("") }
     var memberEmail by remember { mutableStateOf("") }
     var memberRole by remember { mutableStateOf("Colaborador") }
     var memberSectorId by remember { mutableStateOf("") }
     var memberGroupIds by remember { mutableStateOf(setOf<String>()) }
+    var memberCanCreateTasks by remember { mutableStateOf(true) }
     var sectorName by remember { mutableStateOf("") }
     var sectorDescription by remember { mutableStateOf("") }
     var groupName by remember { mutableStateOf("") }
@@ -9626,6 +9645,7 @@ private fun MoreScreen(
                     onAdd = {
                         memberSectorId = companySectors.firstOrNull()?.id.orEmpty()
                         memberGroupIds = emptySet()
+                        memberCanCreateTasks = true
                         showEmployeeForm = true
                     },
                     onMemberClick = { member ->
@@ -9634,6 +9654,7 @@ private fun MoreScreen(
                         }
                         editingMemberGroupIds = member.groupIds.toSet()
                         editingMemberRole = member.role
+                        editingMemberCanCreateTasks = member.canCreateTasks
                         selectedMember = member
                     },
                     onBack = { activeManagementPage = null },
@@ -10052,6 +10073,19 @@ private fun MoreScreen(
                             }
                         }
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Cadastrar atividades", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Exibe o botão azul para criar atividades.", color = PopMuted, fontSize = 10.sp)
+                        }
+                        Switch(
+                            checked = memberCanCreateTasks,
+                            onCheckedChange = { memberCanCreateTasks = it },
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -10066,6 +10100,7 @@ private fun MoreScreen(
                                 .put("email", memberEmail.trim())
                                 .put("role", memberRole.trim())
                                 .put("departmentId", memberSectorId)
+                                .put("canCreateTasks", memberCanCreateTasks)
                                 .put("groupIds", JSONArray(memberGroupIds.toList())),
                             successMessage = "Convite enviado por e-mail.",
                         ) {
@@ -10073,6 +10108,7 @@ private fun MoreScreen(
                             memberEmail = ""
                             memberRole = "Colaborador"
                             memberGroupIds = emptySet()
+                            memberCanCreateTasks = true
                             showEmployeeForm = false
                         }
                     },
@@ -10167,6 +10203,19 @@ private fun MoreScreen(
                             }
                         }
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Cadastrar atividades", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Exibe o botão azul para criar atividades.", color = PopMuted, fontSize = 10.sp)
+                        }
+                        Switch(
+                            checked = editingMemberCanCreateTasks,
+                            onCheckedChange = { editingMemberCanCreateTasks = it },
+                        )
+                    }
                     if (member.pending) {
                         Surface(
                             color = Color(0xFFFFA726).copy(alpha = .14f),
@@ -10219,6 +10268,8 @@ private fun MoreScreen(
                                     .put("employeeId", member.id)
                                     .put("departmentId", editingMemberSectorId)
                                     .put("role", editingMemberRole)
+                                    .put("permissionGroupId", member.permissionGroupId)
+                                    .put("canCreateTasks", editingMemberCanCreateTasks)
                                     .put("groupIds", JSONArray(editingMemberGroupIds.toList())),
                                 successMessage = "Funcionário atualizado.",
                             ) {
@@ -10660,22 +10711,9 @@ private fun PopTask.isAssignedTo(memberName: String): Boolean =
     assignees.any { it.equals(memberName, ignoreCase = true) } ||
         assignee.split(",").any { it.trim().equals(memberName, ignoreCase = true) }
 
-private fun PopTask.belongsToSector(
-    sectorId: String,
-    sectorName: String,
-    members: List<CompanyMember>,
-): Boolean {
-    val directlyAssigned = assignmentType == "department" &&
+private fun PopTask.belongsToSector(sectorId: String, sectorName: String): Boolean =
+    assignmentType == "department" &&
         (assignmentTargetId == sectorId || assignmentTargetLabel.equals(sectorName, ignoreCase = true))
-    if (directlyAssigned) return true
-
-    return members
-        .asSequence()
-        .filter { member ->
-            member.sectorId == sectorId || member.sector.equals(sectorName, ignoreCase = true)
-        }
-        .any { member -> isAssignedTo(member.name) }
-}
 
 @Composable
 private fun MobileReportsPage(
@@ -10708,7 +10746,7 @@ private fun MobileReportsPage(
     val unassigned = reportTasks.size - assigned
     val sectorStats = companySectors.map { sector ->
         val sectorTasks = reportTasks.filter {
-            it.belongsToSector(sector.id, sector.name, companyMembers)
+            it.belongsToSector(sector.id, sector.name)
         }
         TargetReportStats(
             id = sector.id,
@@ -11243,7 +11281,7 @@ private fun ReportTasksPage(
     val scopedTasks = when {
         member != null -> tasks.filter { it.isAssignedTo(member.name) }
         sector != null -> tasks.filter {
-            it.belongsToSector(sector.id, sector.name, companyMembers)
+            it.belongsToSector(sector.id, sector.name)
         }
         else -> tasks
     }
@@ -11806,7 +11844,7 @@ private val permissionCatalog = listOf(
     PermissionCatalogCategory(
         "Tarefas",
         listOf(
-            PermissionCatalogItem("tasks.create", "Criar tarefas"),
+            PermissionCatalogItem("tasks.create", "Cadastrar atividades (botão azul)"),
             PermissionCatalogItem("tasks.edit", "Editar tarefas"),
             PermissionCatalogItem("tasks.changeStatus", "Alterar status"),
             PermissionCatalogItem("tasks.complete", "Concluir tarefas"),

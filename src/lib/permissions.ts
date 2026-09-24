@@ -206,11 +206,45 @@ export function getVisibleDepartmentIds(input: {
   );
 }
 
+/** Grupos de trabalho que podem ser expostos ao usuario atual. */
+export function getVisibleGroupIds(input: {
+  currentUser?: PermissionEmployee | null;
+  employees: PermissionInput["employees"];
+  groups: PermissionInput["groups"];
+  permissionGroups?: PermissionGroup[];
+}) {
+  const userId = input.currentUser?.id;
+  if (!userId) return new Set<string>();
+  if (
+    isAdminUser({
+      currentUser: input.currentUser,
+      employees: input.employees,
+      permissionGroups: input.permissionGroups,
+    })
+  ) {
+    return null;
+  }
+  const permissionSet = resolvePermissionSet({
+    currentUser: input.currentUser,
+    employees: input.employees,
+    permissionGroups: input.permissionGroups ?? [],
+  });
+  if (hasPermission(permissionSet, "tasks.viewAll")) return null;
+  return new Set(
+    input.groups
+      .filter((group) => group.leaderId === userId || group.memberIds.includes(userId))
+      .map((group) => group.id),
+  );
+}
+
 export function canViewTask(input: PermissionInput) {
   const userId = input.currentUser?.id;
   if (!userId) return false;
 
   const currentEmployee = input.employees.find((item) => item.id === userId);
+  const responsibleIds = new Set(
+    [input.task.responsibleId, ...(input.task.responsibleIds ?? [])].filter(Boolean),
+  );
   if (isAdmin(input)) return true;
 
   if (input.permissionGroups) {
@@ -229,9 +263,6 @@ export function canViewTask(input: PermissionInput) {
   });
   if (managerAccess?.mode === "all") return true;
   if (managerAccess) {
-    const responsibleIds = new Set(
-      [input.task.responsibleId, ...(input.task.responsibleIds ?? [])].filter(Boolean),
-    );
     if (responsibleIds.has(userId) || effectiveReviewManagerId(input) === userId) return true;
     if (
       [...responsibleIds].some((id) => {
@@ -252,9 +283,13 @@ export function canViewTask(input: PermissionInput) {
     }
     if (input.task.target.type === "group") {
       const group = input.groups.find((item) => item.id === input.task.target.id);
-      return group?.leaderId === userId || group?.memberIds.includes(userId) || false;
+      return (
+        group?.leaderId === userId ||
+        (responsibleIds.size === 0 && group?.memberIds.includes(userId)) ||
+        false
+      );
     }
-    if (input.task.target.type === "company") return true;
+    if (input.task.target.type === "company") return responsibleIds.size === 0;
     return false;
   }
 
@@ -263,6 +298,10 @@ export function canViewTask(input: PermissionInput) {
   if (input.task.responsibleId === userId || (input.task.responsibleIds ?? []).includes(userId)) {
     return true;
   }
+
+  // Tarefa com responsavel individual nao e compartilhada com colegas so porque o destino
+  // estrutural e empresa, setor ou grupo. Gestores e revisores autorizados foram tratados acima.
+  if (responsibleIds.size > 0) return false;
 
   if (input.task.target.type === "company") return true;
   if (input.task.target.type === "user") return input.task.target.id === userId;

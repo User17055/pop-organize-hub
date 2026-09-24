@@ -159,15 +159,8 @@ function taskMatchesCollaborator(task: Task, employeeId: string) {
     : taskResponsibleIds(task).has(employeeId);
 }
 
-function taskMatchesDepartment(task: Task, departmentId: string, data: WorkspaceData) {
-  if (task.target.type === "department" && task.target.id === departmentId) return true;
-  const memberIds = new Set(
-    [...data.employees, ...data.invitations]
-      .filter((employee) => employee.departmentId === departmentId)
-      .map((employee) => employee.id),
-  );
-  if (task.target.type === "user" && memberIds.has(task.target.id)) return true;
-  return [...taskResponsibleIds(task)].some((id) => memberIds.has(id));
+function taskMatchesDepartment(task: Task, departmentId: string, _data: WorkspaceData) {
+  return task.target.type === "department" && task.target.id === departmentId;
 }
 
 function taskMatchesGroup(task: Task, groupId: string) {

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 
 const mobileTaskSchema = z.object({
@@ -69,12 +70,16 @@ export const Route = createFileRoute("/api/mobile/tasks")({
       GET: async ({ request }) => {
         try {
           const { readMobileTasks } = await import("@/lib/mobile-api.server");
-          return Response.json(
-            { tasks: await readMobileTasks(request) },
-            {
-              headers: { "cache-control": "no-store" },
-            },
-          );
+          const body = JSON.stringify({ tasks: await readMobileTasks(request) });
+          const etag = `"${createHash("sha256").update(body).digest("base64url")}"`;
+          const headers = { "cache-control": "no-store", etag };
+          if (request.headers.get("if-none-match") === etag) {
+            return new Response(null, { status: 304, headers });
+          }
+          return new Response(body, {
+            status: 200,
+            headers: { ...headers, "content-type": "application/json; charset=utf-8" },
+          });
         } catch (error) {
           return errorResponse(error);
         }

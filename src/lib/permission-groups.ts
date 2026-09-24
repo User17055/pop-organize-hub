@@ -8,7 +8,10 @@ import {
 
 export type PermissionSet = "all" | Set<PermissionKey>;
 
-type PermissionEmployee = Pick<Employee, "id" | "role" | "permissionGroupId">;
+type PermissionEmployee = Pick<
+  Employee,
+  "id" | "role" | "permissionGroupId" | "canCreateTasks"
+>;
 
 function isAdminRole(role?: string) {
   return role?.toLowerCase().includes("admin") ?? false;
@@ -24,8 +27,8 @@ function hasAllPermissions(group?: PermissionGroup) {
  * Resolves the effective permission set for a user.
  * - Admins (role contains "admin") always get full access.
  * - Users assigned to a group get exactly that group's permissions.
- * - Users without a group (or with a dangling group id) get full access,
- *   so misconfiguration never locks anyone out — restriction is opt-in.
+ * - Users without a valid group get no implicit access, so a missing or
+ *   deleted group cannot expose company data.
  */
 export function resolvePermissionSet(input: {
   currentUser?: CurrentUser | PermissionEmployee | null;
@@ -42,16 +45,25 @@ export function resolvePermissionSet(input: {
 
   const groupId =
     (input.currentUser as PermissionEmployee)?.permissionGroupId ?? employee?.permissionGroupId;
-  if (!groupId) return "all";
+  const canCreateTasks =
+    employee?.canCreateTasks ?? (input.currentUser as PermissionEmployee)?.canCreateTasks;
+  if (!groupId) return canCreateTasks ? new Set(["tasks.create"]) : new Set();
 
   const group = input.permissionGroups.find((item) => item.id === groupId);
-  if (!group) return "all";
+  if (!group) return canCreateTasks ? new Set(["tasks.create"]) : new Set();
 
   // O grupo Administrador representa acesso total mesmo quando o cargo da
   // pessoa continua sendo, por exemplo, "Gestor" ou "Colaborador".
-  if (hasAllPermissions(group)) return "all";
+  if (hasAllPermissions(group)) {
+    return canCreateTasks === false
+      ? new Set(allPermissionKeys.filter((permission) => permission !== "tasks.create"))
+      : "all";
+  }
 
-  return new Set(group.permissions);
+  const permissions = new Set(group.permissions);
+  if (canCreateTasks === true) permissions.add("tasks.create");
+  if (canCreateTasks === false) permissions.delete("tasks.create");
+  return permissions;
 }
 
 export function hasPermission(set: PermissionSet, key: PermissionKey) {

@@ -73,6 +73,8 @@ export interface Employee {
   avatar?: string;
   status: "active" | "inactive";
   permissionGroupId?: string;
+  /** Override individual da permissao que exibe e autoriza o cadastro de atividades. */
+  canCreateTasks?: boolean;
   departmentAccessMode?: "own" | "selected" | "all";
   visibleDepartmentIds?: string[];
 }
@@ -126,7 +128,11 @@ export const permissionCatalog: Array<{
   {
     category: "Tarefas",
     items: [
-      { key: "tasks.create", label: "Criar tarefas", hint: "Pode abrir novas tarefas" },
+      {
+        key: "tasks.create",
+        label: "Cadastrar atividades",
+        hint: "Exibe o botao azul e permite criar atividades",
+      },
       { key: "tasks.edit", label: "Editar tarefas", hint: "Título, descrição, prazo e tags" },
       {
         key: "tasks.changeStatus",
@@ -304,6 +310,7 @@ export interface CurrentUser {
   name: string;
   email: string;
   role: string;
+  canCreateTasks?: boolean;
 }
 
 export interface WorkspaceData {
@@ -325,6 +332,7 @@ export interface WorkspaceData {
     departmentId: string;
     status: "active" | "inactive";
     permissionGroupId?: string;
+    canCreateTasks?: boolean;
     groupIds?: string[];
     invitedById: string;
     createdAt: string;

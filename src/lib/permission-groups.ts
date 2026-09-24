@@ -8,10 +8,7 @@ import {
 
 export type PermissionSet = "all" | Set<PermissionKey>;
 
-type PermissionEmployee = Pick<
-  Employee,
-  "id" | "role" | "permissionGroupId" | "canCreateTasks"
->;
+type PermissionEmployee = Pick<Employee, "id" | "role" | "permissionGroupId" | "canCreateTasks">;
 
 function isAdminRole(role?: string) {
   return role?.toLowerCase().includes("admin") ?? false;

@@ -15,21 +15,32 @@ Organize tarefas, equipes e rotinas da sua empresa em um só lugar.
 
 ## Descrição completa
 
-O Pop Organize ajuda sua empresa a transformar rotinas em tarefas claras, distribuídas e fáceis de acompanhar.
+Organize seu dia e o trabalho da sua equipe com clareza.
 
-Crie empresas e setores, organize equipes, atribua responsáveis e acompanhe as atividades de cada área em um só lugar. Gestores visualizam as tarefas dos setores sob sua responsabilidade, enquanto cada integrante acompanha o que precisa executar.
+O Pop Organize reúne tarefas, calendário, rotinas e equipes em um só lugar. Use o Meu Espaço para cuidar das suas atividades pessoais ou crie uma empresa para distribuir responsabilidades entre funcionários, setores e grupos.
 
-Com o Pop Organize, você pode:
+Planeje e acompanhe o trabalho:
 
-- Criar, organizar e acompanhar tarefas;
-- Distribuir atividades por pessoa ou setor;
-- Definir prazos e responsáveis;
-- Acompanhar tarefas da sua equipe;
-- Organizar processos e listas recorrentes;
-- Sincronizar informações entre dispositivos;
-- Receber avisos sobre atividades importantes.
+- Crie tarefas únicas ou recorrentes;
+- Defina prazos, horários, prioridades e responsáveis;
+- Divida atividades em checklists simples;
+- Consulte a agenda do dia e o calendário mensal;
+- Receba lembretes sobre tarefas importantes;
+- Conclua, reabra, edite ou exclua atividades com atualização rápida em todos os dispositivos.
 
-Tenha mais clareza sobre as responsabilidades da equipe e mantenha a rotina da empresa organizada, onde estiver.
+Organize sua equipe:
+
+- Estruture a empresa por setores e grupos;
+- Atribua atividades a uma pessoa, um setor ou um grupo;
+- Defina o que cada funcionário pode visualizar e fazer;
+- Acompanhe tarefas pendentes, em andamento e concluídas;
+- Use revisão de atividades quando uma conclusão precisar da confirmação de um responsável.
+
+Cada pessoa visualiza somente as informações permitidas para sua função. Atividades pessoais permanecem no Meu Espaço e não aparecem nos setores nem nos grupos da empresa.
+
+As informações ficam sincronizadas entre Android, iPhone e painel web para que todos acompanhem as mudanças onde estiverem.
+
+Menos tarefas esquecidas, responsabilidades mais claras e uma rotina organizada para você e sua equipe.
 
 ## Notas da versão 1.0.11
 

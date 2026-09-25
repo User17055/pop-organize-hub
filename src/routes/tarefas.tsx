@@ -19,6 +19,7 @@ import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permissi
 import {
   Archive,
   ArrowLeft,
+  Building2,
   ChevronDown,
   Columns3,
   Layers3,
@@ -58,6 +59,7 @@ type TasksSearch = {
   setor?: string;
   colaborador?: string;
   grupo?: string;
+  empresa?: string;
 };
 
 export const Route = createFileRoute("/tarefas")({
@@ -74,6 +76,10 @@ export const Route = createFileRoute("/tarefas")({
         : undefined,
     grupo:
       typeof search.grupo === "string" && search.grupo.trim() ? search.grupo.trim() : undefined,
+    empresa:
+      typeof search.empresa === "string" && search.empresa.trim()
+        ? search.empresa.trim()
+        : undefined,
   }),
   head: () => ({
     meta: [
@@ -189,14 +195,23 @@ function TasksPage() {
     setor: selectedDepartmentId,
     colaborador: selectedCollaboratorId,
     grupo: selectedGroupId,
+    empresa: selectedCompanyId,
   } = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data, isLoading, error } = useWorkspaceData();
   const [active, setActive] = useState<TaskStatus | "all">(initialStatus ?? "all");
   const [taskScope, setTaskScope] = useState<TaskScope>(initialScope ?? "all");
   const [search, setSearch] = useState("");
-  const [directoryMode, setDirectoryMode] = useState<"departments" | "collaborators" | "groups">(
-    selectedGroupId ? "groups" : selectedCollaboratorId ? "collaborators" : "departments",
+  const [directoryMode, setDirectoryMode] = useState<
+    "company" | "departments" | "collaborators" | "groups"
+  >(
+    selectedCompanyId
+      ? "company"
+      : selectedGroupId
+        ? "groups"
+        : selectedCollaboratorId
+          ? "collaborators"
+          : "departments",
   );
   const isFilteredTaskView = initialStatus !== undefined || initialScope !== undefined;
   const filters = emptyTaskFilters;
@@ -348,12 +363,22 @@ function TasksPage() {
     () =>
       organizerTaskRows.filter((task) => {
         if (!data) return true;
+        if (selectedCompanyId) {
+          return task.target.type === "company" && task.target.id === selectedCompanyId;
+        }
         if (selectedDepartmentId) return taskMatchesDepartment(task, selectedDepartmentId, data);
         if (selectedCollaboratorId) return taskMatchesCollaborator(task, selectedCollaboratorId);
         if (selectedGroupId) return taskMatchesGroup(task, selectedGroupId);
         return true;
       }),
-    [data, organizerTaskRows, selectedCollaboratorId, selectedDepartmentId, selectedGroupId],
+    [
+      data,
+      organizerTaskRows,
+      selectedCollaboratorId,
+      selectedCompanyId,
+      selectedDepartmentId,
+      selectedGroupId,
+    ],
   );
   const activeTaskRows = useMemo(
     () => taskRows.filter((task) => task.status !== "completed"),
@@ -512,8 +537,12 @@ function TasksPage() {
   const selectedDirectoryGroup = selectedGroupId
     ? groups.find((group) => group.id === selectedGroupId)
     : null;
+  const selectedDirectoryCompany = selectedCompanyId === company.id ? company : null;
   const hasDirectorySelection = Boolean(
-    selectedDirectoryDepartment || selectedDirectoryCollaborator || selectedDirectoryGroup,
+    selectedDirectoryCompany ||
+    selectedDirectoryDepartment ||
+    selectedDirectoryCollaborator ||
+    selectedDirectoryGroup,
   );
   const selectedPermissions = selectedTask
     ? getTaskPermissions({
@@ -869,10 +898,13 @@ function TasksPage() {
                   Organizar tarefas
                 </p>
                 <h2 className="mt-1 font-display text-lg font-bold">
-                  Setores, colaboradores ou grupos
+                  Empresa, setores, colaboradores ou grupos
                 </h2>
               </div>
-              {(selectedDepartmentId || selectedCollaboratorId || selectedGroupId) && (
+              {(selectedCompanyId ||
+                selectedDepartmentId ||
+                selectedCollaboratorId ||
+                selectedGroupId) && (
                 <button
                   type="button"
                   onClick={() =>
@@ -882,6 +914,7 @@ function TasksPage() {
                         setor: undefined,
                         colaborador: undefined,
                         grupo: undefined,
+                        empresa: undefined,
                       }),
                     })
                   }
@@ -892,7 +925,34 @@ function TasksPage() {
               )}
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setDirectoryMode("company");
+                  navigate({
+                    search: (current) => ({
+                      ...current,
+                      setor: undefined,
+                      colaborador: undefined,
+                      grupo: undefined,
+                      empresa: company.id,
+                    }),
+                  });
+                }}
+                className={cn(
+                  "rounded-2xl border px-4 py-3 text-left transition",
+                  directoryMode === "company"
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border/65 bg-background/55 hover:border-primary/25",
+                )}
+              >
+                <Building2 className="mb-2 h-4 w-4" />
+                <span className="block text-sm font-bold">Empresa</span>
+                <span className="text-[11px] text-muted-foreground">
+                  Tarefas para toda a empresa
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -903,6 +963,7 @@ function TasksPage() {
                       setor: undefined,
                       colaborador: undefined,
                       grupo: undefined,
+                      empresa: undefined,
                     }),
                   });
                 }}
@@ -929,6 +990,7 @@ function TasksPage() {
                       setor: undefined,
                       colaborador: undefined,
                       grupo: undefined,
+                      empresa: undefined,
                     }),
                   });
                 }}
@@ -958,6 +1020,7 @@ function TasksPage() {
                       setor: undefined,
                       colaborador: undefined,
                       grupo: undefined,
+                      empresa: undefined,
                     }),
                   });
                 }}
@@ -977,123 +1040,152 @@ function TasksPage() {
             </div>
 
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {directoryMode === "departments"
-                ? departments.map((department) => {
-                    const count = tasks.filter((task) =>
-                      taskMatchesDepartment(task, department.id, data),
-                    ).length;
-                    const selected = selectedDepartmentId === department.id;
-                    return (
-                      <button
-                        key={department.id}
-                        type="button"
-                        onClick={() =>
-                          navigate({
-                            search: (current) => ({
-                              ...current,
-                              setor: department.id,
-                              colaborador: undefined,
-                              grupo: undefined,
-                            }),
-                          })
-                        }
-                        className={cn(
-                          "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
-                          selected
-                            ? "border-primary/30 bg-primary/10 text-primary"
-                            : "border-border/60 bg-background/55 hover:border-primary/25",
-                        )}
-                      >
-                        <span className="truncate text-xs font-bold">{department.name}</span>
-                        <span className="text-[10px] tabular-nums text-muted-foreground">
-                          {count}
-                        </span>
-                      </button>
-                    );
-                  })
-                : directoryMode === "groups"
-                  ? groups.map((group) => {
-                      const count = tasks.filter((task) => taskMatchesGroup(task, group.id)).length;
-                      const selected = selectedGroupId === group.id;
-                      return (
-                        <button
-                          key={group.id}
-                          type="button"
-                          onClick={() =>
-                            navigate({
-                              search: (current) => ({
-                                ...current,
-                                setor: undefined,
-                                colaborador: undefined,
-                                grupo: group.id,
-                              }),
-                            })
-                          }
-                          className={cn(
-                            "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
-                            selected
-                              ? "border-primary/30 bg-primary/10 text-primary"
-                              : "border-border/60 bg-background/55 hover:border-primary/25",
-                          )}
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate text-xs font-bold">{group.name}</span>
-                            <span className="block truncate text-[10px] text-muted-foreground">
-                              {group.memberIds.length} membros
-                            </span>
-                          </span>
-                          <span className="text-[10px] tabular-nums text-muted-foreground">
-                            {count}
-                          </span>
-                        </button>
-                      );
+              {directoryMode === "company" ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate({
+                      search: (current) => ({
+                        ...current,
+                        setor: undefined,
+                        colaborador: undefined,
+                        grupo: undefined,
+                        empresa: company.id,
+                      }),
                     })
-                  : assignmentMembers.map((employee) => {
-                      const count = tasks.filter((task) =>
-                        taskMatchesCollaborator(task, employee.id),
-                      ).length;
-                      const selected = selectedCollaboratorId === employee.id;
-                      return (
-                        <button
-                          key={employee.id}
-                          type="button"
-                          onClick={() =>
-                            navigate({
-                              search: (current) => ({
-                                ...current,
-                                setor: undefined,
-                                colaborador: employee.id,
-                                grupo: undefined,
-                              }),
-                            })
-                          }
-                          className={cn(
-                            "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
-                            selected
-                              ? "border-primary/30 bg-primary/10 text-primary"
-                              : "border-border/60 bg-background/55 hover:border-primary/25",
-                          )}
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate text-xs font-bold">
-                              {employee.name}
-                            </span>
-                            <span className="block truncate text-[10px] text-muted-foreground">
-                              {employee.role}
-                            </span>
-                          </span>
-                          <span className="text-[10px] tabular-nums text-muted-foreground">
-                            {count}
-                          </span>
-                        </button>
-                      );
-                    })}
+                  }
+                  className="flex items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2.5 text-left text-primary transition"
+                >
+                  <span className="truncate text-xs font-bold">{company.name}</span>
+                  <span className="text-[10px] tabular-nums text-muted-foreground">
+                    {
+                      tasks.filter(
+                        (task) => task.target.type === "company" && task.target.id === company.id,
+                      ).length
+                    }
+                  </span>
+                </button>
+              ) : directoryMode === "departments" ? (
+                departments.map((department) => {
+                  const count = tasks.filter((task) =>
+                    taskMatchesDepartment(task, department.id, data),
+                  ).length;
+                  const selected = selectedDepartmentId === department.id;
+                  return (
+                    <button
+                      key={department.id}
+                      type="button"
+                      onClick={() =>
+                        navigate({
+                          search: (current) => ({
+                            ...current,
+                            setor: department.id,
+                            colaborador: undefined,
+                            grupo: undefined,
+                            empresa: undefined,
+                          }),
+                        })
+                      }
+                      className={cn(
+                        "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                        selected
+                          ? "border-primary/30 bg-primary/10 text-primary"
+                          : "border-border/60 bg-background/55 hover:border-primary/25",
+                      )}
+                    >
+                      <span className="truncate text-xs font-bold">{department.name}</span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : directoryMode === "groups" ? (
+                groups.map((group) => {
+                  const count = tasks.filter((task) => taskMatchesGroup(task, group.id)).length;
+                  const selected = selectedGroupId === group.id;
+                  return (
+                    <button
+                      key={group.id}
+                      type="button"
+                      onClick={() =>
+                        navigate({
+                          search: (current) => ({
+                            ...current,
+                            setor: undefined,
+                            colaborador: undefined,
+                            grupo: group.id,
+                            empresa: undefined,
+                          }),
+                        })
+                      }
+                      className={cn(
+                        "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                        selected
+                          ? "border-primary/30 bg-primary/10 text-primary"
+                          : "border-border/60 bg-background/55 hover:border-primary/25",
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-bold">{group.name}</span>
+                        <span className="block truncate text-[10px] text-muted-foreground">
+                          {group.memberIds.length} membros
+                        </span>
+                      </span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                assignmentMembers.map((employee) => {
+                  const count = tasks.filter((task) =>
+                    taskMatchesCollaborator(task, employee.id),
+                  ).length;
+                  const selected = selectedCollaboratorId === employee.id;
+                  return (
+                    <button
+                      key={employee.id}
+                      type="button"
+                      onClick={() =>
+                        navigate({
+                          search: (current) => ({
+                            ...current,
+                            setor: undefined,
+                            colaborador: employee.id,
+                            grupo: undefined,
+                            empresa: undefined,
+                          }),
+                        })
+                      }
+                      className={cn(
+                        "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                        selected
+                          ? "border-primary/30 bg-primary/10 text-primary"
+                          : "border-border/60 bg-background/55 hover:border-primary/25",
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-bold">{employee.name}</span>
+                        <span className="block truncate text-[10px] text-muted-foreground">
+                          {employee.role}
+                        </span>
+                      </span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
             </div>
           </section>
         )}
 
       {!isPersonalWorkspace &&
-        (selectedDirectoryDepartment ||
+        (selectedDirectoryCompany ||
+          selectedDirectoryDepartment ||
           selectedDirectoryCollaborator ||
           selectedDirectoryGroup) && (
           <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
@@ -1106,6 +1198,7 @@ function TasksPage() {
                     setor: undefined,
                     colaborador: undefined,
                     grupo: undefined,
+                    empresa: undefined,
                   }),
                 })
               }
@@ -1116,17 +1209,25 @@ function TasksPage() {
             <div className="mt-4 flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
-                  {selectedDirectoryDepartment
-                    ? "Tarefas do setor"
-                    : selectedDirectoryGroup
-                      ? "Tarefas do grupo"
-                      : "Tarefas do colaborador"}
+                  {selectedDirectoryCompany
+                    ? "Tarefas da empresa"
+                    : selectedDirectoryDepartment
+                      ? "Tarefas do setor"
+                      : selectedDirectoryGroup
+                        ? "Tarefas do grupo"
+                        : "Tarefas do colaborador"}
                 </p>
                 <h2 className="mt-1 truncate font-display text-xl font-bold">
-                  {selectedDirectoryDepartment?.name ??
+                  {selectedDirectoryCompany?.name ??
+                    selectedDirectoryDepartment?.name ??
                     selectedDirectoryGroup?.name ??
                     selectedDirectoryCollaborator?.name}
                 </h2>
+                {selectedDirectoryCompany && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Somente tarefas destinadas a toda a empresa
+                  </p>
+                )}
                 {selectedDirectoryCollaborator && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     Tarefas individuais e atividades atribuídas a esta pessoa

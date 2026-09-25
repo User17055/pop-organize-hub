@@ -69,7 +69,6 @@ import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.ListAlt
 import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
@@ -1864,9 +1863,7 @@ private fun TaskRow(
     /**
      * Falso nas linhas repetidas da mesma tarefa dentro de um dia. Ver `CalendarRow.Entry.comAcoes`.
      *
-     * O menu `⋮` CONTINUA em todas: reatribuir e excluir valem para a tarefa inteira, e fazer isso
-     * a partir de qualquer uma das linhas dela nao surpreende ninguem. O circulo e outra coisa --
-     * ele diz um ESTADO, e o estado e um so.
+     * O circulo aparece apenas na primeira linha porque o estado e um so.
      */
     mostrarAcoes: Boolean = true,
     moveTargets: List<AssignmentTarget>,
@@ -1875,7 +1872,6 @@ private fun TaskRow(
     onMove: (AssignmentTarget) -> Unit,
     onDelete: () -> Unit,
 ) {
-    var showMenu by remember { mutableStateOf(false) }
     val isUrgent = task.priority == Priority.Urgent && !task.completed
     val isOverdue = !task.completed && task.dueDate < todayIso()
     // Mesma correcao aplicada ao CompactTaskRow da tela inicial: urgencia marcada por contorno, e
@@ -2095,65 +2091,6 @@ private fun TaskRow(
                     }
                 }
             }
-            Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(
-                        Icons.Rounded.MoreVert,
-                        "Mais opções",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    if (moveTargets.isNotEmpty()) {
-                        Text(
-                            "Responsável",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                    }
-                    moveTargets.forEach { target ->
-                        val current = target.kind == task.assignment.kind && target.id == task.assignment.id
-                        DropdownMenuItem(
-                            // Rotulo e icone saem dos mesmos helpers que o dialogo do gesto usa.
-                            // Eram dois `when` escritos a mao aqui; com o gesto seriam quatro, e
-                            // ai bastava alguem acrescentar um tipo de responsavel para os dois
-                            // caminhos passarem a discordar em silencio.
-                            text = { Text(assignmentLabel(target)) },
-                            leadingIcon = { Icon(assignmentIcon(target.kind), null) },
-                            trailingIcon = {
-                                if (current) Icon(Icons.Rounded.Check, null, tint = PopBlue)
-                            },
-                            onClick = {
-                                if (!current) onMove(target)
-                                showMenu = false
-                            },
-                        )
-                    }
-                    // Sem `canDelete` o menu oferecia excluir a quem o servidor ia recusar com
-                    // 403: a linha sumia da tela, a sincronizacao falhava, e ela voltava. Melhor
-                    // nao oferecer do que desfazer na cara de quem clicou.
-                    if (task.canDelete) {
-                        DropdownMenuItem(
-                            text = {
-                                Text("Excluir atividade", color = MaterialTheme.colorScheme.error)
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Rounded.DeleteOutline,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                )
-                            },
-                            onClick = {
-                                showMenu = false
-                                onDelete()
-                            },
-                        )
-                    }
-                }
-            }
         }
     }
 }
@@ -2165,9 +2102,7 @@ private fun TaskRow(
  * segue a convencao do iOS, onde o gesto destrutivo vem da direita para a esquerda -- e Mail,
  * Lembretes e Mensagens ensinam isso ao usuario antes de ele abrir este app.
  *
- * Nenhuma das duas acoes e nova: `onDelete` ja abre o dialogo de confirmacao que existia, e
- * `onMove` ja e o mesmo caminho do menu de tres pontos. O gesto so encurta o percurso, e por isso
- * nao ha regra de negocio nova aqui para dar errado.
+ * `onDelete` abre o dialogo de confirmacao e `onMove` usa a mesma regra de atribuicao da edicao.
  *
  * `confirmValueChange` devolve **false** de proposito nos dois lados. Devolver true faria o cartao
  * sair da tela: certo para um "arraste para arquivar", errado aqui, porque excluir ainda precisa de

@@ -105,7 +105,6 @@ import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PendingActions
@@ -5546,7 +5545,11 @@ private fun TasksScreen(
     // Os filtros descrevem recortes das tarefas que o servidor JÁ autorizou. Eles não concedem
     // acesso adicional e, por isso, ficam disponíveis para todos os perfis. "Todas" significa
     // todas as tarefas visíveis para esta pessoa, nunca todas as tarefas da empresa.
-    val taskFilters = listOf("Hoje", "Atrasadas", "Próximas", "Para mim", "Setor", "Grupo", "Todas")
+    val taskFilters = if (workSpace == WorkSpace.Personal) {
+        listOf("Hoje", "Atrasadas", "Próximas", "Todas")
+    } else {
+        listOf("Hoje", "Atrasadas", "Próximas", "Para mim", "Setor", "Grupo", "Todas")
+    }
 
     LaunchedEffect(workSpace, selectedCompanyIndex, selectedTaskList?.id) {
         // Um filtro escolhido em outro espaco nao pode fazer a nova empresa parecer sem tarefas.
@@ -6469,39 +6472,6 @@ private fun TasksScreen(
                         fontSize = 14.sp,
                         modifier = Modifier.weight(1f),
                     )
-                    if (detailCanEdit && openedTask != null) {
-                        var detailMoveMenu by remember(openedTask.id) { mutableStateOf(false) }
-                        Box {
-                            IconButton(onClick = { detailMoveMenu = true }) {
-                                Icon(
-                                    Icons.Rounded.MoreVert,
-                                    "Mais opções da atividade",
-                                    tint = PopText,
-                                    modifier = Modifier.size(24.dp),
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = detailMoveMenu,
-                                onDismissRequest = { detailMoveMenu = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Mover para o início") },
-                                    onClick = {
-                                        val first = tasks.firstOrNull { it.id != openedTask.id }
-                                        reorderTask(openedTask, first, placeAfter = false)
-                                        detailMoveMenu = false
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Mover para o final") },
-                                    onClick = {
-                                        reorderTask(openedTask, null, placeAfter = true)
-                                        detailMoveMenu = false
-                                    },
-                                )
-                            }
-                        }
-                    }
                     if (detailCanEdit) {
                         TextButton(onClick = ::saveEditedTask, enabled = editTitle.trim().length >= 3) {
                             Text("Salvar", color = PopBlue, fontWeight = FontWeight.ExtraBold)
@@ -8777,22 +8747,23 @@ private fun CalendarScreen(
         pendingOnly,
         workSpace,
     ) {
+        val personalSpace = workSpace == WorkSpace.Personal
         val selectedSector = companySectors.firstOrNull { it.id == sectorFilter }
         val selectedGroup = companyGroups.firstOrNull { it.id == groupFilter }
         val selectedPerson = activeMembers.firstOrNull { it.id == personFilter }
         taskSnapshot.filter { task ->
             val responsibleNames = (task.assignees + task.assignee).filter { it.isNotBlank() }
-            val matchesSector = sectorFilter == null ||
+            val matchesSector = personalSpace || sectorFilter == null ||
                 (task.assignmentType == "department" &&
                     (task.assignmentTargetId == sectorFilter || task.assignmentTargetLabel == selectedSector?.name))
-            val matchesGroup = groupFilter == null ||
+            val matchesGroup = personalSpace || groupFilter == null ||
                 (task.assignmentType == "group" &&
                     (task.assignmentTargetId == groupFilter || task.assignmentTargetLabel == selectedGroup?.name))
-            val matchesPerson = personFilter == null ||
+            val matchesPerson = personalSpace || personFilter == null ||
                 (task.assignmentType == "user" &&
                     (task.assignmentTargetId == personFilter || task.assignmentTargetLabel == selectedPerson?.name)) ||
                 responsibleNames.any { it.equals(selectedPerson?.name, ignoreCase = true) }
-            (!pendingOnly || !task.completed) && matchesSector && matchesGroup && matchesPerson
+            (personalSpace || !pendingOnly || !task.completed) && matchesSector && matchesGroup && matchesPerson
         }
     }
     val activeFilterCount = listOfNotNull(sectorFilter, groupFilter, personFilter).size +
@@ -8948,7 +8919,7 @@ private fun CalendarScreen(
         }
     }
 
-    if (showFilters) {
+    if (showFilters && workSpace == WorkSpace.Company) {
         CalendarFilterSheet(
             sectors = companySectors.sortedBy { it.name.lowercase() },
             groups = companyGroups.sortedBy { it.name.lowercase() },

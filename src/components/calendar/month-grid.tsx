@@ -26,6 +26,12 @@ const priorityDotClass: Record<Task["priority"], string> = {
   urgent: "bg-destructive",
 };
 
+function getTaskDotClass(task: Task) {
+  if (task.status === "completed") return "bg-emerald-500";
+  if (task.status === "waiting_review") return "bg-violet-500";
+  return priorityDotClass[task.priority];
+}
+
 export function MonthGrid({
   month,
   tasksByDay,
@@ -128,12 +134,7 @@ export function MonthGrid({
                   {mobileVisibleTasks.map((task) => (
                     <span
                       key={task.id}
-                      className={cn(
-                        "h-1.5 w-2.5 shrink-0 rounded-full",
-                        task.status === "completed"
-                          ? "bg-emerald-500"
-                          : priorityDotClass[task.priority],
-                      )}
+                      className={cn("h-1.5 w-2.5 shrink-0 rounded-full", getTaskDotClass(task))}
                     />
                   ))}
                 </div>
@@ -154,12 +155,7 @@ export function MonthGrid({
                   >
                     <span className="flex min-w-0 items-center gap-1.5">
                       <span
-                        className={cn(
-                          "h-1.5 w-1.5 shrink-0 rounded-full",
-                          task.status === "completed"
-                            ? "bg-emerald-500"
-                            : priorityDotClass[task.priority],
-                        )}
+                        className={cn("h-1.5 w-1.5 shrink-0 rounded-full", getTaskDotClass(task))}
                       />
                       {getCalendarTaskFirstTime(task) && (
                         <span className="shrink-0 font-bold text-primary">

@@ -48,6 +48,7 @@ internal val PopBrandGradient = Brush.linearGradient(
 internal val PopGreen = Color(0xFF23C08A)
 internal val PopOrange = Color(0xFFFFA92E)
 internal val PopRed = Color(0xFFF2565B)
+internal val PopPurple = Color(0xFFA78BFA) // aguardando revisão
 
 // --- Escuro ------------------------------------------------------------------------------------
 //

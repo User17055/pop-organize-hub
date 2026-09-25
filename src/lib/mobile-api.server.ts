@@ -25,7 +25,12 @@ import {
   type Task,
 } from "./domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "./permission-groups";
-import { canViewTask, getTaskPermissions, getVisibleDepartmentIds } from "./permissions";
+import {
+  canViewTask,
+  getTaskPermissions,
+  getVisibleDepartmentIds,
+  getVisibleGroupIds,
+} from "./permissions";
 import { materializeRecurringTasks } from "./recurrence.server";
 
 const MOBILE_SESSION_EXPIRY = "9999-12-31T23:59:59.999Z";
@@ -158,6 +163,19 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             permissionGroups: workspace.permissionGroups,
           })
         : null;
+      const visibleGroupIds = isCompany
+        ? getVisibleGroupIds({
+            currentUser,
+            employees: workspace.employees,
+            groups: workspace.groups,
+            permissionGroups: workspace.permissionGroups,
+          })
+        : new Set<string>();
+      const canManagePermissionGroups =
+        isCompany &&
+        (hasPermission(permissionSet, "manage.permissions") ||
+          hasPermission(permissionSet, "manage.employees") ||
+          hasPermission(permissionSet, "manage.employees.edit"));
       const visibleEmployeeIds = new Set(
         workspace.employees
           .filter(
@@ -217,6 +235,14 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
                 .filter((group) => group.memberIds.includes(employee.id))
                 .map((group) => group.id),
               permissionGroupId: employee.permissionGroupId ?? "",
+              canCreateTasks: hasPermission(
+                resolvePermissionSet({
+                  currentUser: employee,
+                  employees: workspace.employees,
+                  permissionGroups: workspace.permissionGroups,
+                }),
+                "tasks.create",
+              ),
               pending: false,
             };
           }),
@@ -237,6 +263,8 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
               sectorId: invitation.departmentId,
               sector: departmentName(invitation.departmentId),
               groupIds: invitation.groupIds ?? [],
+              permissionGroupId: invitation.permissionGroupId ?? "",
+              canCreateTasks: invitation.canCreateTasks ?? false,
               pending: true,
             })),
         ],
@@ -249,20 +277,25 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             id: department.id,
             name: formatDepartmentName(department.name),
             description: department.description ?? "",
+            managedByCurrentUser: department.managerId === userId,
           })),
-        groups: workspace.groups.map((group) => ({
-          id: group.id,
-          name: group.name,
-          description: group.description ?? "",
-          memberIds: group.memberIds,
-        })),
-        permissionGroups: workspace.permissionGroups.map((group) => ({
-          id: group.id,
-          name: group.name,
-          description: group.description ?? "",
-          permissions: group.permissions,
-          isSystem: group.isSystem ?? false,
-        })),
+        groups: workspace.groups
+          .filter((group) => !visibleGroupIds || visibleGroupIds.has(group.id))
+          .map((group) => ({
+            id: group.id,
+            name: group.name,
+            description: group.description ?? "",
+            memberIds: group.memberIds,
+          })),
+        permissionGroups: (canManagePermissionGroups ? workspace.permissionGroups : []).map(
+          (group) => ({
+            id: group.id,
+            name: group.name,
+            description: group.description ?? "",
+            permissions: group.permissions,
+            isSystem: group.isSystem ?? false,
+          }),
+        ),
       };
     });
 }
@@ -937,6 +970,9 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
     const groupIds = Array.isArray(input.groupIds)
       ? input.groupIds.filter((value): value is string => typeof value === "string")
       : [];
+    const requestedPermissionGroupId =
+      typeof input.permissionGroupId === "string" ? input.permissionGroupId : "";
+    const canCreateTasks = typeof input.canCreateTasks === "boolean" ? input.canCreateTasks : true;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw mobileHttpError("Informe um e-mail válido.");
     }
@@ -959,6 +995,17 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       if (!workspace.departments.some((department) => department.id === departmentId)) {
         throw mobileHttpError("Selecione um setor válido.");
       }
+      const permissionGroupId =
+        requestedPermissionGroupId ||
+        workspace.permissionGroups.find(
+          (group) => group.name.toLocaleLowerCase("pt-BR") === "colaborador",
+        )?.id;
+      if (
+        permissionGroupId &&
+        !workspace.permissionGroups.some((group) => group.id === permissionGroupId)
+      ) {
+        throw mobileHttpError("Selecione um grupo de permissao valido.");
+      }
       if (
         workspace.employees.some((employee) => employee.email.toLowerCase() === email) ||
         workspace.invitations.some((invitation) => invitation.email.toLowerCase() === email)
@@ -975,6 +1022,8 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
         groupIds: groupIds.filter((groupId) =>
           workspace.groups.some((group) => group.id === groupId),
         ),
+        permissionGroupId,
+        canCreateTasks,
         status: "active" as const,
         invitedById: currentUser.id,
         createdAt: new Date().toISOString(),
@@ -1017,6 +1066,12 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
     const groupIds = Array.isArray(input.groupIds)
       ? input.groupIds.filter((value): value is string => typeof value === "string")
       : [];
+    const permissionGroupId =
+      typeof input.permissionGroupId === "string"
+        ? input.permissionGroupId || undefined
+        : undefined;
+    const canCreateTasks =
+      typeof input.canCreateTasks === "boolean" ? input.canCreateTasks : undefined;
     await mutateDatabase((platform) => {
       const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
       const currentUser = workspace?.employees.find(
@@ -1037,6 +1092,12 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       if (groupIds.some((groupId) => !workspace.groups.some((group) => group.id === groupId))) {
         throw mobileHttpError("Selecione grupos validos.");
       }
+      if (
+        permissionGroupId &&
+        !workspace.permissionGroups.some((group) => group.id === permissionGroupId)
+      ) {
+        throw mobileHttpError("Selecione um grupo de permissao valido.");
+      }
 
       const employee = workspace.employees.find((item) => item.id === employeeId);
       const invitation = workspace.invitations.find((item) => item.id === employeeId);
@@ -1050,6 +1111,10 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       if (employee) {
         employee.departmentId = departmentId;
         employee.role = role;
+        if (typeof input.permissionGroupId === "string") {
+          employee.permissionGroupId = permissionGroupId;
+        }
+        if (canCreateTasks !== undefined) employee.canCreateTasks = canCreateTasks;
         workspace.groups.forEach((group) => {
           group.memberIds = groupIds.includes(group.id)
             ? Array.from(new Set([...group.memberIds, employee.id]))
@@ -1060,6 +1125,10 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
         invitation.departmentId = departmentId;
         invitation.role = role;
         invitation.groupIds = groupIds;
+        if (typeof input.permissionGroupId === "string") {
+          invitation.permissionGroupId = permissionGroupId;
+        }
+        if (canCreateTasks !== undefined) invitation.canCreateTasks = canCreateTasks;
       }
     });
   } else if (action === "removeEmployee") {
@@ -1252,6 +1321,7 @@ export async function respondToMobileInvitation(
         departmentId: invitation.departmentId,
         status: invitation.status,
         permissionGroupId: invitation.permissionGroupId,
+        canCreateTasks: invitation.canCreateTasks,
         passwordHash: account.passwordHash,
         googleSubject: account.googleSubject,
       });
@@ -1292,17 +1362,23 @@ function visibleMobileTasks(workspace: Database, account: PlatformDatabase["acco
 }
 
 export async function readMobileTasks(request: Request) {
-  const { workspace: authorizedWorkspace, account } = await requireMobileWorkspace(request);
+  const { workspace, account } = await requireMobileWorkspace(request);
+  if (materializeRecurringTasks(workspace) === 0) {
+    return visibleMobileTasks(workspace, account);
+  }
+
+  // Recorrencias so exigem gravacao quando uma nova ocorrencia foi criada. Consultas normais de
+  // sincronizacao permanecem somente leitura, evitando bloquear e regravar todo o JSON do banco.
   return mutateDatabase((platform) => {
-    const workspace = platform.workspaces.find(
-      (item) => item.company.id === authorizedWorkspace.company.id,
+    const currentWorkspace = platform.workspaces.find(
+      (item) => item.company.id === workspace.company.id,
     );
     const currentAccount = platform.accounts.find((item) => item.id === account.id);
-    if (!workspace || !currentAccount) {
-      throw Object.assign(new Error("Espaço da conta não encontrado."), { statusCode: 401 });
+    if (!currentWorkspace || !currentAccount) {
+      throw Object.assign(new Error("Espaco da conta nao encontrado."), { statusCode: 401 });
     }
-    materializeRecurringTasks(workspace);
-    return visibleMobileTasks(workspace, currentAccount);
+    materializeRecurringTasks(currentWorkspace);
+    return visibleMobileTasks(currentWorkspace, currentAccount);
   });
 }
 
@@ -1501,7 +1577,10 @@ function taskToMobileTask(
     canCompleteAnytime: permissions.canCompleteAnytime,
     canDelete: permissions.canDelete,
     requiresReview: task.requiresReview ?? false,
-    isReviewer: task.reviewerId === currentUser.id,
+    // O administrador pode resolver qualquer fila de revisão, mesmo quando outro superior foi
+    // escolhido como revisor principal. O aplicativo usa este campo para concluir de fato em vez
+    // de reenviar a tarefa para a mesma fila.
+    isReviewer: permissions.canApproveReview,
     awaitingReview: task.status === "waiting_review",
     assignmentType: native?.assignmentType ?? task.target.type,
     assignmentTargetId: native?.assignmentTargetId ?? task.target.id,

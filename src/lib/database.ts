@@ -9,7 +9,8 @@ import type {
   TaskFolder,
   TaskListDefinition,
 } from "./domain";
-import { canViewTask, getVisibleDepartmentIds } from "./permissions";
+import { hasPermission, resolvePermissionSet } from "./permission-groups";
+import { canViewTask, getVisibleDepartmentIds, getVisibleGroupIds } from "./permissions";
 
 export type EmployeeRecord = Employee & {
   passwordHash: string;
@@ -56,6 +57,7 @@ export type InvitationRecord = {
   departmentId: string;
   status: "active" | "inactive";
   permissionGroupId?: string;
+  canCreateTasks?: boolean;
   groupIds?: string[];
   invitedById: string;
   createdAt: string;
@@ -131,6 +133,7 @@ export function toCurrentUser(employee: Employee): CurrentUser {
     name: employee.name,
     email: employee.email,
     role: employee.role,
+    canCreateTasks: employee.canCreateTasks,
   };
 }
 
@@ -177,6 +180,21 @@ export function sanitizeDatabase(
       name: departmentNames.get(department.id)!,
     }))
     .sort((left, right) => left.name.localeCompare(right.name, "pt-BR", { sensitivity: "base" }));
+  const visibleGroupIds = getVisibleGroupIds({
+    currentUser: currentEmployee,
+    employees: allEmployees,
+    groups: db.groups,
+    permissionGroups: db.permissionGroups,
+  });
+  const permissionSet = resolvePermissionSet({
+    currentUser: currentEmployee,
+    employees: allEmployees,
+    permissionGroups: db.permissionGroups,
+  });
+  const canManageEmployeePermissions =
+    hasPermission(permissionSet, "manage.permissions") ||
+    hasPermission(permissionSet, "manage.employees") ||
+    hasPermission(permissionSet, "manage.employees.edit");
   const visibleTasks = db.tasks
     .filter((task) =>
       canViewTask({
@@ -206,7 +224,7 @@ export function sanitizeDatabase(
     currentUser: toCurrentUser(currentEmployee),
     departments,
     employees,
-    groups: db.groups,
+    groups: db.groups.filter((group) => !visibleGroupIds || visibleGroupIds.has(group.id)),
     tasks: visibleTasks,
     taskFolders: (db.taskFolders ?? [])
       .filter((folder) => folder.ownerId === currentUserId)
@@ -218,7 +236,9 @@ export function sanitizeDatabase(
         taskIds: list.taskIds.filter((taskId) => visibleTasks.some((task) => task.id === taskId)),
       }))
       .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, "pt-BR")),
-    permissionGroups: db.permissionGroups,
+    permissionGroups: canManageEmployeePermissions
+      ? db.permissionGroups
+      : db.permissionGroups.filter((group) => group.id === currentEmployee.permissionGroupId),
     invitations:
       db.company.kind === "personal"
         ? []

@@ -63,25 +63,14 @@ export function taskMatchesFilters(
   }
 
   if (filters.departmentIds.length > 0) {
-    const responsibles = context.employees.filter((employee) =>
-      taskResponsibleIds.includes(employee.id),
-    );
     const matchesTarget =
       task.target.type === "department" && filters.departmentIds.includes(task.target.id);
-    const matchesResponsible = responsibles.some((responsible) =>
-      filters.departmentIds.includes(responsible.departmentId),
-    );
-    if (!matchesTarget && !matchesResponsible) return false;
+    if (!matchesTarget) return false;
   }
 
   if (filters.groupIds.length > 0) {
     const matchesTarget = task.target.type === "group" && filters.groupIds.includes(task.target.id);
-    const matchesMember = context.groups.some(
-      (group) =>
-        filters.groupIds.includes(group.id) &&
-        taskResponsibleIds.some((id) => group.memberIds.includes(id)),
-    );
-    if (!matchesTarget && !matchesMember) return false;
+    if (!matchesTarget) return false;
   }
 
   return true;

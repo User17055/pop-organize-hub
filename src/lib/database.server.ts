@@ -188,7 +188,6 @@ function initialPermissionGroups(): PermissionGroup[] {
         "tasks.move",
         "tasks.assign",
         "tasks.recurrence",
-        "tasks.viewAll",
         "pages.calendar",
         "pages.groups",
         "pages.departments",
@@ -594,13 +593,13 @@ function normalizeDatabase(value: Database): Database {
       ? [...allPermissionKeys]
       : group.permissions.filter((permission) => permission !== "tasks.completeAnytime"),
   }));
-  // Migration: databases created before permission groups existed get a
-  // sensible group assigned based on the employee's current role/hierarchy.
-  const employees = (value.employees ?? []).map((employee) =>
-    employee.permissionGroupId && permissionGroups.some((g) => g.id === employee.permissionGroupId)
-      ? employee
-      : { ...employee, permissionGroupId: defaultPermissionGroupId(employee, departments, groups) },
-  );
+  // Autorizacao falha fechada: grupo ausente ou removido nunca pode virar acesso total.
+  const employees = (value.employees ?? []).map((employee) => ({
+    ...employee,
+    permissionGroupId: permissionGroups.some((group) => group.id === employee.permissionGroupId)
+      ? employee.permissionGroupId
+      : undefined,
+  }));
   const companyKind = value.company?.kind ?? "company";
   const ownerId =
     value.company?.ownerId ??

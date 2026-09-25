@@ -62,13 +62,13 @@ import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.ListAlt
 import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
@@ -1865,9 +1865,7 @@ private fun TaskRow(
     /**
      * Falso nas linhas repetidas da mesma tarefa dentro de um dia. Ver `CalendarRow.Entry.comAcoes`.
      *
-     * O menu `⋮` CONTINUA em todas: reatribuir e excluir valem para a tarefa inteira, e fazer isso
-     * a partir de qualquer uma das linhas dela nao surpreende ninguem. O circulo e outra coisa --
-     * ele diz um ESTADO, e o estado e um so.
+     * O circulo aparece apenas na primeira linha porque o estado e um so.
      */
     mostrarAcoes: Boolean = true,
     moveTargets: List<AssignmentTarget>,
@@ -1876,7 +1874,6 @@ private fun TaskRow(
     onMove: (AssignmentTarget) -> Unit,
     onDelete: () -> Unit,
 ) {
-    var showMenu by remember { mutableStateOf(false) }
     val isUrgent = task.priority == Priority.Urgent && !task.completed
     val isOverdue = !task.completed && task.dueDate < todayIso()
     // Mesma correcao aplicada ao CompactTaskRow da tela inicial: urgencia marcada por contorno, e
@@ -2096,65 +2093,6 @@ private fun TaskRow(
                     }
                 }
             }
-            Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(
-                        Icons.Rounded.MoreVert,
-                        "Mais opções",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    if (moveTargets.isNotEmpty()) {
-                        Text(
-                            "Responsável",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                    }
-                    moveTargets.forEach { target ->
-                        val current = target.kind == task.assignment.kind && target.id == task.assignment.id
-                        DropdownMenuItem(
-                            // Rotulo e icone saem dos mesmos helpers que o dialogo do gesto usa.
-                            // Eram dois `when` escritos a mao aqui; com o gesto seriam quatro, e
-                            // ai bastava alguem acrescentar um tipo de responsavel para os dois
-                            // caminhos passarem a discordar em silencio.
-                            text = { Text(assignmentLabel(target)) },
-                            leadingIcon = { Icon(assignmentIcon(target.kind), null) },
-                            trailingIcon = {
-                                if (current) Icon(Icons.Rounded.Check, null, tint = PopBlue)
-                            },
-                            onClick = {
-                                if (!current) onMove(target)
-                                showMenu = false
-                            },
-                        )
-                    }
-                    // Sem `canDelete` o menu oferecia excluir a quem o servidor ia recusar com
-                    // 403: a linha sumia da tela, a sincronizacao falhava, e ela voltava. Melhor
-                    // nao oferecer do que desfazer na cara de quem clicou.
-                    if (task.canDelete) {
-                        DropdownMenuItem(
-                            text = {
-                                Text("Excluir atividade", color = MaterialTheme.colorScheme.error)
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Rounded.DeleteOutline,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                )
-                            },
-                            onClick = {
-                                showMenu = false
-                                onDelete()
-                            },
-                        )
-                    }
-                }
-            }
         }
     }
 }
@@ -2166,9 +2104,7 @@ private fun TaskRow(
  * segue a convencao do iOS, onde o gesto destrutivo vem da direita para a esquerda -- e Mail,
  * Lembretes e Mensagens ensinam isso ao usuario antes de ele abrir este app.
  *
- * Nenhuma das duas acoes e nova: `onDelete` ja abre o dialogo de confirmacao que existia, e
- * `onMove` ja e o mesmo caminho do menu de tres pontos. O gesto so encurta o percurso, e por isso
- * nao ha regra de negocio nova aqui para dar errado.
+ * `onDelete` abre o dialogo de confirmacao e `onMove` usa a mesma regra de atribuicao da edicao.
  *
  * `confirmValueChange` devolve **false** de proposito nos dois lados. Devolver true faria o cartao
  * sair da tela: certo para um "arraste para arquivar", errado aqui, porque excluir ainda precisa de
@@ -2752,10 +2688,17 @@ private fun CalendarScreen(store: PopStore) {
     val company = store.selectedCompany.takeIf { store.state.workspace == WorkspaceKind.Company }
 
     var setorFiltro by remember { mutableStateOf<String?>(null) }
+    var grupoFiltro by remember { mutableStateOf<String?>(null) }
+    var pessoaFiltro by remember { mutableStateOf<String?>(null) }
     var soPendentes by remember { mutableStateOf(false) }
     // Trocar de espaco troca a lista de setores. Um id que nao existe mais no espaco novo nao
     // casaria com tarefa nenhuma e a agenda apareceria vazia, sem nada na tela explicando por que.
-    LaunchedEffect(company?.id) { setorFiltro = null }
+    LaunchedEffect(company?.id) {
+        setorFiltro = null
+        grupoFiltro = null
+        pessoaFiltro = null
+        soPendentes = false
+    }
 
     var selectedDate by remember { mutableStateOf(today) }
     var visibleYear by remember { mutableIntStateOf(today.year) }
@@ -2778,10 +2721,26 @@ private fun CalendarScreen(store: PopStore) {
     // daqui. Filtrando so a lista de baixo, a grade continuaria acendendo dias que a agenda
     // filtrada nao entrega -- prometendo um dia que o toque nao cumpre. Filtrando na origem, a
     // grade e a agenda contam a mesma historia de graca.
-    val filtradas = remember(tasks, setorFiltro, soPendentes, company) {
+    val filtradas = remember(tasks, setorFiltro, grupoFiltro, pessoaFiltro, soPendentes, company) {
+        val grupo = company?.groups?.firstOrNull { it.id == grupoFiltro }
+        val pessoa = company?.activeMembers?.firstOrNull { it.id == pessoaFiltro }
+        val membrosDoGrupo = company?.activeMembers.orEmpty().filter { membro ->
+            grupo != null && membro.id in grupo.memberIds
+        }
         tasks.filter { task ->
+            val responsaveis = responsaveisDaTarefa(task)
             (!soPendentes || !task.completed) &&
-                (setorFiltro == null || setorFiltro in setoresDaTarefa(task, company))
+                (setorFiltro == null || setorFiltro in setoresDaTarefa(task, company)) &&
+                (grupoFiltro == null ||
+                    (task.assignment.kind == AssignmentKind.Group &&
+                        (task.assignment.id == grupoFiltro || task.assignment.label == grupo?.name)) ||
+                    membrosDoGrupo.any { membro ->
+                        responsaveis.any { it.equals(membro.name, ignoreCase = true) }
+                    }) &&
+                (pessoaFiltro == null ||
+                    (task.assignment.kind == AssignmentKind.Person &&
+                        (task.assignment.id == pessoaFiltro || task.assignment.label == pessoa?.name)) ||
+                    responsaveis.any { it.equals(pessoa?.name, ignoreCase = true) })
         }
     }
     // As ocorrencias que o servidor ainda nao materializou, ate o fim do mes que esta na tela.
@@ -2929,6 +2888,19 @@ private fun CalendarScreen(store: PopStore) {
                     )
                     // Sem este botao, voltar de uma navegacao de varios meses so seria possivel
                     // mes a mes, no toque.
+                    if (company != null) {
+                        CalendarAdvancedFilterBar(
+                            company = company,
+                            setorFiltro = setorFiltro,
+                            onSetor = { setorFiltro = it },
+                            grupoFiltro = grupoFiltro,
+                            onGrupo = { grupoFiltro = it },
+                            pessoaFiltro = pessoaFiltro,
+                            onPessoa = { pessoaFiltro = it },
+                            soPendentes = soPendentes,
+                            onSoPendentes = { soPendentes = it },
+                        )
+                    }
                     TextButton(
                         onClick = {
                             visibleYear = today.year
@@ -2936,17 +2908,6 @@ private fun CalendarScreen(store: PopStore) {
                             goToDate(today)
                         },
                     ) { Text("Hoje") }
-                }
-                // Espaco pessoal nao tem setor, e empresa sem setor cadastrado teria um filtro de
-                // uma opcao so. Nos dois casos a barra nao aparece.
-                if (company != null && company.sectors.isNotEmpty()) {
-                    CalendarFilterBar(
-                        sectors = company.sectors.sortedBy { it.name.lowercase() },
-                        setorFiltro = setorFiltro,
-                        onSetor = { setorFiltro = it },
-                        soPendentes = soPendentes,
-                        onSoPendentes = { soPendentes = it },
-                    )
                 }
                 CalendarMonthGrid(
                     year = visibleYear,
@@ -2968,7 +2929,7 @@ private fun CalendarScreen(store: PopStore) {
                 // Com filtro ligado, "Nenhum prazo" seria falso: as tarefas existem e estao
                 // escondidas por uma escolha da propria pessoa. Dizer qual escolha e o que
                 // devolve o caminho de volta.
-                if (setorFiltro != null || soPendentes) {
+                if (setorFiltro != null || grupoFiltro != null || pessoaFiltro != null || soPendentes) {
                     EmptyState("Nada com este filtro", "Troque o setor ou desligue “Só pendentes”.")
                 } else {
                     EmptyState("Nenhum prazo", "As tarefas com data aparecerão aqui.")
@@ -3223,6 +3184,158 @@ private fun CalendarFilterBar(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CalendarAdvancedFilterBar(
+    company: CompanyWorkspace,
+    setorFiltro: String?,
+    onSetor: (String?) -> Unit,
+    grupoFiltro: String?,
+    onGrupo: (String?) -> Unit,
+    pessoaFiltro: String?,
+    onPessoa: (String?) -> Unit,
+    soPendentes: Boolean,
+    onSoPendentes: (Boolean) -> Unit,
+) {
+    var painelAberto by remember { mutableStateOf(false) }
+    val setores = company.sectors.sortedBy { it.name.lowercase() }
+    val grupos = company.groups.sortedBy { it.name.lowercase() }
+    val pessoas = company.activeMembers.sortedBy { it.name.lowercase() }
+    val quantidadeAtiva = listOfNotNull(setorFiltro, grupoFiltro, pessoaFiltro).size +
+        if (soPendentes) 1 else 0
+
+    Box(Modifier.size(40.dp)) {
+        IconButton(onClick = { painelAberto = true }) {
+            Icon(
+                Icons.Rounded.FilterAlt,
+                "Filtrar calendário",
+                tint = if (quantidadeAtiva > 0) PopBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        if (quantidadeAtiva > 0) {
+            Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(PopBlue, CircleShape))
+        }
+    }
+
+    if (painelAberto) {
+        AlertDialog(
+            onDismissRequest = { painelAberto = false },
+            title = { Text("Filtrar calendário", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        "Combine as opções para encontrar as tarefas certas.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                    )
+                    if (setores.isNotEmpty()) {
+                        CalendarFilterChoice(
+                            "Setor", Icons.Rounded.Apartment, "Todos os setores",
+                            setores.map { it.id to it.name }, setorFiltro, onSetor,
+                        )
+                    }
+                    if (grupos.isNotEmpty()) {
+                        CalendarFilterChoice(
+                            "Grupo", Icons.Rounded.Groups, "Todos os grupos",
+                            grupos.map { it.id to it.name }, grupoFiltro, onGrupo,
+                        )
+                    }
+                    if (pessoas.isNotEmpty()) {
+                        CalendarFilterChoice(
+                            "Pessoa responsável", Icons.Rounded.Person, "Todas as pessoas",
+                            pessoas.map { it.id to it.name }, pessoaFiltro, onPessoa,
+                        )
+                    }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clickable { onSoPendentes(!soPendentes) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (soPendentes) PopBlue.copy(alpha = .14f)
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (soPendentes) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                                null,
+                                tint = if (soPendentes) PopBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(9.dp))
+                            Text("Mostrar somente pendentes", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { painelAberto = false }) { Text("Ver tarefas") }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = quantidadeAtiva > 0,
+                    onClick = {
+                        onSetor(null)
+                        onGrupo(null)
+                        onPessoa(null)
+                        onSoPendentes(false)
+                    },
+                ) { Text("Limpar") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun CalendarFilterChoice(
+    label: String,
+    icon: ImageVector,
+    allLabel: String,
+    options: List<Pair<String, String>>,
+    selected: String?,
+    onSelected: (String?) -> Unit,
+) {
+    var aberto by remember { mutableStateOf(false) }
+    val nomeAtual = options.firstOrNull { it.first == selected }?.second ?: allLabel
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Box {
+            Surface(
+                modifier = Modifier.fillMaxWidth().clickable { aberto = true },
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(icon, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(9.dp))
+                    Text(nomeAtual, modifier = Modifier.weight(1f), maxLines = 1)
+                    Icon(Icons.Rounded.ExpandMore, "Escolher $label")
+                }
+            }
+            DropdownMenu(expanded = aberto, onDismissRequest = { aberto = false }) {
+                DropdownMenuItem(
+                    text = { Text(allLabel) },
+                    trailingIcon = { if (selected == null) Icon(Icons.Rounded.Check, null, tint = PopBlue) },
+                    onClick = {
+                        onSelected(null)
+                        aberto = false
+                    },
+                )
+                options.forEach { (id, nome) ->
+                    DropdownMenuItem(
+                        text = { Text(nome) },
+                        trailingIcon = { if (selected == id) Icon(Icons.Rounded.Check, null, tint = PopBlue) },
+                        onClick = {
+                            onSelected(id)
+                            aberto = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun CalendarMonthGrid(
     year: Int,
@@ -3343,7 +3456,11 @@ private fun CalendarDayCell(
             markers.forEach { task ->
                 Box(
                     Modifier.size(5.dp).background(
-                        if (task.completed) MaterialTheme.colorScheme.outline else priorityColor(task.priority),
+                        when {
+                            task.completed -> MaterialTheme.colorScheme.outline
+                            task.awaitingReview -> PopPurple
+                            else -> priorityColor(task.priority)
+                        },
                         CircleShape,
                     ),
                 )

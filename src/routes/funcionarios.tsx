@@ -87,6 +87,7 @@ function FuncionariosPage() {
     departmentId: "",
     status: "active" as "active" | "inactive",
     permissionGroupId: "",
+    canCreateTasks: true,
   });
 
   const createMutation = useMutation({
@@ -97,6 +98,7 @@ function FuncionariosPage() {
       departmentId: string;
       status: "active" | "inactive";
       permissionGroupId?: string;
+      canCreateTasks?: boolean;
     }) => createEmployee({ data: payload }),
     onSuccess: ({ invitationUrl, emailSent }) => {
       setInviteLink(invitationUrl);
@@ -119,6 +121,7 @@ function FuncionariosPage() {
       departmentId: string;
       status: "active" | "inactive";
       permissionGroupId?: string;
+      canCreateTasks?: boolean;
     }) => updateEmployee({ data: payload }),
     onSuccess: () => {
       setShowForm(false);
@@ -179,7 +182,9 @@ function FuncionariosPage() {
       role: "",
       departmentId: departments[0]?.id ?? "",
       status: "active",
-      permissionGroupId: "",
+      permissionGroupId:
+        permissionGroups.find((group) => group.name.toLowerCase() === "colaborador")?.id ?? "",
+      canCreateTasks: true,
     });
     setInviteLink("");
     setInviteEmailSent(false);
@@ -200,6 +205,7 @@ function FuncionariosPage() {
         departmentId: form.departmentId,
         status: form.status,
         permissionGroupId: form.permissionGroupId || undefined,
+        canCreateTasks: form.canCreateTasks,
       });
     } else {
       createMutation.mutate(form);
@@ -219,6 +225,10 @@ function FuncionariosPage() {
       departmentId: employee.departmentId,
       status: employee.status,
       permissionGroupId: employee.permissionGroupId ?? "",
+      canCreateTasks: hasPermission(
+        resolvePermissionSet({ currentUser: employee, employees, permissionGroups }),
+        "tasks.create",
+      ),
     });
     setShowForm(true);
   }
@@ -336,7 +346,7 @@ function FuncionariosPage() {
                       {isOwner ? "Proprietário" : employee.role}
                     </span>
                     <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary">
-                      {getPermissionGroup(employee.permissionGroupId)?.name ?? "Padrão"}
+                      {getPermissionGroup(employee.permissionGroupId)?.name ?? "Sem grupo"}
                     </span>
                   </div>
                 </div>
@@ -420,7 +430,7 @@ function FuncionariosPage() {
                   </TableCell>
                   <TableCell>
                     <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary whitespace-nowrap">
-                      {getPermissionGroup(e.permissionGroupId)?.name ?? "Padrão"}
+                      {getPermissionGroup(e.permissionGroupId)?.name ?? "Sem grupo"}
                     </span>
                   </TableCell>
                   <TableCell className="text-right text-sm font-medium">{count}</TableCell>
@@ -560,7 +570,7 @@ function FuncionariosPage() {
                     className="w-full h-9 px-3 rounded-md bg-background border border-input outline-none focus:border-primary text-sm"
                     disabled={employeeFormReadOnly}
                   >
-                    <option value="">Padrão (sem restrições)</option>
+                    <option value="">Sem grupo (sem permissões)</option>
                     {permissionGroups.map((group) => (
                       <option key={group.id} value={group.id}>
                         {group.name}
@@ -568,6 +578,26 @@ function FuncionariosPage() {
                     ))}
                   </select>
                 </Field>
+                <label className="flex items-start gap-3 rounded-lg border border-border p-3">
+                  <input
+                    type="checkbox"
+                    checked={form.canCreateTasks}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        canCreateTasks: event.target.checked,
+                      }))
+                    }
+                    disabled={employeeFormReadOnly}
+                    className="mt-1 h-4 w-4 accent-primary"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">Cadastrar atividades</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Exibe o botão azul e permite que este funcionário crie atividades.
+                    </span>
+                  </span>
+                </label>
                 {mutationError && <div className="text-sm text-destructive">{mutationError}</div>}
                 {updateMutation.error instanceof Error && (
                   <div className="text-sm text-destructive">{updateMutation.error.message}</div>

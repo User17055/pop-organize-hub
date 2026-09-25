@@ -67,14 +67,8 @@ function RelatoriosPage() {
   today.setHours(0, 0, 0, 0);
   const taskResponsibleIds = (task: (typeof tasks)[number]) =>
     Array.from(new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean)));
-  const employeeDepartmentById = new Map(
-    employees.map((employee) => [employee.id, employee.departmentId]),
-  );
   const taskBelongsToDepartment = (task: (typeof tasks)[number], departmentId: string) => {
-    if (task.target.type === "department") return task.target.id === departmentId;
-    return taskResponsibleIds(task).some(
-      (employeeId) => employeeDepartmentById.get(employeeId) === departmentId,
-    );
+    return task.target.type === "department" && task.target.id === departmentId;
   };
   const byDept = departments.map((d) => {
     const dt = tasks.filter((task) => taskBelongsToDepartment(task, d.id));

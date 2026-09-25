@@ -103,7 +103,9 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimeInput
 import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -3967,6 +3969,7 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     var description by remember { mutableStateOf("") }
     var dueDate by remember { mutableStateOf(todayIso()) }
     var dueTime by remember { mutableStateOf("") }
+    var mostrarSeletorDeHora by remember { mutableStateOf(false) }
     var priority by remember { mutableStateOf(Priority.Medium) }
     var assignmentKind by remember { mutableStateOf(AssignmentKind.None) }
     var assignment by remember { mutableStateOf(AssignmentTarget()) }
@@ -4013,15 +4016,37 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(dueDate, { dueDate = it }, label = { Text("Data AAAA-MM-DD") }, modifier = Modifier.weight(1f))
-                        OutlinedTextField(
-                            dueTime,
-                            { dueTime = it },
-                            label = { Text("Hora") },
-                            // Nao valida formato -- o servidor tambem nao --, mas tira do caminho o
-                            // teclado de texto e torna "9:00" bem menos provavel que "09:00".
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(.65f),
-                        )
+                        // CORRECAO de 18/09, achada em APARELHO pelo Guilherme. Aqui havia um
+                        // OutlinedTextField comum com `KeyboardType.Number`, e o comentario que o
+                        // acompanhava dizia que o teclado numerico "torna 9:00 menos provavel que
+                        // 09:00". No iPhone, `KeyboardType.Number` vira `UIKeyboardTypeNumberPad`,
+                        // que NAO TEM dois-pontos: era impossivel digitar "22:00". A tentativa de
+                        // induzir o formato certo tornou o campo inutilizavel.
+                        //
+                        // Nada denunciava isso daqui: a previa desktop nao tem teclado de iOS, e a
+                        // receita do teste 5 mandava digitar "08:00" -- passo impossivel, num teste
+                        // que passou assim mesmo porque a hora nao era o que ele exercitava.
+                        //
+                        // Agora nao se digita: tocar abre um seletor, e hora invalida deixa de ser
+                        // representavel. A camada clicavel vai POR CIMA do campo porque
+                        // OutlinedTextField com `readOnly` ainda captura o toque e mostraria cursor
+                        // sem abrir nada.
+                        Box(modifier = Modifier.weight(.65f)) {
+                            OutlinedTextField(
+                                value = dueTime,
+                                onValueChange = {},
+                                readOnly = true,
+                                singleLine = true,
+                                label = { Text("Hora") },
+                                placeholder = { Text("--:--") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable { mostrarSeletorDeHora = true },
+                            )
+                        }
                     }
                 }
                 item {
@@ -4172,6 +4197,40 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
+
+    if (mostrarSeletorDeHora) {
+        // Parte do que ja estiver no campo; se estiver vazio ou ilegivel, abre na hora atual, que
+        // e um palpite melhor que meia-noite para quem esta criando tarefa agora.
+        val inicial = horaParaHoraMinuto(dueTime) ?: horaParaHoraMinuto(horaAgora()) ?: (8 to 0)
+        val estadoDaHora = rememberTimePickerState(
+            initialHour = inicial.first,
+            initialMinute = inicial.second,
+            is24Hour = true,
+        )
+        AlertDialog(
+            onDismissRequest = { mostrarSeletorDeHora = false },
+            title = { Text("Hora") },
+            // `TimeInput`, e nao `TimePicker`: o mostrador redondo e alto, e este dialogo abre
+            // DENTRO de outro dialogo, que ja ocupa a tela. Duas caixas numeradas cabem em
+            // qualquer altura e resolvem o mesmo problema -- hora e minuto separados, nenhum
+            // dois-pontos para digitar.
+            text = { TimeInput(state = estadoDaHora) },
+            confirmButton = {
+                Button(onClick = {
+                    dueTime = horaFormatada(estadoDaHora.hour, estadoDaHora.minute)
+                    mostrarSeletorDeHora = false
+                }) { Text("Definir") }
+            },
+            // Sem isto nao haveria como TIRAR uma hora ja escolhida: o campo deixou de ser
+            // digitavel, entao apagar tem de ser uma acao propria.
+            dismissButton = {
+                TextButton(onClick = {
+                    dueTime = ""
+                    mostrarSeletorDeHora = false
+                }) { Text("Sem hora") }
+            },
+        )
+    }
 }
 
 @Composable

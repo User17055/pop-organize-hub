@@ -5548,7 +5548,7 @@ private fun TasksScreen(
     val taskFilters = if (workSpace == WorkSpace.Personal) {
         listOf("Hoje", "Atrasadas", "Próximas", "Todas")
     } else {
-        listOf("Hoje", "Atrasadas", "Próximas", "Para mim", "Setor", "Grupo", "Todas")
+        listOf("Hoje", "Atrasadas", "Próximas", "Para mim", "Empresa", "Setor", "Grupo", "Todas")
     }
 
     LaunchedEffect(workSpace, selectedCompanyIndex, selectedTaskList?.id) {
@@ -5588,6 +5588,8 @@ private fun TasksScreen(
                         task.assignee.split(",").any {
                             it.trim().equals(currentUserName, ignoreCase = true)
                         }
+                // Mesmo recorte do botão "Empresa" do painel: tarefas destinadas à empresa inteira.
+                "Empresa" -> task.assignmentType == "company"
                 "Setor" ->
                     companySectors
                         .asSequence()

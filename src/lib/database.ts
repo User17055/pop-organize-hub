@@ -207,6 +207,18 @@ export function sanitizeDatabase(
       }),
     )
     .map((task) => {
+      const {
+        nativeData: _nativeData,
+        nativeSource: _nativeSource,
+        nativeOwnerId: _nativeOwnerId,
+        nativeRemindersByUser: _nativeRemindersByUser,
+        ...safeTask
+      } = task as Task & {
+        nativeData?: unknown;
+        nativeSource?: string;
+        nativeOwnerId?: string;
+        nativeRemindersByUser?: Record<string, string>;
+      };
       const label =
         task.target.type === "department"
           ? (departmentNames.get(task.target.id) ?? formatDepartmentName(task.target.label))
@@ -215,7 +227,7 @@ export function sanitizeDatabase(
             : task.target.type === "group"
               ? (groupNames.get(task.target.id) ?? task.target.label)
               : db.company.name;
-      return { ...task, target: { ...task.target, label } };
+      return { ...safeTask, target: { ...task.target, label } };
     });
 
   return {

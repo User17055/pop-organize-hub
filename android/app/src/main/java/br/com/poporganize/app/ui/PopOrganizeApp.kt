@@ -2,6 +2,7 @@ package br.com.poporganize.app.ui
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -29,6 +30,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.splineBasedDecay
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -50,12 +52,17 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
+import androidx.compose.foundation.gestures.snapping.SnapPosition
+import androidx.compose.foundation.gestures.snapping.snapFlingBehavior
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -107,6 +114,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PendingActions
 import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material.icons.rounded.PhotoCamera
@@ -155,6 +163,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -225,6 +234,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import android.content.pm.PackageManager
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.Lifecycle
@@ -248,10 +258,15 @@ import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.security.SecureRandom
+import java.io.ByteArrayOutputStream
+import java.io.File
 import java.net.URL
 import java.time.LocalDate
 import java.time.LocalTime
@@ -295,8 +310,11 @@ private data class PopTask(
     val assignedBy: String = "",
     val createdBy: String = "",
     val recurrence: String = "Não repetir",
-    val reminder: String = "Sem lembrete",
+    val reminder: String = "Sem notificação",
     val attachmentName: String = "",
+    val attachmentUri: String = "",
+    val attachmentMimeType: String = "",
+    val attachmentData: String = "",
     val dueTime: String = "",
     val recurrenceTimes: List<String> = emptyList(),
     val duration: String = "Sem duração",
@@ -322,6 +340,107 @@ private data class PopTask(
     val checklist: List<TaskChecklistItem> = emptyList(),
     val calendarProjection: Boolean = false,
 )
+
+private fun customReminderLabel(amount: Int, unit: String): String {
+    val safeAmount = amount.coerceAtLeast(1)
+    val label = when (unit) {
+        "hora" -> if (safeAmount == 1) "hora" else "horas"
+        "dia" -> if (safeAmount == 1) "dia" else "dias"
+        else -> if (safeAmount == 1) "minuto" else "minutos"
+    }
+    return "$safeAmount $label antes"
+}
+
+private fun isCustomReminder(reminder: String): Boolean = reminder !in setOf(
+    "Sem lembrete",
+    "Sem notificação",
+    "No horário",
+    "15 min",
+    "15 minutos antes",
+    "30 minutos antes",
+    "1 hora antes",
+    "1 dia antes",
+)
+
+private data class SelectedAttachment(
+    val name: String,
+    val uri: String,
+    val mimeType: String,
+    val data: String,
+)
+
+private fun persistAttachment(context: Context, uri: Uri): SelectedAttachment {
+    runCatching {
+        context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    val name = context.contentResolver
+        .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+        }
+        ?: uri.lastPathSegment
+        ?: "Anexo selecionado"
+    val encodedData = context.contentResolver.openInputStream(uri)?.use { input ->
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(32 * 1024)
+        var total = 0
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > 20 * 1024 * 1024) {
+                throw IllegalArgumentException("O anexo deve ter no máximo 20 MB.")
+            }
+            output.write(buffer, 0, read)
+        }
+        Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+    } ?: throw IllegalArgumentException("Não foi possível ler o arquivo selecionado.")
+    return SelectedAttachment(
+        name = name,
+        uri = uri.toString(),
+        mimeType = context.contentResolver.getType(uri).orEmpty(),
+        data = encodedData,
+    )
+}
+
+private fun openAttachment(
+    context: Context,
+    name: String,
+    uriValue: String,
+    mimeType: String,
+    encodedData: String,
+) {
+    if (uriValue.isBlank() && encodedData.isBlank()) {
+        Toast.makeText(context, "Selecione novamente o arquivo para abri-lo.", Toast.LENGTH_LONG).show()
+        return
+    }
+    runCatching {
+        val attachmentUri = if (encodedData.isNotBlank()) {
+            val directory = File(context.cacheDir, "attachments").apply { mkdirs() }
+            val safeName = name.ifBlank { "anexo" }.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val file = File(directory, safeName).apply {
+                writeBytes(Base64.decode(encodedData, Base64.DEFAULT))
+            }
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        } else {
+            Uri.parse(uriValue)
+        }
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(attachmentUri, mimeType.ifBlank { "*/*" })
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            },
+        )
+    }.onFailure { error ->
+        val message = if (error is ActivityNotFoundException) {
+            "Nenhum aplicativo instalado consegue abrir este arquivo."
+        } else {
+            "Não foi possível abrir o anexo. Selecione o arquivo novamente."
+        }
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
+}
 
 private data class NativeTaskFolder(
     val id: String,
@@ -401,16 +520,56 @@ private const val COMPANY_TASKS_DIRTY_PREFIX = "pop_organize_company_tasks_dirty
 private const val DELETED_TASKS_STORAGE_PREFIX = "pop_organize_deleted_tasks_"
 private const val ASSIGNED_TASKS_SEEN_PREFIX = "pop_organize_assigned_tasks_seen_"
 private const val LAST_WORKSPACE_STORAGE_PREFIX = "pop_organize_last_workspace_"
+private const val CALENDAR_FILTER_SECTOR_PREFIX = "pop_organize_calendar_filter_sector_"
+private const val CALENDAR_FILTER_GROUP_PREFIX = "pop_organize_calendar_filter_group_"
+private const val CALENDAR_FILTER_PERSON_PREFIX = "pop_organize_calendar_filter_person_"
+private const val CALENDAR_FILTER_PENDING_PREFIX = "pop_organize_calendar_filter_pending_"
 private const val PERSONAL_WORKSPACE_STORAGE_VALUE = "personal"
 private val MOBILE_API_BASE_URL = BuildConfig.POP_API_BASE_URL.trimEnd('/')
-private const val ACTIVE_TASK_REFRESH_INTERVAL_MS = 2_000L
+private const val ACTIVE_TASK_REFRESH_INTERVAL_MS = 10_000L
 private const val WORKSPACE_REFRESH_INTERVAL_MS = 15_000L
 private const val LIGHT_THEME_STORAGE = "pop_organize_light_theme"
 private const val LOCAL_PREFERENCES = "pop_organize_local"
 
 private data class CachedRemoteTasks(val etag: String, val tasks: List<PopTask>)
 private val remoteTasksCache = mutableMapOf<String, CachedRemoteTasks>()
+private val remoteTasksSyncMutex = Mutex()
 private val googleProfileImageCache = mutableMapOf<String, ImageBitmap>()
+
+private data class StoredCalendarFilters(
+    val sectorId: String?,
+    val groupId: String?,
+    val personId: String?,
+    val pendingOnly: Boolean,
+)
+
+private fun loadCalendarFilters(context: Context, storageKey: String): StoredCalendarFilters {
+    val preferences = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+    return StoredCalendarFilters(
+        sectorId = preferences.getString("$CALENDAR_FILTER_SECTOR_PREFIX$storageKey", null),
+        groupId = preferences.getString("$CALENDAR_FILTER_GROUP_PREFIX$storageKey", null),
+        personId = preferences.getString("$CALENDAR_FILTER_PERSON_PREFIX$storageKey", null),
+        pendingOnly = preferences.getBoolean("$CALENDAR_FILTER_PENDING_PREFIX$storageKey", false),
+    )
+}
+
+private fun saveCalendarFilter(
+    context: Context,
+    keyPrefix: String,
+    storageKey: String,
+    value: String?,
+) {
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE).edit().apply {
+        if (value == null) remove("$keyPrefix$storageKey") else putString("$keyPrefix$storageKey", value)
+    }.apply()
+}
+
+private fun saveCalendarPendingFilter(context: Context, storageKey: String, value: Boolean) {
+    context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean("$CALENDAR_FILTER_PENDING_PREFIX$storageKey", value)
+        .apply()
+}
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -539,8 +698,12 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 assignedBy = item.optString("assignedBy"),
                 createdBy = item.optString("createdBy"),
                 recurrence = item.optString("recurrence", "Não repetir"),
-                reminder = item.optString("reminder", "Sem lembrete"),
+                reminder = item.optString("reminder", "Sem notificação")
+                    .let { if (it == "Sem lembrete") "Sem notificação" else it },
                 attachmentName = item.optString("attachmentName"),
+                attachmentUri = item.optString("attachmentUri"),
+                attachmentMimeType = item.optString("attachmentMimeType"),
+                attachmentData = item.optString("attachmentData"),
                 dueTime = item.optString("dueTime"),
                 recurrenceTimes = item.optJSONArray("recurrenceTimes")?.let { values ->
                     buildList {
@@ -669,7 +832,7 @@ private fun mergeRemoteTaskRouting(
         .filter { it.serverId.isNotBlank() }
         .associateBy(PopTask::serverId)
     val localById = localTasks.associateBy(PopTask::id)
-    return remoteTasks.map { remote ->
+    val mergedRemoteTasks = remoteTasks.map { remote ->
         val local = localByServerId[remote.serverId] ?: localById[remote.id]
         val remoteRoutingMissing =
             remote.assignmentTargetId.isBlank() &&
@@ -695,12 +858,59 @@ private fun mergeRemoteTaskRouting(
         } else {
             remote
         }
-        if (merged.checklist.isEmpty() && !local?.checklist.isNullOrEmpty()) {
+        val withChecklist = if (merged.checklist.isEmpty() && !local?.checklist.isNullOrEmpty()) {
             merged.copy(checklist = local?.checklist.orEmpty())
+        } else merged
+        if (!local?.attachmentData.isNullOrBlank()) {
+            withChecklist.copy(
+                attachmentName = local?.attachmentName.orEmpty(),
+                attachmentUri = local?.attachmentUri.orEmpty(),
+                attachmentMimeType = local?.attachmentMimeType.orEmpty(),
+                attachmentData = local?.attachmentData.orEmpty(),
+            )
         } else {
-            merged
+            withChecklist.copy(
+                attachmentName = withChecklist.attachmentName.ifBlank { local?.attachmentName.orEmpty() },
+                attachmentUri = withChecklist.attachmentUri.ifBlank { local?.attachmentUri.orEmpty() },
+                attachmentMimeType = withChecklist.attachmentMimeType.ifBlank { local?.attachmentMimeType.orEmpty() },
+                attachmentData = withChecklist.attachmentData.ifBlank { local?.attachmentData.orEmpty() },
+            )
         }
     }
+    // A tarefa criada no aparelho ainda não possui serverId. Uma leitura remota que termina
+    // enquanto o PUT está em andamento não pode apagá-la da lista; ela precisa permanecer
+    // localmente até o servidor devolvê-la com o mesmo id numérico e um serverId definitivo.
+    val remoteIds = remoteTasks.mapTo(mutableSetOf(), PopTask::id)
+    val pendingLocalTasks = localTasks.filter { local ->
+        local.serverId.isBlank() && local.id !in remoteIds
+    }
+    return pendingLocalTasks + mergedRemoteTasks
+}
+
+private fun remoteTasksConfirmLocalEdits(
+    remoteTasks: List<PopTask>,
+    localTasks: List<PopTask>,
+): Boolean = localTasks.all { local ->
+    val remote = remoteTasks.firstOrNull { candidate ->
+        (local.serverId.isNotBlank() && candidate.serverId == local.serverId) || candidate.id == local.id
+    } ?: return@all false
+    remote.title == local.title &&
+        remote.description == local.description &&
+        remote.priority == local.priority &&
+        remote.dueDate == local.dueDate &&
+        remote.dueTime == local.dueTime &&
+        remote.recurrenceTimes == local.recurrenceTimes &&
+        remote.reminder == local.reminder &&
+        remote.recurrenceRule == local.recurrenceRule &&
+        remote.recurrenceDetail == local.recurrenceDetail &&
+        remote.recurrenceInterval == local.recurrenceInterval &&
+        remote.recurrenceEndMode == local.recurrenceEndMode &&
+        remote.recurrenceEndValue == local.recurrenceEndValue &&
+        remote.completed == local.completed &&
+        remote.checklist == local.checklist &&
+        remote.attachmentName == local.attachmentName &&
+        (remote.attachmentMimeType == local.attachmentMimeType || remote.attachmentMimeType.isBlank()) &&
+        (remote.attachmentData == local.attachmentData || remote.attachmentData.isBlank())
 }
 
 private fun recurringSeriesKey(task: PopTask): String =
@@ -791,6 +1001,9 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("recurrence", task.recurrence)
                 .put("reminder", task.reminder)
                 .put("attachmentName", task.attachmentName)
+                .put("attachmentUri", task.attachmentUri)
+                .put("attachmentMimeType", task.attachmentMimeType)
+                .put("attachmentData", task.attachmentData)
                 .put("dueTime", task.dueTime)
                 .put("recurrenceTimes", JSONArray(task.recurrenceTimes))
                 .put("duration", task.duration)
@@ -1261,7 +1474,8 @@ private suspend fun syncRemoteTasks(
     tasks: List<PopTask>,
     workspaceId: String = "",
     deletedServerIds: List<String> = emptyList(),
-) = withContext(Dispatchers.IO) {
+) = remoteTasksSyncMutex.withLock {
+    withContext(Dispatchers.IO) {
     val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
         requestMethod = "PUT"
         connectTimeout = 15_000
@@ -1288,8 +1502,12 @@ private suspend fun syncRemoteTasks(
             val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
             throw IllegalStateException(response.optString("error", "Falha ao salvar tarefas."))
         }
+        synchronized(remoteTasksCache) {
+            remoteTasksCache.remove("$apiToken::$workspaceId")
+        }
     } finally {
         connection.disconnect()
+    }
     }
 }
 
@@ -1916,7 +2134,15 @@ private fun PopWordmark(
             }
         }
         if (stacked) {
-            Text("Organize", color = color, fontSize = mainSize, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp)
+            Text(
+                "Organize",
+                color = color,
+                fontSize = mainSize,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-2).sp,
+                lineHeight = mainSize,
+                modifier = Modifier.offset(y = if (large) (-14).dp else (-9).dp),
+            )
         }
     }
 }
@@ -2925,6 +3151,31 @@ private fun PopMainContent(
         workSpace != WorkSpace.Company || companyCanViewCalendar.getOrElse(selectedCompanyIndex) { false }
     val selectedNativeTaskList = taskLists.firstOrNull { it.id == selectedTaskListId }
 
+    fun taskWithPersistedAttachment(task: PopTask): PopTask {
+        val persistedTasks = when {
+            sessionMode == SessionMode.Guest -> loadGuestTasks(context)
+            googleAccount == null -> emptyList()
+            workSpace == WorkSpace.Company -> companyIds
+                .getOrNull(selectedCompanyIndex)
+                ?.let { workspaceId -> loadCompanyTasks(context, googleAccount.id, workspaceId) }
+                .orEmpty()
+            else -> loadAccountTasks(context, googleAccount.id)
+        }
+        val persisted = persistedTasks.firstOrNull { candidate ->
+            (task.serverId.isNotBlank() && candidate.serverId == task.serverId) || candidate.id == task.id
+        }
+        return if (!persisted?.attachmentData.isNullOrBlank()) {
+            task.copy(
+                attachmentName = persisted?.attachmentName.orEmpty(),
+                attachmentUri = persisted?.attachmentUri.orEmpty(),
+                attachmentMimeType = persisted?.attachmentMimeType.orEmpty(),
+                attachmentData = persisted?.attachmentData.orEmpty(),
+            )
+        } else {
+            task
+        }
+    }
+
     LaunchedEffect(canViewCalendar, destination) {
         if (!canViewCalendar && destination == PopDestination.Calendar) {
             destination = PopDestination.Dashboard
@@ -3202,11 +3453,34 @@ private fun PopMainContent(
     }
 
     fun applyRemoteTasks(remoteTasks: List<PopTask>) {
-        lastSyncedTasksJson = tasksToJson(remoteTasks).toString()
+        // Algumas versões do servidor devolvem apenas o nome do anexo. A cópia Base64 já
+        // salva no aparelho continua sendo a fonte segura; sem esta restauração, uma resposta
+        // remota podia apagar a pré-visualização logo depois de fechar e reabrir a tarefa.
+        val persistedByIdentity = googleAccount
+            ?.let { loadAccountTasks(context, it.id) }
+            .orEmpty()
+            .associateBy { task -> task.serverId.ifBlank { task.id.toString() } }
+        val localTasks = personalTasks.map { local ->
+            val persisted = persistedByIdentity[local.serverId.ifBlank { local.id.toString() }]
+            if (local.attachmentData.isBlank() && !persisted?.attachmentData.isNullOrBlank()) {
+                local.copy(
+                    attachmentName = persisted?.attachmentName.orEmpty(),
+                    attachmentUri = persisted?.attachmentUri.orEmpty(),
+                    attachmentMimeType = persisted?.attachmentMimeType.orEmpty(),
+                    attachmentData = persisted?.attachmentData.orEmpty(),
+                )
+            } else {
+                local
+            }
+        }
+        val mergedTasks = mergeRemoteTaskRouting(remoteTasks, localTasks)
+        val remoteJson = tasksToJson(remoteTasks).toString()
+        val mergedJson = tasksToJson(mergedTasks).toString()
+        lastSyncedTasksJson = remoteJson
         personalTasks.clear()
-        personalTasks.addAll(remoteTasks)
-        googleAccount?.let { saveAccountTasks(context, it.id, remoteTasks) }
-        googleAccount?.let { setAccountTasksDirty(context, it.id, false) }
+        personalTasks.addAll(mergedTasks)
+        googleAccount?.let { saveAccountTasks(context, it.id, mergedTasks) }
+        googleAccount?.let { setAccountTasksDirty(context, it.id, mergedJson != remoteJson) }
         remoteTasksLoaded = true
     }
 
@@ -3218,14 +3492,25 @@ private fun PopMainContent(
         if (showIndicator) isRefreshing = true
         val localSnapshot = personalTasks.toList()
         val localTasksJson = tasksToJson(localSnapshot).toString()
+        val hadLocalChanges =
+            accountTasksAreDirty(context, account.id) ||
+                (remoteTasksLoaded && localTasksJson != lastSyncedTasksJson)
         runCatching {
-            if (accountTasksAreDirty(context, account.id) || (remoteTasksLoaded && localTasksJson != lastSyncedTasksJson)) {
+            if (hadLocalChanges) {
                 syncTasksWithPendingDeletions(account, localSnapshot)
             }
             loadRemoteTasks(account.apiToken)
         }.onSuccess { remoteTasks ->
             if (tasksToJson(personalTasks).toString() == localTasksJson) {
-                applyRemoteTasks(remoteTasks)
+                if (!hadLocalChanges || remoteTasksConfirmLocalEdits(remoteTasks, localSnapshot)) {
+                    if (hadLocalChanges) setAccountTasksDirty(context, account.id, false)
+                    applyRemoteTasks(remoteTasks)
+                } else {
+                    // O PUT terminou, mas a leitura ainda devolveu a versão anterior. Manter a
+                    // edição local evita que abrir/salvar uma tarefa pareça funcionar e seja
+                    // desfeito segundos depois. A próxima atualização tenta sincronizar de novo.
+                    setAccountTasksDirty(context, account.id, true)
+                }
             }
             if (workSpace == WorkSpace.Company) {
                 val workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty()
@@ -3253,6 +3538,7 @@ private fun PopMainContent(
                 }
             }
         }.onFailure { error ->
+            if (error is CancellationException) throw error
             if (showFeedback) {
                 Toast.makeText(context, error.localizedMessage ?: "Não foi possível atualizar.", Toast.LENGTH_LONG).show()
             }
@@ -3366,11 +3652,9 @@ private fun PopMainContent(
                 }
                     .onSuccess {
                         lastSyncedTasksJson = snapshotJson
-                        if (tasksToJson(personalTasks).toString() == snapshotJson) {
-                            setAccountTasksDirty(context, googleAccount.id, false)
-                        }
                     }
                     .onFailure { error ->
+                        if (error is CancellationException) throw error
                         Toast.makeText(
                             context,
                             error.localizedMessage ?: "A tarefa ficou salva no aparelho e será sincronizada depois.",
@@ -3387,9 +3671,11 @@ private fun PopMainContent(
                 val times = task.recurrenceTimes.takeIf { it.size >= 2 } ?: listOf(task.dueTime)
                 times.map { time ->
                     NotificationTaskSnapshot(
+                        taskId = task.id,
                         title = task.title,
                         dueDate = task.dueDate,
                         dueTime = time,
+                        reminder = task.reminder,
                         completed = task.completed,
                     )
                 }
@@ -3481,6 +3767,7 @@ private fun PopMainContent(
                         selectedTaskList = selectedNativeTaskList,
                         initialTaskId = taskToOpenId,
                         onInitialTaskOpened = { taskToOpenId = null },
+                        resolveTaskForEditing = ::taskWithPersistedAttachment,
                         onTaskDeleted = { deletedTask ->
                             val account = googleAccount
                             if (account != null && deletedTask.serverId.isNotBlank()) {
@@ -3511,6 +3798,7 @@ private fun PopMainContent(
                             companyNames = companyNames,
                             companyDescriptions = companyDescriptions,
                             selectedCompanyIndex = selectedCompanyIndex,
+                            filterStorageKey = "${googleAccount?.id.orEmpty()}_${companyIds.getOrNull(selectedCompanyIndex).orEmpty()}",
                             onCompanySelect = ::selectCompany,
                             onCreateCompany = ::requestCreateCompany,
                             onOpenMenu = { showTaskOrganizer = true },
@@ -3590,6 +3878,7 @@ private fun PopMainContent(
                                 onOpenMenu = { showTaskOrganizer = true },
                                 initialTaskId = calendarTaskToOpenId,
                                 onInitialTaskOpened = {},
+                                resolveTaskForEditing = ::taskWithPersistedAttachment,
                                 onTaskDeleted = { deletedTask ->
                                     val account = googleAccount
                                     if (account != null && deletedTask.serverId.isNotBlank()) {
@@ -3631,6 +3920,7 @@ private fun PopMainContent(
                                 onOpenMenu = { showTaskOrganizer = true },
                                 initialTaskId = null,
                                 onInitialTaskOpened = {},
+                                resolveTaskForEditing = ::taskWithPersistedAttachment,
                                 onTaskDeleted = {},
                                 initialCreateDate = taskToCreateDate,
                                 createOnly = true,
@@ -4538,17 +4828,6 @@ private fun WorkSpaceHeader(
         Box(
             modifier = Modifier.fillMaxWidth().height(48.dp),
         ) {
-            IconButton(
-                onClick = onOpenMenu,
-                modifier = Modifier.align(Alignment.CenterStart).size(44.dp),
-            ) {
-                Icon(
-                    Icons.Rounded.Menu,
-                    contentDescription = "Abrir menu",
-                    tint = PopText,
-                    modifier = Modifier.size(25.dp),
-                )
-            }
 
             Box(
                 modifier = Modifier.align(Alignment.Center).widthIn(max = 220.dp),
@@ -5387,6 +5666,7 @@ private fun TasksScreen(
     onOpenMenu: () -> Unit,
     initialTaskId: Int?,
     onInitialTaskOpened: () -> Unit,
+    resolveTaskForEditing: (PopTask) -> PopTask = { it },
     onTaskDeleted: (PopTask) -> Unit,
     selectedTaskList: NativeTaskList? = null,
     initialCreateDate: LocalDate? = null,
@@ -5412,8 +5692,16 @@ private fun TasksScreen(
     var newTaskDateOffset by remember { mutableIntStateOf(0) }
     var newTaskRecurrence by remember { mutableStateOf("Não repetir") }
     var newTaskRecurrenceDetail by remember { mutableStateOf("") }
-    var newTaskReminder by remember { mutableStateOf("Sem lembrete") }
+    var newTaskReminder by remember { mutableStateOf("Sem notificação") }
+    var showNewReminderMenu by remember { mutableStateOf(false) }
+    var showCustomReminderEditor by remember { mutableStateOf(false) }
+    var customReminderForEdit by remember { mutableStateOf(false) }
+    var customReminderAmount by remember { mutableStateOf("30") }
+    var customReminderUnit by remember { mutableStateOf("minuto") }
     var newTaskAttachment by remember { mutableStateOf("") }
+    var newTaskAttachmentUri by remember { mutableStateOf("") }
+    var newTaskAttachmentMimeType by remember { mutableStateOf("") }
+    var newTaskAttachmentData by remember { mutableStateOf("") }
     var newTaskTime by remember { mutableStateOf("") }
     var newTaskRecurrenceTimes by remember { mutableStateOf<List<String>>(emptyList()) }
     var newTaskDuration by remember { mutableStateOf("Sem duração") }
@@ -5429,6 +5717,7 @@ private fun TasksScreen(
     var taskDateMonth by remember { mutableStateOf(YearMonth.now()) }
     var taskDateTab by remember { mutableStateOf("Data") }
     var showTaskTimePicker by remember { mutableStateOf(false) }
+    var showEditTimePicker by remember { mutableStateOf(false) }
     var showTaskYearMenu by remember { mutableStateOf(false) }
     var showCompleted by remember { mutableStateOf(false) }
     // A tela precisa nascer mostrando tudo o que o servidor autorizou. Abrir em "Hoje" fazia uma
@@ -5447,7 +5736,7 @@ private fun TasksScreen(
     var editDueDate by remember { mutableStateOf("") }
     var editDueTime by remember { mutableStateOf("") }
     var editRecurrenceTimes by remember { mutableStateOf<List<String>>(emptyList()) }
-    var editReminder by remember { mutableStateOf("Sem lembrete") }
+    var editReminder by remember { mutableStateOf("Sem notificação") }
     var editRecurrence by remember { mutableStateOf("Não repetir") }
     var editRecurrenceDetail by remember { mutableStateOf("") }
     var editRecurrenceInterval by remember { mutableIntStateOf(1) }
@@ -5460,6 +5749,9 @@ private fun TasksScreen(
     var editResponsibleNames by remember { mutableStateOf(setOf<String>()) }
     var editChecklist by remember { mutableStateOf<List<TaskChecklistItem>>(emptyList()) }
     var editAttachment by remember { mutableStateOf("") }
+    var editAttachmentUri by remember { mutableStateOf("") }
+    var editAttachmentMimeType by remember { mutableStateOf("") }
+    var editAttachmentData by remember { mutableStateOf("") }
     val createTaskSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val taskDetailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val taskDateSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -5471,26 +5763,42 @@ private fun TasksScreen(
     val taskActionScope = rememberCoroutineScope()
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            newTaskAttachment = context.contentResolver
-                .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-                ?.use { cursor ->
-                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+            runCatching { persistAttachment(context, uri) }
+                .onSuccess { attachment ->
+                    newTaskAttachment = attachment.name
+                    newTaskAttachmentUri = attachment.uri
+                    newTaskAttachmentMimeType = attachment.mimeType
+                    newTaskAttachmentData = attachment.data
+                    showAdvancedOptions = true
+                    Toast.makeText(context, "Anexo adicionado.", Toast.LENGTH_SHORT).show()
                 }
-                ?: uri.lastPathSegment
-                ?: "Anexo selecionado"
+                .onFailure { error ->
+                    Toast.makeText(context, error.message ?: "Não foi possível anexar o arquivo.", Toast.LENGTH_LONG).show()
+                }
         }
     }
     val editAttachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            editAttachment = context.contentResolver
-                .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-                ?.use { cursor ->
-                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+            runCatching { persistAttachment(context, uri) }
+                .onSuccess { attachment ->
+                    editAttachment = attachment.name
+                    editAttachmentUri = attachment.uri
+                    editAttachmentMimeType = attachment.mimeType
+                    editAttachmentData = attachment.data
+                    val taskIndex = tasks.indexOfFirst { it.id == editingTaskId }
+                    if (taskIndex >= 0) {
+                        tasks[taskIndex] = tasks[taskIndex].copy(
+                            attachmentName = attachment.name,
+                            attachmentUri = attachment.uri,
+                            attachmentMimeType = attachment.mimeType,
+                            attachmentData = attachment.data,
+                        )
+                    }
+                    Toast.makeText(context, "Anexo adicionado.", Toast.LENGTH_SHORT).show()
                 }
-                ?: uri.lastPathSegment
-                ?: "Anexo selecionado"
+                .onFailure { error ->
+                    Toast.makeText(context, error.message ?: "Não foi possível anexar o arquivo.", Toast.LENGTH_LONG).show()
+                }
         }
     }
     val today = LocalDate.now()
@@ -5716,7 +6024,12 @@ private fun TasksScreen(
         return true
     }
 
-    fun openTask(task: PopTask) {
+    fun openTask(sourceTask: PopTask) {
+        val task = resolveTaskForEditing(sourceTask)
+        if (task != sourceTask) {
+            val taskIndex = tasks.indexOfFirst { it.id == sourceTask.id }
+            if (taskIndex >= 0) tasks[taskIndex] = task
+        }
         editingTaskId = task.id
         expandedDetailSection = null
         editTitle = task.title
@@ -5726,7 +6039,7 @@ private fun TasksScreen(
             .getOrNull()?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: task.dueDate
         editDueTime = task.dueTime
         editRecurrenceTimes = task.recurrenceTimes
-        editReminder = task.reminder
+        editReminder = if (task.reminder == "Sem lembrete") "Sem notificação" else task.reminder
         editRecurrence = task.recurrenceRule
         editRecurrenceDetail = task.recurrenceDetail
         editRecurrenceInterval = task.recurrenceInterval
@@ -5744,6 +6057,9 @@ private fun TasksScreen(
             if (task.assignmentType == "user") emptySet() else task.assignees.toSet()
         editChecklist = task.checklist
         editAttachment = task.attachmentName
+        editAttachmentUri = task.attachmentUri
+        editAttachmentMimeType = task.attachmentMimeType
+        editAttachmentData = task.attachmentData
     }
 
     fun finishTaskDetails() {
@@ -5770,6 +6086,11 @@ private fun TasksScreen(
         val parsedDate = runCatching {
             LocalDate.parse(editDueDate, DateTimeFormatter.ofPattern("dd/MM/yyyy"))
         }.getOrNull() ?: runCatching { LocalDate.parse(original.dueDate) }.getOrNull() ?: LocalDate.now()
+        val normalizedEditTime = editDueTime.trim()
+        if (normalizedEditTime.isNotBlank() && runCatching { LocalTime.parse(normalizedEditTime) }.isFailure) {
+            Toast.makeText(context, "Informe um horário válido, como 09:30.", Toast.LENGTH_SHORT).show()
+            return
+        }
         val storedEndValue = when (editRecurrenceEnd) {
             "Após" -> editRecurrenceEndValue.filter(Char::isDigit).ifBlank { "10" }
             "Em uma data" -> runCatching {
@@ -5818,7 +6139,7 @@ private fun TasksScreen(
             priority = editPriority,
             dueDate = parsedDate.toString(),
             dueLabel = dueLabelForDate(parsedDate),
-            dueTime = editRecurrenceTimes.minOrNull() ?: editDueTime.trim(),
+            dueTime = editRecurrenceTimes.minOrNull() ?: normalizedEditTime,
             recurrenceTimes = editRecurrenceTimes.sorted(),
             reminder = editReminder,
             recurrence = recurrenceSummary,
@@ -5840,6 +6161,9 @@ private fun TasksScreen(
             department = editAssignmentTargetLabel.ifBlank { original.department },
             checklist = if (isTaskAdmin) editChecklist else original.checklist,
             attachmentName = editAttachment,
+            attachmentUri = editAttachmentUri,
+            attachmentMimeType = editAttachmentMimeType,
+            attachmentData = editAttachmentData,
         )
         finishTaskDetails()
     }
@@ -5937,6 +6261,9 @@ private fun TasksScreen(
                 },
                 reminder = newTaskReminder,
                 attachmentName = newTaskAttachment,
+                attachmentUri = newTaskAttachmentUri,
+                attachmentMimeType = newTaskAttachmentMimeType,
+                attachmentData = newTaskAttachmentData,
                 dueTime = newTaskRecurrenceTimes.minOrNull() ?: newTaskTime,
                 recurrenceTimes = newTaskRecurrenceTimes.sorted(),
                 duration = newTaskDuration,
@@ -5973,8 +6300,11 @@ private fun TasksScreen(
         newTaskDateOffset = 0
         newTaskRecurrence = "Não repetir"
         newTaskRecurrenceDetail = ""
-        newTaskReminder = "Sem lembrete"
+        newTaskReminder = "Sem notificação"
         newTaskAttachment = ""
+        newTaskAttachmentUri = ""
+        newTaskAttachmentMimeType = ""
+        newTaskAttachmentData = ""
         newTaskTime = ""
         newTaskRecurrenceTimes = emptyList()
         newTaskDuration = "Sem duração"
@@ -6374,11 +6704,20 @@ private fun TasksScreen(
                             )
                         }
                         if (newTaskAttachment.isNotBlank()) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.AttachFile, null, tint = PopBlue, modifier = Modifier.size(17.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(newTaskAttachment, color = PopBlue, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
+                            TaskAttachmentPreview(
+                                name = newTaskAttachment,
+                                uri = newTaskAttachmentUri,
+                                mimeType = newTaskAttachmentMimeType,
+                                encodedData = newTaskAttachmentData,
+                                onOpen = { openAttachment(context, newTaskAttachment, newTaskAttachmentUri, newTaskAttachmentMimeType, newTaskAttachmentData) },
+                                onReplace = { attachmentPicker.launch(arrayOf("*/*")) },
+                                onDelete = {
+                                    newTaskAttachment = ""
+                                    newTaskAttachmentUri = ""
+                                    newTaskAttachmentMimeType = ""
+                                    newTaskAttachmentData = ""
+                                },
+                            )
                         }
                     }
                 }
@@ -6638,9 +6977,9 @@ private fun TasksScreen(
                                     expandedDetailSection = if (expandedDetailSection == "date") null else "date"
                                 }
                                 AnimatedVisibility(visible = detailCanEdit && expandedDetailSection == "date") {
-                                    Row(
+                                    Column(
                                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                                        verticalArrangement = Arrangement.spacedBy(9.dp),
                                     ) {
                                         TextField(
                                             value = editDueDate,
@@ -6650,18 +6989,44 @@ private fun TasksScreen(
                                             singleLine = true,
                                             shape = RoundedCornerShape(12.dp),
                                             colors = taskEditorFieldColors(PopSurface),
-                                            modifier = Modifier.weight(1.25f),
+                                            modifier = Modifier.fillMaxWidth(),
                                         )
-                                        TextField(
-                                            value = editDueTime,
-                                            onValueChange = { editDueTime = it.filter { char -> char.isDigit() || char == ':' }.take(5) },
-                                            label = { Text("Hora") },
-                                            placeholder = { Text("--:--") },
-                                            singleLine = true,
-                                            shape = RoundedCornerShape(12.dp),
-                                            colors = taskEditorFieldColors(PopSurface),
-                                            modifier = Modifier.weight(.75f),
-                                        )
+                                        Surface(
+                                            onClick = { showEditTimePicker = true },
+                                            color = Color.Transparent,
+                                            shape = RoundedCornerShape(16.dp),
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(start = 15.dp, end = 6.dp, top = 11.dp, bottom = 11.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Icon(Icons.Rounded.AccessTime, null, tint = PopBlue, modifier = Modifier.size(21.dp))
+                                                Spacer(Modifier.width(11.dp))
+                                                Column(Modifier.weight(1f)) {
+                                                    Text("Hora (opcional)", color = PopMuted, fontSize = 11.sp)
+                                                    Text(
+                                                        editDueTime.ifBlank { "Sem horário" },
+                                                        color = PopText,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 15.sp,
+                                                    )
+                                                }
+                                                if (editDueTime.isNotBlank()) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            editDueTime = ""
+                                                            editReminder = "Sem notificação"
+                                                        },
+                                                    ) {
+                                                        Icon(Icons.Rounded.Close, "Remover horário", tint = PopMuted, modifier = Modifier.size(18.dp))
+                                                    }
+                                                } else {
+                                                    Icon(Icons.Rounded.KeyboardArrowDown, null, tint = PopMuted)
+                                                    Spacer(Modifier.width(10.dp))
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -6673,30 +7038,32 @@ private fun TasksScreen(
                                 DetailSettingRow(
                                     icon = Icons.Rounded.NotificationsActive,
                                     label = "Lembrar-me",
-                                    value = editReminder.takeUnless { it == "Sem lembrete" }.orEmpty(),
+                                    value = editReminder,
                                     expanded = expandedDetailSection == "reminder",
                                 ) {
                                     expandedDetailSection = if (expandedDetailSection == "reminder") null else "reminder"
                                 }
                                 AnimatedVisibility(visible = expandedDetailSection == "reminder") {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(7.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                    ) {
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                                            listOf("Sem lembrete", "No horário").forEach { option ->
-                                                DetailChoicePill(option, editReminder == option) { updateTaskReminder(option) }
-                                                if (option != "No horário") Spacer(Modifier.width(7.dp))
+                                    ReminderOptionList(
+                                        selected = editReminder,
+                                        onSelect = { option ->
+                                            if (option == "Personalizado") {
+                                                customReminderForEdit = true
+                                                showCustomReminderEditor = true
+                                            } else {
+                                                updateTaskReminder(option)
+                                                expandedDetailSection = null
                                             }
-                                        }
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                                            listOf("15 min", "1 hora antes", "1 dia antes").forEach { option ->
-                                                DetailChoicePill(option, editReminder == option) { updateTaskReminder(option) }
-                                                if (option != "1 dia antes") Spacer(Modifier.width(7.dp))
-                                            }
-                                        }
-                                    }
+                                        },
+                                    )
+                                }
+                                if (editDueTime.isBlank() && editReminder != "Sem notificação") {
+                                    Text(
+                                        "Escolha um horário para ativar a notificação.",
+                                        color = Color(0xFFE59A3A),
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                                    )
                                 }
                             }
                         }
@@ -6990,20 +7357,45 @@ private fun TasksScreen(
                         }
                     }
                     item {
-                        Surface(
-                            onClick = { editAttachmentPicker.launch(arrayOf("*/*")) },
-                            enabled = detailCanEdit,
-                            color = PopSurface,
-                            contentColor = if (editAttachment.isBlank()) PopMuted else PopText,
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.AttachFile, null, modifier = Modifier.size(19.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(editAttachment.ifBlank { "Adicionar anexo" }, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
+                        TaskAttachmentPreview(
+                            name = editAttachment,
+                            uri = editAttachmentUri,
+                            mimeType = editAttachmentMimeType,
+                            encodedData = editAttachmentData,
+                            enabled = editAttachmentUri.isNotBlank() || detailCanEdit,
+                            onOpen = {
+                                if (editAttachmentUri.isNotBlank() || editAttachmentData.isNotBlank()) {
+                                    openAttachment(context, editAttachment, editAttachmentUri, editAttachmentMimeType, editAttachmentData)
+                                } else {
+                                    editAttachmentPicker.launch(arrayOf("*/*"))
+                                }
+                            },
+                            onReplace = if (detailCanEdit && editAttachment.isNotBlank()) {
+                                { editAttachmentPicker.launch(arrayOf("*/*")) }
+                            } else {
+                                null
+                            },
+                            onDelete = if (detailCanEdit && (editAttachment.isNotBlank() || editAttachmentData.isNotBlank())) {
+                                {
+                                    editAttachment = ""
+                                    editAttachmentUri = ""
+                                    editAttachmentMimeType = ""
+                                    editAttachmentData = ""
+                                    val taskIndex = tasks.indexOfFirst { it.id == editingTaskId }
+                                    if (taskIndex >= 0) {
+                                        tasks[taskIndex] = tasks[taskIndex].copy(
+                                            attachmentName = "",
+                                            attachmentUri = "",
+                                            attachmentMimeType = "",
+                                            attachmentData = "",
+                                        )
+                                    }
+                                    Toast.makeText(context, "Anexo excluído.", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                null
+                            },
+                        )
                     }
                     if (!openedTask?.createdBy.isNullOrBlank() || openedTask?.canDelete == true) {
                         item {
@@ -7269,22 +7661,26 @@ private fun TasksScreen(
                         DateSettingRow(
                             icon = Icons.Rounded.AccessTime,
                             label = "Hora",
-                            value = newTaskTime.ifBlank { "Nenhuma" },
+                            value = newTaskTime.ifBlank { "Sem horário" },
                         ) {
+                            runCatching { LocalTime.parse(newTaskTime) }.getOrNull()?.let { selected ->
+                                taskTimePickerState.hour = selected.hour
+                                taskTimePickerState.minute = selected.minute
+                            }
                             showTaskTimePicker = true
                         }
                         DateSettingRow(
                             icon = Icons.Rounded.NotificationsActive,
                             label = "Lembrete",
-                            value = if (newTaskReminder == "Sem lembrete") "Nenhum" else newTaskReminder,
-                        ) {
-                            newTaskReminder = when (newTaskReminder) {
-                                "Sem lembrete" -> "No horário"
-                                "No horário" -> "15 min"
-                                "15 min" -> "1 hora antes"
-                                "1 hora antes" -> "1 dia antes"
-                                else -> "Sem lembrete"
-                            }
+                            value = newTaskReminder,
+                        ) { showNewReminderMenu = true }
+                        if (newTaskTime.isBlank() && newTaskReminder != "Sem notificação") {
+                            Text(
+                                "Escolha um horário para ativar a notificação.",
+                                color = Color(0xFFE59A3A),
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                            )
                         }
                             }
                         }
@@ -7329,7 +7725,7 @@ private fun TasksScreen(
                         taskDateDraft = LocalDate.now()
                         taskDateMonth = YearMonth.now()
                         newTaskTime = ""
-                        newTaskReminder = "Sem lembrete"
+                        newTaskReminder = "Sem notificação"
                         newTaskRecurrence = "Não repetir"
                         newTaskRecurrenceTimes = emptyList()
                         newTaskRecurrenceDetail = ""
@@ -7345,21 +7741,86 @@ private fun TasksScreen(
         }
     }
 
+    if (showNewReminderMenu) {
+        ReminderPickerDialog(
+            selected = newTaskReminder,
+            onDismiss = { showNewReminderMenu = false },
+            onSelect = { option ->
+                showNewReminderMenu = false
+                if (option == "Personalizado") {
+                    customReminderForEdit = false
+                    showCustomReminderEditor = true
+                } else {
+                    newTaskReminder = option
+                }
+            },
+        )
+    }
+
     if (showTaskTimePicker) {
+        WheelTimePickerDialog(
+            title = "Horário da tarefa",
+            initialTime = newTaskTime,
+            onConfirm = { newTaskTime = it; showTaskTimePicker = false },
+            onClear = {
+                newTaskTime = ""
+                newTaskReminder = "Sem notificação"
+                showTaskTimePicker = false
+            },
+            onDismiss = { showTaskTimePicker = false },
+        )
+    }
+
+    if (showEditTimePicker) {
+        WheelTimePickerDialog(
+            title = "Hora de conclusão",
+            initialTime = editDueTime,
+            onConfirm = { editDueTime = it; showEditTimePicker = false },
+            onClear = {
+                editDueTime = ""
+                editReminder = "Sem notificação"
+                showEditTimePicker = false
+            },
+            onDismiss = { showEditTimePicker = false },
+        )
+    }
+
+    if (showCustomReminderEditor) {
         AlertDialog(
-            onDismissRequest = { showTaskTimePicker = false },
-            title = { Text("Escolher hora", fontWeight = FontWeight.ExtraBold) },
-            text = { TimePicker(state = taskTimePickerState) },
+            onDismissRequest = { showCustomReminderEditor = false },
+            title = { Text("Lembrete personalizado", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("Quanto tempo antes da tarefa?", color = PopMuted, fontSize = 12.sp)
+                    TextField(
+                        value = customReminderAmount,
+                        onValueChange = { customReminderAmount = it.filter(Char::isDigit).take(3) },
+                        label = { Text("Quantidade") },
+                        placeholder = { Text("Ex.: 30") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = taskEditorFieldColors(PopSurfaceAlt),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf("minuto" to "Minutos", "hora" to "Horas", "dia" to "Dias").forEach { (value, label) ->
+                            ChoicePill(label, customReminderUnit == value) { customReminderUnit = value }
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(
+                    enabled = (customReminderAmount.toIntOrNull() ?: 0) > 0,
                     onClick = {
-                        newTaskTime = String.format(Locale("pt", "BR"), "%02d:%02d", taskTimePickerState.hour, taskTimePickerState.minute)
-                        showTaskTimePicker = false
+                        val reminder = customReminderLabel(customReminderAmount.toIntOrNull() ?: 1, customReminderUnit)
+                        if (customReminderForEdit) updateTaskReminder(reminder) else newTaskReminder = reminder
+                        showCustomReminderEditor = false
                     },
-                ) { Text("Confirmar", color = PopBlue, fontWeight = FontWeight.Bold) }
+                ) { Text("Aplicar", color = PopBlue, fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
-                TextButton(onClick = { showTaskTimePicker = false }) { Text("Cancelar", color = PopMuted) }
+                TextButton(onClick = { showCustomReminderEditor = false }) { Text("Cancelar", color = PopMuted) }
             },
             shape = RoundedCornerShape(24.dp),
             containerColor = PopSurface,
@@ -7509,7 +7970,7 @@ private fun TasksScreen(
                             }
                             Text("Lembrete", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                                listOf("Sem lembrete", "No horário", "15 min").forEach { reminder ->
+                                listOf("Sem notificação", "No horário", "15 minutos antes").forEach { reminder ->
                                     ChoicePill(reminder, newTaskReminder == reminder) { newTaskReminder = reminder }
                                 }
                             }
@@ -7572,6 +8033,9 @@ private fun TasksScreen(
                                 },
                                 reminder = newTaskReminder,
                                 attachmentName = newTaskAttachment,
+                                attachmentUri = newTaskAttachmentUri,
+                                attachmentMimeType = newTaskAttachmentMimeType,
+                                attachmentData = newTaskAttachmentData,
                             ),
                         )
                         newTaskTitle = ""
@@ -7582,8 +8046,11 @@ private fun TasksScreen(
                         newTaskRecurrence = "Não repetir"
                         newTaskRecurrenceTimes = emptyList()
                         newTaskRecurrenceDetail = ""
-                        newTaskReminder = "Sem lembrete"
+                        newTaskReminder = "Sem notificação"
                         newTaskAttachment = ""
+                        newTaskAttachmentUri = ""
+                        newTaskAttachmentMimeType = ""
+                        newTaskAttachmentData = ""
                         showAdvancedOptions = false
                         showCreate = false
                     },
@@ -8100,24 +8567,410 @@ private fun PriorityChoicePill(label: String, selected: Boolean, onClick: () -> 
 }
 
 @Composable
+private fun WheelTimePickerDialog(
+    title: String,
+    initialTime: String,
+    onConfirm: (String) -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val parsed = remember(initialTime) { runCatching { LocalTime.parse(initialTime) }.getOrNull() }
+    var selectedHour by remember(initialTime) { mutableIntStateOf(parsed?.hour ?: 9) }
+    var selectedMinute by remember(initialTime) { mutableIntStateOf(parsed?.minute ?: 0) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                title,
+                fontWeight = FontWeight.ExtraBold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    WheelNumberPicker(
+                        value = selectedHour,
+                        range = 0..23,
+                        onValueChange = { selectedHour = it },
+                    )
+                    Text(
+                        ":",
+                        color = PopText,
+                        fontSize = 50.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
+                    )
+                    WheelNumberPicker(
+                        value = selectedMinute,
+                        range = 0..59,
+                        onValueChange = { selectedMinute = it },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ClockDialogAction("Sem horário", PopMuted, 1.18f, onClear)
+                ClockDialogAction("Cancelar", Color(0xFFFF2020), 1f, onDismiss)
+                ClockDialogAction("Confirmar", PopBlue, 1f) {
+                    onConfirm("%02d:%02d".format(selectedHour, selectedMinute))
+                }
+            }
+        },
+        shape = RoundedCornerShape(34.dp),
+        containerColor = PopSurface,
+    )
+}
+
+@Composable
+private fun RowScope.ClockDialogAction(
+    label: String,
+    color: Color,
+    weight: Float,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .weight(weight)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 2.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = color,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
+@Composable
+private fun WheelNumberPicker(
+    value: Int,
+    range: IntRange,
+    onValueChange: (Int) -> Unit,
+) {
+    val itemCount = range.count()
+    val centerPage = Int.MAX_VALUE / 2
+    val initialPage = remember(value, range) {
+        centerPage - (centerPage % itemCount) + (value - range.first).coerceIn(0, itemCount - 1)
+    }
+    val pickerState = rememberLazyListState(initialFirstVisibleItemIndex = initialPage)
+    val snapLayoutInfoProvider = remember(pickerState) {
+        SnapLayoutInfoProvider(pickerState, SnapPosition.Center)
+    }
+    val pickerDensity = LocalDensity.current
+    val decayAnimation = remember(pickerDensity) { splineBasedDecay<Float>(pickerDensity) }
+    val smoothFlingBehavior = remember(snapLayoutInfoProvider, decayAnimation) {
+        snapFlingBehavior(
+            snapLayoutInfoProvider = snapLayoutInfoProvider,
+            decayAnimationSpec = decayAnimation,
+            snapAnimationSpec = tween(durationMillis = 620, easing = FastOutSlowInEasing),
+        )
+    }
+    val selectionThreshold = with(LocalDensity.current) { 31.dp.roundToPx() }
+    val selectedPage by remember(pickerState, selectionThreshold) {
+        derivedStateOf {
+            pickerState.firstVisibleItemIndex +
+                if (pickerState.firstVisibleItemScrollOffset >= selectionThreshold) 1 else 0
+        }
+    }
+    val hapticFeedback = LocalHapticFeedback.current
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    LaunchedEffect(pickerState) {
+        snapshotFlow { selectedPage }.collect { page ->
+            val selectedValue = range.first + (page % itemCount)
+            currentOnValueChange(selectedValue)
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
+    LazyColumn(
+        state = pickerState,
+        flingBehavior = smoothFlingBehavior,
+        contentPadding = PaddingValues(vertical = 79.dp),
+        modifier = Modifier.width(126.dp).height(220.dp),
+    ) {
+        items(count = Int.MAX_VALUE) { page ->
+            val selected = selectedPage == page
+            val displayedValue = range.first + (page % itemCount)
+            Box(Modifier.fillMaxWidth().height(62.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    "%02d".format(displayedValue),
+                    color = when {
+                        selected && pickerState.isScrollInProgress -> PopBlue
+                        selected -> PopText
+                        else -> PopMuted.copy(alpha = .42f)
+                    },
+                    fontSize = if (selected) 54.sp else 30.sp,
+                    fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReminderOptionList(
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(vertical = 4.dp),
+    ) {
+        listOf(
+            "Sem notificação",
+            "No horário",
+            "15 minutos antes",
+            "30 minutos antes",
+            "1 hora antes",
+            "1 dia antes",
+            "Personalizado",
+        ).forEach { option ->
+            val optionSelected = if (option == "Personalizado") isCustomReminder(selected) else selected == option
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onSelect(option) }
+                    .padding(horizontal = 12.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                    Icon(
+                        if (option == "Sem notificação") Icons.Rounded.NotificationsOff else Icons.Rounded.NotificationsActive,
+                        null,
+                        tint = if (optionSelected) PopBlue else PopMuted,
+                        modifier = Modifier.size(19.dp),
+                    )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    option,
+                    color = if (optionSelected) PopBlue else PopText,
+                    fontWeight = if (optionSelected) FontWeight.Bold else FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (optionSelected) Icon(Icons.Rounded.Check, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReminderPickerDialog(
+    selected: String,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Lembrete", fontWeight = FontWeight.ExtraBold) },
+        text = {
+            Column {
+                listOf(
+                    "Sem notificação",
+                    "No horário",
+                    "15 minutos antes",
+                    "30 minutos antes",
+                    "1 hora antes",
+                    "1 dia antes",
+                    "Personalizado",
+                ).forEach { option ->
+                    val optionSelected = if (option == "Personalizado") isCustomReminder(selected) else selected == option
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onSelect(option) }
+                            .padding(horizontal = 4.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            if (option == "Sem notificação") Icons.Rounded.NotificationsOff else Icons.Rounded.NotificationsActive,
+                            null,
+                            tint = if (optionSelected) PopBlue else PopMuted,
+                            modifier = Modifier.size(19.dp),
+                        )
+                        Spacer(Modifier.width(11.dp))
+                        Text(
+                            option,
+                            color = if (optionSelected) PopBlue else PopText,
+                            fontWeight = if (optionSelected) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (optionSelected) Icon(Icons.Rounded.Check, null, tint = PopBlue, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar", color = Color(0xFFFF2020), fontWeight = FontWeight.Bold)
+            }
+        },
+        shape = RoundedCornerShape(18.dp),
+        containerColor = PopSurface,
+    )
+}
+
+@Composable
+private fun TaskAttachmentPreview(
+    name: String,
+    uri: String,
+    mimeType: String,
+    encodedData: String,
+    enabled: Boolean = true,
+    onOpen: () -> Unit,
+    onReplace: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
+) {
+    val context = LocalContext.current
+    val lowerAttachmentName = name.lowercase(Locale.ROOT)
+    val isImage = mimeType.startsWith("image/", ignoreCase = true) ||
+        listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp").any(lowerAttachmentName::endsWith)
+    val preview = remember(encodedData, uri, isImage) {
+        if (!isImage) {
+            null
+        } else {
+            runCatching {
+                fun decodePreview(bytes: ByteArray): androidx.compose.ui.graphics.ImageBitmap? {
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+                    var sampleSize = 1
+                    while (bounds.outWidth / sampleSize > 1400 || bounds.outHeight / sampleSize > 1400) sampleSize *= 2
+                    return BitmapFactory.decodeByteArray(
+                        bytes,
+                        0,
+                        bytes.size,
+                        BitmapFactory.Options().apply { inSampleSize = sampleSize },
+                    )?.asImageBitmap()
+                }
+
+                val uriPreview = uri.takeIf(String::isNotBlank)?.let { uriValue ->
+                    runCatching {
+                        context.contentResolver.openInputStream(Uri.parse(uriValue))
+                            ?.use { decodePreview(it.readBytes()) }
+                    }.getOrNull()
+                }
+                uriPreview ?: encodedData.takeIf(String::isNotBlank)?.let { data ->
+                    decodePreview(Base64.decode(data, Base64.DEFAULT))
+                }
+            }.getOrNull()
+        }
+    }
+    val lowerName = lowerAttachmentName
+    val isPdf = mimeType.contains("pdf", ignoreCase = true) || lowerName.endsWith(".pdf")
+    val isWord = mimeType.contains("word", ignoreCase = true) || lowerName.endsWith(".doc") || lowerName.endsWith(".docx")
+    val typeLabel = when {
+        isPdf -> "PDF"
+        isWord -> "WORD"
+        else -> "ARQUIVO"
+    }
+    val typeColor = when {
+        isPdf -> Color(0xFFE05252)
+        isWord -> Color(0xFF3478C9)
+        else -> PopBlue
+    }
+
+    Surface(
+        onClick = onOpen,
+        enabled = enabled,
+        color = PopSurface,
+        contentColor = PopText,
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, PopBorder.copy(alpha = .75f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column {
+            if (preview != null) {
+                Image(
+                    bitmap = preview,
+                    contentDescription = "Pré-visualização de $name",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().height(156.dp),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (preview == null) {
+                    Box(
+                        modifier = Modifier.size(44.dp).background(typeColor.copy(alpha = .12f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.Description, typeLabel, tint = typeColor, modifier = Modifier.size(24.dp))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        name.ifBlank { "Adicionar anexo" },
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (name.isBlank()) "Escolher arquivo" else if (preview != null) "Imagem • toque para abrir" else "$typeLabel • toque para abrir",
+                        color = PopMuted,
+                        fontSize = 10.sp,
+                    )
+                }
+                if (onReplace != null) {
+                    TextButton(onClick = onReplace) {
+                        Text("Trocar", color = PopBlue, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) {
+                        Text("Excluir", color = Color(0xFFFF2020), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val textColor by animateColorAsState(
         targetValue = if (selected) PopBlue else PopText,
         animationSpec = tween(200),
         label = "taskFilterColor",
     )
-    val indicatorWidth by animateDpAsState(
-        targetValue = if (selected) 22.dp else 0.dp,
-        animationSpec = tween(220, easing = FastOutSlowInEasing),
-        label = "taskFilterIndicator",
-    )
-    Column(
-        modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 7.dp, vertical = 5.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(
+        modifier = Modifier
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 7.dp, vertical = 5.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(label, color = textColor, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold)
-        Spacer(Modifier.height(4.dp))
-        Box(Modifier.height(2.dp).width(indicatorWidth).background(PopBlue, CircleShape))
     }
 }
 
@@ -8448,6 +9301,7 @@ private fun TaskCard(
                 }
                 val hasRecurrence = task.recurrenceRule != "Não repetir"
                 val hasDescription = task.description.isNotBlank()
+                val hasAttachment = task.attachmentName.isNotBlank() || task.attachmentData.isNotBlank()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (hasRecurrence) {
                         Icon(
@@ -8468,7 +9322,16 @@ private fun TaskCard(
                             modifier = Modifier.size(14.dp),
                         )
                     }
-                    if (hasRecurrence || hasDescription) {
+                    if (hasAttachment) {
+                        if (hasRecurrence || hasDescription) Spacer(Modifier.width(5.dp))
+                        Icon(
+                            Icons.Rounded.AttachFile,
+                            "Possui anexo",
+                            tint = if (isUrgent) Color.White.copy(alpha = .82f) else PopMuted,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                    if (hasRecurrence || hasDescription || hasAttachment) {
                         Text(
                             "•",
                             color = if (isUrgent) Color.White.copy(alpha = .82f) else PopMuted,
@@ -8587,7 +9450,12 @@ private fun TaskRow(
                     if (task.recurrenceRule != "Não repetir") Spacer(Modifier.width(5.dp))
                     Icon(Icons.Rounded.Description, "Possui anotação", tint = PopMuted, modifier = Modifier.size(13.dp))
                 }
-                if (task.recurrenceRule != "Não repetir" || task.description.isNotBlank()) {
+                val hasAttachment = task.attachmentName.isNotBlank() || task.attachmentData.isNotBlank()
+                if (hasAttachment) {
+                    if (task.recurrenceRule != "Não repetir" || task.description.isNotBlank()) Spacer(Modifier.width(5.dp))
+                    Icon(Icons.Rounded.AttachFile, "Possui anexo", tint = PopMuted, modifier = Modifier.size(13.dp))
+                }
+                if (task.recurrenceRule != "Não repetir" || task.description.isNotBlank() || hasAttachment) {
                     Text("•", color = PopMuted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 5.dp))
                 }
                 Text(
@@ -8711,6 +9579,7 @@ private fun CalendarScreen(
     companyNames: List<String>,
     companyDescriptions: List<String>,
     selectedCompanyIndex: Int,
+    filterStorageKey: String,
     onCompanySelect: (Int) -> Unit,
     onCreateCompany: () -> Unit,
     onOpenMenu: () -> Unit,
@@ -8718,6 +9587,7 @@ private fun CalendarScreen(
     onOpenTask: (PopTask) -> Unit,
     onCreateTaskForDate: (LocalDate) -> Unit,
 ) {
+    val context = LocalContext.current
     val taskSnapshot = tasks.toList()
     val anchorMonth = remember { YearMonth.now() }
     val pagerCenter = 6000
@@ -8726,10 +9596,11 @@ private fun CalendarScreen(
     val pagerScope = rememberCoroutineScope()
     var month by remember { mutableStateOf(anchorMonth) }
     var showFilters by remember { mutableStateOf(false) }
-    var sectorFilter by remember { mutableStateOf<String?>(null) }
-    var groupFilter by remember { mutableStateOf<String?>(null) }
-    var personFilter by remember { mutableStateOf<String?>(null) }
-    var pendingOnly by remember { mutableStateOf(false) }
+    val storedFilters = remember(filterStorageKey) { loadCalendarFilters(context, filterStorageKey) }
+    var sectorFilter by remember(filterStorageKey) { mutableStateOf(storedFilters.sectorId) }
+    var groupFilter by remember(filterStorageKey) { mutableStateOf(storedFilters.groupId) }
+    var personFilter by remember(filterStorageKey) { mutableStateOf(storedFilters.personId) }
+    var pendingOnly by remember(filterStorageKey) { mutableStateOf(storedFilters.pendingOnly) }
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }
             .collect { page -> month = anchorMonth.plusMonths((page - pagerCenter).toLong()) }
@@ -8770,11 +9641,7 @@ private fun CalendarScreen(
     }
     val activeFilterCount = listOfNotNull(sectorFilter, groupFilter, personFilter).size +
         if (pendingOnly) 1 else 0
-    LaunchedEffect(workSpace, selectedCompanyIndex) {
-        sectorFilter = null
-        groupFilter = null
-        personFilter = null
-        pendingOnly = false
+    LaunchedEffect(workSpace, filterStorageKey) {
         showFilters = false
     }
     val visibleCalendarTasks = remember(filteredTaskSnapshot, month) {
@@ -8927,13 +9794,25 @@ private fun CalendarScreen(
             groups = companyGroups.sortedBy { it.name.lowercase() },
             people = activeMembers.sortedBy { it.name.lowercase() },
             sectorFilter = sectorFilter,
-            onSector = { sectorFilter = it },
+            onSector = {
+                sectorFilter = it
+                saveCalendarFilter(context, CALENDAR_FILTER_SECTOR_PREFIX, filterStorageKey, it)
+            },
             groupFilter = groupFilter,
-            onGroup = { groupFilter = it },
+            onGroup = {
+                groupFilter = it
+                saveCalendarFilter(context, CALENDAR_FILTER_GROUP_PREFIX, filterStorageKey, it)
+            },
             personFilter = personFilter,
-            onPerson = { personFilter = it },
+            onPerson = {
+                personFilter = it
+                saveCalendarFilter(context, CALENDAR_FILTER_PERSON_PREFIX, filterStorageKey, it)
+            },
             pendingOnly = pendingOnly,
-            onPendingOnly = { pendingOnly = it },
+            onPendingOnly = {
+                pendingOnly = it
+                saveCalendarPendingFilter(context, filterStorageKey, it)
+            },
             activeCount = activeFilterCount,
             onDismiss = { showFilters = false },
         )
@@ -9267,7 +10146,7 @@ private fun CalendarTaskDetails(task: PopTask, onDismiss: () -> Unit) {
                     if (task.recurrenceRule != "Não repetir") {
                         item { CalendarTaskInfoRow(Icons.Rounded.Repeat, "Recorrência", task.recurrence) }
                     }
-                    if (task.reminder != "Sem lembrete") {
+                    if (task.reminder != "Sem lembrete" && task.reminder != "Sem notificação") {
                         item { CalendarTaskInfoRow(Icons.Rounded.NotificationsActive, "Lembrete", task.reminder) }
                     }
                     if (task.assignee.isNotBlank() && task.assignee != "Eu" && task.assignee != "Sem responsável") {
@@ -9467,7 +10346,7 @@ private fun MoreScreen(
     onDismiss: () -> Unit,
 ) {
     val isGuest = sessionMode == SessionMode.Guest
-    val hasPrimaryCompanyPage = canViewGroups || canViewDepartments || canViewReports
+    val hasPrimaryCompanyPage = canViewDepartments || canViewReports
     val hasSecondaryCompanyPage = canViewEmployees || canManagePermissions
     val hasVisibleCompanyPage = hasPrimaryCompanyPage || hasSecondaryCompanyPage
     val context = LocalContext.current
@@ -9843,14 +10722,6 @@ private fun MoreScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                if (canViewGroups) {
-                                    MoreShortcut(
-                                        icon = Icons.Rounded.Groups,
-                                        title = "Grupos",
-                                        onClick = { activeManagementPage = "groups" },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
                             if (canViewDepartments) {
                                 MoreShortcut(
                                     icon = Icons.Rounded.AccountTree,
@@ -11633,6 +12504,7 @@ private fun WeekDayPicker(
 ) {
     val dayOrder = listOf("S", "T", "Q", "Q2", "S2", "Sá", "D")
     val selectedDays = detail.split(",").filter { it.isNotBlank() }.toSet()
+    val selectedColor = if (title.startsWith("Não", ignoreCase = true)) Color(0xFFFF2020) else PopBlue
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -11645,13 +12517,17 @@ private fun WeekDayPicker(
                             onDetailChange(dayOrder.filter(updated::contains).joinToString(","))
                         }
                     },
-                    color = if (selected) PopBlue else PopSurface,
+                    color = if (selected) selectedColor else PopSurface,
                     contentColor = if (selected) Color.White else PopMuted,
                     shape = CircleShape,
                     modifier = Modifier.size(34.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text(day.removeSuffix("2"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (day == "Sá") "S" else day.removeSuffix("2"),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
             }

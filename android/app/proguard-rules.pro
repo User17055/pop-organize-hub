@@ -12,10 +12,13 @@
 #   public *;
 #}
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Preserve line numbers so crashes from optimized Play builds can be symbolicated with the
+# mapping.txt generated alongside the bundle. Replace source names to avoid leaking local paths.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# These metadata attributes are small and are used by Kotlin/Java libraries that inspect generic
+# signatures, nested classes or annotations at runtime. Keeping the metadata does not keep the
+# classes themselves, so R8 can still shrink and optimize the application.
+-keepattributes Signature,InnerClasses,EnclosingMethod
+-keepattributes RuntimeVisibleAnnotations,RuntimeInvisibleAnnotations,AnnotationDefault

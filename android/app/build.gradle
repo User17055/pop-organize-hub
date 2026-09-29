@@ -21,8 +21,8 @@ android {
         applicationId "br.com.poporganize.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 14
-        versionName "1.0.13"
+        versionCode 15
+        versionName "1.0.14"
         manifestPlaceholders = [appLabel: "Pop Organize"]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "POP_API_BASE_URL", "\"${popApiBaseUrl.replace('\\', '\\\\').replace('"', '\\"')}\""
@@ -42,8 +42,12 @@ android {
             manifestPlaceholders = [appLabel: "Pop Organize"]
         }
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // A Play Console calcula a qualidade do DEX a partir do artefato de release. O perfil
+            // otimizado executa o R8, remove bytecode/recursos sem uso e ainda aplica as
+            // otimizações de desempenho fornecidas pelo Android Gradle Plugin.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
                 signingConfig signingConfigs.release
             }

@@ -15,10 +15,13 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import br.com.poporganize.app.MainActivity
 import br.com.poporganize.app.R
 import org.json.JSONArray
@@ -26,8 +29,10 @@ import org.json.JSONObject
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
 import java.net.URL
 import java.util.concurrent.TimeUnit
+import kotlin.math.absoluteValue
 
 private const val CHANNEL_ID = "pop_organize_alertas_v1"
 private const val PERIODIC_WORK = "pop_organize_pending_task_notifications"
@@ -40,13 +45,16 @@ private const val LAST_ACTIVE = "pop_organize_last_active"
 private const val ACCOUNT_ID = "pop_organize_google_account_id"
 private const val API_SESSION_TOKEN = "pop_organize_api_session_token"
 private const val ASSIGNED_TASKS_SEEN_PREFIX = "pop_organize_assigned_tasks_seen_"
+private const val REMINDER_WORK_NAMES = "pop_organize_reminder_work_names"
 private val MOBILE_API_BASE_URL = br.com.poporganize.app.BuildConfig.POP_API_BASE_URL.trimEnd('/')
 const val EXTRA_OPEN_TASK_ID = "pop_organize_open_task_id"
 
 data class NotificationTaskSnapshot(
+    val taskId: Int,
     val title: String,
     val dueDate: String,
     val dueTime: String,
+    val reminder: String,
     val completed: Boolean,
 )
 
@@ -94,9 +102,11 @@ fun saveNotificationTaskSnapshot(context: Context, tasks: List<NotificationTaskS
     tasks.forEach { task ->
         json.put(
             JSONObject()
+                .put("taskId", task.taskId)
                 .put("title", task.title)
                 .put("dueDate", task.dueDate)
                 .put("dueTime", task.dueTime)
+                .put("reminder", task.reminder)
                 .put("completed", task.completed),
         )
     }
@@ -104,7 +114,129 @@ fun saveNotificationTaskSnapshot(context: Context, tasks: List<NotificationTaskS
         .edit()
         .putString(TASK_SNAPSHOT, json.toString())
         .apply()
+    scheduleTaskReminders(context, tasks)
 }
+
+private fun reminderOffsetMinutes(reminder: String): Long? {
+    val normalized = reminder.trim().lowercase()
+    if (normalized == "no horário") return 0L
+    if (normalized == "sem lembrete" || normalized == "sem notificação") return null
+    val match = Regex("""^(\d+)\s*(min|minuto|minutos|hora|horas|dia|dias)(?:\s+antes)?$""")
+        .matchEntire(normalized) ?: return null
+    val amount = match.groupValues[1].toLongOrNull()?.takeIf { it > 0 } ?: return null
+    return when (match.groupValues[2]) {
+        "min", "minuto", "minutos" -> amount
+        "hora", "horas" -> amount * 60L
+        "dia", "dias" -> amount * 24L * 60L
+        else -> null
+    }
+}
+
+private fun reminderLeadText(reminder: String): String {
+    val offset = reminderOffsetMinutes(reminder) ?: return ""
+    if (offset == 0L) return "agora"
+    return when {
+        offset % (24L * 60L) == 0L -> {
+            val days = offset / (24L * 60L)
+            "daqui a $days ${if (days == 1L) "dia" else "dias"}"
+        }
+        offset % 60L == 0L -> {
+            val hours = offset / 60L
+            "daqui a $hours ${if (hours == 1L) "hora" else "horas"}"
+        }
+        else -> "daqui a $offset minutos"
+    }
+}
+
+private fun reminderWorkName(task: NotificationTaskSnapshot, offsetMinutes: Long): String =
+    "pop_task_reminder_${task.taskId}_${task.dueDate}_${task.dueTime}_$offsetMinutes"
+
+private fun scheduleTaskReminders(context: Context, tasks: List<NotificationTaskSnapshot>) {
+    val manager = WorkManager.getInstance(context)
+    val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    val previousNames = runCatching {
+        val stored = JSONArray(preferences.getString(REMINDER_WORK_NAMES, "[]") ?: "[]")
+        buildSet { repeat(stored.length()) { index -> add(stored.optString(index)) } }
+    }.getOrDefault(emptySet())
+    val now = System.currentTimeMillis()
+    val scheduledNames = mutableSetOf<String>()
+
+    tasks.filterNot(NotificationTaskSnapshot::completed).forEach { task ->
+        val offsetMinutes = reminderOffsetMinutes(task.reminder) ?: return@forEach
+        val date = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return@forEach
+        val time = runCatching { LocalTime.parse(task.dueTime) }.getOrNull() ?: return@forEach
+        val triggerAt = LocalDateTime.of(date, time)
+            .minusMinutes(offsetMinutes)
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+        if (triggerAt < now - TimeUnit.MINUTES.toMillis(1)) return@forEach
+
+        val workName = reminderWorkName(task, offsetMinutes)
+        scheduledNames += workName
+        val work = OneTimeWorkRequestBuilder<TaskReminderWorker>()
+            .setInitialDelay((triggerAt - now).coerceAtLeast(0L), TimeUnit.MILLISECONDS)
+            .setInputData(
+                workDataOf(
+                    "taskId" to task.taskId,
+                    "title" to task.title,
+                    "dueDate" to task.dueDate,
+                    "dueTime" to task.dueTime,
+                    "reminder" to task.reminder,
+                ),
+            )
+            .build()
+        manager.enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, work)
+    }
+
+    (previousNames - scheduledNames).forEach(manager::cancelUniqueWork)
+    preferences.edit()
+        .putString(REMINDER_WORK_NAMES, JSONArray(scheduledNames.toList()).toString())
+        .apply()
+}
+
+class TaskReminderWorker(
+    appContext: Context,
+    workerParams: WorkerParameters,
+) : Worker(appContext, workerParams) {
+    override fun doWork(): Result {
+        val preferences = applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        if (preferences.getString(SESSION_MODE, null).isNullOrBlank()) return Result.success()
+        val taskId = inputData.getInt("taskId", Int.MIN_VALUE)
+        val dueDate = inputData.getString("dueDate").orEmpty()
+        val dueTime = inputData.getString("dueTime").orEmpty()
+        val reminder = inputData.getString("reminder").orEmpty()
+        val currentTask = readNotificationTasks(preferences.getString(TASK_SNAPSHOT, null))
+            .firstOrNull {
+                it.taskId == taskId && it.dueDate == dueDate && it.dueTime == dueTime &&
+                    it.reminder == reminder && !it.completed
+            } ?: return Result.success()
+        postNotification(
+            applicationContext,
+            "Lembrete de tarefa",
+            "Você tem uma tarefa ${reminderLeadText(reminder)}: ${currentTask.title}",
+            1,
+            8_200 + taskId.absoluteValue.mod(100_000),
+            taskId,
+        )
+        return Result.success()
+    }
+}
+
+private fun readNotificationTasks(raw: String?): List<NotificationTaskSnapshot> = runCatching {
+    val array = JSONArray(raw ?: "[]")
+    List(array.length()) { index ->
+        val item = array.getJSONObject(index)
+        NotificationTaskSnapshot(
+            taskId = item.optInt("taskId"),
+            title = item.optString("title"),
+            dueDate = item.optString("dueDate"),
+            dueTime = item.optString("dueTime"),
+            reminder = item.optString("reminder", "Sem lembrete"),
+            completed = item.optBoolean("completed"),
+        )
+    }
+}.getOrDefault(emptyList())
 
 fun clearPopNotifications(context: Context) {
     NotificationManagerCompat.from(context).cancelAll()
@@ -163,7 +295,7 @@ class PopReminderWorker(
         val greetingKey = "$today-$period"
         if (preferences.getString(LAST_GREETING, null) == greetingKey) return Result.success()
 
-        val tasks = readTasks(preferences.getString(TASK_SNAPSHOT, null))
+        val tasks = readNotificationTasks(preferences.getString(TASK_SNAPSHOT, null))
         val pending = tasks.filterNot { it.completed }
         val todayCount = pending.count { it.dueDate == today.toString() }
         val now = LocalDateTime.now()
@@ -193,18 +325,6 @@ class PopReminderWorker(
         return Result.success()
     }
 
-    private fun readTasks(raw: String?): List<NotificationTaskSnapshot> = runCatching {
-        val array = JSONArray(raw ?: "[]")
-        List(array.length()) { index ->
-            val item = array.getJSONObject(index)
-            NotificationTaskSnapshot(
-                title = item.optString("title"),
-                dueDate = item.optString("dueDate"),
-                dueTime = item.optString("dueTime"),
-                completed = item.optBoolean("completed"),
-            )
-        }
-    }.getOrDefault(emptyList())
 }
 
 private fun checkForAssignedTasks(context: Context) {

@@ -144,7 +144,16 @@ class PopAndroidServices(private val activity: Activity) : PopPlatformServices {
         }.apply()
         saveNotificationTaskSnapshot(
             activity,
-            tasks.map { NotificationTaskSnapshot(it.title, it.dueDate, it.dueTime, it.completed) },
+            tasks.map {
+                NotificationTaskSnapshot(
+                    taskId = it.id.hashCode(),
+                    title = it.title,
+                    dueDate = it.dueDate,
+                    dueTime = it.dueTime,
+                    reminder = it.reminder,
+                    completed = it.completed,
+                )
+            },
         )
     }
 

@@ -5442,7 +5442,7 @@ private fun AssignmentSelector(
                         expanded = false
                         onSheetClosed()
                     },
-                    color = PopBlue,
+                    color = PopMuted,
                     contentColor = Color.White,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth(),
@@ -8413,6 +8413,7 @@ private fun TaskDatePickerCalendar(
                     day,
                     color = PopMuted,
                     fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier.weight(1f),
                 )
@@ -10213,8 +10214,8 @@ private fun CalendarGrid(
             .padding(12.dp),
     ) {
         Row(Modifier.fillMaxWidth()) {
-            listOf("S", "T", "Q", "Q", "S", "S", "D").forEach { day ->
-                Text(day, color = PopMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
+            listOf("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom").forEach { day ->
+                Text(day, color = PopMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
             }
         }
         Spacer(Modifier.height(8.dp))

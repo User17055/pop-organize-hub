@@ -25,6 +25,7 @@ import { Route as EmpresasRouteImport } from './routes/empresas'
 import { Route as CalendarioRouteImport } from './routes/calendario'
 import { Route as AceitarConviteRouteImport } from './routes/aceitar-convite'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ImprimirSetorRouteImport } from './routes/imprimir.setor'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiMobileWorkspacesRouteImport } from './routes/api/mobile/workspaces'
 import { Route as ApiMobileTasksRouteImport } from './routes/api/mobile/tasks'
@@ -117,6 +118,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ImprimirSetorRoute = ImprimirSetorRouteImport.update({
+  id: '/imprimir/setor',
+  path: '/imprimir/setor',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
@@ -193,6 +199,7 @@ export interface FileRoutesByFullPath {
   '/termos': typeof TermosRoute
   '/v2': typeof V2Route
   '/api/health': typeof ApiHealthRoute
+  '/imprimir/setor': typeof ImprimirSetorRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
@@ -222,6 +229,7 @@ export interface FileRoutesByTo {
   '/termos': typeof TermosRoute
   '/v2': typeof V2Route
   '/api/health': typeof ApiHealthRoute
+  '/imprimir/setor': typeof ImprimirSetorRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
@@ -252,6 +260,7 @@ export interface FileRoutesById {
   '/termos': typeof TermosRoute
   '/v2': typeof V2Route
   '/api/health': typeof ApiHealthRoute
+  '/imprimir/setor': typeof ImprimirSetorRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
@@ -283,6 +292,7 @@ export interface FileRouteTypes {
     | '/termos'
     | '/v2'
     | '/api/health'
+    | '/imprimir/setor'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
@@ -312,6 +322,7 @@ export interface FileRouteTypes {
     | '/termos'
     | '/v2'
     | '/api/health'
+    | '/imprimir/setor'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
@@ -341,6 +352,7 @@ export interface FileRouteTypes {
     | '/termos'
     | '/v2'
     | '/api/health'
+    | '/imprimir/setor'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
@@ -371,6 +383,7 @@ export interface RootRouteChildren {
   TermosRoute: typeof TermosRoute
   V2Route: typeof V2Route
   ApiHealthRoute: typeof ApiHealthRoute
+  ImprimirSetorRoute: typeof ImprimirSetorRoute
   ApiMobileAccountRoute: typeof ApiMobileAccountRoute
   ApiMobileInvitationsRoute: typeof ApiMobileInvitationsRoute
   ApiMobileTaskListsRoute: typeof ApiMobileTaskListsRoute
@@ -497,6 +510,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/imprimir/setor': {
+      id: '/imprimir/setor'
+      path: '/imprimir/setor'
+      fullPath: '/imprimir/setor'
+      preLoaderRoute: typeof ImprimirSetorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/health': {
       id: '/api/health'
       path: '/api/health'
@@ -595,6 +615,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermosRoute: TermosRoute,
   V2Route: V2Route,
   ApiHealthRoute: ApiHealthRoute,
+  ImprimirSetorRoute: ImprimirSetorRoute,
   ApiMobileAccountRoute: ApiMobileAccountRoute,
   ApiMobileInvitationsRoute: ApiMobileInvitationsRoute,
   ApiMobileTaskListsRoute: ApiMobileTaskListsRoute,

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   useDeferredValue,
   useEffect,
@@ -25,6 +25,7 @@ import {
   Layers3,
   Network,
   Plus,
+  Printer,
   Repeat,
   Search,
   Settings2,
@@ -1246,9 +1247,21 @@ function TasksPage() {
                   </p>
                 )}
               </div>
-              <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary">
-                {taskRows.length} {taskRows.length === 1 ? "tarefa" : "tarefas"}
-              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                {selectedDirectoryDepartment && (
+                  <Link
+                    to="/imprimir/setor"
+                    search={{ setor: selectedDirectoryDepartment.id }}
+                    target="_blank"
+                    className="task-glass-control inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
+                  >
+                    <Printer className="h-4 w-4" /> Imprimir
+                  </Link>
+                )}
+                <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary">
+                  {taskRows.length} {taskRows.length === 1 ? "tarefa" : "tarefas"}
+                </span>
+              </div>
             </div>
           </section>
         )}

@@ -55,6 +55,7 @@ export type MobileTask = {
   description: string;
   assignee: string;
   assignedBy?: string;
+  assignedById?: string;
   createdBy?: string;
   recurrence: string;
   reminder: string;
@@ -1568,6 +1569,10 @@ function taskToMobileTask(
     description: task.description === "Tarefa criada no aplicativo" ? "" : task.description,
     assignee,
     assignedBy: native?.assignedBy ?? assignedBy,
+    // Só leitura: o schema de entrada não tem este campo, então ele nunca volta pela gravação. Vem
+    // da tarefa e não do nativeData, para o filtro "Empresa" dos aplicativos usar a mesma regra do
+    // painel (`taskMatchesCompany`: destino empresa e criada pelo usuário atual).
+    assignedById: task.assignedById ?? "",
     createdBy: native?.createdBy ?? createdBy,
     recurrence: native?.recurrence ?? recurrence.rule,
     reminder: task.nativeRemindersByUser?.[currentUser.id] ?? native?.reminder ?? "Sem lembrete",

@@ -59,6 +59,9 @@ export type MobileTask = {
   recurrence: string;
   reminder: string;
   attachmentName: string;
+  attachmentUri?: string;
+  attachmentMimeType?: string;
+  attachmentData?: string;
   dueTime: string;
   recurrenceTimes: string[];
   duration: string;
@@ -1537,6 +1540,14 @@ function taskToMobileTask(
     )
     .filter((name): name is string => Boolean(name));
   const assignee = assignees.join(", ") || "Sem responsável";
+  const canReadPrivateAttachment =
+    (workspace.company.kind === "personal" && workspace.company.ownerId === currentUser.id) ||
+    responsibleIds.includes(currentUser.id) ||
+    isAdminUser({
+      currentUser,
+      employees: workspace.employees,
+      permissionGroups: workspace.permissionGroups,
+    });
   const assignedBy =
     task.assignedById && task.assignedById !== currentUser.id
       ? (workspace.employees.find((employee) => employee.id === task.assignedById)?.name ?? "")
@@ -1560,7 +1571,10 @@ function taskToMobileTask(
     createdBy: native?.createdBy ?? createdBy,
     recurrence: native?.recurrence ?? recurrence.rule,
     reminder: task.nativeRemindersByUser?.[currentUser.id] ?? native?.reminder ?? "Sem lembrete",
-    attachmentName: native?.attachmentName ?? "",
+    attachmentName: canReadPrivateAttachment ? (native?.attachmentName ?? "") : "",
+    attachmentUri: canReadPrivateAttachment ? (native?.attachmentUri ?? "") : "",
+    attachmentMimeType: canReadPrivateAttachment ? (native?.attachmentMimeType ?? "") : "",
+    attachmentData: canReadPrivateAttachment ? (native?.attachmentData ?? "") : "",
     dueTime: native?.dueTime ?? "",
     recurrenceTimes: native?.recurrenceTimes ?? task.recurrence?.times ?? [],
     duration: native?.duration ?? "Sem duração",
@@ -1949,6 +1963,7 @@ export async function replaceMobileTasks(
         }
         if (existing.nativeSource === NATIVE_SOURCE && existing.nativeOwnerId === account.id) {
           existing.nativeData = {
+            ...existing.nativeData,
             ...item,
             completed,
             title: normalizeMobileTaskTitle(item.title),

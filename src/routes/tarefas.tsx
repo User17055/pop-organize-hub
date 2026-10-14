@@ -173,6 +173,14 @@ function taskMatchesGroup(task: Task, groupId: string) {
   return task.target.type === "group" && task.target.id === groupId;
 }
 
+function taskMatchesCompany(task: Task, companyId: string, currentUserId: string) {
+  return (
+    task.target.type === "company" &&
+    task.target.id === companyId &&
+    task.assignedById === currentUserId
+  );
+}
+
 type TaskLayoutPreferences = {
   layoutMode: "list" | "department" | "group";
   titleWidth: number;
@@ -364,7 +372,7 @@ function TasksPage() {
       organizerTaskRows.filter((task) => {
         if (!data) return true;
         if (selectedCompanyId) {
-          return task.target.type === "company" && task.target.id === selectedCompanyId;
+          return taskMatchesCompany(task, selectedCompanyId, data.currentUser.id);
         }
         if (selectedDepartmentId) return taskMatchesDepartment(task, selectedDepartmentId, data);
         if (selectedCollaboratorId) return taskMatchesCollaborator(task, selectedCollaboratorId);
@@ -950,7 +958,7 @@ function TasksPage() {
                 <Building2 className="mb-2 h-4 w-4" />
                 <span className="block text-sm font-bold">Empresa</span>
                 <span className="text-[11px] text-muted-foreground">
-                  Tarefas para toda a empresa
+                  Suas tarefas para toda a empresa
                 </span>
               </button>
               <button
@@ -1059,9 +1067,8 @@ function TasksPage() {
                   <span className="truncate text-xs font-bold">{company.name}</span>
                   <span className="text-[10px] tabular-nums text-muted-foreground">
                     {
-                      tasks.filter(
-                        (task) => task.target.type === "company" && task.target.id === company.id,
-                      ).length
+                      tasks.filter((task) => taskMatchesCompany(task, company.id, currentUser.id))
+                        .length
                     }
                   </span>
                 </button>
@@ -1225,7 +1232,7 @@ function TasksPage() {
                 </h2>
                 {selectedDirectoryCompany && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Somente tarefas destinadas a toda a empresa
+                    Somente tarefas que você destinou a toda a empresa
                   </p>
                 )}
                 {selectedDirectoryCollaborator && (

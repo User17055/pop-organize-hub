@@ -18,6 +18,9 @@ const mobileTaskSchema = z.object({
   recurrence: z.string().max(500),
   reminder: z.string().max(200),
   attachmentName: z.string().max(500),
+  attachmentUri: z.string().max(2_000).optional(),
+  attachmentMimeType: z.string().max(200).optional(),
+  attachmentData: z.string().max(28_000_000).optional(),
   dueTime: z.string().max(20),
   recurrenceTimes: z
     .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))

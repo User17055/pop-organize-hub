@@ -165,6 +165,8 @@ data class PopTask(
     val isReviewer: Boolean = false,
     val awaitingReview: Boolean = false,
     val recurrenceExcludedDates: List<String> = emptyList(),
+    // Quem criou. So de leitura; ver a nota no ApiTask.
+    val assignedById: String = "",
 
     // Do servidor, e usados para NAO oferecer o que ele vai recusar. Ver a nota no ApiTask sobre o
     // default `true`.
@@ -430,6 +432,12 @@ data class ApiTask(
     // diz qual das duas. Booleano, e nao o status cru, para nao trazer mais uma string de estado
     // para o fio -- palavra que so existe de um lado e a familia de bug mais cara daqui.
     val awaitingReview: Boolean = false,
+
+    // Id de quem criou a tarefa (`task.assignedById`). So de leitura, como os de cima: o schema de
+    // entrada nao o declara e o z.object o descarta. Existe para o filtro "Empresa" usar a mesma
+    // regra do painel (`taskMatchesCompany`): destino empresa E criada pelo usuario atual. O
+    // `assignedBy` nao serve: e nome, vem vazio tanto para "fui eu" quanto para "nao se sabe".
+    val assignedById: String = "",
 
     // recurrenceSeriesId e o `recurrenceParentId ?: id` do servidor. Sem ele "toda a recorrencia"
     // casava exatamente UMA tarefa e parecia ter acertado.

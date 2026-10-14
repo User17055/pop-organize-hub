@@ -251,6 +251,9 @@ class PopStore(private val platform: PopPlatformServices) {
             // campos nao se contradizerem na ida e na volta.
             assignee = encarregados.joinToString(", "),
             createdBy = state.currentUser?.name.orEmpty(),
+            // O servidor grava `assignedById = account.id` na criacao; espelhar aqui faz a tarefa
+            // nova cair no filtro "Empresa" antes da primeira sincronizacao.
+            assignedById = state.currentUser?.id.orEmpty(),
             checklist = if (isCurrentUserAdmin) {
                 checklistTitles.filter { it.isNotBlank() }.map {
                     ChecklistItem(id = newId("check"), title = it.trim())
@@ -786,6 +789,7 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     requiresReview = requiresReview,
     isReviewer = isReviewer,
     awaitingReview = awaitingReview,
+    assignedById = assignedById,
     recurrenceExcludedDates = recurrenceExcludedDates,
     canComplete = canComplete,
     canCompleteAnytime = canCompleteAnytime,

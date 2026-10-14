@@ -2258,14 +2258,16 @@ private fun assignmentLabel(target: AssignmentTarget): String = when (target.kin
     AssignmentKind.Person -> target.label
     AssignmentKind.Group -> "Grupo: ${target.label}"
     AssignmentKind.Sector -> "Setor: ${target.label}"
-    AssignmentKind.None -> target.label
+    // A lista so existe dentro de empresa, onde None e o alvo `company`. O `target.label` continua
+    // "Sem responsável" por causa do fio; so a tela diz o que ele e.
+    AssignmentKind.None -> "Empresa"
 }
 
 private fun assignmentIcon(kind: AssignmentKind): ImageVector = when (kind) {
     AssignmentKind.Person -> Icons.Rounded.Person
     AssignmentKind.Group -> Icons.Rounded.Groups
     AssignmentKind.Sector -> Icons.Rounded.Apartment
-    AssignmentKind.None -> Icons.Rounded.MoreHoriz
+    AssignmentKind.None -> Icons.Rounded.Business
 }
 
 @Composable
@@ -2691,6 +2693,7 @@ private fun CalendarScreen(store: PopStore) {
     var grupoFiltro by remember { mutableStateOf<String?>(null) }
     var pessoaFiltro by remember { mutableStateOf<String?>(null) }
     var soPendentes by remember { mutableStateOf(false) }
+    var soEmpresa by remember { mutableStateOf(false) }
     // Trocar de espaco troca a lista de setores. Um id que nao existe mais no espaco novo nao
     // casaria com tarefa nenhuma e a agenda apareceria vazia, sem nada na tela explicando por que.
     LaunchedEffect(company?.id) {
@@ -2698,6 +2701,7 @@ private fun CalendarScreen(store: PopStore) {
         grupoFiltro = null
         pessoaFiltro = null
         soPendentes = false
+        soEmpresa = false
     }
 
     var selectedDate by remember { mutableStateOf(today) }
@@ -2721,7 +2725,8 @@ private fun CalendarScreen(store: PopStore) {
     // daqui. Filtrando so a lista de baixo, a grade continuaria acendendo dias que a agenda
     // filtrada nao entrega -- prometendo um dia que o toque nao cumpre. Filtrando na origem, a
     // grade e a agenda contam a mesma historia de graca.
-    val filtradas = remember(tasks, setorFiltro, grupoFiltro, pessoaFiltro, soPendentes, company) {
+    val meuId = store.state.currentUser?.id.orEmpty()
+    val filtradas = remember(tasks, setorFiltro, grupoFiltro, pessoaFiltro, soPendentes, soEmpresa, company, meuId) {
         val grupo = company?.groups?.firstOrNull { it.id == grupoFiltro }
         val pessoa = company?.activeMembers?.firstOrNull { it.id == pessoaFiltro }
         val membrosDoGrupo = company?.activeMembers.orEmpty().filter { membro ->
@@ -2730,6 +2735,12 @@ private fun CalendarScreen(store: PopStore) {
         tasks.filter { task ->
             val responsaveis = responsaveisDaTarefa(task)
             (!soPendentes || !task.completed) &&
+                // Mesma regra do botao "Empresa" do painel (`taskMatchesCompany`): destino empresa
+                // E criada por quem esta usando. Dentro de empresa, `None` e o alvo `company`.
+                (!soEmpresa ||
+                    (task.assignment.kind == AssignmentKind.None &&
+                        meuId.isNotBlank() &&
+                        task.assignedById == meuId)) &&
                 (setorFiltro == null || setorFiltro in setoresDaTarefa(task, company)) &&
                 (grupoFiltro == null ||
                     (task.assignment.kind == AssignmentKind.Group &&
@@ -2899,6 +2910,8 @@ private fun CalendarScreen(store: PopStore) {
                             onPessoa = { pessoaFiltro = it },
                             soPendentes = soPendentes,
                             onSoPendentes = { soPendentes = it },
+                            soEmpresa = soEmpresa,
+                            onSoEmpresa = { soEmpresa = it },
                         )
                     }
                     TextButton(
@@ -2929,8 +2942,8 @@ private fun CalendarScreen(store: PopStore) {
                 // Com filtro ligado, "Nenhum prazo" seria falso: as tarefas existem e estao
                 // escondidas por uma escolha da propria pessoa. Dizer qual escolha e o que
                 // devolve o caminho de volta.
-                if (setorFiltro != null || grupoFiltro != null || pessoaFiltro != null || soPendentes) {
-                    EmptyState("Nada com este filtro", "Troque o setor ou desligue “Só pendentes”.")
+                if (setorFiltro != null || grupoFiltro != null || pessoaFiltro != null || soPendentes || soEmpresa) {
+                    EmptyState("Nada com este filtro", "Troque ou limpe os filtros do calendário.")
                 } else {
                     EmptyState("Nenhum prazo", "As tarefas com data aparecerão aqui.")
                 }
@@ -3196,13 +3209,16 @@ private fun CalendarAdvancedFilterBar(
     onPessoa: (String?) -> Unit,
     soPendentes: Boolean,
     onSoPendentes: (Boolean) -> Unit,
+    soEmpresa: Boolean,
+    onSoEmpresa: (Boolean) -> Unit,
 ) {
     var painelAberto by remember { mutableStateOf(false) }
     val setores = company.sectors.sortedBy { it.name.lowercase() }
     val grupos = company.groups.sortedBy { it.name.lowercase() }
     val pessoas = company.activeMembers.sortedBy { it.name.lowercase() }
     val quantidadeAtiva = listOfNotNull(setorFiltro, grupoFiltro, pessoaFiltro).size +
-        if (soPendentes) 1 else 0
+        (if (soPendentes) 1 else 0) +
+        (if (soEmpresa) 1 else 0)
 
     Box(Modifier.size(40.dp)) {
         IconButton(onClick = { painelAberto = true }) {
@@ -3229,6 +3245,29 @@ private fun CalendarAdvancedFilterBar(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
                     )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clickable { onSoEmpresa(!soEmpresa) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (soEmpresa) PopBlue.copy(alpha = .14f)
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Rounded.Business,
+                                null,
+                                tint = if (soEmpresa) PopBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(9.dp))
+                            Column {
+                                Text("Empresa", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Suas tarefas para toda a empresa",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                        }
+                    }
                     if (setores.isNotEmpty()) {
                         CalendarFilterChoice(
                             "Setor", Icons.Rounded.Apartment, "Todos os setores",
@@ -3276,6 +3315,7 @@ private fun CalendarAdvancedFilterBar(
                         onGrupo(null)
                         onPessoa(null)
                         onSoPendentes(false)
+                        onSoEmpresa(false)
                     },
                 ) { Text("Limpar") }
             },
@@ -4105,7 +4145,16 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                                         assignment = AssignmentTarget()
                                         responsaveis = emptyList()
                                     },
-                                    label = { Text(it.label, fontSize = 10.sp) },
+                                    // So o texto muda. `AssignmentKind.None` segue sendo o alvo
+                                    // `company` no fio (`toApiTask`), e o label do enum fica como
+                                    // esta porque "Sem responsável" e literal que o servidor e o
+                                    // app conferem por texto.
+                                    label = {
+                                        Text(
+                                            if (it == AssignmentKind.None) "Empresa" else it.label,
+                                            fontSize = 10.sp,
+                                        )
+                                    },
                                 )
                             }
                         }

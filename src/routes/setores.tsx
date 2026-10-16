@@ -181,7 +181,7 @@ function SetoresPage() {
           <button
             onClick={openForm}
             style={{ background: "var(--gradient-primary)" }}
-            className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
+            className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-(--shadow-elegant)"
           >
             <Plus className="h-4 w-4" /> Novo setor
           </button>
@@ -193,7 +193,7 @@ function SetoresPage() {
           type="button"
           onClick={openForm}
           style={{ background: "var(--gradient-primary)" }}
-          className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium text-primary-foreground shadow-[var(--shadow-elegant)] transition active:scale-[0.99] md:hidden"
+          className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium text-primary-foreground shadow-(--shadow-elegant) transition active:scale-[0.99] md:hidden"
         >
           <Plus className="h-4 w-4" /> Novo setor
         </button>
@@ -431,7 +431,7 @@ function SetoresPage() {
                 type="submit"
                 disabled={createMutation.isPending || updateMutation.isPending}
                 style={{ background: "var(--gradient-primary)" }}
-                className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-[var(--shadow-elegant)]"
+                className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-(--shadow-elegant)"
               >
                 {createMutation.isPending || updateMutation.isPending
                   ? "Salvando..."

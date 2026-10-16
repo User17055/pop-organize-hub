@@ -161,7 +161,7 @@ function GruposPage() {
           <button
             onClick={openForm}
             style={{ background: "var(--gradient-primary)" }}
-            className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-[var(--shadow-elegant)]"
+            className="hidden md:inline-flex items-center gap-2 px-4 h-9 rounded-xl text-primary-foreground text-sm font-medium transition hover:-translate-y-0.5 hover:opacity-90 shadow-(--shadow-elegant)"
           >
             <Plus className="h-4 w-4" /> Novo grupo
           </button>
@@ -173,7 +173,7 @@ function GruposPage() {
           type="button"
           onClick={openForm}
           style={{ background: "var(--gradient-primary)" }}
-          className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium text-primary-foreground shadow-[var(--shadow-elegant)] transition active:scale-[0.99] md:hidden"
+          className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium text-primary-foreground shadow-(--shadow-elegant) transition active:scale-[0.99] md:hidden"
         >
           <Plus className="h-4 w-4" /> Novo grupo
         </button>
@@ -275,7 +275,7 @@ function GruposPage() {
             const target = event.target as Element | null;
             if (target?.closest?.(".task-create-select-menu")) event.preventDefault();
           }}
-          className="w-full gap-0 overflow-hidden border-r border-primary/15 bg-card p-0 shadow-[24px_0_60px_-32px_rgba(15,92,190,0.45)] sm:max-w-[460px]"
+          className="w-full gap-0 overflow-hidden border-r border-primary/15 bg-card p-0 shadow-[24px_0_60px_-32px_rgba(15,92,190,0.45)] sm:max-w-115"
         >
           <form onSubmit={handleSubmit} className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto]">
             <SheetHeader className="border-b border-border/70 bg-primary/[0.035] px-5 pb-5 pt-6 text-left sm:px-6">
@@ -344,7 +344,7 @@ function GruposPage() {
                       onClick={() => toggleMember(employee.id)}
                       className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
                         form.memberIds.includes(employee.id)
-                          ? "border-primary/35 bg-primary/[0.065]"
+                          ? "border-primary/35 bg-primary/6.5"
                           : "border-border bg-background hover:border-primary/25 hover:bg-muted/50"
                       }`}
                     >
@@ -388,7 +388,7 @@ function GruposPage() {
                 type="submit"
                 disabled={createMutation.isPending || updateMutation.isPending}
                 style={{ background: "var(--gradient-primary)" }}
-                className="h-11 flex-1 rounded-xl px-5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-elegant)] transition hover:opacity-90 disabled:opacity-60 sm:flex-none"
+                className="h-11 flex-1 rounded-xl px-5 text-sm font-semibold text-primary-foreground shadow-(--shadow-elegant) transition hover:opacity-90 disabled:opacity-60 sm:flex-none"
               >
                 {updateMutation.isPending
                   ? "Salvando..."

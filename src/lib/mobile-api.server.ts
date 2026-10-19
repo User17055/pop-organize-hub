@@ -2029,6 +2029,23 @@ export async function replaceMobileTasks(
               existing,
               nextRecurrence,
               previousDueDate < existing.dueDate ? previousDueDate : existing.dueDate,
+              (item: Task) =>
+                canViewTask({
+                  task: item,
+                  currentUser,
+                  employees: workspace.employees,
+                  departments: workspace.departments,
+                  groups: workspace.groups,
+                  permissionGroups: workspace.permissionGroups,
+                }) &&
+                getTaskPermissions({
+                  task: item,
+                  currentUser,
+                  employees: workspace.employees,
+                  departments: workspace.departments,
+                  groups: workspace.groups,
+                  permissionGroups: workspace.permissionGroups,
+                }).canDelete,
             );
             splitTaskIds.add(existing.id);
           } else {

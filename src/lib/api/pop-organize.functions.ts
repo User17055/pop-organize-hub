@@ -1469,6 +1469,23 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       }
 
       const previousDueDate = task.dueDate;
+      const canRemoveOccurrence = (item: Task) =>
+        canViewTask({
+          task: item,
+          currentUser,
+          employees: db.employees,
+          departments: db.departments,
+          groups: db.groups,
+          permissionGroups: db.permissionGroups,
+        }) &&
+        getTaskPermissions({
+          task: item,
+          currentUser,
+          employees: db.employees,
+          departments: db.departments,
+          groups: db.groups,
+          permissionGroups: db.permissionGroups,
+        }).canDelete;
       task.title = data.title;
       task.description = data.description;
       task.priority = data.priority;
@@ -1484,13 +1501,14 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
           task,
           nextRecurrence,
           previousDueDate < data.dueDate ? previousDueDate : data.dueDate,
+          canRemoveOccurrence,
         );
       } else if (task.recurrence && nextRecurrence) {
         // Mesma cadência: a recorrência gravada fica (ela pode ter o que o formulário não mostra,
         // como o intervalo de uma série diária criada no aplicativo).
         if (previousDueDate !== data.dueDate) excludeSeriesDate(db, task, previousDueDate);
         if (previousRecurrence?.endDate !== nextRecurrence.endDate) {
-          applySeriesEndDate(db, task, nextRecurrence.endDate);
+          applySeriesEndDate(db, task, nextRecurrence.endDate, canRemoveOccurrence);
         }
         if (
           JSON.stringify(previousRecurrence?.times ?? []) !==

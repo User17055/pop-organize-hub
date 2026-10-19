@@ -109,3 +109,28 @@ export function recurringTaskDatesInRange(task: Task, rangeStart: string, rangeE
 
   return dates;
 }
+
+export function sortedList<T extends number | string>(values?: T[]) {
+  if (!values?.length) return undefined;
+  return [...new Set(values)].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+}
+
+/**
+ * A cadência da regra, sem a data de fim e sem os horários. É o que decide quais datas a série
+ * gera: se ela muda, a série precisa ser dividida; fim e horários valem para a série inteira e
+ * não mudam data nenhuma. Listas vazias e ausentes contam como iguais, porque o painel e os
+ * aplicativos gravam a mesma regra de um jeito e de outro.
+ */
+export function recurrenceCadenceKey(recurrence?: TaskRecurrence) {
+  if (!recurrence) return "";
+  return JSON.stringify({
+    frequency: recurrence.frequency,
+    weekDays: sortedList(recurrence.weekDays),
+    excludedWeekDays: sortedList(recurrence.excludedWeekDays),
+    interval: recurrence.interval,
+    intervalDays: recurrence.intervalDays,
+    customUnit: recurrence.customUnit,
+    dayOfMonth: recurrence.dayOfMonth,
+    monthOfYear: recurrence.monthOfYear,
+  });
+}

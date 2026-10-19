@@ -40,7 +40,15 @@ import {
   isReviewManagerCandidateId,
   resolveTaskReviewManagerId,
 } from "../permissions";
-import { materializeRecurringTasks } from "../recurrence.server";
+import {
+  advanceRecurringDate,
+  applySeriesEndDate,
+  applySeriesTimes,
+  changeSeriesRecurrence,
+  excludeSeriesDate,
+  materializeRecurringTasks,
+} from "../recurrence.server";
+import { recurrenceCadenceKey } from "../recurrence";
 
 const SESSION_COOKIE = "pop_organize_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
@@ -587,73 +595,16 @@ function normalizeResponsibleIds(responsibleId: string, responsibleIds: string[]
   return [...new Set([responsibleId, ...responsibleIds].filter(Boolean))];
 }
 
-function getDateParts(dateValue: string) {
-  const [year, month, day] = dateValue.split("-").map(Number);
-  return { year, month, day };
-}
-
-function dateString(year: number, month: number, day: number) {
-  const lastDay = new Date(year, month, 0).getDate();
-  const date = new Date(year, month - 1, Math.min(day, lastDay));
-  return date.toISOString().slice(0, 10);
-}
-
-function addDays(dateValue: string, days: number) {
-  const date = new Date(`${dateValue}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function addMonths(dateValue: string, months: number, preferredDay?: number) {
-  const { year, month, day } = getDateParts(dateValue);
-  const target = new Date(year, month - 1 + months, 1);
-  return dateString(target.getFullYear(), target.getMonth() + 1, preferredDay ?? day);
-}
-
-function addYears(
-  dateValue: string,
-  years: number,
-  preferredMonth?: number,
-  preferredDay?: number,
-) {
-  const { year, month, day } = getDateParts(dateValue);
-  return dateString(year + years, preferredMonth ?? month, preferredDay ?? day);
-}
-
-function advanceRecurringDueDate(date: string, recurrence: NonNullable<Task["recurrence"]>) {
-  return recurrence.frequency === "daily"
-    ? addDays(date, 1)
-    : recurrence.frequency === "weekly"
-      ? addDays(date, 7)
-      : recurrence.frequency === "biweekly"
-        ? addDays(date, 14)
-        : recurrence.frequency === "monthly"
-          ? addMonths(date, 1, recurrence.dayOfMonth)
-          : recurrence.frequency === "yearly"
-            ? addYears(date, 1, recurrence.monthOfYear, recurrence.dayOfMonth)
-            : recurrence.customUnit === "weeks"
-              ? addDays(date, (recurrence.interval ?? recurrence.intervalDays ?? 1) * 7)
-              : recurrence.customUnit === "months"
-                ? addMonths(date, recurrence.interval ?? 1, recurrence.dayOfMonth)
-                : recurrence.customUnit === "years"
-                  ? addYears(
-                      date,
-                      recurrence.interval ?? 1,
-                      recurrence.monthOfYear,
-                      recurrence.dayOfMonth,
-                    )
-                  : addDays(date, recurrence.interval ?? recurrence.intervalDays ?? 1);
-}
-
 function getNextRecurringDueDate(task: Task) {
   if (!task.recurrence) return null;
 
   const { recurrence } = task;
   const currentDate = today();
-  let nextDueDate = advanceRecurringDueDate(task.dueDate, recurrence);
+  const excludedDates = new Set(task.recurrenceExcludedDates ?? []);
+  let nextDueDate = advanceRecurringDate(task.dueDate, recurrence);
   let skippedDates = 0;
-  while (nextDueDate <= currentDate && skippedDates < 10_000) {
-    nextDueDate = advanceRecurringDueDate(nextDueDate, recurrence);
+  while ((nextDueDate <= currentDate || excludedDates.has(nextDueDate)) && skippedDates < 10_000) {
+    nextDueDate = advanceRecurringDate(nextDueDate, recurrence);
     skippedDates += 1;
   }
   if (nextDueDate <= currentDate) return null;
@@ -693,6 +644,7 @@ function createNextRecurringTask(db: Database, task: Task) {
     recurrenceParentId: seriesId,
     recurrenceOccurrence: (task.recurrenceOccurrence ?? 1) + 1,
     recurrenceExcludedDates: task.recurrenceExcludedDates,
+    recurrenceSeriesEndDate: task.recurrenceSeriesEndDate,
     subtasks: (task.subtasks ?? []).map((subtask, index) => ({
       id: `ts${index + 1}`,
       title: subtask.title,
@@ -1486,10 +1438,10 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       if (responsibleChanged && !permissions.canAssign) {
         throw createHttpError("Você não tem permissão para alterar o responsável.", 403);
       }
+      const previousRecurrence = normalizeRecurrence(task.recurrence);
       const nextRecurrence = normalizeRecurrence(data.recurrence);
       if (
-        JSON.stringify(normalizeRecurrence(task.recurrence) ?? null) !==
-          JSON.stringify(nextRecurrence ?? null) &&
+        JSON.stringify(previousRecurrence ?? null) !== JSON.stringify(nextRecurrence ?? null) &&
         !permissions.canManageRecurrence
       ) {
         throw createHttpError("Você não tem permissão para alterar a recorrência.", 403);
@@ -1516,6 +1468,7 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
         );
       }
 
+      const previousDueDate = task.dueDate;
       task.title = data.title;
       task.description = data.description;
       task.priority = data.priority;
@@ -1524,8 +1477,31 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       task.responsibleId = nextResponsibleIds[0] ?? "";
       task.responsibleIds = nextResponsibleIds.length ? nextResponsibleIds : undefined;
       task.tags = data.tags;
-      task.recurrence = nextRecurrence;
-      invalidateNativeShadow(task, "dueDate", "target", "responsible", "recurrence");
+      if (recurrenceCadenceKey(previousRecurrence) !== recurrenceCadenceKey(nextRecurrence)) {
+        // A regra nova vale a partir desta ocorrência; as anteriores ficam como estão.
+        changeSeriesRecurrence(
+          db,
+          task,
+          nextRecurrence,
+          previousDueDate < data.dueDate ? previousDueDate : data.dueDate,
+        );
+      } else if (task.recurrence && nextRecurrence) {
+        // Mesma cadência: a recorrência gravada fica (ela pode ter o que o formulário não mostra,
+        // como o intervalo de uma série diária criada no aplicativo).
+        if (previousDueDate !== data.dueDate) excludeSeriesDate(db, task, previousDueDate);
+        if (previousRecurrence?.endDate !== nextRecurrence.endDate) {
+          applySeriesEndDate(db, task, nextRecurrence.endDate);
+        }
+        if (
+          JSON.stringify(previousRecurrence?.times ?? []) !==
+          JSON.stringify(nextRecurrence.times ?? [])
+        ) {
+          applySeriesTimes(db, task, nextRecurrence.times);
+        }
+      }
+      // A recorrência não entra aqui: as funções acima invalidam só a parte que mudaram. Apagar a
+      // regra crua de uma tarefa que não mudou faria o aparelho enxergar mudança de cadência.
+      invalidateNativeShadow(task, "dueDate", "target", "responsible");
       return task;
     });
   });
@@ -1858,7 +1834,7 @@ export const deleteTask = createServerFn({ method: "POST" })
       const remainingSeries = seriesTasks.filter((item) => item.dueDate !== occurrenceDate);
 
       if (matchingTasks.length > 0 && remainingSeries.length === 0) {
-        const nextDueDate = advanceRecurringDueDate(occurrenceDate, task.recurrence);
+        const nextDueDate = advanceRecurringDate(occurrenceDate, task.recurrence);
         if (task.recurrence.endDate && nextDueDate > task.recurrence.endDate) {
           db.tasks = db.tasks.filter((item) => !belongsToSeries(item));
           return { ok: true, id: data.id, removedIds: matchingTasks.map((item) => item.id) };

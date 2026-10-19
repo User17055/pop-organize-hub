@@ -300,6 +300,12 @@ export interface Task {
   recurrenceParentId?: string;
   recurrenceOccurrence?: number;
   recurrenceExcludedDates?: string[];
+  /**
+   * Último dia de uma série encerrada porque a regra mudou a partir de uma ocorrência. Só o
+   * servidor grava e lê: `recurrence.endDate` também recebe a data, mas os aplicativos reenviam a
+   * recorrência inteira a cada sincronização e poderiam apagá-la.
+   */
+  recurrenceSeriesEndDate?: string;
   commentItems?: TaskComment[];
   attachmentItems?: TaskAttachment[];
   subtasks?: TaskSubtask[];

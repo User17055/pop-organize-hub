@@ -31,7 +31,12 @@ import {
   getVisibleDepartmentIds,
   getVisibleGroupIds,
 } from "./permissions";
-import { materializeRecurringTasks } from "./recurrence.server";
+import {
+  changeSeriesRecurrence,
+  clampRecurrenceToSeriesEnd,
+  materializeRecurringTasks,
+} from "./recurrence.server";
+import { invalidateNativeShadow } from "./native-shadow";
 
 const MOBILE_SESSION_EXPIRY = "9999-12-31T23:59:59.999Z";
 const NATIVE_SOURCE = "android";
@@ -1515,6 +1520,43 @@ function mobileRecurrence(task: Task) {
   };
 }
 
+/**
+ * Os campos de recorrência como o aparelho os recebe. O `nativeData` vence o campo real (ver
+ * `native-shadow.ts`), com uma exceção: numa série encerrada porque a regra mudou, o fim gravado
+ * pelo servidor vence. Sem isso o aparelho, que reenvia "Nunca" a cada sincronização, voltaria a
+ * desenhar as ocorrências da regra antiga.
+ */
+function mobileRecurrenceWire(task: NativeTask) {
+  const native = task.nativeData;
+  const recurrence = mobileRecurrence(task);
+  const closed = Boolean(task.recurrenceSeriesEndDate);
+  return {
+    recurrenceRule: native?.recurrenceRule ?? recurrence.rule,
+    recurrenceDetail: native?.recurrenceDetail ?? recurrence.detail,
+    recurrenceInterval: native?.recurrenceInterval ?? recurrence.interval,
+    recurrenceEndMode: closed
+      ? recurrence.endMode
+      : (native?.recurrenceEndMode ?? recurrence.endMode),
+    recurrenceEndValue: closed
+      ? recurrence.endValue
+      : (native?.recurrenceEndValue ?? recurrence.endValue),
+  };
+}
+
+/**
+ * O aparelho mudou a cadência desta tarefa? Compara com o que o servidor enviou a ele. Fim e
+ * horários ficam de fora de propósito: não mudam as datas da série, e a série encerrada recebe de
+ * volta o "Nunca" antigo a cada sincronização.
+ */
+function mobileCadenceChanged(item: MobileTask, task: NativeTask) {
+  const sent = mobileRecurrenceWire(task);
+  return (
+    item.recurrenceRule !== sent.recurrenceRule ||
+    item.recurrenceDetail !== sent.recurrenceDetail ||
+    Number(item.recurrenceInterval) !== Number(sent.recurrenceInterval)
+  );
+}
+
 function taskToMobileTask(
   task: NativeTask,
   workspace: Database,
@@ -1530,6 +1572,7 @@ function taskToMobileTask(
   });
   const native = task.nativeData;
   const recurrence = mobileRecurrence(task);
+  const recurrenceWire = mobileRecurrenceWire(task);
   const responsibleIds = Array.from(
     new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean)),
   ).slice(0, 3);
@@ -1583,11 +1626,7 @@ function taskToMobileTask(
     dueTime: native?.dueTime ?? "",
     recurrenceTimes: native?.recurrenceTimes ?? task.recurrence?.times ?? [],
     duration: native?.duration ?? "Sem duração",
-    recurrenceRule: native?.recurrenceRule ?? recurrence.rule,
-    recurrenceDetail: native?.recurrenceDetail ?? recurrence.detail,
-    recurrenceInterval: native?.recurrenceInterval ?? recurrence.interval,
-    recurrenceEndMode: native?.recurrenceEndMode ?? recurrence.endMode,
-    recurrenceEndValue: native?.recurrenceEndValue ?? recurrence.endValue,
+    ...recurrenceWire,
     recurrenceOccurrence: native?.recurrenceOccurrence ?? task.recurrenceOccurrence ?? 1,
     recurrenceSeriesId: task.recurrenceParentId ?? task.id,
     recurrenceExcludedDates: task.recurrenceExcludedDates ?? [],
@@ -1817,6 +1856,7 @@ export async function replaceMobileTasks(
     let updated = 0;
     let deleted = 0;
     const requestedTaskOrder: string[] = [];
+    const splitTaskIds = new Set<string>();
 
     for (const taskId of new Set(deletedServerIds)) {
       const taskIndex = workspace.tasks.findIndex((task) => task.id === taskId);
@@ -1869,6 +1909,36 @@ export async function replaceMobileTasks(
       }
     }
 
+    const findExisting = (item: MobileTask) =>
+      workspace.tasks.find((rawTask) => {
+        const task = rawTask as NativeTask;
+        return (
+          task.id === item.serverId ||
+          (task.nativeSource === NATIVE_SOURCE &&
+            task.nativeOwnerId === account.id &&
+            task.nativeData?.id === item.id)
+        );
+      }) as NativeTask | undefined;
+
+    // O aparelho reenvia todas as tarefas, então uma linha com cadência diferente da enviada pode
+    // ser edição de verdade ou só divergência de formato. Edição mexe numa linha da série; se a
+    // série inteira chega diferente, é formato, e a série não pode ser dividida linha a linha.
+    // Decidido antes de gravar qualquer coisa: dividir uma série muda as linhas vizinhas, e elas
+    // não podem ser reavaliadas depois disso.
+    const cadenceChangesBySeries = new Map<string, string[]>();
+    for (const item of tasks) {
+      const existing = findExisting(item);
+      if (!existing || !mobileCadenceChanged(item, existing)) continue;
+      const seriesId = existing.recurrenceParentId ?? existing.id;
+      cadenceChangesBySeries.set(seriesId, [
+        ...(cadenceChangesBySeries.get(seriesId) ?? []),
+        existing.id,
+      ]);
+    }
+    const seriesSplitIds = new Set(
+      [...cadenceChangesBySeries.values()].filter((ids) => ids.length === 1).flat(),
+    );
+
     for (const item of tasks) {
       const isFutureCompletion =
         item.completed &&
@@ -1878,15 +1948,12 @@ export async function replaceMobileTasks(
       // Uma atividade futura continua pendente no servidor, mas não pode
       // cancelar a sincronização inteira (inclusive exclusões já solicitadas).
       const completed = item.completed && !isFutureCompletion;
-      const existing = workspace.tasks.find((rawTask) => {
-        const task = rawTask as NativeTask;
-        return (
-          task.id === item.serverId ||
-          (task.nativeSource === NATIVE_SOURCE &&
-            task.nativeOwnerId === account.id &&
-            task.nativeData?.id === item.id)
-        );
-      }) as NativeTask | undefined;
+      const existing = findExisting(item);
+
+      // Com `serverId` e sem linha no servidor, a tarefa foi apagada aqui — pelo painel, por outro
+      // aparelho ou pela divisão de uma série logo acima, neste mesmo envio. Recriá-la como tarefa
+      // nova a ressuscitava como série solta, duplicando ocorrências.
+      if (!existing && item.serverId) continue;
 
       if (existing) {
         // permissionGroups PRECISA vir aqui, como ja vem nas outras duas chamadas de canViewTask
@@ -1949,12 +2016,27 @@ export async function replaceMobileTasks(
           // tarefa modelo continua aceitando data nova, porque mudar a data de início da série é
           // edição legítima — o painel faz isso, e o app do André pode ter tela para isso. Na
           // operação normal isto é no-op: o aparelho devolve a mesma data que recebeu.
+          const previousDueDate = existing.dueDate;
           if (!existing.recurrenceParentId) existing.dueDate = item.dueDate;
           const responsibleIds = mobileResponsibleIds(workspace, account.id, item);
           existing.responsibleId = responsibleIds[0] ?? "";
           existing.responsibleIds = responsibleIds;
           existing.target = mobileTaskTarget(workspace, account.id, item);
-          existing.recurrence = mobileTaskRecurrence(item);
+          const nextRecurrence = mobileTaskRecurrence(item);
+          if (seriesSplitIds.has(existing.id)) {
+            changeSeriesRecurrence(
+              workspace,
+              existing,
+              nextRecurrence,
+              previousDueDate < existing.dueDate ? previousDueDate : existing.dueDate,
+            );
+            splitTaskIds.add(existing.id);
+          } else {
+            existing.recurrence = clampRecurrenceToSeriesEnd(
+              nextRecurrence,
+              existing.recurrenceSeriesEndDate,
+            );
+          }
           existing.attachments = item.attachmentName ? 1 : 0;
         }
         if (isAdministrator) {
@@ -1974,6 +2056,9 @@ export async function replaceMobileTasks(
             title: normalizeMobileTaskTitle(item.title),
             serverId: existing.id,
           };
+          // A ocorrência virou a primeira da série nova; a contagem antiga não vale mais.
+          if (splitTaskIds.has(existing.id))
+            invalidateNativeShadow(existing, "recurrenceOccurrence");
         }
         requestedTaskOrder.push(existing.id);
         updated += 1;
@@ -2025,13 +2110,14 @@ export async function replaceMobileTasks(
       created += 1;
     }
 
-    if (requestedTaskOrder.length > 1) {
-      const orderedIds = new Set(requestedTaskOrder);
-      const tasksById = new Map(workspace.tasks.map((task) => [task.id, task]));
+    const tasksById = new Map(workspace.tasks.map((task) => [task.id, task]));
+    const liveTaskOrder = requestedTaskOrder.filter((id) => tasksById.has(id));
+    if (liveTaskOrder.length > 1) {
+      const orderedIds = new Set(liveTaskOrder);
       let orderedIndex = 0;
       workspace.tasks = workspace.tasks.map((task) => {
         if (!orderedIds.has(task.id)) return task;
-        const orderedTask = tasksById.get(requestedTaskOrder[orderedIndex]);
+        const orderedTask = tasksById.get(liveTaskOrder[orderedIndex]);
         orderedIndex += 1;
         return orderedTask ?? task;
       });

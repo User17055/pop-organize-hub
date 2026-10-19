@@ -292,6 +292,8 @@ export function changeSeriesRecurrence(
   task: Task,
   next: Task["recurrence"],
   fromDate: string,
+  // Quem edita só apaga a ocorrência que pode ver e excluir; as outras ficam e só são encerradas.
+  canRemove: (task: Task) => boolean = () => true,
 ) {
   const seriesId = seriesIdOf(task);
   const lastDay = addDays(fromDate, -1);
@@ -302,7 +304,7 @@ export function changeSeriesRecurrence(
   for (const sibling of workspace.tasks) {
     if (sibling === task || !sibling.recurrence || seriesIdOf(sibling) !== seriesId) continue;
     if (sibling.dueDate >= fromDate) {
-      if (isUntouchedOccurrence(sibling)) {
+      if (isUntouchedOccurrence(sibling) && canRemove(sibling)) {
         removedIds.add(sibling.id);
         continue;
       }
@@ -348,12 +350,23 @@ export function changeSeriesRecurrence(
  * A data de fim vale para a série inteira: o gerador lê a da linha mais antiga, então mudar só a
  * linha editada não encerrava nada. Ocorrências intocadas depois do fim novo saem.
  */
-export function applySeriesEndDate(workspace: Database, task: Task, endDate?: string) {
+export function applySeriesEndDate(
+  workspace: Database,
+  task: Task,
+  endDate?: string,
+  canRemove: (task: Task) => boolean = () => true,
+) {
   const seriesId = seriesIdOf(task);
   const removedIds = new Set<string>();
   for (const item of workspace.tasks) {
     if (!item.recurrence || seriesIdOf(item) !== seriesId) continue;
-    if (item !== task && endDate && item.dueDate > endDate && isUntouchedOccurrence(item)) {
+    if (
+      item !== task &&
+      endDate &&
+      item.dueDate > endDate &&
+      isUntouchedOccurrence(item) &&
+      canRemove(item)
+    ) {
       removedIds.add(item.id);
       continue;
     }

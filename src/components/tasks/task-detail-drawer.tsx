@@ -47,10 +47,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { recurrenceCadenceKey } from "@/lib/recurrence";
 import {
   isOverdue,
+  recurrenceFromForm,
   recurrenceLabel,
   recurrenceOptions,
+  recurrenceToForm,
   taskTargetLabel,
   type RecurrenceFormState,
   type TaskEditState,
@@ -119,6 +122,13 @@ export function TaskDetailDrawer({
 }) {
   const getEmployee = (id?: string) => employees.find((employee) => employee.id === id);
   const reviewManagerId = permissions.reviewManagerId;
+  // Só para tarefa que já repete: mudar a cadência divide a série a partir desta data (ver
+  // changeSeriesRecurrence no servidor). As duas pontas passam pelo mesmo formulário para que o
+  // que o formulário não mostra não conte como mudança.
+  const recurrenceCadenceChanged =
+    Boolean(task.recurrence) &&
+    recurrenceCadenceKey(recurrenceFromForm(editForm.recurrence)) !==
+      recurrenceCadenceKey(recurrenceFromForm(recurrenceToForm(task.recurrence, task.dueDate)));
   const [isCelebrating, setIsCelebrating] = useState(false);
   const [destinationOpen, setDestinationOpen] = useState(false);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -682,6 +692,14 @@ export function TaskDetailDrawer({
                 }
               />
             </div>
+          )}
+
+          {permissions.canEditContent && recurrenceCadenceChanged && (
+            <p className="mt-2 px-1 text-[11px] text-muted-foreground">
+              {editForm.recurrence.frequency === "none"
+                ? "A tarefa deixa de repetir a partir desta data. As ocorrências anteriores ficam como estão."
+                : "A nova regra vale a partir desta data. As ocorrências anteriores ficam como estão."}
+            </p>
           )}
         </div>
 

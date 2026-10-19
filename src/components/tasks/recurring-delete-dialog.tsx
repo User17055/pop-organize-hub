@@ -24,7 +24,7 @@ export function RecurringDeleteDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-300 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !pending) onClose();
       }}
@@ -36,7 +36,7 @@ export function RecurringDeleteDialog({
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="delete-task-title"
-        className="w-full max-w-md rounded-[24px] border border-white/70 bg-background p-5 shadow-2xl"
+        className="w-full max-w-md rounded-3xl border border-white/70 bg-background p-5 shadow-2xl"
       >
         <div className="flex items-start gap-3">
           <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-destructive/10 text-destructive">

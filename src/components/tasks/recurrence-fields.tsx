@@ -348,7 +348,7 @@ export function GlassSelect({
         createPortal(
           <div
             ref={menuRef}
-            className="task-create-select-menu fixed z-[260] rounded-md border p-1"
+            className="task-create-select-menu fixed z-260 rounded-md border p-1"
             role="listbox"
             // `pointerEvents: "auto"` nao e decorativo: o menu e portalizado para o `document.body`,
             // e um Dialog/Sheet do Radix aberto marca o proprio `body` com `pointer-events: none`

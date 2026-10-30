@@ -309,10 +309,20 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
     });
 }
 
+// Conta de demonstração da revisão da App Store: o revisor não recebe o e-mail, então o código dela
+// é fixo e vem só do ambiente do servidor. Sem as duas variáveis, o login segue igual para todos.
+function appReviewCode(email: string) {
+  const reviewEmail = process.env.APP_REVIEW_EMAIL?.trim().toLowerCase();
+  const reviewCode = process.env.APP_REVIEW_CODE?.trim();
+  if (!reviewEmail || !reviewCode || !/^\d{6}$/.test(reviewCode)) return null;
+  return email === reviewEmail ? reviewCode : null;
+}
+
 export async function requestMobileEmailCode(rawEmail: string) {
   const email = normalizeEmail(rawEmail);
   const now = Date.now();
-  const code = randomInt(100_000, 1_000_000).toString();
+  const reviewCode = appReviewCode(email);
+  const code = reviewCode ?? randomInt(100_000, 1_000_000).toString();
 
   await mutateDatabase((platform) => {
     const recent = platform.emailChallenges
@@ -336,6 +346,7 @@ export async function requestMobileEmailCode(rawEmail: string) {
     });
   });
 
+  if (reviewCode) return { ok: true, expiresInSeconds: EMAIL_CODE_TTL_MS / 1000 };
   const { sendVerificationCode } = await import("./email.server");
   const delivery = await sendVerificationCode(email, code);
   return { ok: true, expiresInSeconds: EMAIL_CODE_TTL_MS / 1000, ...delivery };

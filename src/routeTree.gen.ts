@@ -9,103 +9,38 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as V2RouteImport } from './routes/v2'
-import { Route as TermosRouteImport } from './routes/termos'
-import { Route as TarefasRouteImport } from './routes/tarefas'
-import { Route as SuporteRouteImport } from './routes/suporte'
-import { Route as SetoresRouteImport } from './routes/setores'
-import { Route as RelatoriosRouteImport } from './routes/relatorios'
-import { Route as PrivacidadeRouteImport } from './routes/privacidade'
-import { Route as PermissoesRouteImport } from './routes/permissoes'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as GruposRouteImport } from './routes/grupos'
-import { Route as FuncionariosRouteImport } from './routes/funcionarios'
-import { Route as ExcluirContaRouteImport } from './routes/excluir-conta'
-import { Route as EmpresasRouteImport } from './routes/empresas'
-import { Route as CalendarioRouteImport } from './routes/calendario'
-import { Route as AceitarConviteRouteImport } from './routes/aceitar-convite'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ImprimirSetorRouteImport } from './routes/imprimir.setor'
+import { Route as AceitarConviteRouteImport } from './routes/aceitar-convite'
+import { Route as CalendarioRouteImport } from './routes/calendario'
+import { Route as EmpresasRouteImport } from './routes/empresas'
+import { Route as ExcluirContaRouteImport } from './routes/excluir-conta'
+import { Route as FuncionariosRouteImport } from './routes/funcionarios'
+import { Route as GruposRouteImport } from './routes/grupos'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as PermissoesRouteImport } from './routes/permissoes'
+import { Route as PrivacidadeRouteImport } from './routes/privacidade'
+import { Route as RelatoriosRouteImport } from './routes/relatorios'
+import { Route as SetoresRouteImport } from './routes/setores'
+import { Route as SuporteRouteImport } from './routes/suporte'
+import { Route as TarefasRouteImport } from './routes/tarefas'
+import { Route as TermosRouteImport } from './routes/termos'
+import { Route as V2RouteImport } from './routes/v2'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
-import { Route as ApiMobileWorkspacesRouteImport } from './routes/api/mobile/workspaces'
-import { Route as ApiMobileTasksRouteImport } from './routes/api/mobile/tasks'
-import { Route as ApiMobileTaskListsRouteImport } from './routes/api/mobile/task-lists'
-import { Route as ApiMobileInvitationsRouteImport } from './routes/api/mobile/invitations'
+import { Route as ImprimirSetorRouteImport } from './routes/imprimir.setor'
 import { Route as ApiMobileAccountRouteImport } from './routes/api/mobile/account'
-import { Route as ApiMobileAuthLogoutRouteImport } from './routes/api/mobile/auth/logout'
-import { Route as ApiMobileAuthGoogleRouteImport } from './routes/api/mobile/auth/google'
+import { Route as ApiMobileInvitationsRouteImport } from './routes/api/mobile/invitations'
+import { Route as ApiMobileTaskListsRouteImport } from './routes/api/mobile/task-lists'
+import { Route as ApiMobileTasksRouteImport } from './routes/api/mobile/tasks'
+import { Route as ApiMobileWorkspacesRouteImport } from './routes/api/mobile/workspaces'
 import { Route as ApiMobileAuthAppleRouteImport } from './routes/api/mobile/auth/apple'
-import { Route as ApiMobileAuthEmailVerifyCodeRouteImport } from './routes/api/mobile/auth/email/verify-code'
+import { Route as ApiMobileAuthGoogleRouteImport } from './routes/api/mobile/auth/google'
+import { Route as ApiMobileAuthLogoutRouteImport } from './routes/api/mobile/auth/logout'
 import { Route as ApiMobileAuthEmailRequestCodeRouteImport } from './routes/api/mobile/auth/email/request-code'
+import { Route as ApiMobileAuthEmailVerifyCodeRouteImport } from './routes/api/mobile/auth/email/verify-code'
 
-const V2Route = V2RouteImport.update({
-  id: '/v2',
-  path: '/v2',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TermosRoute = TermosRouteImport.update({
-  id: '/termos',
-  path: '/termos',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TarefasRoute = TarefasRouteImport.update({
-  id: '/tarefas',
-  path: '/tarefas',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SuporteRoute = SuporteRouteImport.update({
-  id: '/suporte',
-  path: '/suporte',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SetoresRoute = SetoresRouteImport.update({
-  id: '/setores',
-  path: '/setores',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RelatoriosRoute = RelatoriosRouteImport.update({
-  id: '/relatorios',
-  path: '/relatorios',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PrivacidadeRoute = PrivacidadeRouteImport.update({
-  id: '/privacidade',
-  path: '/privacidade',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PermissoesRoute = PermissoesRouteImport.update({
-  id: '/permissoes',
-  path: '/permissoes',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GruposRoute = GruposRouteImport.update({
-  id: '/grupos',
-  path: '/grupos',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FuncionariosRoute = FuncionariosRouteImport.update({
-  id: '/funcionarios',
-  path: '/funcionarios',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ExcluirContaRoute = ExcluirContaRouteImport.update({
-  id: '/excluir-conta',
-  path: '/excluir-conta',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EmpresasRoute = EmpresasRouteImport.update({
-  id: '/empresas',
-  path: '/empresas',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CalendarioRoute = CalendarioRouteImport.update({
-  id: '/calendario',
-  path: '/calendario',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AceitarConviteRoute = AceitarConviteRouteImport.update({
@@ -113,14 +48,74 @@ const AceitarConviteRoute = AceitarConviteRouteImport.update({
   path: '/aceitar-convite',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const CalendarioRoute = CalendarioRouteImport.update({
+  id: '/calendario',
+  path: '/calendario',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ImprimirSetorRoute = ImprimirSetorRouteImport.update({
-  id: '/imprimir/setor',
-  path: '/imprimir/setor',
+const EmpresasRoute = EmpresasRouteImport.update({
+  id: '/empresas',
+  path: '/empresas',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExcluirContaRoute = ExcluirContaRouteImport.update({
+  id: '/excluir-conta',
+  path: '/excluir-conta',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FuncionariosRoute = FuncionariosRouteImport.update({
+  id: '/funcionarios',
+  path: '/funcionarios',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GruposRoute = GruposRouteImport.update({
+  id: '/grupos',
+  path: '/grupos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PermissoesRoute = PermissoesRouteImport.update({
+  id: '/permissoes',
+  path: '/permissoes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacidadeRoute = PrivacidadeRouteImport.update({
+  id: '/privacidade',
+  path: '/privacidade',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RelatoriosRoute = RelatoriosRouteImport.update({
+  id: '/relatorios',
+  path: '/relatorios',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetoresRoute = SetoresRouteImport.update({
+  id: '/setores',
+  path: '/setores',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SuporteRoute = SuporteRouteImport.update({
+  id: '/suporte',
+  path: '/suporte',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TarefasRoute = TarefasRouteImport.update({
+  id: '/tarefas',
+  path: '/tarefas',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermosRoute = TermosRouteImport.update({
+  id: '/termos',
+  path: '/termos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V2Route = V2RouteImport.update({
+  id: '/v2',
+  path: '/v2',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -128,24 +123,9 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiMobileWorkspacesRoute = ApiMobileWorkspacesRouteImport.update({
-  id: '/api/mobile/workspaces',
-  path: '/api/mobile/workspaces',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiMobileTasksRoute = ApiMobileTasksRouteImport.update({
-  id: '/api/mobile/tasks',
-  path: '/api/mobile/tasks',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiMobileTaskListsRoute = ApiMobileTaskListsRouteImport.update({
-  id: '/api/mobile/task-lists',
-  path: '/api/mobile/task-lists',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiMobileInvitationsRoute = ApiMobileInvitationsRouteImport.update({
-  id: '/api/mobile/invitations',
-  path: '/api/mobile/invitations',
+const ImprimirSetorRoute = ImprimirSetorRouteImport.update({
+  id: '/imprimir/setor',
+  path: '/imprimir/setor',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMobileAccountRoute = ApiMobileAccountRouteImport.update({
@@ -153,14 +133,24 @@ const ApiMobileAccountRoute = ApiMobileAccountRouteImport.update({
   path: '/api/mobile/account',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiMobileAuthLogoutRoute = ApiMobileAuthLogoutRouteImport.update({
-  id: '/api/mobile/auth/logout',
-  path: '/api/mobile/auth/logout',
+const ApiMobileInvitationsRoute = ApiMobileInvitationsRouteImport.update({
+  id: '/api/mobile/invitations',
+  path: '/api/mobile/invitations',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiMobileAuthGoogleRoute = ApiMobileAuthGoogleRouteImport.update({
-  id: '/api/mobile/auth/google',
-  path: '/api/mobile/auth/google',
+const ApiMobileTaskListsRoute = ApiMobileTaskListsRouteImport.update({
+  id: '/api/mobile/task-lists',
+  path: '/api/mobile/task-lists',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileTasksRoute = ApiMobileTasksRouteImport.update({
+  id: '/api/mobile/tasks',
+  path: '/api/mobile/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileWorkspacesRoute = ApiMobileWorkspacesRouteImport.update({
+  id: '/api/mobile/workspaces',
+  path: '/api/mobile/workspaces',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMobileAuthAppleRoute = ApiMobileAuthAppleRouteImport.update({
@@ -168,16 +158,26 @@ const ApiMobileAuthAppleRoute = ApiMobileAuthAppleRouteImport.update({
   path: '/api/mobile/auth/apple',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiMobileAuthEmailVerifyCodeRoute =
-  ApiMobileAuthEmailVerifyCodeRouteImport.update({
-    id: '/api/mobile/auth/email/verify-code',
-    path: '/api/mobile/auth/email/verify-code',
-    getParentRoute: () => rootRouteImport,
-  } as any)
+const ApiMobileAuthGoogleRoute = ApiMobileAuthGoogleRouteImport.update({
+  id: '/api/mobile/auth/google',
+  path: '/api/mobile/auth/google',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileAuthLogoutRoute = ApiMobileAuthLogoutRouteImport.update({
+  id: '/api/mobile/auth/logout',
+  path: '/api/mobile/auth/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMobileAuthEmailRequestCodeRoute =
   ApiMobileAuthEmailRequestCodeRouteImport.update({
     id: '/api/mobile/auth/email/request-code',
     path: '/api/mobile/auth/email/request-code',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiMobileAuthEmailVerifyCodeRoute =
+  ApiMobileAuthEmailVerifyCodeRouteImport.update({
+    id: '/api/mobile/auth/email/verify-code',
+    path: '/api/mobile/auth/email/verify-code',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -398,102 +398,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/v2': {
-      id: '/v2'
-      path: '/v2'
-      fullPath: '/v2'
-      preLoaderRoute: typeof V2RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/termos': {
-      id: '/termos'
-      path: '/termos'
-      fullPath: '/termos'
-      preLoaderRoute: typeof TermosRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/tarefas': {
-      id: '/tarefas'
-      path: '/tarefas'
-      fullPath: '/tarefas'
-      preLoaderRoute: typeof TarefasRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/suporte': {
-      id: '/suporte'
-      path: '/suporte'
-      fullPath: '/suporte'
-      preLoaderRoute: typeof SuporteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/setores': {
-      id: '/setores'
-      path: '/setores'
-      fullPath: '/setores'
-      preLoaderRoute: typeof SetoresRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/relatorios': {
-      id: '/relatorios'
-      path: '/relatorios'
-      fullPath: '/relatorios'
-      preLoaderRoute: typeof RelatoriosRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/privacidade': {
-      id: '/privacidade'
-      path: '/privacidade'
-      fullPath: '/privacidade'
-      preLoaderRoute: typeof PrivacidadeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/permissoes': {
-      id: '/permissoes'
-      path: '/permissoes'
-      fullPath: '/permissoes'
-      preLoaderRoute: typeof PermissoesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/grupos': {
-      id: '/grupos'
-      path: '/grupos'
-      fullPath: '/grupos'
-      preLoaderRoute: typeof GruposRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/funcionarios': {
-      id: '/funcionarios'
-      path: '/funcionarios'
-      fullPath: '/funcionarios'
-      preLoaderRoute: typeof FuncionariosRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/excluir-conta': {
-      id: '/excluir-conta'
-      path: '/excluir-conta'
-      fullPath: '/excluir-conta'
-      preLoaderRoute: typeof ExcluirContaRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/empresas': {
-      id: '/empresas'
-      path: '/empresas'
-      fullPath: '/empresas'
-      preLoaderRoute: typeof EmpresasRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/calendario': {
-      id: '/calendario'
-      path: '/calendario'
-      fullPath: '/calendario'
-      preLoaderRoute: typeof CalendarioRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/aceitar-convite': {
@@ -503,18 +412,102 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AceitarConviteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/calendario': {
+      id: '/calendario'
+      path: '/calendario'
+      fullPath: '/calendario'
+      preLoaderRoute: typeof CalendarioRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/imprimir/setor': {
-      id: '/imprimir/setor'
-      path: '/imprimir/setor'
-      fullPath: '/imprimir/setor'
-      preLoaderRoute: typeof ImprimirSetorRouteImport
+    '/empresas': {
+      id: '/empresas'
+      path: '/empresas'
+      fullPath: '/empresas'
+      preLoaderRoute: typeof EmpresasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/excluir-conta': {
+      id: '/excluir-conta'
+      path: '/excluir-conta'
+      fullPath: '/excluir-conta'
+      preLoaderRoute: typeof ExcluirContaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/funcionarios': {
+      id: '/funcionarios'
+      path: '/funcionarios'
+      fullPath: '/funcionarios'
+      preLoaderRoute: typeof FuncionariosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grupos': {
+      id: '/grupos'
+      path: '/grupos'
+      fullPath: '/grupos'
+      preLoaderRoute: typeof GruposRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/permissoes': {
+      id: '/permissoes'
+      path: '/permissoes'
+      fullPath: '/permissoes'
+      preLoaderRoute: typeof PermissoesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacidade': {
+      id: '/privacidade'
+      path: '/privacidade'
+      fullPath: '/privacidade'
+      preLoaderRoute: typeof PrivacidadeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/relatorios': {
+      id: '/relatorios'
+      path: '/relatorios'
+      fullPath: '/relatorios'
+      preLoaderRoute: typeof RelatoriosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setores': {
+      id: '/setores'
+      path: '/setores'
+      fullPath: '/setores'
+      preLoaderRoute: typeof SetoresRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/suporte': {
+      id: '/suporte'
+      path: '/suporte'
+      fullPath: '/suporte'
+      preLoaderRoute: typeof SuporteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tarefas': {
+      id: '/tarefas'
+      path: '/tarefas'
+      fullPath: '/tarefas'
+      preLoaderRoute: typeof TarefasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/termos': {
+      id: '/termos'
+      path: '/termos'
+      fullPath: '/termos'
+      preLoaderRoute: typeof TermosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v2': {
+      id: '/v2'
+      path: '/v2'
+      fullPath: '/v2'
+      preLoaderRoute: typeof V2RouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/health': {
@@ -524,32 +517,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/mobile/workspaces': {
-      id: '/api/mobile/workspaces'
-      path: '/api/mobile/workspaces'
-      fullPath: '/api/mobile/workspaces'
-      preLoaderRoute: typeof ApiMobileWorkspacesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/mobile/tasks': {
-      id: '/api/mobile/tasks'
-      path: '/api/mobile/tasks'
-      fullPath: '/api/mobile/tasks'
-      preLoaderRoute: typeof ApiMobileTasksRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/mobile/task-lists': {
-      id: '/api/mobile/task-lists'
-      path: '/api/mobile/task-lists'
-      fullPath: '/api/mobile/task-lists'
-      preLoaderRoute: typeof ApiMobileTaskListsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/mobile/invitations': {
-      id: '/api/mobile/invitations'
-      path: '/api/mobile/invitations'
-      fullPath: '/api/mobile/invitations'
-      preLoaderRoute: typeof ApiMobileInvitationsRouteImport
+    '/imprimir/setor': {
+      id: '/imprimir/setor'
+      path: '/imprimir/setor'
+      fullPath: '/imprimir/setor'
+      preLoaderRoute: typeof ImprimirSetorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mobile/account': {
@@ -559,18 +531,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMobileAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/mobile/auth/logout': {
-      id: '/api/mobile/auth/logout'
-      path: '/api/mobile/auth/logout'
-      fullPath: '/api/mobile/auth/logout'
-      preLoaderRoute: typeof ApiMobileAuthLogoutRouteImport
+    '/api/mobile/invitations': {
+      id: '/api/mobile/invitations'
+      path: '/api/mobile/invitations'
+      fullPath: '/api/mobile/invitations'
+      preLoaderRoute: typeof ApiMobileInvitationsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/mobile/auth/google': {
-      id: '/api/mobile/auth/google'
-      path: '/api/mobile/auth/google'
-      fullPath: '/api/mobile/auth/google'
-      preLoaderRoute: typeof ApiMobileAuthGoogleRouteImport
+    '/api/mobile/task-lists': {
+      id: '/api/mobile/task-lists'
+      path: '/api/mobile/task-lists'
+      fullPath: '/api/mobile/task-lists'
+      preLoaderRoute: typeof ApiMobileTaskListsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/tasks': {
+      id: '/api/mobile/tasks'
+      path: '/api/mobile/tasks'
+      fullPath: '/api/mobile/tasks'
+      preLoaderRoute: typeof ApiMobileTasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/workspaces': {
+      id: '/api/mobile/workspaces'
+      path: '/api/mobile/workspaces'
+      fullPath: '/api/mobile/workspaces'
+      preLoaderRoute: typeof ApiMobileWorkspacesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mobile/auth/apple': {
@@ -580,11 +566,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMobileAuthAppleRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/mobile/auth/email/verify-code': {
-      id: '/api/mobile/auth/email/verify-code'
-      path: '/api/mobile/auth/email/verify-code'
-      fullPath: '/api/mobile/auth/email/verify-code'
-      preLoaderRoute: typeof ApiMobileAuthEmailVerifyCodeRouteImport
+    '/api/mobile/auth/google': {
+      id: '/api/mobile/auth/google'
+      path: '/api/mobile/auth/google'
+      fullPath: '/api/mobile/auth/google'
+      preLoaderRoute: typeof ApiMobileAuthGoogleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/auth/logout': {
+      id: '/api/mobile/auth/logout'
+      path: '/api/mobile/auth/logout'
+      fullPath: '/api/mobile/auth/logout'
+      preLoaderRoute: typeof ApiMobileAuthLogoutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mobile/auth/email/request-code': {
@@ -592,6 +585,13 @@ declare module '@tanstack/react-router' {
       path: '/api/mobile/auth/email/request-code'
       fullPath: '/api/mobile/auth/email/request-code'
       preLoaderRoute: typeof ApiMobileAuthEmailRequestCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/auth/email/verify-code': {
+      id: '/api/mobile/auth/email/verify-code'
+      path: '/api/mobile/auth/email/verify-code'
+      fullPath: '/api/mobile/auth/email/verify-code'
+      preLoaderRoute: typeof ApiMobileAuthEmailVerifyCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
   }

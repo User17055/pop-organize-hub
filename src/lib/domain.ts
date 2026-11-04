@@ -1,10 +1,5 @@
 export type TaskStatus =
-  | "pending"
-  | "in_progress"
-  | "waiting_review"
-  | "reopened"
-  | "completed"
-  | "canceled";
+  "pending" | "in_progress" | "waiting_review" | "reopened" | "completed" | "canceled";
 
 export type Priority = "low" | "medium" | "high" | "urgent";
 

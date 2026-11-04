@@ -34,9 +34,7 @@ import {
 } from "@/components/ui/sheet";
 
 type CreateTarget =
-  | { kind: "group" }
-  | { kind: "subgroup"; parentId: string }
-  | { kind: "list"; folderId: string };
+  { kind: "group" } | { kind: "subgroup"; parentId: string } | { kind: "list"; folderId: string };
 
 function todayIso() {
   return new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());

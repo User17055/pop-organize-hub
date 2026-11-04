@@ -210,8 +210,8 @@ private object IosPlatformServices : PopPlatformServices {
         val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
         val reminders = tasks
             .asSequence()
-            .filter { !it.completed && it.dueTime.isNotBlank() }
-            .mapNotNull { task -> scheduledAt(task)?.let { moment -> task to moment } }
+            .filter { !it.completed }
+            .flatMap { task -> scheduledAt(task).map { moment -> task to moment }.asSequence() }
             .filter { pair -> pair.second > now }
             .sortedBy { pair -> pair.second }
             .take(MAX_SCHEDULED_REMINDERS)
@@ -276,19 +276,29 @@ private object IosPlatformServices : PopPlatformServices {
             }
             val trigger = UNCalendarNotificationTrigger.triggerWithDateMatchingComponents(components, repeats = false)
             center.addNotificationRequest(
-                UNNotificationRequest.requestWithIdentifier("pop-task-" + task.id, content, trigger),
+                // A hora entra no identificador: com o id sozinho, cada horario da serie substituiria
+                // o anterior e so o ultimo tocaria.
+                UNNotificationRequest.requestWithIdentifier(
+                    "pop-task-" + task.id + "-" + moment.hour + "-" + moment.minute,
+                    content,
+                    trigger,
+                ),
                 null,
             )
         }
     }
 
-    private fun scheduledAt(task: PopTask): LocalDateTime? {
-        val date = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return null
-        val parts = task.dueTime.trim().split(":")
-        val hour = parts.getOrNull(0)?.toIntOrNull() ?: return null
-        val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
-        if (hour !in 0..23 || minute !in 0..59) return null
-        return LocalDateTime(date.year, date.monthNumber, date.dayOfMonth, hour, minute)
+    /** `recurrenceTimes` vence o `dueTime`, como na agenda: tarefa do painel so tem o primeiro. */
+    private fun scheduledAt(task: PopTask): List<LocalDateTime> {
+        val date = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return emptyList()
+        val horarios = task.recurrenceTimes.filter { it.isNotBlank() }.ifEmpty { listOf(task.dueTime) }
+        return horarios.mapNotNull { horario ->
+            val parts = horario.trim().split(":")
+            val hour = parts.getOrNull(0)?.toIntOrNull() ?: return@mapNotNull null
+            val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+            if (hour !in 0..23 || minute !in 0..59) return@mapNotNull null
+            LocalDateTime(date.year, date.monthNumber, date.dayOfMonth, hour, minute)
+        }
     }
 
     override fun observeForeground(onForeground: () -> Unit) {

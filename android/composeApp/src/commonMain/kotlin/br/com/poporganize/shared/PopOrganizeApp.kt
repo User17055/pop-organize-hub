@@ -1653,7 +1653,7 @@ private fun TaskDetailsDialog(
                 // A funcao ja faz o mesmo filter/joinToString que estava aqui e devolve dueDate
                 // como veio quando ela e vazia ou nao e ISO, entao nao ha caso perdido na troca.
                 Text(
-                    taskDateLabel(task.dueDate, task.dueTime, todayDate()),
+                    rotuloDePrazo(task),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 // A prioridade era o unico campo de PopTask que este dialogo nao mostrava, embora
@@ -2069,7 +2069,7 @@ private fun TaskRow(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             // Era a data ISO crua: "2026-08-20 • 09:00". Ninguem le assim.
-                            taskDateLabel(task.dueDate, task.dueTime, todayDate()),
+                            rotuloDePrazo(task),
                             color = dateTint,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -2320,7 +2320,7 @@ private fun CompactTaskRow(task: PopTask) {
             Column(Modifier.weight(1f)) {
                 Text(task.title, fontWeight = FontWeight.SemiBold)
                 Text(
-                    taskDateLabel(task.dueDate, task.dueTime, todayDate()),
+                    rotuloDePrazo(task),
                     color = if (isOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                 )
@@ -2595,6 +2595,11 @@ private val agendaOrder = compareBy<NaAgenda>(
  * Lista vazia significa "sem hora marcada", que e diferente de "nao aparece": a tarefa entra na
  * agenda, no fim do dia, sob "Sem horário definido".
  */
+private fun rotuloDePrazo(task: PopTask): String =
+    // Tarefa do painel chega com `dueTime` vazio e o horario em `recurrenceTimes`. A agenda ja sabia
+    // disso; as listas diziam so "Hoje".
+    taskDateLabel(task.dueDate, horariosDaTarefa(task).joinToString(", "), todayDate())
+
 private fun horariosDaTarefa(task: PopTask): List<String> {
     // `horaComparavel` porque o `dueTime` e texto livre dos dois lados do fio e pode chegar "9:00".
     // O `recurrenceTimes` ja vem validado por regex e nao precisaria, mas passar os dois pelo mesmo

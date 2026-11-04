@@ -2,7 +2,7 @@ import type { Database } from "./database";
 import { nextId } from "./database";
 import type { Task, TaskRecurrence } from "./domain";
 import { invalidateNativeShadow } from "./native-shadow";
-import { sortedList } from "./recurrence";
+import { seriesSlotDate, sortedList } from "./recurrence";
 
 type RecurringNativeTask = Task & {
   nativeSource?: string;
@@ -194,16 +194,18 @@ export function materializeRecurringTasks(
 
   let created = 0;
   for (const [seriesId, seriesTasks] of series) {
-    seriesTasks.sort((left, right) => left.dueDate.localeCompare(right.dueDate));
+    // A conta parte da posição na série, não da data atual: uma ocorrência movida "só esta" não muda
+    // o ritmo, senão mover a mais antiga criaria uma série paralela ou tarefas atrasadas.
+    seriesTasks.sort((left, right) => seriesSlotDate(left).localeCompare(seriesSlotDate(right)));
     const template = seriesTasks[0];
-    if (!template.recurrence || template.dueDate > currentDate) continue;
+    if (!template.recurrence || seriesSlotDate(template) > currentDate) continue;
 
     const existingDates = new Set(seriesTasks.map((task) => task.dueDate));
     const excludedDates = new Set(
       seriesTasks.flatMap((task) => task.recurrenceExcludedDates ?? []),
     );
     const endDate = earlierDate(template.recurrence.endDate, template.recurrenceSeriesEndDate);
-    let dueDate = template.dueDate;
+    let dueDate = seriesSlotDate(template);
     let occurrence = template.recurrenceOccurrence ?? 1;
     let iterations = 0;
 
@@ -338,6 +340,7 @@ export function changeSeriesRecurrence(
   task.recurrence = next;
   delete task.recurrenceParentId;
   delete task.recurrenceSeriesEndDate;
+  delete task.recurrenceSlotDate;
   task.recurrenceOccurrence = next ? 1 : undefined;
   // Uma ocorrência antiga que já foi mexida continua de pé; a série nova não cria outra na mesma data.
   const excluded = sortedList(keptDates.filter((date) => date !== task.dueDate));
@@ -345,6 +348,72 @@ export function changeSeriesRecurrence(
   invalidateNativeShadow(task, "recurrence", "recurrenceOccurrence");
 
   return { removedIds: [...removedIds] };
+}
+
+function isoWeekDay(date: string) {
+  const { year, month, day } = dateParts(date);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() || 7;
+}
+
+/**
+ * A mesma regra, ancorada numa data nova. Sem isso, uma semanal de segunda movida para terça voltaria
+ * a cair na segunda, porque o gerador procura o dia marcado na regra, e não a data da tarefa.
+ */
+export function recurrenceAtDate(recurrence: TaskRecurrence, from: string, to: string) {
+  const next = { ...recurrence };
+  if (next.weekDays?.length) {
+    const others =
+      next.weekDays.length === 1 ? [] : next.weekDays.filter((day) => day !== isoWeekDay(from));
+    next.weekDays = sortedList([...others, isoWeekDay(to)]);
+  }
+  if (next.dayOfMonth) next.dayOfMonth = dateParts(to).day;
+  if (next.monthOfYear) next.monthOfYear = dateParts(to).month;
+  return next;
+}
+
+/**
+ * "Só esta": a ocorrência muda de data e a série segue como estava. A posição que ela ocupa fica
+ * guardada e excluída, para o gerador não recriá-la nem contar o ritmo a partir da data nova. Voltar
+ * para a posição original desfaz as duas coisas.
+ */
+export function moveOccurrenceDate(workspace: Database, task: Task, newDate: string) {
+  const slot = seriesSlotDate(task);
+  task.dueDate = newDate;
+  if (newDate === slot) {
+    delete task.recurrenceSlotDate;
+    const seriesId = seriesIdOf(task);
+    for (const item of workspace.tasks) {
+      if (!item.recurrence || seriesIdOf(item) !== seriesId) continue;
+      item.recurrenceExcludedDates = item.recurrenceExcludedDates?.filter((date) => date !== slot);
+    }
+  } else {
+    task.recurrenceSlotDate = slot;
+    excludeSeriesDate(workspace, task, slot);
+  }
+  invalidateNativeShadow(task, "dueDate");
+}
+
+/**
+ * "Esta e as seguintes": a série se divide nesta ocorrência, como numa troca de regra, e a parte nova
+ * segue a data escolhida. As anteriores ficam como estão.
+ */
+export function moveSeriesFromOccurrence(
+  workspace: Database,
+  task: Task,
+  newDate: string,
+  canRemove: (task: Task) => boolean = () => true,
+) {
+  const previousDate = task.dueDate;
+  const next = task.recurrence && recurrenceAtDate(task.recurrence, seriesSlotDate(task), newDate);
+  task.dueDate = newDate;
+  changeSeriesRecurrence(
+    workspace,
+    task,
+    next,
+    previousDate < newDate ? previousDate : newDate,
+    canRemove,
+  );
+  invalidateNativeShadow(task, "dueDate");
 }
 
 /**

@@ -34,6 +34,12 @@ const mobileTaskSchema = z.object({
   recurrenceEndMode: z.string().max(100),
   recurrenceEndValue: z.string().max(100),
   recurrenceOccurrence: z.number().int().min(1).max(1_000_000),
+  dateMoveFrom: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  dateMoveScope: z.enum(["this", "following"]).nullable().optional(),
   canEdit: z.boolean().optional(),
   canComplete: z.boolean().optional(),
   canDelete: z.boolean().optional(),

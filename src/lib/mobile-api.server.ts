@@ -38,6 +38,8 @@ import {
   changeSeriesRecurrence,
   clampRecurrenceToSeriesEnd,
   materializeRecurringTasks,
+  moveOccurrenceDate,
+  moveSeriesFromOccurrence,
 } from "./recurrence.server";
 import { invalidateNativeShadow } from "./native-shadow";
 
@@ -86,6 +88,13 @@ export type MobileTask = {
   // Sem isto o aplicativo não tem como dizer "exclua só esta data": o
   // materializeRecurringTasks recria a linha apagada na chamada seguinte.
   recurrenceExcludedDates?: string[];
+  // Só de leitura, como os de permissão abaixo: é daqui que o aplicativo projeta as próximas datas.
+  recurrenceSlotDate?: string;
+  // Pedido explícito de mudar a data de uma tarefa recorrente, com a data que o aparelho conhece. O
+  // aparelho reenvia todas as tarefas, e sem isso uma data antiga de um aparelho desatualizado seria
+  // igual a uma edição. Não ficam no `nativeData`: são do envio, não da tarefa.
+  dateMoveFrom?: string | null;
+  dateMoveScope?: "this" | "following" | null;
   canEdit?: boolean;
   canMove?: boolean;
   canAssign?: boolean;
@@ -1854,6 +1863,7 @@ function taskToMobileTask(
     recurrenceOccurrence: native?.recurrenceOccurrence ?? task.recurrenceOccurrence ?? 1,
     recurrenceSeriesId: task.recurrenceParentId ?? task.id,
     recurrenceExcludedDates: task.recurrenceExcludedDates ?? [],
+    recurrenceSlotDate: task.recurrenceSlotDate ?? "",
     // O dono nativo pode editar a própria tarefa mesmo sem as permissões do painel: é a mesma
     // exceção que o PUT aplica ao gravar, e os dois lados precisam dizer a mesma coisa.
     canEdit: permissions.canEditContent || isNativeOwner,
@@ -2086,6 +2096,7 @@ export async function replaceMobileTasks(
     let deleted = 0;
     const requestedTaskOrder: string[] = [];
     const splitTaskIds = new Set<string>();
+    const shiftedTaskIds = new Set<string>();
 
     for (const taskId of new Set(deletedServerIds)) {
       const taskIndex = workspace.tasks.findIndex((task) => task.id === taskId);
@@ -2168,7 +2179,7 @@ export async function replaceMobileTasks(
       [...cadenceChangesBySeries.values()].filter((ids) => ids.length === 1).flat(),
     );
 
-    for (const item of tasks) {
+    for (const { dateMoveFrom, dateMoveScope, ...item } of tasks) {
       const isFutureCompletion =
         item.completed &&
         /^\d{4}-\d{2}-\d{2}$/.test(item.dueDate) &&
@@ -2246,8 +2257,25 @@ export async function replaceMobileTasks(
           // tarefa modelo continua aceitando data nova, porque mudar a data de início da série é
           // edição legítima — o painel faz isso, e o app do André pode ter tela para isso. Na
           // operação normal isto é no-op: o aparelho devolve a mesma data que recebeu.
+          //
+          // O caminho para mudar a data de uma recorrente é o pedido explícito (`dateMoveFrom`): só
+          // vale se a data que o aparelho conhece for a gravada, então aparelho desatualizado e
+          // reenvio do mesmo pedido não mudam nada. "Esta e as seguintes" mexe na regra e fica no
+          // bloco da recorrência, com a permissão dela.
           const previousDueDate = existing.dueDate;
-          if (!existing.recurrenceParentId) existing.dueDate = item.dueDate;
+          const moveValid = dateMoveFrom === existing.dueDate && item.dueDate !== existing.dueDate;
+          const canManageRecurrence = isNativeOwner || permissions.canManageRecurrence;
+          const isSeriesSplit = seriesSplitIds.has(existing.id) && canManageRecurrence;
+          const moveFollowing = moveValid && !isSeriesSplit && dateMoveScope === "following";
+          if (!dateMoveFrom) {
+            if (!existing.recurrenceParentId && !existing.recurrenceSlotDate) {
+              existing.dueDate = item.dueDate;
+            }
+          } else if (moveValid && (!existing.recurrence || isSeriesSplit)) {
+            existing.dueDate = item.dueDate;
+          } else if (moveValid && !moveFollowing) {
+            moveOccurrenceDate(workspace, existing, item.dueDate);
+          }
           const nextDueTime = item.dueTime.trim();
           existing.dueTime = nextDueTime || undefined;
           if (!isNativeOwner && existing.nativeData) existing.nativeData.dueTime = nextDueTime;
@@ -2277,33 +2305,44 @@ export async function replaceMobileTasks(
             existing.target = target;
             if (targetChanged && !isNativeOwner) invalidateNativeShadow(existing, "target");
           }
-          if (isNativeOwner || permissions.canManageRecurrence) {
-            const nextRecurrence = mobileTaskRecurrence(item);
-            if (seriesSplitIds.has(existing.id)) {
+          if (canManageRecurrence) {
+            // Regra sem dia marcado deduz o dia da data da tarefa. Numa ocorrência movida "só esta",
+            // a dedução parte da posição dela na série, senão a regra mudaria junto.
+            const nextRecurrence = mobileTaskRecurrence(
+              existing.recurrenceSlotDate
+                ? { ...item, dueDate: existing.recurrenceSlotDate }
+                : item,
+            );
+            const canRemoveOccurrence = (item: Task) =>
+              canViewTask({
+                task: item,
+                currentUser,
+                employees: workspace.employees,
+                departments: workspace.departments,
+                groups: workspace.groups,
+                permissionGroups: workspace.permissionGroups,
+              }) &&
+              getTaskPermissions({
+                task: item,
+                currentUser,
+                employees: workspace.employees,
+                departments: workspace.departments,
+                groups: workspace.groups,
+                permissionGroups: workspace.permissionGroups,
+              }).canDelete;
+            if (isSeriesSplit) {
               changeSeriesRecurrence(
                 workspace,
                 existing,
                 nextRecurrence,
                 previousDueDate < existing.dueDate ? previousDueDate : existing.dueDate,
-                (item: Task) =>
-                  canViewTask({
-                    task: item,
-                    currentUser,
-                    employees: workspace.employees,
-                    departments: workspace.departments,
-                    groups: workspace.groups,
-                    permissionGroups: workspace.permissionGroups,
-                  }) &&
-                  getTaskPermissions({
-                    task: item,
-                    currentUser,
-                    employees: workspace.employees,
-                    departments: workspace.departments,
-                    groups: workspace.groups,
-                    permissionGroups: workspace.permissionGroups,
-                  }).canDelete,
+                canRemoveOccurrence,
               );
               splitTaskIds.add(existing.id);
+            } else if (moveFollowing) {
+              moveSeriesFromOccurrence(workspace, existing, item.dueDate, canRemoveOccurrence);
+              splitTaskIds.add(existing.id);
+              shiftedTaskIds.add(existing.id);
             } else {
               existing.recurrence = clampRecurrenceToSeriesEnd(
                 nextRecurrence,
@@ -2333,6 +2372,8 @@ export async function replaceMobileTasks(
           // A ocorrência virou a primeira da série nova; a contagem antiga não vale mais.
           if (splitTaskIds.has(existing.id))
             invalidateNativeShadow(existing, "recurrenceOccurrence");
+          // O aparelho enviou a regra de antes; a que vale agora é a que o servidor ancorou na data.
+          if (shiftedTaskIds.has(existing.id)) invalidateNativeShadow(existing, "recurrence");
         }
         requestedTaskOrder.push(existing.id);
         updated += 1;

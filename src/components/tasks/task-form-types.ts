@@ -5,6 +5,7 @@ import type {
   Task,
   TaskRecurrence,
 } from "@/lib/domain";
+import { recurrenceCadenceKey } from "@/lib/recurrence";
 
 export type TaskFormState = {
   title: string;
@@ -174,6 +175,22 @@ export function recurrenceToForm(
     monthOfYear: String(recurrence?.monthOfYear ?? anchor.monthOfYear),
     endDate: recurrence?.endDate ?? "",
   };
+}
+
+/**
+ * Só faz sentido perguntar "só esta ou as seguintes" quando a data muda e a regra não: regra nova já
+ * vale a partir desta ocorrência. A comparação usa o mesmo formato do formulário nos dois lados, para
+ * um campo que o formulário preenche sozinho não contar como mudança.
+ */
+export function shouldAskDateScope(
+  task: Task,
+  canManageRecurrence: boolean,
+  form: { dueDate: string; recurrence: RecurrenceFormState },
+) {
+  if (!task.recurrence || !canManageRecurrence || form.dueDate === task.dueDate) return false;
+  const saved = recurrenceFromForm(recurrenceToForm(task.recurrence, task.dueDate));
+  const next = recurrenceFromForm(form.recurrence);
+  return Boolean(next) && recurrenceCadenceKey(saved) === recurrenceCadenceKey(next);
 }
 
 export function recurrenceFromForm(recurrence: RecurrenceFormState): RecurrenceInput {

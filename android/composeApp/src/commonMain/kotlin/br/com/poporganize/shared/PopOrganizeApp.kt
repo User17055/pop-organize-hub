@@ -2528,8 +2528,9 @@ private fun projetarOcorrencias(
         .forEach { (serie, daSerie) ->
             // O modelo e a ocorrencia MAIS RECENTE da serie: e dela que o servidor partiria, e e
             // ela que carrega a contagem de ocorrencias em dia.
-            val modelo = daSerie.maxByOrNull { it.dueDate } ?: return@forEach
-            var data = parseIsoDate(modelo.dueDate) ?: return@forEach
+            // A conta parte da posicao na serie: uma ocorrencia movida "so esta" nao muda o ritmo.
+            val modelo = daSerie.maxByOrNull { it.posicaoNaSerie() } ?: return@forEach
+            var data = parseIsoDate(modelo.posicaoNaSerie()) ?: return@forEach
             var ocorrencia = modelo.recurrenceOccurrence
             var voltas = 0
 
@@ -2556,6 +2557,9 @@ private fun projetarOcorrencias(
                     id = "$PREFIXO_PROJECAO$serie:$iso",
                     serverId = null,
                     dueDate = iso,
+                    recurrenceSlotDate = "",
+                    dateMoveFrom = null,
+                    dateMoveScope = null,
                     completed = false,
                     recurrenceOccurrence = ocorrencia,
                     checklist = modelo.checklist.map { it.copy(done = false) },
@@ -4082,7 +4086,9 @@ private fun TaskEditorDialog(store: PopStore, existing: PopTask? = null, onDismi
     var checklistText by remember {
         mutableStateOf(existing?.checklist.orEmpty().joinToString("\n") { it.title })
     }
-    val dataTravada = existing?.temDataTravada() == true
+    val ehRecorrente = existing?.fazParteDeSerie() == true
+    val dataMudou = existing != null && dueDate != existing.dueDate
+    var mostrarEscopoDaData by remember { mutableStateOf(false) }
     // Uma serie com varios horarios guarda tudo em `recurrenceTimes`, e e ele que a agenda usa. O
     // `dueTime` e so o primeiro: mudar aqui nao mudaria o que aparece na tela.
     val horariosDaSerie = existing?.recurrenceTimes.orEmpty().filter { it.isNotBlank() }
@@ -4128,8 +4134,27 @@ private fun TaskEditorDialog(store: PopStore, existing: PopTask? = null, onDismi
         else -> emptyList()
     }
 
-    val dataOk = dataTravada || parseIsoDate(dueDate) != null || (existing == null && dueDate.isBlank())
+    val dataOk = parseIsoDate(dueDate) != null || (existing == null && dueDate.isBlank())
     val alvoOk = company == null || !podeMover || assignmentKind == AssignmentKind.None || assignment.id != null
+
+    val salvarEdicao: (String?) -> Unit = { escopoDaData ->
+        if (existing != null) {
+            store.editTask(
+                taskId = existing.id,
+                title = title,
+                description = description,
+                dueDate = dueDate,
+                dueTime = dueTime,
+                priority = priority,
+                assignment = assignment,
+                checklistLines = checklistText.lines(),
+                novaRecorrencia = recurrence.takeIf { recorrenciaMudou },
+                responsaveis = responsaveis,
+                escopoDaData = escopoDaData,
+            )
+        }
+        onDismiss()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -4144,7 +4169,6 @@ private fun TaskEditorDialog(store: PopStore, existing: PopTask? = null, onDismi
                             dueDate,
                             { dueDate = it },
                             label = { Text("Data AAAA-MM-DD") },
-                            enabled = !dataTravada,
                             isError = !dataOk,
                             modifier = Modifier.weight(1f),
                         )
@@ -4189,14 +4213,20 @@ private fun TaskEditorDialog(store: PopStore, existing: PopTask? = null, onDismi
                         }
                     }
                 }
-                if (dataTravada || horariosDaSerie.isNotEmpty()) {
+                if (horariosDaSerie.isNotEmpty()) {
                     item {
                         Text(
-                            if (horariosDaSerie.isNotEmpty()) {
-                                "A data e os horários (${horariosDaSerie.joinToString(", ")}) de uma tarefa recorrente são alterados pelo painel web."
-                            } else {
-                                "A data de uma tarefa recorrente é alterada pelo painel web."
-                            },
+                            "Os horários (${horariosDaSerie.joinToString(", ")}) de uma tarefa recorrente são alterados pelo painel web.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+                // Sem poder mexer na regra nao ha o que perguntar ao salvar, mas a pessoa precisa saber.
+                if (ehRecorrente && dataMudou && !podeRecorrencia) {
+                    item {
+                        Text(
+                            "A nova data vale só para esta ocorrência.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.sp,
                         )
@@ -4238,7 +4268,7 @@ private fun TaskEditorDialog(store: PopStore, existing: PopTask? = null, onDismi
                         }
                         // O mesmo aviso do painel (`task-detail-drawer.tsx`): a regra nova nao apaga
                         // o que ja passou, e sem dizer isso a pessoa espera que apague.
-                        if (recorrenciaMudou && (dataTravada || regraEspecial)) {
+                        if (recorrenciaMudou && (ehRecorrente || regraEspecial)) {
                             Text(
                                 if (recurrence == RecurrenceKind.None) {
                                     "A tarefa deixa de repetir a partir desta data. As ocorrências anteriores ficam como estão."
@@ -4383,26 +4413,49 @@ private fun TaskEditorDialog(store: PopStore, existing: PopTask? = null, onDismi
                             recurrence = recurrence ?: RecurrenceKind.None,
                             responsaveis = responsaveis,
                         )
+                        onDismiss()
+                    } else if (ehRecorrente && dataMudou && !recorrenciaMudou && podeRecorrencia) {
+                        mostrarEscopoDaData = true
                     } else {
-                        store.editTask(
-                            taskId = existing.id,
-                            title = title,
-                            description = description,
-                            dueDate = dueDate,
-                            dueTime = dueTime,
-                            priority = priority,
-                            assignment = assignment,
-                            checklistLines = checklistText.lines(),
-                            novaRecorrencia = recurrence.takeIf { recorrenciaMudou },
-                            responsaveis = responsaveis,
-                        )
+                        salvarEdicao(null)
                     }
-                    onDismiss()
                 },
             ) { Text(if (existing == null) "Criar tarefa" else "Salvar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
+
+    if (mostrarEscopoDaData) {
+        AlertDialog(
+            onDismissRequest = { mostrarEscopoDaData = false },
+            title = { Text("Mudar a data") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Esta tarefa se repete. A nova data vale para quais ocorrências?")
+                    Button(
+                        onClick = {
+                            mostrarEscopoDaData = false
+                            salvarEdicao(DATA_SO_ESTA)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Só esta") }
+                    OutlinedButton(
+                        onClick = {
+                            mostrarEscopoDaData = false
+                            salvarEdicao(DATA_E_SEGUINTES)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Esta e as seguintes") }
+                    Text(
+                        "Em \"Esta e as seguintes\", a repetição passa a seguir a nova data. As anteriores ficam como estão.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { mostrarEscopoDaData = false }) { Text("Voltar") } },
+        )
+    }
 
     if (mostrarSeletorDeHora) {
         // Parte do que ja estiver no campo; se estiver vazio ou ilegivel, abre na hora atual, que

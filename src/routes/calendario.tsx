@@ -28,8 +28,9 @@ import {
 } from "@/components/calendar/calendar-task";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { TaskCreateDrawer } from "@/components/tasks/task-create-drawer";
-import { useTaskMutations } from "@/components/tasks/use-task-mutations";
+import { type UpdateTaskPayload, useTaskMutations } from "@/components/tasks/use-task-mutations";
 import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialog";
+import { RecurringDateDialog } from "@/components/tasks/recurring-date-dialog";
 import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import {
   formatFileSizeMb,
@@ -37,10 +38,11 @@ import {
   getDefaultRecurrence,
   recurrenceFromForm,
   recurrenceToForm,
+  shouldAskDateScope,
   type TaskEditState,
   type TaskFormState,
 } from "@/components/tasks/task-form-types";
-import { recurringTaskDatesInRange } from "@/lib/recurrence";
+import { recurringTaskDatesInRange, seriesSlotDate } from "@/lib/recurrence";
 import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 
 export const Route = createFileRoute("/calendario")({
@@ -73,6 +75,7 @@ function CalendarPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedOccurrenceDate, setSelectedOccurrenceDate] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [pendingDateEdit, setPendingDateEdit] = useState<UpdateTaskPayload | null>(null);
   const [commentBody, setCommentBody] = useState("");
   const [createForm, setCreateForm] = useState<TaskFormState>(() => {
     const dueDate = getDefaultDueDate();
@@ -173,7 +176,7 @@ function CalendarPage() {
       const recurringSeriesId = task.recurrenceParentId ?? task.id;
       actualSeriesDates.add(`${recurringSeriesId}:${task.dueDate}`);
       const latest = latestRecurringTask.get(recurringSeriesId);
-      if (!latest || task.dueDate > latest.dueDate) {
+      if (!latest || seriesSlotDate(task) > seriesSlotDate(latest)) {
         latestRecurringTask.set(recurringSeriesId, task);
       }
     }
@@ -395,7 +398,7 @@ function CalendarPage() {
     event.preventDefault();
     if (!selectedTask) return;
     const [selectedType, selectedId] = editForm.targetKey.split(":") as [TargetType, string];
-    updateTaskMutation.mutate({
+    const payload: UpdateTaskPayload = {
       id: selectedTask.id,
       title: editForm.title,
       description: editForm.description,
@@ -409,7 +412,14 @@ function CalendarPage() {
         .map((tag) => tag.trim())
         .filter(Boolean),
       recurrence: recurrenceFromForm(editForm.recurrence),
-    });
+    };
+    if (
+      shouldAskDateScope(selectedTask, Boolean(selectedPermissions?.canManageRecurrence), editForm)
+    ) {
+      setPendingDateEdit(payload);
+      return;
+    }
+    updateTaskMutation.mutate(payload);
   }
 
   function handleDeleteSelectedTask() {
@@ -786,6 +796,15 @@ function CalendarPage() {
             scope,
             occurrenceDate: selectedOccurrenceDate ?? selectedTask.dueDate,
           });
+        }}
+      />
+
+      <RecurringDateDialog
+        date={pendingDateEdit?.dueDate}
+        onClose={() => setPendingDateEdit(null)}
+        onConfirm={(dateScope) => {
+          if (pendingDateEdit) updateTaskMutation.mutate({ ...pendingDateEdit, dateScope });
+          setPendingDateEdit(null);
         }}
       />
     </AppShell>

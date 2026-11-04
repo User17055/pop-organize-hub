@@ -15,6 +15,20 @@ import { workspaceQueryKey, type WorkspaceResult } from "@/lib/api/use-workspace
 import type { Priority, TargetType, Task, TaskStatus } from "@/lib/domain";
 import type { RecurrenceInput } from "./task-form-types";
 
+export type UpdateTaskPayload = {
+  id: string;
+  title: string;
+  description: string;
+  priority: Priority;
+  dueDate: string;
+  target: { type: TargetType; id: string };
+  responsibleId: string;
+  responsibleIds?: string[];
+  tags: string[];
+  recurrence?: RecurrenceInput;
+  dateScope?: "this" | "following";
+};
+
 export function useTaskMutations(options?: {
   onCompleted?: (taskId: string) => void;
   onCreated?: () => void;
@@ -78,18 +92,7 @@ export function useTaskMutations(options?: {
   });
 
   const updateTaskMutation = useMutation({
-    mutationFn: (payload: {
-      id: string;
-      title: string;
-      description: string;
-      priority: Priority;
-      dueDate: string;
-      target: { type: TargetType; id: string };
-      responsibleId: string;
-      responsibleIds?: string[];
-      tags: string[];
-      recurrence?: RecurrenceInput;
-    }) => updateTaskDetails({ data: payload }),
+    mutationFn: (payload: UpdateTaskPayload) => updateTaskDetails({ data: payload }),
     onSuccess: () => {
       options?.onUpdated?.();
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });

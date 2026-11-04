@@ -39,7 +39,8 @@ import { openPopAssistant } from "@/components/pop-launcher";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { TaskList } from "@/components/tasks/task-list";
 import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialog";
-import { useTaskMutations } from "@/components/tasks/use-task-mutations";
+import { RecurringDateDialog } from "@/components/tasks/recurring-date-dialog";
+import { type UpdateTaskPayload, useTaskMutations } from "@/components/tasks/use-task-mutations";
 import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import { PriorityBadge } from "@/components/app-shell";
 import {
@@ -48,6 +49,7 @@ import {
   recurrenceFromForm,
   recurrenceLabel,
   recurrenceToForm,
+  shouldAskDateScope,
   formatFileSizeMb,
   type TaskEditState,
   type TaskFormState,
@@ -229,6 +231,7 @@ function TasksPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [pendingDateEdit, setPendingDateEdit] = useState<UpdateTaskPayload | null>(null);
   const [showLayoutSettings, setShowLayoutSettings] = useState(false);
   const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
   const [layoutPreferences, setLayoutPreferences] =
@@ -656,7 +659,7 @@ function TasksPage() {
     if (!selectedTask) return;
     const [selectedType, selectedId] = editForm.targetKey.split(":") as [TargetType, string];
 
-    updateTaskMutation.mutate({
+    const payload: UpdateTaskPayload = {
       id: selectedTask.id,
       title: editForm.title,
       description: editForm.description,
@@ -670,7 +673,14 @@ function TasksPage() {
         .map((tag) => tag.trim())
         .filter(Boolean),
       recurrence: recurrenceFromForm(editForm.recurrence),
-    });
+    };
+    if (
+      shouldAskDateScope(selectedTask, Boolean(selectedPermissions?.canManageRecurrence), editForm)
+    ) {
+      setPendingDateEdit(payload);
+      return;
+    }
+    updateTaskMutation.mutate(payload);
   }
 
   function handleReorderTask(task: Task, beforeTaskId: string | null) {
@@ -1570,6 +1580,15 @@ function TasksPage() {
             scope,
             occurrenceDate: selectedTask.dueDate,
           });
+        }}
+      />
+
+      <RecurringDateDialog
+        date={pendingDateEdit?.dueDate}
+        onClose={() => setPendingDateEdit(null)}
+        onConfirm={(dateScope) => {
+          if (pendingDateEdit) updateTaskMutation.mutate({ ...pendingDateEdit, dateScope });
+          setPendingDateEdit(null);
         }}
       />
 

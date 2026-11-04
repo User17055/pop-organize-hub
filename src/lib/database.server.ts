@@ -952,6 +952,10 @@ function getMysqlPool() {
   return mysqlPool;
 }
 
+export function databasePool() {
+  return getMysqlPool();
+}
+
 // Memoiza a criacao do schema por processo. Antes, todo readDatabase/saveDatabase/mutateDatabase
 // disparava um CREATE TABLE, que toma trava de metadados no MySQL -- trabalho de inicializacao
 // repetido em cada requisicao do app.

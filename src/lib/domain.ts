@@ -38,6 +38,8 @@ export interface TaskAttachment {
   sizeLabel: string;
   uploadedById: string;
   createdAt: string;
+  /** O arquivo guardado. Anexo antigo não tem: só o nome e o tamanho foram gravados. */
+  fileId?: string;
 }
 
 export interface TaskSubtask {
@@ -296,6 +298,11 @@ export interface Task {
   recurrence?: TaskRecurrence;
   recurrenceParentId?: string;
   recurrenceOccurrence?: number;
+  /**
+   * Só na ocorrência cuja data mudou "só esta": a data que ela ocupa na série. É dela, e não da data
+   * atual, que o gerador e as projeções contam, para a série manter o ritmo.
+   */
+  recurrenceSlotDate?: string;
   recurrenceExcludedDates?: string[];
   /**
    * Último dia de uma série encerrada porque a regra mudou a partir de uma ocorrência. Só o

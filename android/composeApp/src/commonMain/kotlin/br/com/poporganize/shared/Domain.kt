@@ -174,6 +174,11 @@ data class PopTask(
     val isReviewer: Boolean = false,
     val awaitingReview: Boolean = false,
     val recurrenceExcludedDates: List<String> = emptyList(),
+    // A posicao na serie de uma ocorrencia movida "so esta". So de leitura; a projecao conta dela.
+    val recurrenceSlotDate: String = "",
+    // Pedido de mudar a data de uma recorrente, guardado ate a sincronizacao dar certo. Ver o ApiTask.
+    val dateMoveFrom: String? = null,
+    val dateMoveScope: String? = null,
     // Quem criou. So de leitura; ver a nota no ApiTask.
     val assignedById: String = "",
 
@@ -459,6 +464,14 @@ data class ApiTask(
     // montar esta lista aqui nem tentar devolve-la.
     val recurrenceSeriesId: String = "",
     val recurrenceExcludedDates: List<String> = emptyList(),
+    val recurrenceSlotDate: String = "",
+
+    // Pedido explicito de mudar a data de uma recorrente. O PUT reenvia todas as tarefas e nao adota
+    // data de ocorrencia, porque nao teria como separar edicao de aparelho desatualizado. Com a data
+    // que o aparelho conhece, ele compara com a gravada e so aplica se bater. Nulo no resto do tempo;
+    // o servidor nao devolve estes campos, entao a leitura seguinte os limpa.
+    val dateMoveFrom: String? = null,
+    val dateMoveScope: String? = null,
 
     // O que o SERVIDOR diz que esta pessoa pode fazer com esta tarefa. Ele ja mandava os tres desde
     // sempre e o app ignorava os tres, decidindo por conta propria -- nao era perda de dado (o

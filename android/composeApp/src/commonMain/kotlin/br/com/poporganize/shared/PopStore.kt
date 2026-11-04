@@ -290,6 +290,7 @@ class PopStore(private val platform: PopPlatformServices) {
         checklistLines: List<String>,
         novaRecorrencia: RecurrenceKind?,
         responsaveis: List<String>,
+        escopoDaData: String? = null,
     ) {
         val alvo = state.tasks.firstOrNull { it.id == taskId } ?: return
         if (!alvo.canEdit) return
@@ -303,7 +304,7 @@ class PopStore(private val platform: PopPlatformServices) {
                         task.comEdicao(
                             title, description, dueDate, dueTime, priority, assignment,
                             if (podeMudarChecklist) checklistLines else null,
-                            novaRecorrencia, responsaveis,
+                            novaRecorrencia, responsaveis, escopoDaData,
                         )
                     }
                 },
@@ -858,6 +859,7 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     awaitingReview = awaitingReview,
     assignedById = assignedById,
     recurrenceExcludedDates = recurrenceExcludedDates,
+    recurrenceSlotDate = recurrenceSlotDate,
     canEdit = canEdit,
     canMove = canMove,
     canAssign = canAssign,
@@ -873,12 +875,15 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     duration = duration,
 )
 
-/**
- * A data de uma tarefa recorrente e a identidade da ocorrencia (`replaceMobileTasks` nao a adota),
- * e mudar a da tarefa modelo sem registrar a data antiga faria o gerador recria-la. Por isso ela nao
- * se edita aqui: mudar a data de uma serie continua sendo pelo painel.
- */
-internal fun PopTask.temDataTravada(): Boolean =
+/** O alcance de uma mudanca de data, com as mesmas palavras do `dateMoveScope` no servidor. */
+internal const val DATA_SO_ESTA = "this"
+internal const val DATA_E_SEGUINTES = "following"
+
+/** A data que a ocorrencia ocupa na serie, mesmo depois de movida "so esta". */
+internal fun PopTask.posicaoNaSerie(): String = recurrenceSlotDate.ifBlank { dueDate }
+
+/** Mudar a data de uma tarefa assim precisa de pedido explicito: ver `dateMoveFrom` no ApiTask. */
+internal fun PopTask.fazParteDeSerie(): Boolean =
     recurrence != RecurrenceKind.None ||
         recurrenceRule != "Não repetir" ||
         (recurrenceSeriesId != null && recurrenceSeriesId != (serverId ?: id))
@@ -899,6 +904,7 @@ private fun PopTask.comEdicao(
     linhasDoChecklist: List<String>?,
     novaRecorrencia: RecurrenceKind?,
     novosResponsaveis: List<String>,
+    escopoDaData: String?,
 ): PopTask {
     val alvoFinal = when {
         !canMove && !canAssign -> assignment
@@ -933,11 +939,22 @@ private fun PopTask.comEdicao(
             recurrenceSeriesId = (serverId ?: id).takeIf { novaRecorrencia != RecurrenceKind.None },
         )
     }
+    val dataFinal = if (parseIsoDate(novaData) == null) dueDate else novaData
+    // A referencia e a data que o servidor conhece, mesmo com outra edicao ainda por sincronizar.
+    val dataNoServidor = dateMoveFrom ?: dueDate
+    val pedirMudanca = fazParteDeSerie() && dataFinal != dataNoServidor
     return comRecorrencia.copy(
+        dateMoveFrom = dataNoServidor.takeIf { pedirMudanca },
+        dateMoveScope = when {
+            !pedirMudanca -> null
+            // Regra nova ja vale a partir desta ocorrencia; nao ha o que perguntar.
+            novaRecorrencia != null && canManageRecurrence -> DATA_E_SEGUINTES
+            else -> escopoDaData ?: dateMoveScope ?: DATA_SO_ESTA
+        },
         // Os tetos do schema movel: um valor acima reprova a carga inteira, nao so esta tarefa.
         title = novoTitulo.trim().take(300),
         description = novaDescricao.trim().take(10_000),
-        dueDate = if (temDataTravada() || parseIsoDate(novaData) == null) dueDate else novaData,
+        dueDate = dataFinal,
         dueTime = if (recurrenceTimes.isNotEmpty()) dueTime else novaHora.trim(),
         priority = novaPrioridade,
         assignment = alvoFinal,
@@ -992,13 +1009,15 @@ private fun PopTask.toApiTask() = ApiTask(
     recurrenceEndValue = recurrenceEndValue,
     recurrenceOccurrence = recurrenceOccurrence,
     recurrenceTimes = recurrenceTimes,
+    dateMoveFrom = dateMoveFrom,
+    dateMoveScope = dateMoveScope,
     assignmentType = when (assignment.kind) {
         AssignmentKind.Person -> "user"
         AssignmentKind.Sector -> "department"
         AssignmentKind.Group -> "group"
         AssignmentKind.None -> if (workspace == WorkspaceKind.Company) "company" else "user"
     },
-    // requiresReview, isReviewer, recurrenceSeriesId e recurrenceExcludedDates NAO sao mapeados
+    // requiresReview, isReviewer, recurrenceSeriesId, recurrenceExcludedDates e recurrenceSlotDate NAO sao mapeados
     // de proposito: sao so de leitura e o servidor os descarta na volta. Os defaults do ApiTask
     // seguem no JSON por causa do encodeDefaults, e o zod os ignora.
     assignmentTargetId = assignment.id,

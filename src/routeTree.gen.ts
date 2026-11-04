@@ -27,6 +27,8 @@ import { Route as TermosRouteImport } from './routes/termos'
 import { Route as V2RouteImport } from './routes/v2'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ImprimirSetorRouteImport } from './routes/imprimir.setor'
+import { Route as ApiAnexosIndexRouteImport } from './routes/api/anexos/index'
+import { Route as ApiAnexosFileIdRouteImport } from './routes/api/anexos/$fileId'
 import { Route as ApiMobileAccountRouteImport } from './routes/api/mobile/account'
 import { Route as ApiMobileInvitationsRouteImport } from './routes/api/mobile/invitations'
 import { Route as ApiMobileTaskListsRouteImport } from './routes/api/mobile/task-lists'
@@ -128,6 +130,16 @@ const ImprimirSetorRoute = ImprimirSetorRouteImport.update({
   path: '/imprimir/setor',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAnexosIndexRoute = ApiAnexosIndexRouteImport.update({
+  id: '/api/anexos/',
+  path: '/api/anexos/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAnexosFileIdRoute = ApiAnexosFileIdRouteImport.update({
+  id: '/api/anexos/$fileId',
+  path: '/api/anexos/$fileId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMobileAccountRoute = ApiMobileAccountRouteImport.update({
   id: '/api/mobile/account',
   path: '/api/mobile/account',
@@ -200,11 +212,13 @@ export interface FileRoutesByFullPath {
   '/v2': typeof V2Route
   '/api/health': typeof ApiHealthRoute
   '/imprimir/setor': typeof ImprimirSetorRoute
+  '/api/anexos/$fileId': typeof ApiAnexosFileIdRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
+  '/api/anexos/': typeof ApiAnexosIndexRoute
   '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
   '/api/mobile/auth/logout': typeof ApiMobileAuthLogoutRoute
@@ -230,11 +244,13 @@ export interface FileRoutesByTo {
   '/v2': typeof V2Route
   '/api/health': typeof ApiHealthRoute
   '/imprimir/setor': typeof ImprimirSetorRoute
+  '/api/anexos/$fileId': typeof ApiAnexosFileIdRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
+  '/api/anexos': typeof ApiAnexosIndexRoute
   '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
   '/api/mobile/auth/logout': typeof ApiMobileAuthLogoutRoute
@@ -261,11 +277,13 @@ export interface FileRoutesById {
   '/v2': typeof V2Route
   '/api/health': typeof ApiHealthRoute
   '/imprimir/setor': typeof ImprimirSetorRoute
+  '/api/anexos/$fileId': typeof ApiAnexosFileIdRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
+  '/api/anexos/': typeof ApiAnexosIndexRoute
   '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
   '/api/mobile/auth/logout': typeof ApiMobileAuthLogoutRoute
@@ -293,11 +311,13 @@ export interface FileRouteTypes {
     | '/v2'
     | '/api/health'
     | '/imprimir/setor'
+    | '/api/anexos/$fileId'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
+    | '/api/anexos/'
     | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
     | '/api/mobile/auth/logout'
@@ -323,11 +343,13 @@ export interface FileRouteTypes {
     | '/v2'
     | '/api/health'
     | '/imprimir/setor'
+    | '/api/anexos/$fileId'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
+    | '/api/anexos'
     | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
     | '/api/mobile/auth/logout'
@@ -353,11 +375,13 @@ export interface FileRouteTypes {
     | '/v2'
     | '/api/health'
     | '/imprimir/setor'
+    | '/api/anexos/$fileId'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
+    | '/api/anexos/'
     | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
     | '/api/mobile/auth/logout'
@@ -384,11 +408,13 @@ export interface RootRouteChildren {
   V2Route: typeof V2Route
   ApiHealthRoute: typeof ApiHealthRoute
   ImprimirSetorRoute: typeof ImprimirSetorRoute
+  ApiAnexosFileIdRoute: typeof ApiAnexosFileIdRoute
   ApiMobileAccountRoute: typeof ApiMobileAccountRoute
   ApiMobileInvitationsRoute: typeof ApiMobileInvitationsRoute
   ApiMobileTaskListsRoute: typeof ApiMobileTaskListsRoute
   ApiMobileTasksRoute: typeof ApiMobileTasksRoute
   ApiMobileWorkspacesRoute: typeof ApiMobileWorkspacesRoute
+  ApiAnexosIndexRoute: typeof ApiAnexosIndexRoute
   ApiMobileAuthAppleRoute: typeof ApiMobileAuthAppleRoute
   ApiMobileAuthGoogleRoute: typeof ApiMobileAuthGoogleRoute
   ApiMobileAuthLogoutRoute: typeof ApiMobileAuthLogoutRoute
@@ -524,6 +550,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ImprimirSetorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/anexos/': {
+      id: '/api/anexos/'
+      path: '/api/anexos'
+      fullPath: '/api/anexos/'
+      preLoaderRoute: typeof ApiAnexosIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/anexos/$fileId': {
+      id: '/api/anexos/$fileId'
+      path: '/api/anexos/$fileId'
+      fullPath: '/api/anexos/$fileId'
+      preLoaderRoute: typeof ApiAnexosFileIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mobile/account': {
       id: '/api/mobile/account'
       path: '/api/mobile/account'
@@ -616,11 +656,13 @@ const rootRouteChildren: RootRouteChildren = {
   V2Route: V2Route,
   ApiHealthRoute: ApiHealthRoute,
   ImprimirSetorRoute: ImprimirSetorRoute,
+  ApiAnexosFileIdRoute: ApiAnexosFileIdRoute,
   ApiMobileAccountRoute: ApiMobileAccountRoute,
   ApiMobileInvitationsRoute: ApiMobileInvitationsRoute,
   ApiMobileTaskListsRoute: ApiMobileTaskListsRoute,
   ApiMobileTasksRoute: ApiMobileTasksRoute,
   ApiMobileWorkspacesRoute: ApiMobileWorkspacesRoute,
+  ApiAnexosIndexRoute: ApiAnexosIndexRoute,
   ApiMobileAuthAppleRoute: ApiMobileAuthAppleRoute,
   ApiMobileAuthGoogleRoute: ApiMobileAuthGoogleRoute,
   ApiMobileAuthLogoutRoute: ApiMobileAuthLogoutRoute,

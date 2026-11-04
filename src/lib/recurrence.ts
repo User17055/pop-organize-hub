@@ -83,11 +83,17 @@ export function advanceRecurringDate(value: string, recurrence: TaskRecurrence) 
   return addDays(value, interval);
 }
 
+/** A data que a ocorrência ocupa na série, mesmo depois de ter sido movida "só esta". */
+export function seriesSlotDate(task: Pick<Task, "dueDate" | "recurrenceSlotDate">) {
+  return task.recurrenceSlotDate ?? task.dueDate;
+}
+
 export function recurringTaskDatesInRange(task: Task, rangeStart: string, rangeEnd: string) {
-  if (!task.recurrence || rangeEnd < task.dueDate) return [];
+  const slot = seriesSlotDate(task);
+  if (!task.recurrence || rangeEnd < slot) return [];
 
   const dates: string[] = [];
-  let occurrence = advanceRecurringDate(task.dueDate, task.recurrence);
+  let occurrence = advanceRecurringDate(slot, task.recurrence);
   let iterations = 0;
 
   while (occurrence < rangeStart && iterations < 10_000) {

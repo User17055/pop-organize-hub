@@ -79,6 +79,11 @@ data class CompanySector(
     val name: String,
     val description: String = "",
     val managedByCurrentUser: Boolean = false,
+    val managerId: String = "",
+    // Default `false`: contra servidor que nao conhece a edicao, a acao nao existe e nao pode ser
+    // oferecida. E o contrario do `canEdit` de tarefa, em que a acao ja existia antes do campo.
+    val canEdit: Boolean = false,
+    val canDelete: Boolean = false,
 )
 
 @Serializable
@@ -87,6 +92,7 @@ data class CompanyGroup(
     val name: String,
     val description: String = "",
     val memberIds: List<String> = emptyList(),
+    val leaderId: String = "",
 )
 
 /**
@@ -114,6 +120,9 @@ data class WorkspacePermissions(
     val canManageEmployees: Boolean = false,
     val canManageDepartments: Boolean = false,
     val canManageGroups: Boolean = false,
+    val canEditGroups: Boolean = false,
+    val canDeleteGroups: Boolean = false,
+    val canAssignSectorManager: Boolean = false,
     val canManagePermissions: Boolean = false,
 )
 
@@ -170,10 +179,10 @@ data class PopTask(
 
     // Do servidor, e usados para NAO oferecer o que ele vai recusar. Ver a nota no ApiTask sobre o
     // default `true`.
-    //
-    // `canEdit` existe no ApiTask e NAO foi trazido para ca de proposito: nao ha tela de editar
-    // tarefa existente neste app, entao ele nao teria consumidor. Campo carregado sem uso apodrece
-    // -- quando a tela existir, ele desce em uma linha.
+    val canEdit: Boolean = true,
+    val canMove: Boolean = true,
+    val canAssign: Boolean = true,
+    val canManageRecurrence: Boolean = true,
     val canComplete: Boolean = true,
     val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,
@@ -319,6 +328,9 @@ data class ApiWorkspace(
     val canManageEmployees: Boolean = false,
     val canManageDepartments: Boolean = false,
     val canManageGroups: Boolean = false,
+    val canEditGroups: Boolean = false,
+    val canDeleteGroups: Boolean = false,
+    val canAssignSectorManager: Boolean = false,
     val canManagePermissions: Boolean = false,
     val employees: List<ApiEmployee> = emptyList(),
     val sectors: List<CompanySector> = emptyList(),
@@ -458,6 +470,9 @@ data class ApiTask(
     // nao travar todas as acoes de todo mundo. Default `false` aqui seria uma regressao silenciosa
     // em toda instalacao que falasse com um servidor antigo.
     val canEdit: Boolean = true,
+    val canMove: Boolean = true,
+    val canAssign: Boolean = true,
+    val canManageRecurrence: Boolean = true,
     val canComplete: Boolean = true,
     val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,

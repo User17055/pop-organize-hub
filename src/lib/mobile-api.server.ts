@@ -26,6 +26,9 @@ import {
 } from "./domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "./permission-groups";
 import {
+  canConfigureDepartmentManager,
+  canDeleteDepartment,
+  canEditDepartment,
   canViewTask,
   getTaskPermissions,
   getVisibleDepartmentIds,
@@ -84,6 +87,9 @@ export type MobileTask = {
   // materializeRecurringTasks recria a linha apagada na chamada seguinte.
   recurrenceExcludedDates?: string[];
   canEdit?: boolean;
+  canMove?: boolean;
+  canAssign?: boolean;
+  canManageRecurrence?: boolean;
   canComplete?: boolean;
   canCompleteAnytime?: boolean;
   canDelete?: boolean;
@@ -199,6 +205,13 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         formatDepartmentName(
           workspace.departments.find((department) => department.id === id)?.name ?? "",
         );
+      const departmentPermissionInput = (department: Database["departments"][number]) => ({
+        department,
+        currentUser,
+        employees: workspace.employees,
+        departments: workspace.departments,
+        permissionGroups: workspace.permissionGroups,
+      });
       return {
         id: workspace.company.id,
         name: workspace.company.name,
@@ -217,6 +230,11 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
         canManageEmployees: isCompany && hasPermission(permissionSet, "manage.employees"),
         canManageDepartments: isCompany && hasPermission(permissionSet, "manage.departments"),
         canManageGroups: isCompany && hasPermission(permissionSet, "manage.groups"),
+        canEditGroups: isCompany && hasPermission(permissionSet, "manage.groups.edit"),
+        canDeleteGroups: isCompany && hasPermission(permissionSet, "manage.groups.delete"),
+        canAssignSectorManager:
+          isCompany &&
+          canConfigureDepartmentManager({ currentUser, ownerId: workspace.company.ownerId }),
         canManagePermissions: isCompany && hasPermission(permissionSet, "manage.permissions"),
         employees: [
           ...(isCompany
@@ -287,6 +305,9 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             name: formatDepartmentName(department.name),
             description: department.description ?? "",
             managedByCurrentUser: department.managerId === userId,
+            managerId: department.managerId,
+            canEdit: isCompany && canEditDepartment(departmentPermissionInput(department)),
+            canDelete: isCompany && canDeleteDepartment(departmentPermissionInput(department)),
           })),
         groups: workspace.groups
           .filter((group) => !visibleGroupIds || visibleGroupIds.has(group.id))
@@ -295,6 +316,7 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             name: group.name,
             description: group.description ?? "",
             memberIds: group.memberIds,
+            leaderId: group.leaderId ?? "",
           })),
         permissionGroups: (canManagePermissionGroups ? workspace.permissionGroups : []).map(
           (group) => ({
@@ -775,6 +797,41 @@ function applicationOrigin(request: Request) {
   return new URL(request.url).origin;
 }
 
+function activeCompanyMember(platform: PlatformDatabase, workspaceId: string, accountId: string) {
+  const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+  const currentUser = workspace?.employees.find(
+    (employee) => employee.id === accountId && employee.status === "active",
+  );
+  if (!workspace || !currentUser) throw mobileHttpError("Empresa não encontrada.", 404);
+  return { workspace, currentUser };
+}
+
+/**
+ * O aplicativo lê o rótulo do destino, não o nome atual do setor ou do grupo. Sem isto, uma tarefa
+ * continuaria mostrando o nome antigo depois de renomear.
+ */
+function renameTaskTargets(
+  workspace: Database,
+  type: "department" | "group",
+  id: string,
+  label: string,
+) {
+  for (const task of workspace.tasks) {
+    if (task.target.type !== type || task.target.id !== id) continue;
+    task.target = { ...task.target, label };
+    invalidateNativeShadow(task, "target");
+  }
+}
+
+/** Tarefa de setor ou grupo excluído passa para a empresa: é o que o painel já faz com grupo. */
+function moveTaskTargetsToCompany(workspace: Database, type: "department" | "group", id: string) {
+  for (const task of workspace.tasks) {
+    if (task.target.type !== type || task.target.id !== id) continue;
+    task.target = { type: "company", id: workspace.company.id, label: workspace.company.name };
+    invalidateNativeShadow(task, "target");
+  }
+}
+
 function requiredText(value: unknown, label: string, minimum = 2) {
   const normalized = typeof value === "string" ? value.trim() : "";
   if (normalized.length < minimum) {
@@ -895,6 +952,161 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
         description,
         memberIds: [],
       });
+    });
+  } else if (action === "updateDepartment") {
+    const id = requiredText(input.id, "O setor", 1);
+    const name = formatDepartmentName(requiredText(input.name, "O nome").slice(0, 60));
+    const description = requiredText(input.description, "A descrição", 3).slice(0, 320);
+    const managerId = typeof input.managerId === "string" ? input.managerId.trim() : "";
+    await mutateDatabase((platform) => {
+      const { workspace, currentUser } = activeCompanyMember(platform, workspaceId, account.id);
+      const department = workspace.departments.find((item) => item.id === id);
+      if (!department) throw mobileHttpError("Setor não encontrado.", 404);
+      if (
+        !canEditDepartment({
+          department,
+          currentUser,
+          employees: workspace.employees,
+          departments: workspace.departments,
+          permissionGroups: workspace.permissionGroups,
+        })
+      ) {
+        throw mobileHttpError("Você não pode editar este setor.", 403);
+      }
+      if (managerId && managerId !== department.managerId) {
+        if (!canConfigureDepartmentManager({ currentUser, ownerId: workspace.company.ownerId })) {
+          throw mobileHttpError("Somente um administrador pode alterar o gestor.", 403);
+        }
+        if (
+          !workspace.employees.some(
+            (employee) => employee.id === managerId && employee.status === "active",
+          )
+        ) {
+          throw mobileHttpError("Gestor não encontrado.");
+        }
+      }
+      if (
+        workspace.departments.some(
+          (item) => item.id !== id && item.name.toLowerCase() === name.toLowerCase(),
+        )
+      ) {
+        throw mobileHttpError("Já existe um setor com este nome.", 409);
+      }
+      const renamed = department.name !== name;
+      department.name = name;
+      department.description = description;
+      if (managerId) department.managerId = managerId;
+      if (renamed) renameTaskTargets(workspace, "department", id, name);
+    });
+  } else if (action === "deleteDepartment") {
+    const id = requiredText(input.id, "O setor", 1);
+    await mutateDatabase((platform) => {
+      const { workspace, currentUser } = activeCompanyMember(platform, workspaceId, account.id);
+      const department = workspace.departments.find((item) => item.id === id);
+      if (!department) throw mobileHttpError("Setor não encontrado.", 404);
+      if (
+        !canDeleteDepartment({
+          department,
+          currentUser,
+          employees: workspace.employees,
+          departments: workspace.departments,
+          permissionGroups: workspace.permissionGroups,
+        })
+      ) {
+        throw mobileHttpError("Seu grupo de permissão não pode excluir setores.", 403);
+      }
+      // Toda pessoa e todo convite precisam de um setor (`departmentId` é obrigatório). Excluir
+      // deixaria essas linhas apontando para o nada, então a escolha de para onde vão é de quem
+      // administra, antes de excluir.
+      const people =
+        workspace.employees.filter((employee) => employee.departmentId === id).length +
+        workspace.invitations.filter((invitation) => invitation.departmentId === id).length;
+      if (people > 0) {
+        throw mobileHttpError(
+          people === 1
+            ? "Este setor ainda tem 1 pessoa. Mova-a para outro setor antes de excluir."
+            : `Este setor ainda tem ${people} pessoas. Mova-as para outro setor antes de excluir.`,
+          409,
+        );
+      }
+      workspace.departments = workspace.departments.filter((item) => item.id !== id);
+      for (const employee of workspace.employees) {
+        if (employee.visibleDepartmentIds?.includes(id)) {
+          employee.visibleDepartmentIds = employee.visibleDepartmentIds.filter(
+            (departmentId) => departmentId !== id,
+          );
+        }
+      }
+      moveTaskTargetsToCompany(workspace, "department", id);
+    });
+  } else if (action === "updateGroup") {
+    const id = requiredText(input.id, "O grupo", 1);
+    const name = requiredText(input.name, "O nome");
+    const description = requiredText(input.description, "A descrição", 3);
+    const leaderId = typeof input.leaderId === "string" ? input.leaderId.trim() : "";
+    const requestedMemberIds = Array.isArray(input.memberIds)
+      ? input.memberIds.filter((item): item is string => typeof item === "string")
+      : null;
+    await mutateDatabase((platform) => {
+      const { workspace, currentUser } = activeCompanyMember(platform, workspaceId, account.id);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!hasPermission(permissionSet, "manage.groups.edit")) {
+        throw mobileHttpError("Seu grupo de permissão não pode editar grupos.", 403);
+      }
+      const group = workspace.groups.find((item) => item.id === id);
+      if (!group) throw mobileHttpError("Grupo não encontrado.", 404);
+      if (
+        workspace.groups.some(
+          (item) => item.id !== id && item.name.toLowerCase() === name.toLowerCase(),
+        )
+      ) {
+        throw mobileHttpError("Já existe um grupo com este nome.", 409);
+      }
+      if (leaderId && !workspace.employees.some((employee) => employee.id === leaderId)) {
+        throw mobileHttpError("Líder não encontrado.");
+      }
+      const memberIds = [
+        ...new Set([...(leaderId ? [leaderId] : []), ...(requestedMemberIds ?? group.memberIds)]),
+      ];
+      // Quem já estava no grupo continua aceito mesmo sem ser funcionário: convite pendente fica
+      // na lista de membros até ser aceito.
+      if (
+        memberIds.some(
+          (memberId) =>
+            !group.memberIds.includes(memberId) &&
+            !workspace.employees.some((employee) => employee.id === memberId),
+        )
+      ) {
+        throw mobileHttpError("Um dos membros não foi encontrado.");
+      }
+      const renamed = group.name !== name;
+      group.name = name;
+      group.description = description;
+      group.leaderId = leaderId || undefined;
+      group.memberIds = memberIds;
+      if (renamed) renameTaskTargets(workspace, "group", id, name);
+    });
+  } else if (action === "deleteGroup") {
+    const id = requiredText(input.id, "O grupo", 1);
+    await mutateDatabase((platform) => {
+      const { workspace, currentUser } = activeCompanyMember(platform, workspaceId, account.id);
+      const permissionSet = resolvePermissionSet({
+        currentUser,
+        employees: workspace.employees,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!hasPermission(permissionSet, "manage.groups.delete")) {
+        throw mobileHttpError("Seu grupo de permissão não pode excluir grupos.", 403);
+      }
+      if (!workspace.groups.some((group) => group.id === id)) {
+        throw mobileHttpError("Grupo não encontrado.", 404);
+      }
+      workspace.groups = workspace.groups.filter((group) => group.id !== id);
+      moveTaskTargetsToCompany(workspace, "group", id);
     });
   } else if (action === "createPermissionGroup" || action === "updatePermissionGroup") {
     const name = requiredText(input.name, "O nome");
@@ -1582,6 +1794,7 @@ function taskToMobileTask(
     permissionGroups: workspace.permissionGroups,
   });
   const native = task.nativeData;
+  const isNativeOwner = task.nativeOwnerId === currentUser.id;
   const recurrence = mobileRecurrence(task);
   const recurrenceWire = mobileRecurrenceWire(task);
   const responsibleIds = Array.from(
@@ -1634,14 +1847,19 @@ function taskToMobileTask(
     attachmentUri: canReadPrivateAttachment ? (native?.attachmentUri ?? "") : "",
     attachmentMimeType: canReadPrivateAttachment ? (native?.attachmentMimeType ?? "") : "",
     attachmentData: canReadPrivateAttachment ? (native?.attachmentData ?? "") : "",
-    dueTime: native?.dueTime ?? "",
+    dueTime: native?.dueTime ?? task.dueTime ?? "",
     recurrenceTimes: native?.recurrenceTimes ?? task.recurrence?.times ?? [],
     duration: native?.duration ?? "Sem duração",
     ...recurrenceWire,
     recurrenceOccurrence: native?.recurrenceOccurrence ?? task.recurrenceOccurrence ?? 1,
     recurrenceSeriesId: task.recurrenceParentId ?? task.id,
     recurrenceExcludedDates: task.recurrenceExcludedDates ?? [],
-    canEdit: permissions.canEditContent,
+    // O dono nativo pode editar a própria tarefa mesmo sem as permissões do painel: é a mesma
+    // exceção que o PUT aplica ao gravar, e os dois lados precisam dizer a mesma coisa.
+    canEdit: permissions.canEditContent || isNativeOwner,
+    canMove: permissions.canMove || isNativeOwner,
+    canAssign: permissions.canAssign || isNativeOwner,
+    canManageRecurrence: permissions.canManageRecurrence || isNativeOwner,
     canComplete: permissions.canComplete || permissions.canReopen,
     canCompleteAnytime: permissions.canCompleteAnytime,
     canDelete: permissions.canDelete,
@@ -2013,7 +2231,8 @@ export async function replaceMobileTasks(
           if (!completed && permissions.canReopen)
             existing.status = existing.status === "waiting_review" ? "reopened" : "pending";
         }
-        if (permissions.canEditContent || existing.nativeOwnerId === account.id) {
+        const isNativeOwner = existing.nativeOwnerId === account.id;
+        if (permissions.canEditContent || isNativeOwner) {
           existing.title = normalizeMobileTaskTitle(item.title);
           existing.description = item.description.trim();
           existing.priority = priority(item.priority);
@@ -2029,41 +2248,68 @@ export async function replaceMobileTasks(
           // operação normal isto é no-op: o aparelho devolve a mesma data que recebeu.
           const previousDueDate = existing.dueDate;
           if (!existing.recurrenceParentId) existing.dueDate = item.dueDate;
-          const responsibleIds = mobileResponsibleIds(workspace, account.id, item);
-          existing.responsibleId = responsibleIds[0] ?? "";
-          existing.responsibleIds = responsibleIds;
-          existing.target = mobileTaskTarget(workspace, account.id, item);
-          const nextRecurrence = mobileTaskRecurrence(item);
-          if (seriesSplitIds.has(existing.id)) {
-            changeSeriesRecurrence(
-              workspace,
-              existing,
-              nextRecurrence,
-              previousDueDate < existing.dueDate ? previousDueDate : existing.dueDate,
-              (item: Task) =>
-                canViewTask({
-                  task: item,
-                  currentUser,
-                  employees: workspace.employees,
-                  departments: workspace.departments,
-                  groups: workspace.groups,
-                  permissionGroups: workspace.permissionGroups,
-                }) &&
-                getTaskPermissions({
-                  task: item,
-                  currentUser,
-                  employees: workspace.employees,
-                  departments: workspace.departments,
-                  groups: workspace.groups,
-                  permissionGroups: workspace.permissionGroups,
-                }).canDelete,
-            );
-            splitTaskIds.add(existing.id);
-          } else {
-            existing.recurrence = clampRecurrenceToSeriesEnd(
-              nextRecurrence,
-              existing.recurrenceSeriesEndDate,
-            );
+          const nextDueTime = item.dueTime.trim();
+          existing.dueTime = nextDueTime || undefined;
+          if (!isNativeOwner && existing.nativeData) existing.nativeData.dueTime = nextDueTime;
+          // Alvo, responsáveis e recorrência têm permissão própria no painel (`updateTaskDetails`).
+          // Sem elas o valor enviado é só ignorado, e não recusado: o PUT carrega o espaço inteiro
+          // e uma recusa derrubaria a sincronização toda por causa de um item. Quem não é o dono
+          // nativo não reescreve a cópia crua, então o que mudou precisa sair dela, senão a
+          // próxima leitura devolve o valor antigo.
+          if (isNativeOwner || permissions.canAssign) {
+            const responsibleIds = mobileResponsibleIds(workspace, account.id, item);
+            const responsibleChanged =
+              JSON.stringify(
+                [...new Set([existing.responsibleId, ...(existing.responsibleIds ?? [])])]
+                  .filter(Boolean)
+                  .sort(),
+              ) !== JSON.stringify([...responsibleIds].sort());
+            existing.responsibleId = responsibleIds[0] ?? "";
+            existing.responsibleIds = responsibleIds;
+            if (responsibleChanged && !isNativeOwner) {
+              invalidateNativeShadow(existing, "responsible");
+            }
+          }
+          if (isNativeOwner || permissions.canMove || permissions.canAssign) {
+            const target = mobileTaskTarget(workspace, account.id, item);
+            const targetChanged =
+              target.type !== existing.target.type || target.id !== existing.target.id;
+            existing.target = target;
+            if (targetChanged && !isNativeOwner) invalidateNativeShadow(existing, "target");
+          }
+          if (isNativeOwner || permissions.canManageRecurrence) {
+            const nextRecurrence = mobileTaskRecurrence(item);
+            if (seriesSplitIds.has(existing.id)) {
+              changeSeriesRecurrence(
+                workspace,
+                existing,
+                nextRecurrence,
+                previousDueDate < existing.dueDate ? previousDueDate : existing.dueDate,
+                (item: Task) =>
+                  canViewTask({
+                    task: item,
+                    currentUser,
+                    employees: workspace.employees,
+                    departments: workspace.departments,
+                    groups: workspace.groups,
+                    permissionGroups: workspace.permissionGroups,
+                  }) &&
+                  getTaskPermissions({
+                    task: item,
+                    currentUser,
+                    employees: workspace.employees,
+                    departments: workspace.departments,
+                    groups: workspace.groups,
+                    permissionGroups: workspace.permissionGroups,
+                  }).canDelete,
+              );
+              splitTaskIds.add(existing.id);
+            } else {
+              existing.recurrence = clampRecurrenceToSeriesEnd(
+                nextRecurrence,
+                existing.recurrenceSeriesEndDate,
+              );
+            }
           }
           existing.attachments = item.attachmentName ? 1 : 0;
         }

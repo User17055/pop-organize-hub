@@ -271,6 +271,47 @@ class PopStore(private val platform: PopPlatformServices) {
         platform.playActionSound()
     }
 
+    /**
+     * Grava a edicao de uma tarefa que ja existe.
+     *
+     * A sincronizacao reenvia a tarefa inteira, entao o que nao foi tocado aqui segue igual. Alvo,
+     * responsaveis e recorrencia so mudam com a permissao de cada um, a mesma que o servidor confere
+     * ao gravar. `novaRecorrencia` nulo quer dizer "nao mexeu": a regra crua do cofre volta intacta,
+     * inclusive a "Personalizada" que o enum nao representa.
+     */
+    fun editTask(
+        taskId: String,
+        title: String,
+        description: String,
+        dueDate: String,
+        dueTime: String,
+        priority: Priority,
+        assignment: AssignmentTarget,
+        checklistLines: List<String>,
+        novaRecorrencia: RecurrenceKind?,
+        responsaveis: List<String>,
+    ) {
+        val alvo = state.tasks.firstOrNull { it.id == taskId } ?: return
+        if (!alvo.canEdit) return
+        val podeMudarChecklist = isCurrentUserAdmin
+        update {
+            copy(
+                tasks = tasks.map { task ->
+                    if (task.id != taskId) {
+                        task
+                    } else {
+                        task.comEdicao(
+                            title, description, dueDate, dueTime, priority, assignment,
+                            if (podeMudarChecklist) checklistLines else null,
+                            novaRecorrencia, responsaveis,
+                        )
+                    }
+                },
+            )
+        }
+        platform.playActionSound()
+    }
+
     fun toggleTask(taskId: String) {
         val alvo = state.tasks.firstOrNull { it.id == taskId } ?: return
         // Concluir atividade FUTURA sem a permissao exclusiva do Administrador e recusado pelo
@@ -420,6 +461,29 @@ class PopStore(private val platform: PopPlatformServices) {
     fun addGroup(name: String, description: String) = mutateWorkspace(
         """{"action":"createGroup","name":${json.encodeToString(name.trim())},"description":${json.encodeToString(description.trim())}}""",
         "Grupo criado.",
+    )
+
+    fun updateSector(sectorId: String, name: String, description: String, managerId: String?) {
+        val gestor = managerId?.let { ""","managerId":${json.encodeToString(it)}""" }.orEmpty()
+        mutateWorkspace(
+            """{"action":"updateDepartment","id":${json.encodeToString(sectorId)},"name":${json.encodeToString(name.trim())},"description":${json.encodeToString(description.trim())}$gestor}""",
+            "Setor atualizado.",
+        )
+    }
+
+    fun deleteSector(sectorId: String) = mutateWorkspace(
+        """{"action":"deleteDepartment","id":${json.encodeToString(sectorId)}}""",
+        "Setor excluído.",
+    )
+
+    fun updateGroup(groupId: String, name: String, description: String, memberIds: List<String>, leaderId: String) = mutateWorkspace(
+        """{"action":"updateGroup","id":${json.encodeToString(groupId)},"name":${json.encodeToString(name.trim())},"description":${json.encodeToString(description.trim())},"memberIds":${json.encodeToString(memberIds)},"leaderId":${json.encodeToString(leaderId)}}""",
+        "Grupo atualizado.",
+    )
+
+    fun deleteGroup(groupId: String) = mutateWorkspace(
+        """{"action":"deleteGroup","id":${json.encodeToString(groupId)}}""",
+        "Grupo excluído.",
     )
 
     fun updateMessage(value: String) {
@@ -739,6 +803,9 @@ private fun ApiWorkspace.toPermissions() = WorkspacePermissions(
     canManageEmployees = canManageEmployees,
     canManageDepartments = canManageDepartments,
     canManageGroups = canManageGroups,
+    canEditGroups = canEditGroups,
+    canDeleteGroups = canDeleteGroups,
+    canAssignSectorManager = canAssignSectorManager,
     canManagePermissions = canManagePermissions,
 )
 
@@ -791,6 +858,10 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     awaitingReview = awaitingReview,
     assignedById = assignedById,
     recurrenceExcludedDates = recurrenceExcludedDates,
+    canEdit = canEdit,
+    canMove = canMove,
+    canAssign = canAssign,
+    canManageRecurrence = canManageRecurrence,
     canComplete = canComplete,
     canCompleteAnytime = canCompleteAnytime,
     canDelete = canDelete,
@@ -801,6 +872,87 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     attachmentName = attachmentName,
     duration = duration,
 )
+
+/**
+ * A data de uma tarefa recorrente e a identidade da ocorrencia (`replaceMobileTasks` nao a adota),
+ * e mudar a da tarefa modelo sem registrar a data antiga faria o gerador recria-la. Por isso ela nao
+ * se edita aqui: mudar a data de uma serie continua sendo pelo painel.
+ */
+internal fun PopTask.temDataTravada(): Boolean =
+    recurrence != RecurrenceKind.None ||
+        recurrenceRule != "Não repetir" ||
+        (recurrenceSeriesId != null && recurrenceSeriesId != (serverId ?: id))
+
+/** Quem responde hoje, como a tela mostra. "Sem responsável" e o texto que o servidor manda para ninguem. */
+internal fun PopTask.responsaveisAtuais(): List<String> =
+    (assignees?.takeIf { it.isNotEmpty() } ?: listOf(assignee))
+        .map { it.trim() }
+        .filter { it.isNotBlank() && it != "Sem responsável" }
+
+private fun PopTask.comEdicao(
+    novoTitulo: String,
+    novaDescricao: String,
+    novaData: String,
+    novaHora: String,
+    novaPrioridade: Priority,
+    novoAlvo: AssignmentTarget,
+    linhasDoChecklist: List<String>?,
+    novaRecorrencia: RecurrenceKind?,
+    novosResponsaveis: List<String>,
+): PopTask {
+    val alvoFinal = when {
+        !canMove && !canAssign -> assignment
+        novoAlvo.kind == AssignmentKind.Person && !canAssign -> assignment
+        else -> novoAlvo
+    }
+    val alvoMudou = alvoFinal.kind != assignment.kind || alvoFinal.id != assignment.id
+    val encarregados = novosResponsaveis.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(3)
+    val responsaveisMudaram = encarregados.toSet() != responsaveisAtuais().toSet()
+    val comResponsaveis = when {
+        !canAssign || (!alvoMudou && !responsaveisMudaram) -> this
+        alvoFinal.kind == AssignmentKind.Person ->
+            copy(assignee = alvoFinal.label, assignees = listOf(alvoFinal.label))
+        // Nulo e `assignee` vazio, e nao lista vazia: ver a nota no `assignees` do ApiTask. O servidor
+        // cai em `[item.assignee]`, nao resolve ninguem e grava sem responsavel.
+        else -> copy(assignee = encarregados.joinToString(", "), assignees = encarregados.takeIf { it.isNotEmpty() })
+    }
+    val comRecorrencia = if (novaRecorrencia == null || !canManageRecurrence) {
+        comResponsaveis
+    } else {
+        // Regra nova comeca limpa: intervalo, fim e horarios eram da regra antiga. O servidor divide
+        // a serie a partir desta ocorrencia (`changeSeriesRecurrence`).
+        comResponsaveis.copy(
+            recurrence = novaRecorrencia,
+            recurrenceRule = novaRecorrencia.toServerRule(),
+            recurrenceDetail = "",
+            recurrenceInterval = 1,
+            recurrenceEndMode = "Nunca",
+            recurrenceEndValue = "",
+            recurrenceOccurrence = 1,
+            recurrenceTimes = emptyList(),
+            recurrenceSeriesId = (serverId ?: id).takeIf { novaRecorrencia != RecurrenceKind.None },
+        )
+    }
+    return comRecorrencia.copy(
+        // Os tetos do schema movel: um valor acima reprova a carga inteira, nao so esta tarefa.
+        title = novoTitulo.trim().take(300),
+        description = novaDescricao.trim().take(10_000),
+        dueDate = if (temDataTravada() || parseIsoDate(novaData) == null) dueDate else novaData,
+        dueTime = if (recurrenceTimes.isNotEmpty()) dueTime else novaHora.trim(),
+        priority = novaPrioridade,
+        assignment = alvoFinal,
+        checklist = linhasDoChecklist?.let { mesclarChecklist(checklist, it) } ?: checklist,
+    )
+}
+
+/** Linha que continua igual mantem o id e a marca; so linha nova nasce desmarcada. */
+private fun mesclarChecklist(atual: List<ChecklistItem>, linhas: List<String>): List<ChecklistItem> {
+    val sobrando = atual.toMutableList()
+    return linhas.map { it.trim().take(200) }.filter { it.isNotBlank() }.take(100).map { titulo ->
+        val indice = sobrando.indexOfFirst { it.title == titulo }
+        if (indice >= 0) sobrando.removeAt(indice) else ChecklistItem(id = newId("check"), title = titulo)
+    }
+}
 
 private fun PopTask.toApiTask() = ApiTask(
     id = id.toIntOrNull() ?: id.hashCode().absoluteValue.coerceAtLeast(1),

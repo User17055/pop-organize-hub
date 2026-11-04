@@ -170,7 +170,7 @@ class PopAndroidServices(private val activity: Activity) : PopPlatformServices {
     override fun openSupportEmail() {
         activity.startActivity(
             Intent(Intent.ACTION_SENDTO).apply {
-                data = Uri.parse("mailto:contato@poporganize.com")
+                data = Uri.parse("mailto:contato@poporganize.com.br")
                 putExtra(Intent.EXTRA_SUBJECT, "Suporte Pop Organize")
             },
         )

@@ -142,6 +142,7 @@ function cloneOccurrence(
       ? [...template.recurrenceExcludedDates]
       : undefined,
     recurrenceSeriesEndDate: template.recurrenceSeriesEndDate,
+    dueTime: template.dueTime,
     subtasks: (template.subtasks ?? []).map((subtask, index) => ({
       id: `ts${index + 1}`,
       title: subtask.title,

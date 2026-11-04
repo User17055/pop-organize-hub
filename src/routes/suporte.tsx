@@ -9,7 +9,7 @@ function SupportPage() {
       <section>
         <h2>Como falar com a gente</h2>
         <p>
-          Escreva para <a href="mailto:contato@poporganize.com">contato@poporganize.com</a>{" "}
+          Escreva para <a href="mailto:contato@poporganize.com.br">contato@poporganize.com.br</a>{" "}
           descrevendo o que aconteceu. Respondemos em até dois dias úteis.
         </p>
         <p>

@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -1638,6 +1639,7 @@ private fun TaskDetailsDialog(
     onTaskChanged: (PopTask?) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var editando by remember(task.id) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(task.title, fontWeight = FontWeight.ExtraBold) },
@@ -1651,7 +1653,7 @@ private fun TaskDetailsDialog(
                 // A funcao ja faz o mesmo filter/joinToString que estava aqui e devolve dueDate
                 // como veio quando ela e vazia ou nao e ISO, entao nao ha caso perdido na troca.
                 Text(
-                    taskDateLabel(task.dueDate, task.dueTime, todayDate()),
+                    rotuloDePrazo(task),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 // A prioridade era o unico campo de PopTask que este dialogo nao mostrava, embora
@@ -1766,7 +1768,22 @@ private fun TaskDetailsDialog(
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Fechar") }
         },
+        // Ocorrencia projetada nao tem linha no servidor, entao nao ha o que editar nela.
+        dismissButton = if (task.canEdit && !ehProjecao(task)) ({
+            TextButton(onClick = { editando = true }) { Text("Editar") }
+        }) else null,
     )
+
+    if (editando) {
+        TaskEditorDialog(
+            store = store,
+            existing = task,
+            onDismiss = {
+                editando = false
+                onTaskChanged(store.state.tasks.firstOrNull { it.id == task.id })
+            },
+        )
+    }
 }
 
 /**
@@ -2052,7 +2069,7 @@ private fun TaskRow(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             // Era a data ISO crua: "2026-08-20 • 09:00". Ninguem le assim.
-                            taskDateLabel(task.dueDate, task.dueTime, todayDate()),
+                            rotuloDePrazo(task),
                             color = dateTint,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -2125,7 +2142,10 @@ private fun SwipeableTaskRow(
     // Sem a permissao tasks.assign o servidor recusa a troca, e rememberMoveTargets devolve lista
     // vazia. Nesse caso o gesto para a direita fica desligado, em vez de abrir um dialogo sem
     // nenhuma opcao dentro.
-    val podeReatribuir = moveTargets.isNotEmpty()
+    //
+    // `task.canAssign` porque tasks.assign sozinho nao basta: sem hierarquia sobre esta tarefa o
+    // servidor ignora a troca, e a linha voltaria sozinha ao lugar na sincronizacao seguinte.
+    val podeReatribuir = moveTargets.isNotEmpty() && task.canAssign
 
     val estado = rememberSwipeToDismissBoxState(
         confirmValueChange = { valor ->
@@ -2300,7 +2320,7 @@ private fun CompactTaskRow(task: PopTask) {
             Column(Modifier.weight(1f)) {
                 Text(task.title, fontWeight = FontWeight.SemiBold)
                 Text(
-                    taskDateLabel(task.dueDate, task.dueTime, todayDate()),
+                    rotuloDePrazo(task),
                     color = if (isOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                 )
@@ -2575,6 +2595,11 @@ private val agendaOrder = compareBy<NaAgenda>(
  * Lista vazia significa "sem hora marcada", que e diferente de "nao aparece": a tarefa entra na
  * agenda, no fim do dia, sob "Sem horário definido".
  */
+private fun rotuloDePrazo(task: PopTask): String =
+    // Tarefa do painel chega com `dueTime` vazio e o horario em `recurrenceTimes`. A agenda ja sabia
+    // disso; as listas diziam so "Hoje".
+    taskDateLabel(task.dueDate, horariosDaTarefa(task).joinToString(", "), todayDate())
+
 private fun horariosDaTarefa(task: PopTask): List<String> {
     // `horaComparavel` porque o `dueTime` e texto livre dos dois lados do fio e pode chegar "9:00".
     // O `recurrenceTimes` ja vem validado por regex e nao precisaria, mas passar os dois pelo mesmo
@@ -3730,6 +3755,7 @@ private fun TeamScreen(store: PopStore) {
 private fun SectorsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     var showEditor by remember { mutableStateOf(false) }
+    var editando by remember { mutableStateOf<CompanySector?>(null) }
     val canAdd = store.permissions.canManageDepartments
     // Ordem alfabetica, e nao a de criacao. O aplicativo ja se contradizia: a aba Tarefas agrupa
     // por nome e a barra de filtro do calendario ordena, mas esta tela saia "Administrativo, Salao,
@@ -3754,10 +3780,21 @@ private fun SectorsScreen(store: PopStore) {
                 subtitle = sector.description,
                 icon = Icons.Rounded.Apartment,
                 badge = if (people == 1) "1 pessoa" else "$people pessoas",
+                onClick = if (sector.canEdit) ({ editando = sector }) else null,
             )
         },
         onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
+    editando?.let { sector ->
+        SectorEditorDialog(
+            store = store,
+            sector = sector,
+            members = members,
+            // `members` cru, com os convites: o servidor recusa excluir setor que ainda tem convite.
+            pessoasNoSetor = company?.members.orEmpty().count { it.sectorId == sector.id },
+            onDismiss = { editando = null },
+        )
+    }
     if (showEditor) {
         SimpleEntityEditorDialog(
             title = "Novo setor",
@@ -3771,7 +3808,9 @@ private fun SectorsScreen(store: PopStore) {
 private fun GroupsScreen(store: PopStore) {
     val company = store.selectedCompany ?: store.state.companies.firstOrNull()
     var showEditor by remember { mutableStateOf(false) }
+    var editando by remember { mutableStateOf<CompanyGroup?>(null) }
     val canAdd = store.permissions.canManageGroups
+    val podeAbrir = store.permissions.canEditGroups || store.permissions.canDeleteGroups
     // Ids de quem e pessoa de verdade, em conjunto, montado UMA vez.
     val idsReais = company?.activeMembers.orEmpty().mapTo(mutableSetOf()) { it.id }
     EntityListScreen(
@@ -3790,10 +3829,19 @@ private fun GroupsScreen(store: PopStore) {
                 subtitle = group.description,
                 icon = Icons.Rounded.Groups,
                 badge = if (pessoas == 1) "1 pessoa" else "$pessoas pessoas",
+                onClick = if (podeAbrir) ({ editando = group }) else null,
             )
         },
         onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
+    editando?.let { group ->
+        GroupEditorDialog(
+            store = store,
+            group = group,
+            members = company?.activeMembers.orEmpty(),
+            onDismiss = { editando = null },
+        )
+    }
     if (showEditor) {
         SimpleEntityEditorDialog(
             title = "Novo grupo",
@@ -3822,6 +3870,8 @@ private data class EntityRow(
     val icon: ImageVector? = null,
     /** Selo a direita: cargo, ou quantas pessoas. */
     val badge: String? = null,
+    /** Nulo quando quem esta vendo nao pode alterar a linha: ela fica sem toque e sem seta. */
+    val onClick: (() -> Unit)? = null,
 )
 
 @Composable
@@ -3854,7 +3904,14 @@ private fun EntityListScreen(
 
 @Composable
 private fun EntityCard(row: EntityRow) {
-    PopCard {
+    val toque = row.onClick
+    PopCard(
+        modifier = if (toque != null) {
+            Modifier.clip(CardDefaults.shape).clickable(onClick = toque)
+        } else {
+            Modifier
+        },
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (row.initials != null) {
                 Box(
@@ -3898,6 +3955,14 @@ private fun EntityCard(row: EntityRow) {
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
+            if (toque != null) {
+                Icon(
+                    Icons.Rounded.ChevronRight,
+                    contentDescription = "Editar",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp).size(20.dp),
+                )
+            }
         }
         if (row.detail.isNotBlank()) {
             Text(
@@ -3936,7 +4001,7 @@ private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
                 }
             }
         }
-        item { MoreItem(Icons.Rounded.Email, "Falar com o suporte", "contato@poporganize.com", platform::openSupportEmail) }
+        item { MoreItem(Icons.Rounded.Email, "Falar com o suporte", "contato@poporganize.com.br", platform::openSupportEmail) }
         item {
             MoreItem(Icons.Rounded.ListAlt, "Termos de Uso", "Leia os termos do serviço") {
                 platform.openExternalUrl("https://app.poporganize.com.br/termos")
@@ -4004,18 +4069,35 @@ private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
 // iPhone. O mesmo valia para "Grupo" em Atribuir para. Encontrado abrindo o dialogo na previa.
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var dueDate by remember { mutableStateOf(todayIso()) }
-    var dueTime by remember { mutableStateOf("") }
+private fun TaskEditorDialog(store: PopStore, existing: PopTask? = null, onDismiss: () -> Unit) {
+    var title by remember { mutableStateOf(existing?.title.orEmpty()) }
+    var description by remember { mutableStateOf(existing?.description.orEmpty()) }
+    var dueDate by remember { mutableStateOf(existing?.dueDate ?: todayIso()) }
+    var dueTime by remember { mutableStateOf(existing?.dueTime.orEmpty()) }
     var mostrarSeletorDeHora by remember { mutableStateOf(false) }
-    var priority by remember { mutableStateOf(Priority.Medium) }
-    var assignmentKind by remember { mutableStateOf(AssignmentKind.None) }
-    var assignment by remember { mutableStateOf(AssignmentTarget()) }
-    var responsaveis by remember { mutableStateOf(emptyList<String>()) }
-    var checklistText by remember { mutableStateOf("") }
-    var recurrence by remember { mutableStateOf(RecurrenceKind.None) }
+    var priority by remember { mutableStateOf(existing?.priority ?: Priority.Medium) }
+    var assignmentKind by remember { mutableStateOf(existing?.assignment?.kind ?: AssignmentKind.None) }
+    var assignment by remember { mutableStateOf(existing?.assignment ?: AssignmentTarget()) }
+    var responsaveis by remember { mutableStateOf(existing?.responsaveisAtuais().orEmpty()) }
+    var checklistText by remember {
+        mutableStateOf(existing?.checklist.orEmpty().joinToString("\n") { it.title })
+    }
+    val dataTravada = existing?.temDataTravada() == true
+    // Uma serie com varios horarios guarda tudo em `recurrenceTimes`, e e ele que a agenda usa. O
+    // `dueTime` e so o primeiro: mudar aqui nao mudaria o que aparece na tela.
+    val horariosDaSerie = existing?.recurrenceTimes.orEmpty().filter { it.isNotBlank() }
+    // O enum so desenha quatro cadencias simples. "A cada 2 semanas" ou "Personalizada" nao tem chip
+    // que as represente, entao nenhum aparece marcado e a regra so muda se a pessoa escolher outra.
+    val regraEspecial = existing != null && (
+        existing.recurrenceInterval != 1 ||
+            existing.recurrenceRule !in listOf("Não repetir", "Diária", "Semanal", "Mensal", "Anual")
+        )
+    val recorrenciaInicial = if (regraEspecial) null else existing?.recurrence ?: RecurrenceKind.None
+    var recurrence by remember { mutableStateOf(recorrenciaInicial) }
+    val recorrenciaMudou = existing != null && recurrence != null && recurrence != recorrenciaInicial
+    val podeRecorrencia = existing?.canManageRecurrence != false
+    val podeMover = existing == null || existing.canMove || existing.canAssign
+    val podeAtribuir = existing?.canAssign != false
     // Mesma armadilha do rememberMoveTargets: `selectedCompany` sobrevive a troca para o Meu
     // Espaco. O dialogo "Nova tarefa" abria no espaco pessoal com "Atribuir para" listando as
     // pessoas e os setores da empresa -- e criar assim mandaria o id de alguem de outro
@@ -4046,16 +4128,26 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
         else -> emptyList()
     }
 
+    val dataOk = dataTravada || parseIsoDate(dueDate) != null || (existing == null && dueDate.isBlank())
+    val alvoOk = company == null || !podeMover || assignmentKind == AssignmentKind.None || assignment.id != null
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Nova tarefa") },
+        title = { Text(if (existing == null) "Nova tarefa" else "Editar tarefa") },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item { OutlinedTextField(title, { title = it }, label = { Text("Título") }, modifier = Modifier.fillMaxWidth()) }
                 item { OutlinedTextField(description, { description = it }, label = { Text("Descrição") }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(dueDate, { dueDate = it }, label = { Text("Data AAAA-MM-DD") }, modifier = Modifier.weight(1f))
+                        OutlinedTextField(
+                            dueDate,
+                            { dueDate = it },
+                            label = { Text("Data AAAA-MM-DD") },
+                            enabled = !dataTravada,
+                            isError = !dataOk,
+                            modifier = Modifier.weight(1f),
+                        )
                         // CORRECAO de 18/09, achada em APARELHO pelo Guilherme. Aqui havia um
                         // OutlinedTextField comum com `KeyboardType.Number`, e o comentario que o
                         // acompanhava dizia que o teclado numerico "torna 9:00 menos provavel que
@@ -4073,20 +4165,41 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                         // sem abrir nada.
                         Box(modifier = Modifier.weight(.65f)) {
                             OutlinedTextField(
-                                value = dueTime,
+                                // O campo e estreito: a lista completa vai no aviso logo abaixo.
+                                value = when (horariosDaSerie.size) {
+                                    0 -> dueTime
+                                    1 -> horariosDaSerie.first()
+                                    else -> "${horariosDaSerie.size} horários"
+                                },
                                 onValueChange = {},
                                 readOnly = true,
+                                enabled = horariosDaSerie.isEmpty(),
                                 singleLine = true,
                                 label = { Text("Hora") },
                                 placeholder = { Text("--:--") },
                                 modifier = Modifier.fillMaxWidth(),
                             )
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .clickable { mostrarSeletorDeHora = true },
-                            )
+                            if (horariosDaSerie.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clickable { mostrarSeletorDeHora = true },
+                                )
+                            }
                         }
+                    }
+                }
+                if (dataTravada || horariosDaSerie.isNotEmpty()) {
+                    item {
+                        Text(
+                            if (horariosDaSerie.isNotEmpty()) {
+                                "A data e os horários (${horariosDaSerie.joinToString(", ")}) de uma tarefa recorrente são alterados pelo painel web."
+                            } else {
+                                "A data de uma tarefa recorrente é alterada pelo painel web."
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                        )
                     }
                 }
                 item {
@@ -4100,17 +4213,40 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                         }
                     }
                 }
-                item {
-                    Text("Recorrência", fontWeight = FontWeight.SemiBold)
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        RecurrenceKind.entries.forEach {
-                            FilterChip(
-                                selected = recurrence == it,
-                                onClick = { recurrence = it },
-                                label = { Text(it.label, fontSize = 10.sp) },
+                if (podeRecorrencia) {
+                    item {
+                        Text("Recorrência", fontWeight = FontWeight.SemiBold)
+                        if (regraEspecial && recurrence == null) {
+                            Text(
+                                "Esta tarefa repete de um jeito que o aplicativo não edita " +
+                                    "(${existing?.recurrenceRule}). Escolha uma opção só se quiser trocar.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.sp,
+                            )
+                        }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            RecurrenceKind.entries.forEach {
+                                FilterChip(
+                                    selected = recurrence == it,
+                                    onClick = { recurrence = it },
+                                    label = { Text(it.label, fontSize = 10.sp) },
+                                )
+                            }
+                        }
+                        // O mesmo aviso do painel (`task-detail-drawer.tsx`): a regra nova nao apaga
+                        // o que ja passou, e sem dizer isso a pessoa espera que apague.
+                        if (recorrenciaMudou && (dataTravada || regraEspecial)) {
+                            Text(
+                                if (recurrence == RecurrenceKind.None) {
+                                    "A tarefa deixa de repetir a partir desta data. As ocorrências anteriores ficam como estão."
+                                } else {
+                                    "A nova regra vale a partir desta data. As ocorrências anteriores ficam como estão."
+                                },
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.sp,
                             )
                         }
                     }
@@ -4127,14 +4263,16 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                         )
                     }
                 }
-                if (company != null) {
+                if (company != null && podeMover) {
                     item {
                         Text("Atribuir para", fontWeight = FontWeight.SemiBold)
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            AssignmentKind.entries.forEach {
+                            // Destino pessoa muda quem responde, e isso exige tasks.assign mesmo para
+                            // quem pode mover (`updateTaskDetails`).
+                            AssignmentKind.entries.filter { it != AssignmentKind.Person || podeAtribuir }.forEach {
                                 FilterChip(
                                     selected = assignmentKind == it,
                                     // Zerar o responsavel junto e obrigatorio: a lista de
@@ -4180,7 +4318,7 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                     }
                     // Vem DEPOIS da escolha do alvo, e nao antes, porque e recortado por ela: sem
                     // um setor escolhido nao ha de onde tirar candidato, e a lista nem aparece.
-                    if (candidatos.isNotEmpty()) {
+                    if (candidatos.isNotEmpty() && podeAtribuir) {
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text("Responsável (opcional)", fontWeight = FontWeight.SemiBold)
@@ -4227,22 +4365,41 @@ private fun TaskEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                 // O painel web exige 3 caracteres no titulo (pop-organize.functions.ts:88). O
                 // endpoint movel nao valida, entao sem isto o iPhone criaria uma tarefa que o
                 // site recusaria — e que quebraria ao ser editada por la.
-                enabled = title.hasAtLeast(3),
+                //
+                // Data vazia so na criacao, que cai em hoje. Valor fora do formato reprovaria a carga
+                // INTEIRA no schema movel, nao so esta tarefa. E um tipo de destino sem o destino
+                // escolhido nao pode virar "Empresa" calado.
+                enabled = title.hasAtLeast(3) && dataOk && alvoOk,
                 onClick = {
-                    store.addTask(
-                        title = title,
-                        description = description,
-                        dueDate = dueDate,
-                        dueTime = dueTime,
-                        priority = priority,
-                        assignment = assignment,
-                        checklistTitles = checklistText.lines(),
-                        recurrence = recurrence,
-                        responsaveis = responsaveis,
-                    )
+                    if (existing == null) {
+                        store.addTask(
+                            title = title,
+                            description = description,
+                            dueDate = dueDate,
+                            dueTime = dueTime,
+                            priority = priority,
+                            assignment = assignment,
+                            checklistTitles = checklistText.lines(),
+                            recurrence = recurrence ?: RecurrenceKind.None,
+                            responsaveis = responsaveis,
+                        )
+                    } else {
+                        store.editTask(
+                            taskId = existing.id,
+                            title = title,
+                            description = description,
+                            dueDate = dueDate,
+                            dueTime = dueTime,
+                            priority = priority,
+                            assignment = assignment,
+                            checklistLines = checklistText.lines(),
+                            novaRecorrencia = recurrence.takeIf { recorrenciaMudou },
+                            responsaveis = responsaveis,
+                        )
+                    }
                     onDismiss()
                 },
-            ) { Text("Criar tarefa") }
+            ) { Text(if (existing == null) "Criar tarefa" else "Salvar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
@@ -4442,6 +4599,251 @@ private fun SimpleEntityEditorDialog(
             ) { Text("Salvar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+/** Nome, descricao, o que cada tela acrescenta e a saida de exclusao, com a mesma validacao de criar. */
+@Composable
+private fun EntityManageDialog(
+    titulo: String,
+    nomeInicial: String,
+    descricaoInicial: String,
+    podeEditar: Boolean,
+    onSalvar: (String, String) -> Unit,
+    onExcluir: (() -> Unit)?,
+    onDismiss: () -> Unit,
+    extras: LazyListScope.() -> Unit = {},
+) {
+    var name by remember { mutableStateOf(nomeInicial) }
+    var description by remember { mutableStateOf(descricaoInicial) }
+    val nameOk = name.hasAtLeast(2)
+    val descriptionOk = description.hasAtLeast(3)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(titulo) },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                item {
+                    OutlinedTextField(
+                        name,
+                        { name = it },
+                        label = { Text("Nome") },
+                        singleLine = true,
+                        enabled = podeEditar,
+                        isError = !nameOk,
+                        supportingText = if (nameOk) null else ({ Text("Pelo menos 2 caracteres.") }),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        description,
+                        { description = it },
+                        label = { Text("Descrição") },
+                        enabled = podeEditar,
+                        isError = !descriptionOk,
+                        supportingText = if (descriptionOk) null else ({ Text("Pelo menos 3 caracteres.") }),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                extras()
+                if (onExcluir != null) {
+                    item {
+                        TextButton(onClick = onExcluir) {
+                            Icon(Icons.Rounded.DeleteOutline, null, tint = PopRed, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Excluir", color = PopRed)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (podeEditar) {
+                Button(
+                    enabled = nameOk && descriptionOk,
+                    onClick = {
+                        onSalvar(name, description)
+                        onDismiss()
+                    },
+                ) { Text("Salvar") }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(if (podeEditar) "Cancelar" else "Fechar") } },
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SectorEditorDialog(
+    store: PopStore,
+    sector: CompanySector,
+    members: List<CompanyMember>,
+    pessoasNoSetor: Int,
+    onDismiss: () -> Unit,
+) {
+    var managerId by remember { mutableStateOf(sector.managerId) }
+    var confirmandoExclusao by remember { mutableStateOf(false) }
+    val podeTrocarGestor = store.permissions.canAssignSectorManager
+    EntityManageDialog(
+        titulo = "Editar setor",
+        nomeInicial = sector.name,
+        descricaoInicial = sector.description,
+        podeEditar = true,
+        onSalvar = { name, description ->
+            store.updateSector(sector.id, name, description, managerId.takeIf { podeTrocarGestor && it != sector.managerId })
+        },
+        onExcluir = if (sector.canDelete) ({ confirmandoExclusao = true }) else null,
+        onDismiss = onDismiss,
+        extras = {
+            if (podeTrocarGestor) {
+                item {
+                    Text("Gestor", fontWeight = FontWeight.SemiBold)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        members.sortedBy { it.name.lowercase() }.forEach { pessoa ->
+                            FilterChip(
+                                selected = managerId == pessoa.id,
+                                onClick = { managerId = pessoa.id },
+                                label = { Text(pessoa.name, fontSize = 10.sp) },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+    )
+    if (confirmandoExclusao) {
+        ConfirmEntityDeleteDialog(
+            titulo = "Excluir ${sector.name}?",
+            // O servidor tambem recusa. Avisar aqui evita tocar em Excluir para receber um erro.
+            bloqueio = when {
+                pessoasNoSetor == 1 -> "Este setor ainda tem 1 pessoa. Mova-a para outro setor antes de excluir."
+                pessoasNoSetor > 1 -> "Este setor ainda tem $pessoasNoSetor pessoas. Mova-as para outro setor antes de excluir."
+                else -> null
+            },
+            aviso = "As tarefas deste setor passam para a empresa. Esta ação não pode ser desfeita.",
+            onConfirm = {
+                store.deleteSector(sector.id)
+                confirmandoExclusao = false
+                onDismiss()
+            },
+            onDismiss = { confirmandoExclusao = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GroupEditorDialog(
+    store: PopStore,
+    group: CompanyGroup,
+    members: List<CompanyMember>,
+    onDismiss: () -> Unit,
+) {
+    // Comeca da lista crua do servidor, e nao das pessoas visiveis: quem esta fora da tela (convite
+    // pendente, gente de setor que este usuario nao enxerga) continua no grupo ao salvar.
+    var memberIds by remember { mutableStateOf(group.memberIds) }
+    var leaderId by remember { mutableStateOf(group.leaderId) }
+    var confirmandoExclusao by remember { mutableStateOf(false) }
+    val podeEditar = store.permissions.canEditGroups
+    EntityManageDialog(
+        titulo = if (podeEditar) "Editar grupo" else group.name,
+        nomeInicial = group.name,
+        descricaoInicial = group.description,
+        podeEditar = podeEditar,
+        onSalvar = { name, description -> store.updateGroup(group.id, name, description, memberIds, leaderId) },
+        onExcluir = if (store.permissions.canDeleteGroups) ({ confirmandoExclusao = true }) else null,
+        onDismiss = onDismiss,
+        extras = {
+            if (podeEditar) {
+                item {
+                    Text("Membros", fontWeight = FontWeight.SemiBold)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        members.sortedBy { it.name.lowercase() }.forEach { pessoa ->
+                            val dentro = pessoa.id in memberIds
+                            FilterChip(
+                                selected = dentro,
+                                onClick = {
+                                    if (dentro) {
+                                        memberIds = memberIds - pessoa.id
+                                        // O lider sempre faz parte do grupo: quem sai deixa de liderar.
+                                        if (leaderId == pessoa.id) leaderId = ""
+                                    } else {
+                                        memberIds = memberIds + pessoa.id
+                                    }
+                                },
+                                label = { Text(pessoa.name, fontSize = 10.sp) },
+                            )
+                        }
+                    }
+                }
+                val candidatos = members.filter { it.id in memberIds }.sortedBy { it.name.lowercase() }
+                if (candidatos.isNotEmpty()) {
+                    item {
+                        Text("Líder (opcional)", fontWeight = FontWeight.SemiBold)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            candidatos.forEach { pessoa ->
+                                FilterChip(
+                                    selected = leaderId == pessoa.id,
+                                    onClick = { leaderId = if (leaderId == pessoa.id) "" else pessoa.id },
+                                    label = { Text(pessoa.name, fontSize = 10.sp) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    )
+    if (confirmandoExclusao) {
+        ConfirmEntityDeleteDialog(
+            titulo = "Excluir ${group.name}?",
+            bloqueio = null,
+            aviso = "As tarefas deste grupo passam para a empresa. Esta ação não pode ser desfeita.",
+            onConfirm = {
+                store.deleteGroup(group.id)
+                confirmandoExclusao = false
+                onDismiss()
+            },
+            onDismiss = { confirmandoExclusao = false },
+        )
+    }
+}
+
+@Composable
+private fun ConfirmEntityDeleteDialog(
+    titulo: String,
+    bloqueio: String?,
+    aviso: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(titulo) },
+        text = { Text(bloqueio ?: aviso) },
+        confirmButton = {
+            if (bloqueio == null) {
+                Button(
+                    onClick = onConfirm,
+                    colors = ButtonDefaults.buttonColors(containerColor = PopRed, contentColor = Color.White),
+                ) { Text("Excluir") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("Entendi") }
+            }
+        },
+        dismissButton = if (bloqueio == null) ({
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }) else null,
     )
 }
 

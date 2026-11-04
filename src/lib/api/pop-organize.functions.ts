@@ -35,7 +35,8 @@ import { invalidateNativeShadow } from "../native-shadow";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
 import {
   canViewTask,
-  getManagerDepartmentAccess,
+  canConfigureDepartmentManager,
+  canEditDepartment,
   getTaskPermissions,
   isReviewManagerCandidateId,
   resolveTaskReviewManagerId,
@@ -645,6 +646,7 @@ function createNextRecurringTask(db: Database, task: Task) {
     recurrenceOccurrence: (task.recurrenceOccurrence ?? 1) + 1,
     recurrenceExcludedDates: task.recurrenceExcludedDates,
     recurrenceSeriesEndDate: task.recurrenceSeriesEndDate,
+    dueTime: task.dueTime,
     subtasks: (task.subtasks ?? []).map((subtask, index) => ({
       id: `ts${index + 1}`,
       title: subtask.title,
@@ -1939,26 +1941,14 @@ export const updateDepartmentMembers = createServerFn({ method: "POST" })
       if (!department) throw createHttpError("Setor não encontrado.", 404);
 
       const currentUser = db.employees.find((employee) => employee.id === currentUserId);
-      const managerAccess = getManagerDepartmentAccess({
-        currentUser,
-        employees: db.employees,
-        departments: db.departments,
-      });
       if (
-        managerAccess &&
-        managerAccess.mode !== "all" &&
-        !managerAccess.departmentIds.has(department.id)
-      ) {
-        throw createHttpError("Você não pode gerenciar os membros deste setor.", 403);
-      }
-      const permissionSet = resolvePermissionSet({
-        currentUser,
-        employees: db.employees,
-        permissionGroups: db.permissionGroups,
-      });
-      if (
-        department.managerId !== currentUserId &&
-        !hasPermission(permissionSet, "manage.departments")
+        !canEditDepartment({
+          department,
+          currentUser,
+          employees: db.employees,
+          departments: db.departments,
+          permissionGroups: db.permissionGroups,
+        })
       ) {
         throw createHttpError("Você não pode gerenciar os membros deste setor.", 403);
       }
@@ -1986,33 +1976,22 @@ export const updateDepartmentDetails = createServerFn({ method: "POST" })
       if (!department) throw createHttpError("Setor não encontrado.", 404);
 
       const currentUser = db.employees.find((employee) => employee.id === currentUserId);
-      const managerAccess = getManagerDepartmentAccess({
-        currentUser,
-        employees: db.employees,
-        departments: db.departments,
-      });
       if (
-        managerAccess &&
-        managerAccess.mode !== "all" &&
-        !managerAccess.departmentIds.has(department.id)
-      ) {
-        throw createHttpError("Você não pode editar este setor.", 403);
-      }
-      const permissionSet = resolvePermissionSet({
-        currentUser,
-        employees: db.employees,
-        permissionGroups: db.permissionGroups,
-      });
-      if (
-        department.managerId !== currentUserId &&
-        !hasPermission(permissionSet, "manage.departments")
+        !canEditDepartment({
+          department,
+          currentUser,
+          employees: db.employees,
+          departments: db.departments,
+          permissionGroups: db.permissionGroups,
+        })
       ) {
         throw createHttpError("Você não pode editar este setor.", 403);
       }
 
-      const canConfigureManagerAccess =
-        db.company.ownerId === currentUserId ||
-        currentUser?.role.toLocaleLowerCase("pt-BR").includes("admin");
+      const canConfigureManagerAccess = canConfigureDepartmentManager({
+        currentUser,
+        ownerId: db.company.ownerId,
+      });
       const changesManagerAccess =
         data.managerId !== undefined ||
         data.managerAccessMode !== undefined ||

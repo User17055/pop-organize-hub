@@ -50,7 +50,6 @@ import {
   recurrenceLabel,
   recurrenceToForm,
   shouldAskDateScope,
-  formatFileSizeMb,
   type TaskEditState,
   type TaskFormState,
 } from "@/components/tasks/task-form-types";
@@ -707,11 +706,7 @@ function TasksPage() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !selectedTask) return;
-    attachmentMutation.mutate({
-      taskId: selectedTask.id,
-      name: file.name,
-      sizeLabel: formatFileSizeMb(file.size),
-    });
+    attachmentMutation.mutate({ taskId: selectedTask.id, file });
   }
 
   const mutationError =

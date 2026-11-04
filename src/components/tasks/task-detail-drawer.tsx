@@ -9,6 +9,7 @@ import {
   MessageSquare,
   MoreVertical,
   Paperclip,
+  Download,
   Pencil,
   Repeat,
   RotateCcw,
@@ -843,9 +844,21 @@ export function TaskDetailDrawer({
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-xs font-semibold">{attachment.name}</div>
                       <div className="text-[10px] text-muted-foreground mt-0.5">
-                        {attachment.sizeLabel} · {author?.name ?? "Usuario"}
+                        {attachment.fileId
+                          ? `${attachment.sizeLabel} · ${author?.name ?? "Usuario"}`
+                          : "Arquivo não guardado: enviado antes do download existir"}
                       </div>
                     </div>
+                    {attachment.fileId && (
+                      <a
+                        href={`/api/anexos/${attachment.fileId}`}
+                        download={attachment.name}
+                        aria-label={`Baixar ${attachment.name}`}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition hover:bg-background hover:text-primary"
+                      >
+                        <Download className="h-4 w-4" />
+                      </a>
+                    )}
                   </div>
                 );
               })}

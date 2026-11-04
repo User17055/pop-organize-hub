@@ -311,12 +311,6 @@ const addTaskCommentSchema = z.object({
   body: z.string().trim().min(1, "Escreva um comentário").max(1000),
 });
 
-const addTaskAttachmentSchema = z.object({
-  taskId: z.string().min(1),
-  name: z.string().trim().min(1, "Informe o nome do anexo").max(120),
-  sizeLabel: z.string().trim().max(40).optional(),
-});
-
 const addTaskSubtaskSchema = z.object({
   taskId: z.string().min(1),
   title: z.string().trim().min(1, "Informe o item").max(200),
@@ -1739,29 +1733,6 @@ export const addTaskComment = createServerFn({ method: "POST" })
     });
   });
 
-export const addTaskAttachment = createServerFn({ method: "POST" })
-  .validator((data) => addTaskAttachmentSchema.parse(data))
-  .handler(async ({ data }) => {
-    return mutateCurrentWorkspace((db, currentUserId) => {
-      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
-      if (!permissions.canAttach) {
-        throw createHttpError("Você não tem permissão para anexar arquivos nesta tarefa.", 403);
-      }
-
-      const currentCount = task.attachments ?? task.attachmentItems?.length ?? 0;
-      task.attachmentItems = task.attachmentItems ?? [];
-      task.attachmentItems.push({
-        id: nextId("ta", task.attachmentItems),
-        name: data.name,
-        sizeLabel: data.sizeLabel || "Arquivo",
-        uploadedById: currentUserId,
-        createdAt: new Date().toISOString(),
-      });
-      task.attachments = currentCount + 1;
-      return task;
-    });
-  });
-
 export const addTaskSubtask = createServerFn({ method: "POST" })
   .validator((data) => addTaskSubtaskSchema.parse(data))
   .handler(async ({ data }) => {
@@ -1834,7 +1805,7 @@ export const deleteTaskSubtask = createServerFn({ method: "POST" })
 export const deleteTask = createServerFn({ method: "POST" })
   .validator((data) => deleteTaskSchema.parse(data))
   .handler(async ({ data }) => {
-    return mutateCurrentWorkspace((db, currentUserId) => {
+    const result = await mutateCurrentWorkspace((db, currentUserId) => {
       const taskIndex = db.tasks.findIndex((item) => item.id === data.id);
       if (taskIndex === -1) throw createHttpError("Tarefa não encontrada.", 404);
 
@@ -1897,6 +1868,9 @@ export const deleteTask = createServerFn({ method: "POST" })
       }
       return { ok: true, id: data.id, removedIds };
     });
+    const { removeOrphanAttachmentFiles } = await import("../task-attachments.server");
+    void removeOrphanAttachmentFiles();
+    return result;
   });
 
 export const createDepartment = createServerFn({ method: "POST" })

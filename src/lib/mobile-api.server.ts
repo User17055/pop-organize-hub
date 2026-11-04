@@ -784,6 +784,8 @@ export async function deleteMobileAccount(request: Request) {
       (challenge) => normalizeEmail(challenge.email) !== normalizeEmail(account.email),
     );
   });
+  const { removeOrphanAttachmentFiles } = await import("./task-attachments.server");
+  void removeOrphanAttachmentFiles();
   return { ok: true };
 }
 
@@ -2350,7 +2352,9 @@ export async function replaceMobileTasks(
               );
             }
           }
-          existing.attachments = item.attachmentName ? 1 : 0;
+          // O aparelho só conhece o anexo dele; os do painel não podem sumir da contagem.
+          existing.attachments =
+            (existing.attachmentItems?.length ?? 0) + (item.attachmentName ? 1 : 0);
         }
         if (isAdministrator) {
           existing.subtasks = (item.checklist ?? []).map((checklistItem, index) => ({

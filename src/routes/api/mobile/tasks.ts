@@ -99,12 +99,16 @@ export const Route = createFileRoute("/api/mobile/tasks")({
           if (!parsed.success)
             return Response.json({ error: "Lista de tarefas inválida." }, { status: 400 });
           const { replaceMobileTasks } = await import("@/lib/mobile-api.server");
-          return Response.json(
-            await replaceMobileTasks(request, parsed.data.tasks, parsed.data.deletedServerIds),
-            {
-              headers: { "cache-control": "no-store" },
-            },
+          const result = await replaceMobileTasks(
+            request,
+            parsed.data.tasks,
+            parsed.data.deletedServerIds,
           );
+          if (result.deleted > 0) {
+            const { removeOrphanAttachmentFiles } = await import("@/lib/task-attachments.server");
+            void removeOrphanAttachmentFiles();
+          }
+          return Response.json(result, { headers: { "cache-control": "no-store" } });
         } catch (error) {
           console.error("Mobile task sync failed", error);
           return errorResponse(error);

@@ -33,7 +33,6 @@ import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialo
 import { RecurringDateDialog } from "@/components/tasks/recurring-date-dialog";
 import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import {
-  formatFileSizeMb,
   getDefaultDueDate,
   getDefaultRecurrence,
   recurrenceFromForm,
@@ -436,11 +435,7 @@ function CalendarPage() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !selectedTask) return;
-    attachmentMutation.mutate({
-      taskId: selectedTask.id,
-      name: file.name,
-      sizeLabel: formatFileSizeMb(file.size),
-    });
+    attachmentMutation.mutate({ taskId: selectedTask.id, file });
   }
 
   const updateError =

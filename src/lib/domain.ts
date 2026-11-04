@@ -38,6 +38,8 @@ export interface TaskAttachment {
   sizeLabel: string;
   uploadedById: string;
   createdAt: string;
+  /** O arquivo guardado. Anexo antigo não tem: só o nome e o tamanho foram gravados. */
+  fileId?: string;
 }
 
 export interface TaskSubtask {

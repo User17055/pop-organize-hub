@@ -44,7 +44,7 @@ function PrivacyPage() {
         <h2>Contato</h2>
         <p>
           Dúvidas sobre privacidade podem ser enviadas para{" "}
-          <a href="mailto:contato@poporganize.com">contato@poporganize.com</a>.
+          <a href="mailto:contato@poporganize.com.br">contato@poporganize.com.br</a>.
         </p>
       </section>
     </LegalPage>

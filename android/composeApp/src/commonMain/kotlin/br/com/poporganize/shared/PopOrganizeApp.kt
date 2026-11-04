@@ -4001,7 +4001,7 @@ private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
                 }
             }
         }
-        item { MoreItem(Icons.Rounded.Email, "Falar com o suporte", "contato@poporganize.com", platform::openSupportEmail) }
+        item { MoreItem(Icons.Rounded.Email, "Falar com o suporte", "contato@poporganize.com.br", platform::openSupportEmail) }
         item {
             MoreItem(Icons.Rounded.ListAlt, "Termos de Uso", "Leia os termos do serviço") {
                 platform.openExternalUrl("https://app.poporganize.com.br/termos")

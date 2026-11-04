@@ -10437,7 +10437,7 @@ private fun MoreScreen(
         context.startActivity(
             Intent(
                 Intent.ACTION_SENDTO,
-                Uri.parse("mailto:contato@poporganize.com?subject=" + Uri.encode("Ajuda com o Pop Organize")),
+                Uri.parse("mailto:contato@poporganize.com.br?subject=" + Uri.encode("Ajuda com o Pop Organize")),
             ),
         )
     }

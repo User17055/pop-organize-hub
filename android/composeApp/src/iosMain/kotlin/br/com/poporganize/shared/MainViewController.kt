@@ -325,7 +325,7 @@ private object IosPlatformServices : PopPlatformServices {
     }
 
     override fun openSupportEmail() {
-        NSURL.URLWithString("mailto:contato@poporganize.com")?.let { UIApplication.sharedApplication.openURL(it) }
+        NSURL.URLWithString("mailto:contato@poporganize.com.br")?.let { UIApplication.sharedApplication.openURL(it) }
     }
 
     override fun openExternalUrl(url: String) {

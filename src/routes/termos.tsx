@@ -40,7 +40,7 @@ function TermsPage() {
       <section>
         <h2>Contato</h2>
         <p>
-          Fale com <a href="mailto:contato@poporganize.com">contato@poporganize.com</a>.
+          Fale com <a href="mailto:contato@poporganize.com.br">contato@poporganize.com.br</a>.
         </p>
       </section>
     </LegalPage>

@@ -82,6 +82,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -105,6 +107,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimeInput
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -4079,6 +4082,7 @@ private fun TaskEditorDialog(store: PopStore, existing: PopTask? = null, onDismi
     var dueDate by remember { mutableStateOf(existing?.dueDate ?: todayIso()) }
     var dueTime by remember { mutableStateOf(existing?.dueTime.orEmpty()) }
     var mostrarSeletorDeHora by remember { mutableStateOf(false) }
+    var mostrarSeletorDeData by remember { mutableStateOf(false) }
     var priority by remember { mutableStateOf(existing?.priority ?: Priority.Medium) }
     var assignmentKind by remember { mutableStateOf(existing?.assignment?.kind ?: AssignmentKind.None) }
     var assignment by remember { mutableStateOf(existing?.assignment ?: AssignmentTarget()) }
@@ -4165,13 +4169,25 @@ private fun TaskEditorDialog(store: PopStore, existing: PopTask? = null, onDismi
                 item { OutlinedTextField(description, { description = it }, label = { Text("Descrição") }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            dueDate,
-                            { dueDate = it },
-                            label = { Text("Data AAAA-MM-DD") },
-                            isError = !dataOk,
-                            modifier = Modifier.weight(1f),
-                        )
+                        // Mesmo padrao do campo de hora, logo abaixo: tocar abre o seletor, e a camada
+                        // clicavel vai por cima porque `readOnly` ainda captura o toque.
+                        Box(modifier = Modifier.weight(1f)) {
+                            OutlinedTextField(
+                                value = dataParaExibir(dueDate),
+                                onValueChange = {},
+                                readOnly = true,
+                                singleLine = true,
+                                label = { Text("Data") },
+                                placeholder = { Text("Sem data") },
+                                isError = !dataOk,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable { mostrarSeletorDeData = true },
+                            )
+                        }
                         // CORRECAO de 18/09, achada em APARELHO pelo Guilherme. Aqui havia um
                         // OutlinedTextField comum com `KeyboardType.Number`, e o comentario que o
                         // acompanhava dizia que o teclado numerico "torna 9:00 menos provavel que
@@ -4457,6 +4473,44 @@ private fun TaskEditorDialog(store: PopStore, existing: PopTask? = null, onDismi
         )
     }
 
+    if (mostrarSeletorDeData) {
+        // O DatePicker conta em milissegundos UTC, meia-noite do dia escolhido. A conversao fica em
+        // dias inteiros, sem fuso, para a data nao andar um dia conforme o horario do aparelho.
+        val diaInicial = (parseIsoDate(dueDate) ?: parseIsoDate(todayIso()))?.toEpochDays()
+        val estadoDaData = rememberDatePickerState(
+            initialSelectedDateMillis = diaInicial?.let { it.toLong() * MILISSEGUNDOS_POR_DIA },
+        )
+        DatePickerDialog(
+            onDismissRequest = { mostrarSeletorDeData = false },
+            confirmButton = {
+                Button(
+                    enabled = estadoDaData.selectedDateMillis != null,
+                    onClick = {
+                        estadoDaData.selectedDateMillis?.let { milis ->
+                            dueDate = LocalDate.fromEpochDays((milis / MILISSEGUNDOS_POR_DIA).toInt()).toString()
+                        }
+                        mostrarSeletorDeData = false
+                    },
+                ) { Text("Definir") }
+            },
+            dismissButton = {
+                Row {
+                    // So tarefa nova pode ficar sem data: e a mesma regra do `dataOk`.
+                    if (existing == null) {
+                        TextButton(onClick = {
+                            dueDate = ""
+                            mostrarSeletorDeData = false
+                        }) { Text("Sem data") }
+                    }
+                    TextButton(onClick = { mostrarSeletorDeData = false }) { Text("Cancelar") }
+                }
+            },
+        ) {
+            // Sem o modo de digitar: ele traria de volta o teclado que este seletor existe para evitar.
+            DatePicker(state = estadoDaData, title = null, headline = null, showModeToggle = false)
+        }
+    }
+
     if (mostrarSeletorDeHora) {
         // Parte do que ja estiver no campo; se estiver vazio ou ilegivel, abre na hora atual, que
         // e um palpite melhor que meia-noite para quem esta criando tarefa agora.
@@ -4490,6 +4544,15 @@ private fun TaskEditorDialog(store: PopStore, existing: PopTask? = null, onDismi
             },
         )
     }
+}
+
+private const val MILISSEGUNDOS_POR_DIA = 86_400_000L
+
+private fun dataParaExibir(iso: String): String {
+    val data = parseIsoDate(iso) ?: return iso
+    val dia = data.dayOfMonth.toString().padStart(2, '0')
+    val mes = data.monthNumber.toString().padStart(2, '0')
+    return "$dia/$mes/${data.year}"
 }
 
 @Composable

@@ -120,7 +120,7 @@ const createTaskSchema = z.object({
   responsibleIds: z.array(z.string().min(1)).max(100).default([]),
   reviewerId: z.string().optional(),
   requiresReview: z.boolean().default(false),
-  tags: z.array(z.string().trim().min(1)).default([]),
+  tags: z.array(z.string().trim().min(1)).max(500).default([]),
   checklist: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
   recurrence: recurrenceSchema,
 });
@@ -213,8 +213,8 @@ const permissionKeySchema = z.enum(allPermissionKeys as [PermissionKey, ...Permi
 const createPermissionGroupSchema = z.object({
   name: z.string().trim().min(2, "Informe um nome"),
   description: z.string().trim().max(200).default(""),
-  permissions: z.array(permissionKeySchema).default([]),
-  memberIds: z.array(z.string().min(1)).default([]),
+  permissions: z.array(permissionKeySchema).max(100).default([]),
+  memberIds: z.array(z.string().min(1)).max(500).default([]),
 });
 
 const updatePermissionGroupSchema = createPermissionGroupSchema.extend({
@@ -232,7 +232,7 @@ const createGroupSchema = z.object({
     .union([z.literal(""), z.string().min(1)])
     .optional()
     .transform((value) => value || undefined),
-  memberIds: z.array(z.string().min(1)).default([]),
+  memberIds: z.array(z.string().min(1)).max(500).default([]),
 });
 
 const updateGroupSchema = createGroupSchema.extend({
@@ -263,7 +263,7 @@ const updateTaskDetailsSchema = z.object({
   target: targetSchema,
   responsibleId: z.string().default(""),
   responsibleIds: z.array(z.string().min(1)).max(100).optional(),
-  tags: z.array(z.string().trim().min(1)).default([]),
+  tags: z.array(z.string().trim().min(1)).max(500).default([]),
   recurrence: recurrenceSchema,
   // Só pesa se a data de uma recorrente mudar sem mudar a regra. Sem nada, vale só para esta.
   dateScope: z.enum(["this", "following"]).optional(),
@@ -560,7 +560,9 @@ function resolveTargetLabel(type: TargetType, id: string, db: Database) {
   return undefined;
 }
 
-function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["recurrence"] {
+function normalizeRecurrence(
+  value: z.infer<typeof recurrenceSchema> | Task["recurrence"],
+): Task["recurrence"] {
   if (!value || value.frequency === "none") return undefined;
 
   const times = [...new Set(value.times ?? [])].sort();

@@ -671,9 +671,17 @@ class PopStore(private val platform: PopPlatformServices) {
 
     private suspend fun refreshTasks() {
         val token = state.apiToken ?: return
-        val workspaceId = if (state.workspace == WorkspaceKind.Company) state.selectedCompanyId else state.personalWorkspaceId
+        val kind = state.workspace
+        val companyId = state.selectedCompanyId.takeIf { kind == WorkspaceKind.Company }
+        val workspaceId = if (kind == WorkspaceKind.Company) companyId else state.personalWorkspaceId
         if (workspaceId.isNullOrBlank()) return
         val response = platform.apiRequest(path = "tasks", token = token, workspaceId = workspaceId)
+        // A troca de espaco pode ter acontecido enquanto esta resposta viajava. Gravar a resposta no
+        // espaco atual poe tarefas de um espaco dentro de outro, e a sincronizacao seguinte as envia
+        // para la: o servidor acha as linhas pelo id, que se repete entre espacos, e as sobrescreve.
+        // A troca ja disparou a leitura do espaco novo; esta resposta so pode ser descartada.
+        val selectedCompanyId = state.selectedCompanyId.takeIf { state.workspace == WorkspaceKind.Company }
+        if (state.workspace != kind || selectedCompanyId != companyId) return
         if (!response.successful) {
             message = runCatching { json.decodeFromString<ApiError>(response.body).error }.getOrNull()
                 ?: "Falha ao sincronizar tarefas."
@@ -685,8 +693,6 @@ class PopStore(private val platform: PopPlatformServices) {
         // empresa. Consertar so um dos dois deixaria metade do buraco aberto -- que foi exatamente
         // o erro cometido no signOut.
         if (state.apiToken != token) return
-        val kind = state.workspace
-        val companyId = state.selectedCompanyId.takeIf { kind == WorkspaceKind.Company }
         val otherTasks = state.tasks.filterNot {
             it.workspace == kind && (kind == WorkspaceKind.Personal || it.companyId == companyId)
         }

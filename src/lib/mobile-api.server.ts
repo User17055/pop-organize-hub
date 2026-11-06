@@ -2162,6 +2162,26 @@ export async function replaceMobileTasks(
         );
       }) as NativeTask | undefined;
 
+    // Os ids se repetem entre espaços. Um aparelho que misturou espaços ao trocar de um para o outro
+    // reenviaria tarefas alheias com ids que existem aqui, e cada uma sobrescreveria uma linha. Uma
+    // edição normal muda poucos títulos; a maioria mudando de uma vez é carga do espaço errado.
+    const matchedTasks = tasks.flatMap((item) => {
+      const existing = findExisting(item);
+      return existing ? [{ item, existing }] : [];
+    });
+    const changedTitles = matchedTasks.filter(
+      ({ item, existing }) => item.title.trim() !== existing.title.trim(),
+    ).length;
+    if (changedTitles >= 3 && changedTitles * 2 > matchedTasks.length) {
+      console.error(
+        `Mobile task sync refused: ${changedTitles} of ${matchedTasks.length} titles changed.`,
+      );
+      throw Object.assign(
+        new Error("As tarefas deste aparelho não correspondem a este espaço. Atualize a lista."),
+        { statusCode: 409 },
+      );
+    }
+
     // O aparelho reenvia todas as tarefas, então uma linha com cadência diferente da enviada pode
     // ser edição de verdade ou só divergência de formato. Edição mexe numa linha da série; se a
     // série inteira chega diferente, é formato, e a série não pode ser dividida linha a linha.

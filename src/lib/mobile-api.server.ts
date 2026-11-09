@@ -1819,14 +1819,7 @@ function taskToMobileTask(
     )
     .filter((name): name is string => Boolean(name));
   const assignee = assignees.join(", ") || "Sem responsável";
-  const canReadPrivateAttachment =
-    (workspace.company.kind === "personal" && workspace.company.ownerId === currentUser.id) ||
-    responsibleIds.includes(currentUser.id) ||
-    isAdminUser({
-      currentUser,
-      employees: workspace.employees,
-      permissionGroups: workspace.permissionGroups,
-    });
+  const canReadPrivateAttachment = canReadNativeAttachment(workspace, task, currentUser);
   const assignedBy =
     task.assignedById && task.assignedById !== currentUser.id
       ? (workspace.employees.find((employee) => employee.id === task.assignedById)?.name ?? "")
@@ -1922,6 +1915,28 @@ function mobileResponsibleId(workspace: Database, accountId: string, assignee: s
         invitation.email.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR"),
     )?.id ??
     ""
+  );
+}
+
+// O anexo enviado pelo aparelho e privado: so o le quem o enviou, o responsavel, o admin e o
+// dono do espaco pessoal. Quem le vazio reenvia vazio, entao a gravacao usa a mesma regra para
+// nao apagar nem descontar o anexo que aquela pessoa nunca recebeu.
+function canReadNativeAttachment(
+  workspace: Database,
+  task: NativeTask,
+  currentUser: Database["employees"][number],
+) {
+  const responsibleIds = [task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean);
+  return (
+    (workspace.company.kind === "personal" && workspace.company.ownerId === currentUser.id) ||
+    task.nativeOwnerId === currentUser.id ||
+    task.assignedById === currentUser.id ||
+    responsibleIds.includes(currentUser.id) ||
+    isAdminUser({
+      currentUser,
+      employees: workspace.employees,
+      permissionGroups: workspace.permissionGroups,
+    })
   );
 }
 
@@ -2372,9 +2387,13 @@ export async function replaceMobileTasks(
               );
             }
           }
-          // O aparelho só conhece o anexo dele; os do painel não podem sumir da contagem.
+          // O aparelho só conhece o anexo dele; os do painel não podem sumir da contagem. Quem não
+          // recebeu o anexo privado manda o nome vazio, e isso não quer dizer que ele foi removido.
+          const deviceAttachmentName = canReadNativeAttachment(workspace, existing, currentUser)
+            ? item.attachmentName
+            : (existing.nativeData?.attachmentName ?? "");
           existing.attachments =
-            (existing.attachmentItems?.length ?? 0) + (item.attachmentName ? 1 : 0);
+            (existing.attachmentItems?.length ?? 0) + (deviceAttachmentName ? 1 : 0);
         }
         if (isAdministrator) {
           existing.subtasks = (item.checklist ?? []).map((checklistItem, index) => ({

@@ -302,6 +302,7 @@ export function canViewTask(input: PermissionInput) {
     [input.task.responsibleId, ...(input.task.responsibleIds ?? [])].filter(Boolean),
   );
   if (isAdmin(input)) return true;
+  if (isTaskCreator(input)) return true;
 
   if (input.permissionGroups) {
     const set = resolvePermissionSet({
@@ -393,6 +394,13 @@ function getDepartmentManagedByUser(input: PermissionInput) {
   return false;
 }
 
+// Quem criou a tarefa (painel ou app gravam assignedById no servidor) continua vendo e
+// editando, mesmo que ela tenha sido atribuida a outra pessoa. Excluir fica com o admin.
+function isTaskCreator(input: PermissionInput) {
+  const userId = input.currentUser?.id;
+  return Boolean(userId && input.task.assignedById === userId);
+}
+
 function getGroupLedByUser(input: PermissionInput) {
   if (input.task.target.type !== "group") return false;
   const group = input.groups.find((item) => item.id === input.task.target.id);
@@ -446,6 +454,16 @@ function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
       canComplete: true,
       canDelete: false,
       roleLabel: "Líder do grupo",
+    };
+  }
+
+  if (isTaskCreator(input)) {
+    return {
+      canEditContent: true,
+      canChangeStatus: true,
+      canComplete: true,
+      canDelete: false,
+      roleLabel: "Criador da tarefa",
     };
   }
 

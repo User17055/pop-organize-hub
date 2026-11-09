@@ -41,6 +41,7 @@ import {
   moveOccurrenceDate,
   moveSeriesFromOccurrence,
 } from "./recurrence.server";
+import { removeDepartment } from "./department-removal";
 import { invalidateNativeShadow } from "./native-shadow";
 
 const MOBILE_SESSION_EXPIRY = "9999-12-31T23:59:59.999Z";
@@ -1013,42 +1014,8 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
     const id = requiredText(input.id, "O setor", 1);
     await mutateDatabase((platform) => {
       const { workspace, currentUser } = activeCompanyMember(platform, workspaceId, account.id);
-      const department = workspace.departments.find((item) => item.id === id);
-      if (!department) throw mobileHttpError("Setor não encontrado.", 404);
-      if (
-        !canDeleteDepartment({
-          department,
-          currentUser,
-          employees: workspace.employees,
-          departments: workspace.departments,
-          permissionGroups: workspace.permissionGroups,
-        })
-      ) {
-        throw mobileHttpError("Seu grupo de permissão não pode excluir setores.", 403);
-      }
-      // Toda pessoa e todo convite precisam de um setor (`departmentId` é obrigatório). Excluir
-      // deixaria essas linhas apontando para o nada, então a escolha de para onde vão é de quem
-      // administra, antes de excluir.
-      const people =
-        workspace.employees.filter((employee) => employee.departmentId === id).length +
-        workspace.invitations.filter((invitation) => invitation.departmentId === id).length;
-      if (people > 0) {
-        throw mobileHttpError(
-          people === 1
-            ? "Este setor ainda tem 1 pessoa. Mova-a para outro setor antes de excluir."
-            : `Este setor ainda tem ${people} pessoas. Mova-as para outro setor antes de excluir.`,
-          409,
-        );
-      }
-      workspace.departments = workspace.departments.filter((item) => item.id !== id);
-      for (const employee of workspace.employees) {
-        if (employee.visibleDepartmentIds?.includes(id)) {
-          employee.visibleDepartmentIds = employee.visibleDepartmentIds.filter(
-            (departmentId) => departmentId !== id,
-          );
-        }
-      }
-      moveTaskTargetsToCompany(workspace, "department", id);
+      const result = removeDepartment(workspace, id, currentUser);
+      if (!result.ok) throw mobileHttpError(result.message, result.status);
     });
   } else if (action === "updateGroup") {
     const id = requiredText(input.id, "O grupo", 1);

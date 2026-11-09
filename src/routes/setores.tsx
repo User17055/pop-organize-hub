@@ -6,6 +6,7 @@ import { AccessRestricted } from "@/components/access-restricted";
 import { ErrorState, LoadingState } from "@/components/data-state";
 import { Field } from "@/components/form-field";
 import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
+import { canDeleteDepartment } from "@/lib/permissions";
 import {
   Dialog,
   DialogContent,
@@ -14,10 +15,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { createDepartment, updateDepartmentDetails } from "@/lib/api/pop-organize.functions";
+import {
+  createDepartment,
+  deleteDepartment,
+  updateDepartmentDetails,
+} from "@/lib/api/pop-organize.functions";
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import { departmentColors, type Department } from "@/lib/domain";
-import { ClipboardList, Pencil, Plus, UserRound, UsersRound } from "lucide-react";
+import { ClipboardList, Pencil, Plus, Trash2, UserRound, UsersRound } from "lucide-react";
 
 export const Route = createFileRoute("/setores")({
   head: () => ({ meta: [{ title: "Setores - Pop Organize" }] }),
@@ -70,6 +75,15 @@ function SetoresPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (departmentId: string) => deleteDepartment({ data: { id: departmentId } }),
+    onSuccess: () => {
+      setShowForm(false);
+      setEditingDepartmentId(null);
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+
   if (isLoading) {
     return (
       <AppShell title="Setores" subtitle="Carregando divisões da empresa">
@@ -106,7 +120,21 @@ function SetoresPage() {
       ? createMutation.error.message
       : updateMutation.error instanceof Error
         ? updateMutation.error.message
-        : null;
+        : deleteMutation.error instanceof Error
+          ? deleteMutation.error.message
+          : null;
+  const editingDepartment = departments.find((item) => item.id === editingDepartmentId);
+  const canDeleteEditing = Boolean(
+    editingDepartment &&
+    canDeleteDepartment({
+      department: editingDepartment,
+      currentUser,
+      employees,
+      departments,
+      permissionGroups,
+    }),
+  );
+  const isSaving = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
 
   function openForm() {
     const manager = employees[0];
@@ -121,6 +149,7 @@ function SetoresPage() {
     });
     createMutation.reset();
     updateMutation.reset();
+    deleteMutation.reset();
     setShowForm(true);
   }
 
@@ -137,7 +166,19 @@ function SetoresPage() {
     });
     createMutation.reset();
     updateMutation.reset();
+    deleteMutation.reset();
     setShowForm(true);
+  }
+
+  function handleDelete() {
+    if (!editingDepartment) return;
+    if (
+      window.confirm(
+        `Excluir o setor ${editingDepartment.name}? As tarefas dele passam para a empresa.`,
+      )
+    ) {
+      deleteMutation.mutate(editingDepartment.id);
+    }
   }
 
   function handleSubmit(event: FormEvent) {
@@ -420,6 +461,17 @@ function SetoresPage() {
               {mutationError && <div className="text-sm text-destructive">{mutationError}</div>}
             </div>
             <DialogFooter className="mt-6">
+              {canDeleteEditing && (
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={isSaving}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-60 sm:mr-auto"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {deleteMutation.isPending ? "Excluindo..." : "Excluir setor"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
@@ -429,7 +481,7 @@ function SetoresPage() {
               </button>
               <button
                 type="submit"
-                disabled={createMutation.isPending || updateMutation.isPending}
+                disabled={isSaving}
                 style={{ background: "var(--gradient-primary)" }}
                 className="h-9 px-5 rounded-xl text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-(--shadow-elegant)"
               >

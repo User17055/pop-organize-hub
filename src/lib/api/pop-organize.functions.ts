@@ -31,6 +31,7 @@ import {
   type Task,
   type TargetType,
 } from "../domain";
+import { removeDepartment } from "../department-removal";
 import { invalidateNativeShadow } from "../native-shadow";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
 import {
@@ -240,6 +241,10 @@ const updateGroupSchema = createGroupSchema.extend({
 });
 
 const deleteGroupSchema = z.object({
+  id: z.string().min(1),
+});
+
+const deleteDepartmentSchema = z.object({
   id: z.string().min(1),
 });
 
@@ -2018,6 +2023,17 @@ export const updateDepartmentDetails = createServerFn({ method: "POST" })
             : undefined;
       }
       return department;
+    });
+  });
+
+export const deleteDepartment = createServerFn({ method: "POST" })
+  .validator((data) => deleteDepartmentSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const result = removeDepartment(db, data.id, currentUser);
+      if (!result.ok) throw createHttpError(result.message, result.status);
+      return { ok: true, id: data.id };
     });
   });
 

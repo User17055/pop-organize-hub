@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -3541,9 +3542,14 @@ private fun CalendarDayCell(
             // orbita num circulo de 38dp, o que vira um borrao que ninguem consegue contar. O
             // numero tambem nao depende de distinguir matiz, ao contrario da cor sozinha.
             if (extra > 0) {
+                // A altura de linha herdada do tema e 20.sp: dentro desta linha de 8.dp o texto
+                // transbordava e o Compose o cortava, sobrando so o topo dos digitos.
                 Text(
                     "+$extra",
                     fontSize = 8.sp,
+                    lineHeight = 8.sp,
+                    maxLines = 1,
+                    modifier = Modifier.wrapContentHeight(unbounded = true),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Bold,
                 )

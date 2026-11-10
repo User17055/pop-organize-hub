@@ -248,6 +248,7 @@ import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
 import br.com.poporganize.app.R
 import br.com.poporganize.app.BuildConfig
+import br.com.poporganize.app.data.downloadTasksAfterUpload
 import br.com.poporganize.app.notifications.NotificationTaskSnapshot
 import br.com.poporganize.app.notifications.saveNotificationTaskSnapshot
 import br.com.poporganize.app.notifications.showAssignedTaskNotification
@@ -827,6 +828,7 @@ private fun loadCompanyTasks(
 private fun mergeRemoteTaskRouting(
     remoteTasks: List<PopTask>,
     localTasks: List<PopTask>,
+    preserveLocalEdits: Boolean = false,
 ): List<PopTask> {
     val localByServerId = localTasks
         .filter { it.serverId.isNotBlank() }
@@ -846,7 +848,18 @@ private fun mergeRemoteTaskRouting(
                         local.assignmentTargetLabel.isNotBlank() ||
                         local.assignees.isNotEmpty()
                     )
-        val merged = if (remoteRoutingMissing && localHasRouting) {
+        val merged = if (preserveLocalEdits && local != null) {
+            // An upload rejected by the server must not erase edits while new assignments arrive.
+            local.copy(
+                canEdit = remote.canEdit,
+                canComplete = remote.canComplete,
+                canCompleteAnytime = remote.canCompleteAnytime,
+                canDelete = remote.canDelete,
+                requiresReview = remote.requiresReview,
+                isReviewer = remote.isReviewer,
+                awaitingReview = remote.awaitingReview,
+            )
+        } else if (remoteRoutingMissing && localHasRouting) {
             remote.copy(
                 department = local.department,
                 assignee = local.assignee,
@@ -3267,6 +3280,44 @@ private fun PopMainContent(
         }
     }
 
+    suspend fun refreshCompanyTasks(account: GoogleAccount, workspaceId: String): List<PopTask> {
+        val index = companyIds.indexOf(workspaceId)
+        val group = companyTaskGroups.getOrNull(index) ?: return emptyList()
+        val localSnapshot = group.toList()
+        val localJson = tasksToJson(localSnapshot).toString()
+        val lastSyncedJson = lastSyncedCompanyTasks[workspaceId]
+        val pendingDeletions = loadPendingTaskDeletions(context, account.id, workspaceId)
+        val hasLocalChanges =
+            companyTasksAreDirty(context, account.id, workspaceId) ||
+                (lastSyncedJson != null && localJson != lastSyncedJson) ||
+                pendingDeletions.isNotEmpty()
+        val refresh = downloadTasksAfterUpload(
+            upload = if (hasLocalChanges) {
+                { syncTasksWithPendingDeletions(account, localSnapshot, workspaceId) }
+            } else null,
+            download = { loadRemoteTasks(account.apiToken, workspaceId) },
+        )
+        // A response belongs to the same account/workspace and snapshot that requested it.
+        if (googleAccount?.id != account.id ||
+            companyTaskGroups.getOrNull(companyIds.indexOf(workspaceId)) !== group ||
+            tasksToJson(group).toString() != localJson
+        ) return refresh.tasks
+
+        val uploadFailed = refresh.uploadError != null
+        val remoteTasks = if (uploadFailed) {
+            refresh.tasks.filterNot { it.serverId in pendingDeletions }
+        } else refresh.tasks
+        val mergedTasks = mergeRemoteTaskRouting(remoteTasks, localSnapshot, uploadFailed)
+        lastSyncedCompanyTasks[workspaceId] = tasksToJson(
+            if (uploadFailed) refresh.tasks else mergedTasks,
+        ).toString()
+        group.clear()
+        group.addAll(mergedTasks)
+        saveCompanyTasks(context, account.id, workspaceId, mergedTasks)
+        setCompanyTasksDirty(context, account.id, workspaceId, uploadFailed)
+        return remoteTasks
+    }
+
     fun selectCompany(index: Int) {
         if (sessionMode == SessionMode.Guest) {
             selectWorkSpace(WorkSpace.Company)
@@ -3286,29 +3337,12 @@ private fun PopMainContent(
             if (token.isNotBlank() && workspaceId.isNotBlank()) {
                 navigationScope.launch {
                     val account = googleAccount ?: return@launch
-                    val group = companyTaskGroups.getOrNull(index) ?: return@launch
-                    val localSnapshot = group.toList()
-                    val localJson = tasksToJson(localSnapshot).toString()
-                    val lastSyncedJson = lastSyncedCompanyTasks[workspaceId]
-                    val hasLocalChanges =
-                        companyTasksAreDirty(context, account.id, workspaceId) ||
-                            (lastSyncedJson != null && localJson != lastSyncedJson)
-                    val remoteResult = runCatching {
-                        if (hasLocalChanges) {
-                            syncTasksWithPendingDeletions(account, localSnapshot, workspaceId)
-                        }
-                        loadRemoteTasks(token, workspaceId)
-                    }
-                    remoteResult.onSuccess { remoteTasks ->
-                        companyTaskGroups.getOrNull(index)?.let { group ->
-                            if (tasksToJson(group).toString() != localJson) return@let
-                            val mergedTasks = mergeRemoteTaskRouting(remoteTasks, group)
-                            lastSyncedCompanyTasks[workspaceId] =
-                                tasksToJson(mergedTasks).toString()
-                            group.clear()
-                            group.addAll(mergedTasks)
-                            setCompanyTasksDirty(context, account.id, workspaceId, false)
-                        }
+                    try {
+                        refreshCompanyTasks(account, workspaceId)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        Toast.makeText(context, error.localizedMessage ?: "Não foi possível atualizar as tarefas.", Toast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -3512,35 +3546,24 @@ private fun PopMainContent(
                     setAccountTasksDirty(context, account.id, true)
                 }
             }
-            if (workSpace == WorkSpace.Company) {
-                val workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty()
-                if (workspaceId.isNotBlank()) {
-                    val groupBeforeRequest = companyTaskGroups.getOrNull(selectedCompanyIndex)
-                    val groupJsonBeforeRequest = groupBeforeRequest?.let(::tasksToJson)?.toString()
-                    val companyHasLocalChanges =
-                        companyTasksAreDirty(context, account.id, workspaceId) ||
-                            (
-                                lastSyncedCompanyTasks[workspaceId] != null &&
-                                    groupJsonBeforeRequest != lastSyncedCompanyTasks[workspaceId]
-                                )
-                    if (!companyHasLocalChanges) {
-                        runCatching { loadRemoteTasks(account.apiToken, workspaceId) }.onSuccess { companyTasks ->
-                            companyTaskGroups.getOrNull(selectedCompanyIndex)?.let { group ->
-                                if (tasksToJson(group).toString() != groupJsonBeforeRequest) return@let
-                                val mergedTasks = mergeRemoteTaskRouting(companyTasks, group)
-                                lastSyncedCompanyTasks[workspaceId] =
-                                    tasksToJson(mergedTasks).toString()
-                                group.clear()
-                                group.addAll(mergedTasks)
-                            }
-                        }
-                    }
-                }
-            }
         }.onFailure { error ->
             if (error is CancellationException) throw error
             if (showFeedback) {
                 Toast.makeText(context, error.localizedMessage ?: "Não foi possível atualizar.", Toast.LENGTH_LONG).show()
+            }
+        }
+        if (workSpace == WorkSpace.Company) {
+            val workspaceId = companyIds.getOrNull(selectedCompanyIndex).orEmpty()
+            if (workspaceId.isNotBlank()) {
+                try {
+                    refreshCompanyTasks(account, workspaceId)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    if (showFeedback) {
+                        Toast.makeText(context, error.localizedMessage ?: "Não foi possível atualizar as tarefas.", Toast.LENGTH_LONG).show()
+                    }
+                }
             }
         }
         if (showIndicator) {
@@ -3558,60 +3581,15 @@ private fun PopMainContent(
                 while (true) {
                     runCatching { loadMobileWorkspaces(token) }.onSuccess { workspaces ->
                         applyCompanyWorkspaces(workspaces)
-                        companyIds.forEachIndexed { index, workspaceId ->
-                        val companyTasks = companyTaskGroups.getOrNull(index)
-                        val localJson = companyTasks?.let(::tasksToJson)?.toString()
-                        val lastSyncedJson = lastSyncedCompanyTasks[workspaceId]
-                        val isDirty = companyTasksAreDirty(context, account.id, workspaceId)
-                        if (
-                            companyTasks != null &&
-                            localJson != null &&
-                            (
-                                isDirty ||
-                                (lastSyncedJson != null && localJson != lastSyncedJson) ||
-                                    loadPendingTaskDeletions(context, account.id, workspaceId).isNotEmpty()
-                            )
-                        ) {
-                            val syncSucceeded = runCatching {
-                                syncTasksWithPendingDeletions(account, companyTasks.toList(), workspaceId)
+                        companyIds.toList().forEach { workspaceId ->
+                            try {
+                                val remoteTasks = refreshCompanyTasks(account, workspaceId)
+                                rememberAssignedTasks(remoteTasks, assignmentAlertsReady)
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Exception) {
+                                // Retry on the next refresh; cached tasks remain available offline.
                             }
-                                .onSuccess {
-                                    if (tasksToJson(companyTasks).toString() == localJson) {
-                                        lastSyncedCompanyTasks[workspaceId] = localJson
-                                        setCompanyTasksDirty(context, account.id, workspaceId, false)
-                                    }
-                                }
-                                .isSuccess
-                            if (!syncSucceeded) return@forEachIndexed
-                        }
-                        val localJsonBeforeRequest = companyTaskGroups
-                            .getOrNull(index)
-                            ?.let(::tasksToJson)
-                            ?.toString()
-                        runCatching { loadRemoteTasks(token, workspaceId) }.onSuccess { remoteTasks ->
-                            val currentGroup = companyTaskGroups.getOrNull(index)
-                            val mergedTasks =
-                                mergeRemoteTaskRouting(remoteTasks, currentGroup.orEmpty())
-                            rememberAssignedTasks(mergedTasks, assignmentAlertsReady)
-                            val remoteJson = tasksToJson(mergedTasks).toString()
-                            val currentLocalJson = companyTaskGroups
-                                .getOrNull(index)
-                                ?.let(::tasksToJson)
-                                ?.toString()
-                            if (
-                                currentLocalJson == localJsonBeforeRequest &&
-                                (
-                                    lastSyncedCompanyTasks[workspaceId].isNullOrBlank() ||
-                                        currentLocalJson == lastSyncedCompanyTasks[workspaceId]
-                                    )
-                            ) {
-                                lastSyncedCompanyTasks[workspaceId] = remoteJson
-                                companyTaskGroups.getOrNull(index)?.let { group ->
-                                    group.clear()
-                                    group.addAll(mergedTasks)
-                                }
-                            }
-                        }
                         }
                         assignmentAlertsReady = true
                     }

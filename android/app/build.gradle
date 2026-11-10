@@ -21,7 +21,7 @@ android {
         applicationId "br.com.poporganize.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 15
+        versionCode 17
         versionName "1.0.14"
         manifestPlaceholders = [appLabel: "Pop Organize"]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"

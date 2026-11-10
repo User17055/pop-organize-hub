@@ -2824,13 +2824,9 @@ private fun CalendarScreen(store: PopStore) {
         tasksByDate.filterKeys { it >= today }.toList().sortedBy { it.first }
     }
 
-    val rows = remember(past, overdueCount, upcoming, pastExpanded, today, agora) {
+    val rows = remember(past, overdueCount, upcoming, pastExpanded, today, agora, selectedDate, tasksByDate) {
         buildList<CalendarRow> {
-            if (past.isNotEmpty()) {
-                add(CalendarRow.PastHeader(overdueCount = overdueCount, total = past.size))
-                if (pastExpanded) past.forEach { add(CalendarRow.Entry(it)) }
-            }
-            upcoming.forEach { (date, dayTasks) ->
+            fun addDia(date: LocalDate, dayTasks: List<PopTask>) {
                 add(CalendarRow.DayHeader(date))
                 val naAgenda = expandirDia(dayTasks)
                 val comHora = naAgenda.filter { it.horario != null }
@@ -2866,16 +2862,34 @@ private fun CalendarScreen(store: PopStore) {
                 // reservado para linha FORA de agenda, como as de "Atrasadas".
                 semHora.forEach { add(CalendarRow.Entry(it.task, "")) }
             }
+
+            // Dia passado tocado na grade: a agenda daquele dia, com tudo o que era dele,
+            // concluido ou nao, ANTES de "Atrasadas". Pedido do Enzo (10/11): tocar em ontem so
+            // abria "Atrasadas", que mistura todos os dias e esconde o que ja foi feito, e nao
+            // dava para ver o que ficou por fazer naquele dia. As chaves nao colidem com as de
+            // "Atrasadas": la a linha vai com horario `null` ("sem-hora"), aqui com "" ou a hora.
+            if (selectedDate < today) {
+                val doDia = tasksByDate[selectedDate].orEmpty()
+                if (doDia.isEmpty()) {
+                    add(CalendarRow.DayHeader(selectedDate))
+                    add(CalendarRow.Section(selectedDate, "Nenhuma tarefa neste dia"))
+                } else {
+                    addDia(selectedDate, doDia)
+                }
+            }
+            if (past.isNotEmpty()) {
+                add(CalendarRow.PastHeader(overdueCount = overdueCount, total = past.size))
+                if (pastExpanded) past.forEach { add(CalendarRow.Entry(it)) }
+            }
+            upcoming.forEach { (date, dayTasks) -> addDia(date, dayTasks) }
         }
     }
 
     fun goToDate(date: LocalDate) {
         selectedDate = date
         if (date < today) {
-            // Dias passados nao tem cabecalho proprio: vivem todos dentro da secao recolhivel.
-            // Rolar ate um cabecalho inexistente nao levaria a lugar nenhum, entao abrir a secao
-            // e o que corresponde ao toque.
-            pastExpanded = true
+            // O bloco do dia passado entra na recomposicao seguinte, sempre logo abaixo da grade:
+            // o indice 1 da lista e o cabecalho dele.
             scope.launch { listState.animateScrollToItem(1) }
             return
         }

@@ -31,6 +31,9 @@ import {
   type Task,
   type TargetType,
 } from "../domain";
+import { removeDepartment } from "../department-removal";
+import { removeInvitation } from "../invitation-removal";
+import { removeAttachment } from "../attachment-removal";
 import { invalidateNativeShadow } from "../native-shadow";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
 import {
@@ -203,6 +206,10 @@ const resendEmployeeInvitationSchema = z.object({
   id: z.string().min(1, "Convite inválido."),
 });
 
+const cancelEmployeeInvitationSchema = z.object({
+  id: z.string().min(1, "Convite inválido."),
+});
+
 const acceptInvitationSchema = z.object({
   token: z.string().min(20, "Convite inválido."),
   password: z.string().min(8, "A senha deve ter pelo menos 8 caracteres."),
@@ -240,6 +247,10 @@ const updateGroupSchema = createGroupSchema.extend({
 });
 
 const deleteGroupSchema = z.object({
+  id: z.string().min(1),
+});
+
+const deleteDepartmentSchema = z.object({
   id: z.string().min(1),
 });
 
@@ -331,6 +342,11 @@ const updateTaskSubtaskSchema = z.object({
 const deleteTaskSubtaskSchema = z.object({
   taskId: z.string().min(1),
   subtaskId: z.string().min(1),
+});
+
+const removeTaskAttachmentSchema = z.object({
+  taskId: z.string().min(1),
+  attachmentId: z.string().min(1),
 });
 
 const updateProfileSchema = z
@@ -1804,6 +1820,24 @@ export const deleteTaskSubtask = createServerFn({ method: "POST" })
     });
   });
 
+export const removeTaskAttachment = createServerFn({ method: "POST" })
+  .validator((data) => removeTaskAttachmentSchema.parse(data))
+  .handler(async ({ data }) => {
+    let removedFileId: string | undefined;
+    const updatedTask = await mutateCurrentWorkspace((db, currentUserId) => {
+      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
+      const result = removeAttachment(task, data.attachmentId, currentUserId, permissions);
+      if (!result.ok) throw createHttpError(result.message, result.status);
+      removedFileId = result.fileId;
+      return task;
+    });
+    if (removedFileId) {
+      const { deleteRemovedAttachmentFile } = await import("../task-attachments.server");
+      await deleteRemovedAttachmentFile(removedFileId);
+    }
+    return updatedTask;
+  });
+
 export const deleteTask = createServerFn({ method: "POST" })
   .validator((data) => deleteTaskSchema.parse(data))
   .handler(async ({ data }) => {
@@ -2021,6 +2055,17 @@ export const updateDepartmentDetails = createServerFn({ method: "POST" })
     });
   });
 
+export const deleteDepartment = createServerFn({ method: "POST" })
+  .validator((data) => deleteDepartmentSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const result = removeDepartment(db, data.id, currentUser);
+      if (!result.ok) throw createHttpError(result.message, result.status);
+      return { ok: true, id: data.id };
+    });
+  });
+
 export const updateWorkspaceTags = createServerFn({ method: "POST" })
   .validator((data) => updateWorkspaceTagsSchema.parse(data))
   .handler(async ({ data }) => {
@@ -2229,6 +2274,23 @@ export const deleteEmployee = createServerFn({ method: "POST" })
         }
       });
       return { ok: true, id: data.id };
+    });
+  });
+
+export const cancelEmployeeInvitation = createServerFn({ method: "POST" })
+  .validator((data) => cancelEmployeeInvitationSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.employees",
+        "Seu grupo de permissão não pode cancelar convites.",
+      );
+      if (!removeInvitation(db, data.id)) {
+        throw createHttpError("Convite pendente não encontrado.", 404);
+      }
+      return { ok: true, invitationId: data.id };
     });
   });
 

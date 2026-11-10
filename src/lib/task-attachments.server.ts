@@ -269,6 +269,25 @@ export async function removeOrphanAttachmentFiles() {
   }
 }
 
+/**
+ * Apaga na hora o arquivo de um anexo que acabou de ser removido, sem esperar a limpeza de sobras
+ * (que só olha arquivo com mais de uma hora). Confere antes que nenhuma tarefa o cite mais. Falha
+ * aqui não desfaz a remoção: o download já recusa o arquivo, e a limpeza de sobras o pega depois.
+ */
+export async function deleteRemovedAttachmentFile(fileId: string) {
+  try {
+    const platform = await readDatabase();
+    const stillReferenced = platform.workspaces.some((workspace) =>
+      workspace.tasks.some((task) => task.attachmentItems?.some((item) => item.fileId === fileId)),
+    );
+    if (stillReferenced) return;
+    const pool = await attachmentsTable();
+    await pool.execute("DELETE FROM task_attachment_files WHERE id = ?", [fileId]);
+  } catch (error) {
+    console.error("Attachment removal cleanup failed", error);
+  }
+}
+
 export function attachmentErrorResponse(error: unknown) {
   const status =
     typeof error === "object" && error && "statusCode" in error

@@ -122,6 +122,7 @@ function CalendarPage() {
     deleteTaskMutation,
     commentMutation,
     attachmentMutation,
+    removeAttachmentMutation,
     addSubtaskMutation,
     toggleSubtaskMutation,
     deleteSubtaskMutation,
@@ -446,7 +447,11 @@ function CalendarPage() {
   const commentError =
     commentMutation.error instanceof Error ? commentMutation.error.message : null;
   const attachmentError =
-    attachmentMutation.error instanceof Error ? attachmentMutation.error.message : null;
+    attachmentMutation.error instanceof Error
+      ? attachmentMutation.error.message
+      : removeAttachmentMutation.error instanceof Error
+        ? removeAttachmentMutation.error.message
+        : null;
 
   const taskDetailLayer = isMounted
     ? createPortal(
@@ -494,6 +499,15 @@ function CalendarPage() {
                 isCommenting={commentMutation.isPending}
                 onAttachmentFile={handleAttachmentFile}
                 isAttaching={attachmentMutation.isPending}
+                currentUserId={data.currentUser.id}
+                onRemoveAttachment={(attachmentId) =>
+                  removeAttachmentMutation.mutate({ taskId: selectedTask.id, attachmentId })
+                }
+                removingAttachmentId={
+                  removeAttachmentMutation.isPending
+                    ? removeAttachmentMutation.variables?.attachmentId
+                    : undefined
+                }
                 subtasks={selectedTask.subtasks}
                 onAddSubtask={(title) =>
                   addSubtaskMutation.mutate({ taskId: selectedTask.id, title })

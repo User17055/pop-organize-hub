@@ -23,6 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  cancelEmployeeInvitation,
   createEmployee,
   deleteEmployee,
   resendEmployeeInvitation,
@@ -31,7 +32,7 @@ import {
 import { useWorkspaceData, workspaceQueryKey } from "@/lib/api/use-workspace";
 import { getAvatarGradient } from "@/lib/avatar-colors";
 import type { Employee } from "@/lib/domain";
-import { Check, Copy, Link2, Mail, Plus, Trash2 } from "lucide-react";
+import { Check, Copy, Link2, Mail, Plus, Trash2, X } from "lucide-react";
 
 export const Route = createFileRoute("/funcionarios")({
   head: () => ({ meta: [{ title: "Funcionários - Pop Organize" }] }),
@@ -113,6 +114,12 @@ function FuncionariosPage() {
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
+  const cancelInvitationMutation = useMutation({
+    mutationFn: (invitationId: string) => cancelEmployeeInvitation({ data: { id: invitationId } }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
   const updateMutation = useMutation({
     mutationFn: (payload: {
       id: string;
@@ -172,6 +179,8 @@ function FuncionariosPage() {
   const getPermissionGroup = (id?: string) => permissionGroups.find((group) => group.id === id);
   const mutationError = createMutation.error instanceof Error ? createMutation.error.message : null;
   const resendError = resendMutation.error instanceof Error ? resendMutation.error.message : null;
+  const cancelInvitationError =
+    cancelInvitationMutation.error instanceof Error ? cancelInvitationMutation.error.message : null;
   const editingEmployee = employees.find((employee) => employee.id === editingEmployeeId);
   const employeeFormReadOnly = Boolean(editingEmployeeId) && !canEdit;
 
@@ -233,6 +242,19 @@ function FuncionariosPage() {
     setShowForm(true);
   }
 
+  function cancelInvitation(invitation: (typeof invitations)[number]) {
+    if (
+      window.confirm(
+        `Cancelar o convite de ${invitation.name}? O link enviado deixa de funcionar e as tarefas atribuídas a ${invitation.name} ficam sem essa pessoa.`,
+      )
+    ) {
+      setResentInvitationId("");
+      resendMutation.reset();
+      cancelInvitationMutation.reset();
+      cancelInvitationMutation.mutate(invitation.id);
+    }
+  }
+
   function removeEmployee(employee: (typeof employees)[number]) {
     if (window.confirm(`Excluir ${employee.name} da empresa?`)) {
       deleteMutation.mutate(employee.id);
@@ -289,33 +311,57 @@ function FuncionariosPage() {
                   </div>
                 </div>
                 {canManage && (
-                  <button
-                    type="button"
-                    disabled={
-                      resendMutation.isPending && resendMutation.variables === invitation.id
-                    }
-                    onClick={() => {
-                      setResentInvitationId("");
-                      resendMutation.reset();
-                      resendMutation.mutate(invitation.id);
-                    }}
-                    className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-primary/25 px-3 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
-                  >
-                    {resentInvitationId === invitation.id ? (
-                      <Check className="h-3.5 w-3.5" />
-                    ) : (
-                      <Mail className="h-3.5 w-3.5" />
-                    )}
-                    {resendMutation.isPending && resendMutation.variables === invitation.id
-                      ? "Enviando..."
-                      : resentInvitationId === invitation.id
-                        ? "E-mail enviado"
-                        : "Reenviar e-mail"}
-                  </button>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      disabled={
+                        (resendMutation.isPending && resendMutation.variables === invitation.id) ||
+                        (cancelInvitationMutation.isPending &&
+                          cancelInvitationMutation.variables === invitation.id)
+                      }
+                      onClick={() => {
+                        setResentInvitationId("");
+                        resendMutation.reset();
+                        cancelInvitationMutation.reset();
+                        resendMutation.mutate(invitation.id);
+                      }}
+                      className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-primary/25 px-3 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
+                    >
+                      {resentInvitationId === invitation.id ? (
+                        <Check className="h-3.5 w-3.5" />
+                      ) : (
+                        <Mail className="h-3.5 w-3.5" />
+                      )}
+                      {resendMutation.isPending && resendMutation.variables === invitation.id
+                        ? "Enviando..."
+                        : resentInvitationId === invitation.id
+                          ? "E-mail enviado"
+                          : "Reenviar e-mail"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        (cancelInvitationMutation.isPending &&
+                          cancelInvitationMutation.variables === invitation.id) ||
+                        (resendMutation.isPending && resendMutation.variables === invitation.id)
+                      }
+                      onClick={() => cancelInvitation(invitation)}
+                      className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-destructive/25 px-3 text-xs font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      {cancelInvitationMutation.isPending &&
+                      cancelInvitationMutation.variables === invitation.id
+                        ? "Cancelando..."
+                        : "Cancelar convite"}
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
             {resendError && <div className="text-sm text-destructive">{resendError}</div>}
+            {cancelInvitationError && (
+              <div className="text-sm text-destructive">{cancelInvitationError}</div>
+            )}
           </div>
         </div>
       )}

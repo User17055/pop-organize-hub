@@ -41,6 +41,8 @@ import {
   moveOccurrenceDate,
   moveSeriesFromOccurrence,
 } from "./recurrence.server";
+import { removeDepartment } from "./department-removal";
+import { removeInvitation } from "./invitation-removal";
 import { invalidateNativeShadow } from "./native-shadow";
 
 const MOBILE_SESSION_EXPIRY = "9999-12-31T23:59:59.999Z";
@@ -1013,42 +1015,8 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
     const id = requiredText(input.id, "O setor", 1);
     await mutateDatabase((platform) => {
       const { workspace, currentUser } = activeCompanyMember(platform, workspaceId, account.id);
-      const department = workspace.departments.find((item) => item.id === id);
-      if (!department) throw mobileHttpError("Setor não encontrado.", 404);
-      if (
-        !canDeleteDepartment({
-          department,
-          currentUser,
-          employees: workspace.employees,
-          departments: workspace.departments,
-          permissionGroups: workspace.permissionGroups,
-        })
-      ) {
-        throw mobileHttpError("Seu grupo de permissão não pode excluir setores.", 403);
-      }
-      // Toda pessoa e todo convite precisam de um setor (`departmentId` é obrigatório). Excluir
-      // deixaria essas linhas apontando para o nada, então a escolha de para onde vão é de quem
-      // administra, antes de excluir.
-      const people =
-        workspace.employees.filter((employee) => employee.departmentId === id).length +
-        workspace.invitations.filter((invitation) => invitation.departmentId === id).length;
-      if (people > 0) {
-        throw mobileHttpError(
-          people === 1
-            ? "Este setor ainda tem 1 pessoa. Mova-a para outro setor antes de excluir."
-            : `Este setor ainda tem ${people} pessoas. Mova-as para outro setor antes de excluir.`,
-          409,
-        );
-      }
-      workspace.departments = workspace.departments.filter((item) => item.id !== id);
-      for (const employee of workspace.employees) {
-        if (employee.visibleDepartmentIds?.includes(id)) {
-          employee.visibleDepartmentIds = employee.visibleDepartmentIds.filter(
-            (departmentId) => departmentId !== id,
-          );
-        }
-      }
-      moveTaskTargetsToCompany(workspace, "department", id);
+      const result = removeDepartment(workspace, id, currentUser);
+      if (!result.ok) throw mobileHttpError(result.message, result.status);
     });
   } else if (action === "updateGroup") {
     const id = requiredText(input.id, "O grupo", 1);
@@ -1415,9 +1383,7 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
           if (task.reviewerId === employee.id) task.reviewerId = undefined;
         });
       }
-      if (invitation) {
-        workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
-      }
+      if (invitation) removeInvitation(workspace, invitation.id);
     });
   } else if (action === "resendInvitation") {
     const invitationId = requiredText(input.invitationId, "O convite", 1);
@@ -1819,14 +1785,7 @@ function taskToMobileTask(
     )
     .filter((name): name is string => Boolean(name));
   const assignee = assignees.join(", ") || "Sem responsável";
-  const canReadPrivateAttachment =
-    (workspace.company.kind === "personal" && workspace.company.ownerId === currentUser.id) ||
-    responsibleIds.includes(currentUser.id) ||
-    isAdminUser({
-      currentUser,
-      employees: workspace.employees,
-      permissionGroups: workspace.permissionGroups,
-    });
+  const canReadPrivateAttachment = canReadNativeAttachment(workspace, task, currentUser);
   const assignedBy =
     task.assignedById && task.assignedById !== currentUser.id
       ? (workspace.employees.find((employee) => employee.id === task.assignedById)?.name ?? "")
@@ -1922,6 +1881,28 @@ function mobileResponsibleId(workspace: Database, accountId: string, assignee: s
         invitation.email.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR"),
     )?.id ??
     ""
+  );
+}
+
+// O anexo enviado pelo aparelho e privado: so o le quem o enviou, o responsavel, o admin e o
+// dono do espaco pessoal. Quem le vazio reenvia vazio, entao a gravacao usa a mesma regra para
+// nao apagar nem descontar o anexo que aquela pessoa nunca recebeu.
+function canReadNativeAttachment(
+  workspace: Database,
+  task: NativeTask,
+  currentUser: Database["employees"][number],
+) {
+  const responsibleIds = [task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean);
+  return (
+    (workspace.company.kind === "personal" && workspace.company.ownerId === currentUser.id) ||
+    task.nativeOwnerId === currentUser.id ||
+    task.assignedById === currentUser.id ||
+    responsibleIds.includes(currentUser.id) ||
+    isAdminUser({
+      currentUser,
+      employees: workspace.employees,
+      permissionGroups: workspace.permissionGroups,
+    })
   );
 }
 
@@ -2372,9 +2353,13 @@ export async function replaceMobileTasks(
               );
             }
           }
-          // O aparelho só conhece o anexo dele; os do painel não podem sumir da contagem.
+          // O aparelho só conhece o anexo dele; os do painel não podem sumir da contagem. Quem não
+          // recebeu o anexo privado manda o nome vazio, e isso não quer dizer que ele foi removido.
+          const deviceAttachmentName = canReadNativeAttachment(workspace, existing, currentUser)
+            ? item.attachmentName
+            : (existing.nativeData?.attachmentName ?? "");
           existing.attachments =
-            (existing.attachmentItems?.length ?? 0) + (item.attachmentName ? 1 : 0);
+            (existing.attachmentItems?.length ?? 0) + (deviceAttachmentName ? 1 : 0);
         }
         if (isAdministrator) {
           existing.subtasks = (item.checklist ?? []).map((checklistItem, index) => ({

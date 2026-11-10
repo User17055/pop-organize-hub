@@ -5,6 +5,7 @@ import {
   createTask,
   deleteTask,
   deleteTaskSubtask,
+  removeTaskAttachment,
   reorderTask,
   toggleTaskSubtask,
   updateTaskDetails,
@@ -183,6 +184,15 @@ export function useTaskMutations(options?: {
     },
   });
 
+  const removeAttachmentMutation = useMutation({
+    mutationFn: (payload: { taskId: string; attachmentId: string }) =>
+      removeTaskAttachment({ data: payload }),
+    onSuccess: (updatedTask) => {
+      updateTaskInWorkspace(updatedTask);
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+
   const addSubtaskMutation = useMutation({
     mutationFn: (payload: { taskId: string; title: string }) => addTaskSubtask({ data: payload }),
     onSuccess: (updatedTask) => {
@@ -217,6 +227,7 @@ export function useTaskMutations(options?: {
     reorderTaskMutation,
     commentMutation,
     attachmentMutation,
+    removeAttachmentMutation,
     addSubtaskMutation,
     toggleSubtaskMutation,
     deleteSubtaskMutation,

@@ -30,7 +30,8 @@ on:
 
 jobs:
   release:
-    runs-on: macos-15
+    # Mesma maquina do check: o macos-15 (arm64) deixou de ser alocado em 11/2026.
+    runs-on: macos-15-intel
     timeout-minutes: 90
 
     steps:
@@ -67,8 +68,8 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             ~/.konan
-          key: ${{ runner.os }}-kmp-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: ${{ runner.os }}-kmp-
+          key: ${{ runner.os }}-${{ runner.arch }}-kmp-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-kmp-
 
       - name: Preparar a chave da App Store Connect API
         env:

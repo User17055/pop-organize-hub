@@ -1,6 +1,8 @@
 import type { Database } from "./database";
 import { nextId } from "./database";
-import type { Task } from "./domain";
+import type { Task, TaskRecurrence } from "./domain";
+import { invalidateNativeShadow } from "./native-shadow";
+import { seriesSlotDate, sortedList } from "./recurrence";
 
 type RecurringNativeTask = Task & {
   nativeSource?: string;
@@ -73,7 +75,7 @@ function nextDailyDate(value: string, excludedWeekDays: number[], intervalDays =
   return next;
 }
 
-function advanceRecurringDate(date: string, recurrence: NonNullable<Task["recurrence"]>) {
+export function advanceRecurringDate(date: string, recurrence: NonNullable<Task["recurrence"]>) {
   if (recurrence.frequency === "daily") {
     return nextDailyDate(date, recurrence.excludedWeekDays ?? [], recurrence.interval ?? 1);
   }
@@ -139,6 +141,8 @@ function cloneOccurrence(
     recurrenceExcludedDates: template.recurrenceExcludedDates
       ? [...template.recurrenceExcludedDates]
       : undefined,
+    recurrenceSeriesEndDate: template.recurrenceSeriesEndDate,
+    dueTime: template.dueTime,
     subtasks: (template.subtasks ?? []).map((subtask, index) => ({
       id: `ts${index + 1}`,
       title: subtask.title,
@@ -190,21 +194,24 @@ export function materializeRecurringTasks(
 
   let created = 0;
   for (const [seriesId, seriesTasks] of series) {
-    seriesTasks.sort((left, right) => left.dueDate.localeCompare(right.dueDate));
+    // A conta parte da posição na série, não da data atual: uma ocorrência movida "só esta" não muda
+    // o ritmo, senão mover a mais antiga criaria uma série paralela ou tarefas atrasadas.
+    seriesTasks.sort((left, right) => seriesSlotDate(left).localeCompare(seriesSlotDate(right)));
     const template = seriesTasks[0];
-    if (!template.recurrence || template.dueDate > currentDate) continue;
+    if (!template.recurrence || seriesSlotDate(template) > currentDate) continue;
 
     const existingDates = new Set(seriesTasks.map((task) => task.dueDate));
     const excludedDates = new Set(
       seriesTasks.flatMap((task) => task.recurrenceExcludedDates ?? []),
     );
-    let dueDate = template.dueDate;
+    const endDate = earlierDate(template.recurrence.endDate, template.recurrenceSeriesEndDate);
+    let dueDate = seriesSlotDate(template);
     let occurrence = template.recurrenceOccurrence ?? 1;
     let iterations = 0;
 
     while (dueDate <= currentDate && iterations < 10_000) {
       if (
-        (!template.recurrence.endDate || dueDate <= template.recurrence.endDate) &&
+        (!endDate || dueDate <= endDate) &&
         !existingDates.has(dueDate) &&
         !excludedDates.has(dueDate)
       ) {
@@ -221,7 +228,7 @@ export function materializeRecurringTasks(
         created += 1;
       }
 
-      if (template.recurrence.endDate && dueDate >= template.recurrence.endDate) break;
+      if (endDate && dueDate >= endDate) break;
       const nextDate = advanceRecurringDate(dueDate, template.recurrence);
       if (nextDate <= dueDate) break;
       dueDate = nextDate;
@@ -231,4 +238,243 @@ export function materializeRecurringTasks(
   }
 
   return created;
+}
+
+function earlierDate(left?: string, right?: string) {
+  if (!left) return right;
+  if (!right) return left;
+  return left < right ? left : right;
+}
+
+function seriesIdOf(task: Task) {
+  return task.recurrenceParentId ?? task.id;
+}
+
+function withEndDate(recurrence: TaskRecurrence, endDate?: string): TaskRecurrence {
+  const next = { ...recurrence };
+  if (endDate) next.endDate = endDate;
+  else delete next.endDate;
+  return next;
+}
+
+/** Recorrência que respeita o fim de uma série encerrada, venha ela do painel ou do aparelho. */
+export function clampRecurrenceToSeriesEnd(
+  recurrence: Task["recurrence"],
+  seriesEndDate?: string,
+): Task["recurrence"] {
+  if (!recurrence || !seriesEndDate) return recurrence;
+  return withEndDate(recurrence, earlierDate(recurrence.endDate, seriesEndDate));
+}
+
+/**
+ * Ocorrência ainda intocada: pendente, sem comentário, anexo nem subtarefa feita. É a única que
+ * pode sumir quando a série muda, porque o gerador a recriaria igual se a regra fosse a mesma.
+ */
+function isUntouchedOccurrence(task: Task) {
+  return (
+    task.status === "pending" &&
+    !task.comments &&
+    !task.attachments &&
+    !(task.subtasks ?? []).some((subtask) => subtask.done)
+  );
+}
+
+/**
+ * Muda a cadência a partir da ocorrência `task`.
+ *
+ * A regra fica gravada em cada linha da série, e o gerador parte da linha mais antiga. Trocar só a
+ * linha editada deixava a regra antiga gerando ocorrências ao lado da nova. Aqui a série antiga é
+ * encerrada no dia anterior a `fromDate`, suas ocorrências intocadas daí em diante saem, e `task`
+ * vira o início de uma série nova com `next` (ou deixa de repetir, se `next` for vazio).
+ *
+ * Aplicar a regra nova à série inteira não serve: o gerador a começaria na primeira ocorrência e
+ * criaria tarefas atrasadas no passado.
+ */
+export function changeSeriesRecurrence(
+  workspace: Database,
+  task: Task,
+  next: Task["recurrence"],
+  fromDate: string,
+  // Quem edita só apaga a ocorrência que pode ver e excluir; as outras ficam e só são encerradas.
+  canRemove: (task: Task) => boolean = () => true,
+) {
+  const seriesId = seriesIdOf(task);
+  const lastDay = addDays(fromDate, -1);
+  const removedIds = new Set<string>();
+  const keptDates: string[] = [];
+  const remaining: Task[] = [];
+
+  for (const sibling of workspace.tasks) {
+    if (sibling === task || !sibling.recurrence || seriesIdOf(sibling) !== seriesId) continue;
+    if (sibling.dueDate >= fromDate) {
+      if (isUntouchedOccurrence(sibling) && canRemove(sibling)) {
+        removedIds.add(sibling.id);
+        continue;
+      }
+      keptDates.push(sibling.dueDate);
+    }
+    sibling.recurrenceSeriesEndDate = earlierDate(sibling.recurrenceSeriesEndDate, lastDay);
+    sibling.recurrence = clampRecurrenceToSeriesEnd(
+      sibling.recurrence,
+      sibling.recurrenceSeriesEndDate,
+    );
+    // O `nativeData` da série antiga fica intacto de propósito: o fim chega ao aparelho pelo
+    // `recurrenceSeriesEndDate`, e apagar a regra crua faria a próxima sincronização enxergar
+    // mudança de cadência onde não houve.
+    remaining.push(sibling);
+  }
+
+  if (removedIds.size) {
+    workspace.tasks = workspace.tasks.filter((item) => !removedIds.has(item.id));
+  }
+
+  // Quando a linha editada é a raiz, as outras apontam para o id dela. Ele passa a ser o id da
+  // série nova, então o que sobrou da antiga ganha como raiz a sua ocorrência mais antiga.
+  if (task.id === seriesId && remaining.length) {
+    const oldestId = [...remaining].sort((left, right) =>
+      left.dueDate.localeCompare(right.dueDate),
+    )[0].id;
+    for (const sibling of remaining) sibling.recurrenceParentId = oldestId;
+  }
+
+  task.recurrence = next;
+  delete task.recurrenceParentId;
+  delete task.recurrenceSeriesEndDate;
+  delete task.recurrenceSlotDate;
+  task.recurrenceOccurrence = next ? 1 : undefined;
+  // Uma ocorrência antiga que já foi mexida continua de pé; a série nova não cria outra na mesma data.
+  const excluded = sortedList(keptDates.filter((date) => date !== task.dueDate));
+  task.recurrenceExcludedDates = next ? excluded : undefined;
+  invalidateNativeShadow(task, "recurrence", "recurrenceOccurrence");
+
+  return { removedIds: [...removedIds] };
+}
+
+function isoWeekDay(date: string) {
+  const { year, month, day } = dateParts(date);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() || 7;
+}
+
+/**
+ * A mesma regra, ancorada numa data nova. Sem isso, uma semanal de segunda movida para terça voltaria
+ * a cair na segunda, porque o gerador procura o dia marcado na regra, e não a data da tarefa.
+ */
+export function recurrenceAtDate(recurrence: TaskRecurrence, from: string, to: string) {
+  const next = { ...recurrence };
+  if (next.weekDays?.length) {
+    const others =
+      next.weekDays.length === 1 ? [] : next.weekDays.filter((day) => day !== isoWeekDay(from));
+    next.weekDays = sortedList([...others, isoWeekDay(to)]);
+  }
+  if (next.dayOfMonth) next.dayOfMonth = dateParts(to).day;
+  if (next.monthOfYear) next.monthOfYear = dateParts(to).month;
+  return next;
+}
+
+/**
+ * "Só esta": a ocorrência muda de data e a série segue como estava. A posição que ela ocupa fica
+ * guardada e excluída, para o gerador não recriá-la nem contar o ritmo a partir da data nova. Voltar
+ * para a posição original desfaz as duas coisas.
+ */
+export function moveOccurrenceDate(workspace: Database, task: Task, newDate: string) {
+  const slot = seriesSlotDate(task);
+  task.dueDate = newDate;
+  if (newDate === slot) {
+    delete task.recurrenceSlotDate;
+    const seriesId = seriesIdOf(task);
+    for (const item of workspace.tasks) {
+      if (!item.recurrence || seriesIdOf(item) !== seriesId) continue;
+      item.recurrenceExcludedDates = item.recurrenceExcludedDates?.filter((date) => date !== slot);
+    }
+  } else {
+    task.recurrenceSlotDate = slot;
+    excludeSeriesDate(workspace, task, slot);
+  }
+  invalidateNativeShadow(task, "dueDate");
+}
+
+/**
+ * "Esta e as seguintes": a série se divide nesta ocorrência, como numa troca de regra, e a parte nova
+ * segue a data escolhida. As anteriores ficam como estão.
+ */
+export function moveSeriesFromOccurrence(
+  workspace: Database,
+  task: Task,
+  newDate: string,
+  canRemove: (task: Task) => boolean = () => true,
+) {
+  const previousDate = task.dueDate;
+  const next = task.recurrence && recurrenceAtDate(task.recurrence, seriesSlotDate(task), newDate);
+  task.dueDate = newDate;
+  changeSeriesRecurrence(
+    workspace,
+    task,
+    next,
+    previousDate < newDate ? previousDate : newDate,
+    canRemove,
+  );
+  invalidateNativeShadow(task, "dueDate");
+}
+
+/**
+ * A data de fim vale para a série inteira: o gerador lê a da linha mais antiga, então mudar só a
+ * linha editada não encerrava nada. Ocorrências intocadas depois do fim novo saem.
+ */
+export function applySeriesEndDate(
+  workspace: Database,
+  task: Task,
+  endDate?: string,
+  canRemove: (task: Task) => boolean = () => true,
+) {
+  const seriesId = seriesIdOf(task);
+  const removedIds = new Set<string>();
+  for (const item of workspace.tasks) {
+    if (!item.recurrence || seriesIdOf(item) !== seriesId) continue;
+    if (
+      item !== task &&
+      endDate &&
+      item.dueDate > endDate &&
+      isUntouchedOccurrence(item) &&
+      canRemove(item)
+    ) {
+      removedIds.add(item.id);
+      continue;
+    }
+    item.recurrence = withEndDate(
+      item.recurrence,
+      earlierDate(endDate, item.recurrenceSeriesEndDate),
+    );
+    invalidateNativeShadow(item, "recurrenceEnd");
+  }
+  if (removedIds.size) {
+    workspace.tasks = workspace.tasks.filter((item) => !removedIds.has(item.id));
+  }
+  return { removedIds: [...removedIds] };
+}
+
+/** Horários da série, aplicados a todas as linhas pelo mesmo motivo da data de fim. */
+export function applySeriesTimes(workspace: Database, task: Task, times?: string[]) {
+  const seriesId = seriesIdOf(task);
+  for (const item of workspace.tasks) {
+    if (!item.recurrence || seriesIdOf(item) !== seriesId) continue;
+    const next = { ...item.recurrence };
+    if (times?.length) next.times = [...times];
+    else delete next.times;
+    item.recurrence = next;
+    invalidateNativeShadow(item, "recurrenceTimes");
+  }
+}
+
+/**
+ * Uma ocorrência que mudou de data deixa a data antiga vaga, e o gerador a recriava. A data antiga
+ * passa a contar como excluída na série, como já faz a exclusão de "somente esta data".
+ */
+export function excludeSeriesDate(workspace: Database, task: Task, date: string) {
+  const seriesId = seriesIdOf(task);
+  for (const item of workspace.tasks) {
+    if (!item.recurrence || seriesIdOf(item) !== seriesId) continue;
+    item.recurrenceExcludedDates = Array.from(
+      new Set([...(item.recurrenceExcludedDates ?? []), date]),
+    );
+  }
 }

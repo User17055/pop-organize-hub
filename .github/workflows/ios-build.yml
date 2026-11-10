@@ -24,7 +24,9 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-15
+    # Intel porque o macos-15 (arm64) deixou de ser alocado em 11/2026: "not acquired by Runner".
+    # Compila o mesmo alvo iosArm64, porem mais devagar. Voltar para arm64 quando normalizar.
+    runs-on: macos-15-intel
     timeout-minutes: 60
 
     steps:
@@ -57,8 +59,8 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             ~/.konan
-          key: ${{ runner.os }}-kmp-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: ${{ runner.os }}-kmp-
+          key: ${{ runner.os }}-${{ runner.arch }}-kmp-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-kmp-
 
       - name: Compilar o framework compartilhado (device)
         working-directory: android

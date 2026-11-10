@@ -309,6 +309,7 @@ private data class PopTask(
     val description: String = "",
     val assignee: String = "",
     val assignedBy: String = "",
+    val assignedById: String = "",
     val createdBy: String = "",
     val recurrence: String = "Não repetir",
     val reminder: String = "Sem notificação",
@@ -697,6 +698,7 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>): List<PopTask> {
                 description = item.optString("description"),
                 assignee = item.optString("assignee"),
                 assignedBy = item.optString("assignedBy"),
+                assignedById = item.optString("assignedById"),
                 createdBy = item.optString("createdBy"),
                 recurrence = item.optString("recurrence", "Não repetir"),
                 reminder = item.optString("reminder", "Sem notificação")
@@ -1010,6 +1012,7 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("description", task.description)
                 .put("assignee", task.assignee)
                 .put("assignedBy", task.assignedBy)
+                .put("assignedById", task.assignedById)
                 .put("createdBy", task.createdBy)
                 .put("recurrence", task.recurrence)
                 .put("reminder", task.reminder)
@@ -5874,8 +5877,12 @@ private fun TasksScreen(
                         task.assignee.split(",").any {
                             it.trim().equals(currentUserName, ignoreCase = true)
                         }
-                // Mesmo recorte do botão "Empresa" do painel: tarefas destinadas à empresa inteira.
-                "Empresa" -> task.assignmentType == "company"
+                // Mesmo recorte do botão "Empresa" do painel (`taskMatchesCompany`): tarefas
+                // destinadas à empresa inteira que o usuário atual criou.
+                "Empresa" ->
+                    task.assignmentType == "company" &&
+                        currentUserId.isNotBlank() &&
+                        task.assignedById.equals(currentUserId, ignoreCase = true)
                 "Setor" ->
                     companySectors
                         .asSequence()
@@ -6204,6 +6211,7 @@ private fun TasksScreen(
                 priority = newTaskPriority,
                 dueDate = selectedDueDate.toString(),
                 description = newTaskDescription.trim(),
+                assignedById = currentUserId,
                 assignee = if (workSpace == WorkSpace.Personal) {
                     ""
                 } else {
@@ -7999,6 +8007,7 @@ private fun TasksScreen(
                                 priority = newTaskPriority,
                                 dueDate = LocalDate.now().plusDays(newTaskDateOffset.toLong()).toString(),
                                 description = newTaskDescription.trim(),
+                                assignedById = currentUserId,
                                 assignee = if (workSpace == WorkSpace.Personal) {
                                     ""
                                 } else {
@@ -10406,7 +10415,7 @@ private fun MoreScreen(
         context.startActivity(
             Intent(
                 Intent.ACTION_SENDTO,
-                Uri.parse("mailto:contato@poporganize.com?subject=" + Uri.encode("Ajuda com o Pop Organize")),
+                Uri.parse("mailto:contato@poporganize.com.br?subject=" + Uri.encode("Ajuda com o Pop Organize")),
             ),
         )
     }

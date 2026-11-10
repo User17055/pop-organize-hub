@@ -1,11 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  addTaskAttachment,
   addTaskComment,
   addTaskSubtask,
   createTask,
   deleteTask,
   deleteTaskSubtask,
+  removeTaskAttachment,
   reorderTask,
   toggleTaskSubtask,
   updateTaskDetails,
@@ -14,6 +14,22 @@ import {
 import { workspaceQueryKey, type WorkspaceResult } from "@/lib/api/use-workspace";
 import type { Priority, TargetType, Task, TaskStatus } from "@/lib/domain";
 import type { RecurrenceInput } from "./task-form-types";
+
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+export type UpdateTaskPayload = {
+  id: string;
+  title: string;
+  description: string;
+  priority: Priority;
+  dueDate: string;
+  target: { type: TargetType; id: string };
+  responsibleId: string;
+  responsibleIds?: string[];
+  tags: string[];
+  recurrence?: RecurrenceInput;
+  dateScope?: "this" | "following";
+};
 
 export function useTaskMutations(options?: {
   onCompleted?: (taskId: string) => void;
@@ -78,18 +94,7 @@ export function useTaskMutations(options?: {
   });
 
   const updateTaskMutation = useMutation({
-    mutationFn: (payload: {
-      id: string;
-      title: string;
-      description: string;
-      priority: Priority;
-      dueDate: string;
-      target: { type: TargetType; id: string };
-      responsibleId: string;
-      responsibleIds?: string[];
-      tags: string[];
-      recurrence?: RecurrenceInput;
-    }) => updateTaskDetails({ data: payload }),
+    mutationFn: (payload: UpdateTaskPayload) => updateTaskDetails({ data: payload }),
     onSuccess: () => {
       options?.onUpdated?.();
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
@@ -159,8 +164,29 @@ export function useTaskMutations(options?: {
   });
 
   const attachmentMutation = useMutation({
-    mutationFn: (payload: { taskId: string; name: string; sizeLabel?: string }) =>
-      addTaskAttachment({ data: payload }),
+    mutationFn: async ({ taskId, file }: { taskId: string; file: File }): Promise<Task> => {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        throw new Error("O arquivo passa do limite de 20 MB.");
+      }
+      const body = new FormData();
+      body.set("taskId", taskId);
+      body.set("file", file);
+      const response = await fetch("/api/anexos", { method: "POST", body });
+      if (!response.ok) {
+        const failure = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(failure?.error ?? "Não foi possível anexar o arquivo.");
+      }
+      return (await response.json()) as Task;
+    },
+    onSuccess: (updatedTask) => {
+      updateTaskInWorkspace(updatedTask);
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+    },
+  });
+
+  const removeAttachmentMutation = useMutation({
+    mutationFn: (payload: { taskId: string; attachmentId: string }) =>
+      removeTaskAttachment({ data: payload }),
     onSuccess: (updatedTask) => {
       updateTaskInWorkspace(updatedTask);
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
@@ -201,6 +227,7 @@ export function useTaskMutations(options?: {
     reorderTaskMutation,
     commentMutation,
     attachmentMutation,
+    removeAttachmentMutation,
     addSubtaskMutation,
     toggleSubtaskMutation,
     deleteSubtaskMutation,

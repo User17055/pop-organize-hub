@@ -24,6 +24,7 @@ mysqldump \
   --defaults-extra-file="$CREDENTIALS_FILE" \
   --single-transaction \
   --quick \
+  --hex-blob \
   --lock-tables=false \
   "$DATABASE_NAME" | gzip -9 > "$TARGET"
 

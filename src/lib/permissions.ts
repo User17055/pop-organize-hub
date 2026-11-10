@@ -164,6 +164,62 @@ export function getManagerDepartmentAccess(input: {
   return { mode, departmentIds };
 }
 
+type DepartmentPermissionInput = {
+  department: Pick<Department, "id" | "managerId">;
+  currentUser?: PermissionEmployee | null;
+  employees: PermissionInput["employees"];
+  departments: PermissionInput["departments"];
+  permissionGroups: PermissionGroup[];
+};
+
+function isDepartmentInManagerScope(input: DepartmentPermissionInput) {
+  const managerAccess = getManagerDepartmentAccess(input);
+  return (
+    !managerAccess ||
+    managerAccess.mode === "all" ||
+    managerAccess.departmentIds.has(input.department.id)
+  );
+}
+
+function canManageDepartments(input: DepartmentPermissionInput) {
+  return hasPermission(
+    resolvePermissionSet({
+      currentUser: input.currentUser,
+      employees: input.employees,
+      permissionGroups: input.permissionGroups,
+    }),
+    "manage.departments",
+  );
+}
+
+/**
+ * Quem edita um setor: dentro do alcance de gestor, o próprio gestor ou quem tem
+ * `manage.departments`. O painel e o endpoint móvel consultam esta função, para a regra não existir
+ * em duas versões.
+ */
+export function canEditDepartment(input: DepartmentPermissionInput) {
+  if (!input.currentUser || !isDepartmentInManagerScope(input)) return false;
+  return input.department.managerId === input.currentUser.id || canManageDepartments(input);
+}
+
+/** Excluir não vale para quem é só gestor do setor: exige `manage.departments`. */
+export function canDeleteDepartment(input: DepartmentPermissionInput) {
+  if (!input.currentUser || !isDepartmentInManagerScope(input)) return false;
+  return canManageDepartments(input);
+}
+
+/** Trocar o gestor de um setor é só do dono da empresa ou de quem tem cargo de administrador. */
+export function canConfigureDepartmentManager(input: {
+  currentUser?: PermissionEmployee | null;
+  ownerId?: string;
+}) {
+  if (!input.currentUser) return false;
+  return (
+    input.ownerId === input.currentUser.id ||
+    (input.currentUser.role ?? "").toLocaleLowerCase("pt-BR").includes("admin")
+  );
+}
+
 /**
  * Setores que podem ser expostos nas telas de estrutura/equipe.
  *
@@ -246,6 +302,7 @@ export function canViewTask(input: PermissionInput) {
     [input.task.responsibleId, ...(input.task.responsibleIds ?? [])].filter(Boolean),
   );
   if (isAdmin(input)) return true;
+  if (isTaskCreator(input)) return true;
 
   if (input.permissionGroups) {
     const set = resolvePermissionSet({
@@ -337,6 +394,13 @@ function getDepartmentManagedByUser(input: PermissionInput) {
   return false;
 }
 
+// Quem criou a tarefa (painel ou app gravam assignedById no servidor) continua vendo e
+// editando, mesmo que ela tenha sido atribuida a outra pessoa. Excluir fica com o admin.
+function isTaskCreator(input: PermissionInput) {
+  const userId = input.currentUser?.id;
+  return Boolean(userId && input.task.assignedById === userId);
+}
+
 function getGroupLedByUser(input: PermissionInput) {
   if (input.task.target.type !== "group") return false;
   const group = input.groups.find((item) => item.id === input.task.target.id);
@@ -390,6 +454,16 @@ function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
       canComplete: true,
       canDelete: false,
       roleLabel: "Líder do grupo",
+    };
+  }
+
+  if (isTaskCreator(input)) {
+    return {
+      canEditContent: true,
+      canChangeStatus: true,
+      canComplete: true,
+      canDelete: false,
+      roleLabel: "Criador da tarefa",
     };
   }
 

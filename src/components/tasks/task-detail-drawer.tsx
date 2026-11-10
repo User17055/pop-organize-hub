@@ -9,6 +9,7 @@ import {
   MessageSquare,
   MoreVertical,
   Paperclip,
+  Download,
   Pencil,
   Repeat,
   RotateCcw,
@@ -35,6 +36,7 @@ import type {
 } from "@/lib/domain";
 import { priorityLabels, unassignedResponsibleLabel } from "@/lib/domain";
 import type { TaskPermissions } from "@/lib/permissions";
+import { canRemoveAttachment } from "@/lib/attachment-removal";
 import { EmployeeAvatar } from "./employee-avatar";
 import { GlassDatePicker } from "./glass-date-picker";
 import { GlassSelect, RecurrenceFields } from "./recurrence-fields";
@@ -47,10 +49,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { recurrenceCadenceKey } from "@/lib/recurrence";
 import {
   isOverdue,
+  recurrenceFromForm,
   recurrenceLabel,
   recurrenceOptions,
+  recurrenceToForm,
   taskTargetLabel,
   type RecurrenceFormState,
   type TaskEditState,
@@ -80,6 +85,9 @@ export function TaskDetailDrawer({
   isCommenting,
   onAttachmentFile,
   isAttaching,
+  currentUserId,
+  onRemoveAttachment,
+  removingAttachmentId,
   subtasks,
   onAddSubtask,
   onToggleSubtask,
@@ -110,6 +118,10 @@ export function TaskDetailDrawer({
   isCommenting: boolean;
   onAttachmentFile: (event: ChangeEvent<HTMLInputElement>) => void;
   isAttaching: boolean;
+  currentUserId?: string;
+  onRemoveAttachment?: (attachmentId: string) => void;
+  /** O anexo que está sendo removido agora, para travar o botão dele. */
+  removingAttachmentId?: string;
   subtasks: Task["subtasks"];
   onAddSubtask: (title: string) => void;
   onToggleSubtask: (subtaskId: string, done: boolean) => void;
@@ -119,6 +131,13 @@ export function TaskDetailDrawer({
 }) {
   const getEmployee = (id?: string) => employees.find((employee) => employee.id === id);
   const reviewManagerId = permissions.reviewManagerId;
+  // Só para tarefa que já repete: mudar a cadência divide a série a partir desta data (ver
+  // changeSeriesRecurrence no servidor). As duas pontas passam pelo mesmo formulário para que o
+  // que o formulário não mostra não conte como mudança.
+  const recurrenceCadenceChanged =
+    Boolean(task.recurrence) &&
+    recurrenceCadenceKey(recurrenceFromForm(editForm.recurrence)) !==
+      recurrenceCadenceKey(recurrenceFromForm(recurrenceToForm(task.recurrence, task.dueDate)));
   const [isCelebrating, setIsCelebrating] = useState(false);
   const [destinationOpen, setDestinationOpen] = useState(false);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -683,6 +702,14 @@ export function TaskDetailDrawer({
               />
             </div>
           )}
+
+          {permissions.canEditContent && recurrenceCadenceChanged && (
+            <p className="mt-2 px-1 text-[11px] text-muted-foreground">
+              {editForm.recurrence.frequency === "none"
+                ? "A tarefa deixa de repetir a partir desta data. As ocorrências anteriores ficam como estão."
+                : "A nova regra vale a partir desta data. As ocorrências anteriores ficam como estão."}
+            </p>
+          )}
         </div>
 
         {/* Tags */}
@@ -825,9 +852,39 @@ export function TaskDetailDrawer({
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-xs font-semibold">{attachment.name}</div>
                       <div className="text-[10px] text-muted-foreground mt-0.5">
-                        {attachment.sizeLabel} · {author?.name ?? "Usuario"}
+                        {attachment.fileId
+                          ? `${attachment.sizeLabel} · ${author?.name ?? "Usuario"}`
+                          : "Arquivo não guardado: enviado antes do download existir"}
                       </div>
                     </div>
+                    {attachment.fileId && (
+                      <a
+                        href={`/api/anexos/${attachment.fileId}`}
+                        download={attachment.name}
+                        aria-label={`Baixar ${attachment.name}`}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition hover:bg-background hover:text-primary"
+                      >
+                        <Download className="h-4 w-4" />
+                      </a>
+                    )}
+                    {onRemoveAttachment &&
+                      canRemoveAttachment(attachment, currentUserId, permissions) && (
+                        <button
+                          type="button"
+                          disabled={removingAttachmentId === attachment.id}
+                          onClick={() => {
+                            if (
+                              window.confirm(`Remover o anexo ${attachment.name} desta tarefa?`)
+                            ) {
+                              onRemoveAttachment(attachment.id);
+                            }
+                          }}
+                          aria-label={`Remover ${attachment.name}`}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition hover:bg-background hover:text-destructive disabled:opacity-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                   </div>
                 );
               })}

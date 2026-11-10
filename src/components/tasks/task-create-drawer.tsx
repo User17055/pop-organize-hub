@@ -182,7 +182,7 @@ export function TaskCreateDrawer({
     <>
       <div
         className={cn(
-          "fixed inset-0 z-[190] bg-slate-950/36 transition-opacity duration-300 ease-out",
+          "fixed inset-0 z-190 bg-slate-950/36 transition-opacity duration-300 ease-out",
           open ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
         onClick={() => onOpenChange(false)}
@@ -191,7 +191,7 @@ export function TaskCreateDrawer({
       <aside
         inert={!open}
         className={cn(
-          "task-create-drawer fixed inset-y-0 right-0 z-[200] flex h-dvh max-h-dvh w-full flex-col overflow-hidden rounded-none border transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:inset-y-3 sm:right-3 sm:h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-1.5rem)] sm:w-[420px] sm:rounded-lg md:w-[440px]",
+          "task-create-drawer fixed inset-y-0 right-0 z-200 flex h-dvh max-h-dvh w-full flex-col overflow-hidden rounded-none border transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:inset-y-3 sm:right-3 sm:h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-1.5rem)] sm:w-105 sm:rounded-lg md:w-110",
           open ? "task-create-drawer-open translate-x-0" : "translate-x-full",
         )}
       >
@@ -206,7 +206,7 @@ export function TaskCreateDrawer({
           }}
           className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg"
         >
-          <header className="task-create-header task-create-panel-section z-[60] shrink-0 border-b px-4 pb-4 pt-4 sm:px-5">
+          <header className="task-create-header task-create-panel-section z-60 shrink-0 border-b px-4 pb-4 pt-4 sm:px-5">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="font-display text-[22px] font-bold leading-tight text-foreground">
@@ -565,7 +565,7 @@ export function TaskCreateDrawer({
                       }))
                     }
                     rows={5}
-                    className="task-create-input min-h-[120px] w-full resize-y rounded-md border px-3 py-2.5 text-sm leading-relaxed outline-none transition"
+                    className="task-create-input min-h-30 w-full resize-y rounded-md border px-3 py-2.5 text-sm leading-relaxed outline-none transition"
                     placeholder={"Ex: Conferir materiais\nRegistrar no sistema\nEnviar confirmação"}
                   />
                 </div>

@@ -32,6 +32,10 @@ const nativeShadowGroups = {
     "recurrenceEndValue",
     "recurrenceTimes",
   ],
+  /** só o fim de `task.recurrence`, para mudar o fim da série sem perder o resto da regra */
+  recurrenceEnd: ["recurrenceEndMode", "recurrenceEndValue"],
+  /** só os horários de `task.recurrence` */
+  recurrenceTimes: ["recurrenceTimes"],
   /** sombreia `task.recurrenceOccurrence` */
   recurrenceOccurrence: ["recurrenceOccurrence"],
 } as const;

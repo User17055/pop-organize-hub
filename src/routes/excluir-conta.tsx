@@ -26,7 +26,7 @@ function DeleteAccountPage() {
         <p className="mt-4">
           <a
             className="inline-flex rounded-lg bg-primary px-4 py-2 font-semibold text-primary-foreground no-underline"
-            href={`mailto:contato@poporganize.com?subject=${subject}&body=${body}`}
+            href={`mailto:contato@poporganize.com.br?subject=${subject}&body=${body}`}
           >
             Solicitar exclusão por e-mail
           </a>

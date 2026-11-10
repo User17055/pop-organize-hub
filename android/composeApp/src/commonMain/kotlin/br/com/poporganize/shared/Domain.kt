@@ -79,6 +79,11 @@ data class CompanySector(
     val name: String,
     val description: String = "",
     val managedByCurrentUser: Boolean = false,
+    val managerId: String = "",
+    // Default `false`: contra servidor que nao conhece a edicao, a acao nao existe e nao pode ser
+    // oferecida. E o contrario do `canEdit` de tarefa, em que a acao ja existia antes do campo.
+    val canEdit: Boolean = false,
+    val canDelete: Boolean = false,
 )
 
 @Serializable
@@ -87,6 +92,7 @@ data class CompanyGroup(
     val name: String,
     val description: String = "",
     val memberIds: List<String> = emptyList(),
+    val leaderId: String = "",
 )
 
 /**
@@ -114,6 +120,9 @@ data class WorkspacePermissions(
     val canManageEmployees: Boolean = false,
     val canManageDepartments: Boolean = false,
     val canManageGroups: Boolean = false,
+    val canEditGroups: Boolean = false,
+    val canDeleteGroups: Boolean = false,
+    val canAssignSectorManager: Boolean = false,
     val canManagePermissions: Boolean = false,
 )
 
@@ -165,13 +174,20 @@ data class PopTask(
     val isReviewer: Boolean = false,
     val awaitingReview: Boolean = false,
     val recurrenceExcludedDates: List<String> = emptyList(),
+    // A posicao na serie de uma ocorrencia movida "so esta". So de leitura; a projecao conta dela.
+    val recurrenceSlotDate: String = "",
+    // Pedido de mudar a data de uma recorrente, guardado ate a sincronizacao dar certo. Ver o ApiTask.
+    val dateMoveFrom: String? = null,
+    val dateMoveScope: String? = null,
+    // Quem criou. So de leitura; ver a nota no ApiTask.
+    val assignedById: String = "",
 
     // Do servidor, e usados para NAO oferecer o que ele vai recusar. Ver a nota no ApiTask sobre o
     // default `true`.
-    //
-    // `canEdit` existe no ApiTask e NAO foi trazido para ca de proposito: nao ha tela de editar
-    // tarefa existente neste app, entao ele nao teria consumidor. Campo carregado sem uso apodrece
-    // -- quando a tela existir, ele desce em uma linha.
+    val canEdit: Boolean = true,
+    val canMove: Boolean = true,
+    val canAssign: Boolean = true,
+    val canManageRecurrence: Boolean = true,
     val canComplete: Boolean = true,
     val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,
@@ -317,6 +333,9 @@ data class ApiWorkspace(
     val canManageEmployees: Boolean = false,
     val canManageDepartments: Boolean = false,
     val canManageGroups: Boolean = false,
+    val canEditGroups: Boolean = false,
+    val canDeleteGroups: Boolean = false,
+    val canAssignSectorManager: Boolean = false,
     val canManagePermissions: Boolean = false,
     val employees: List<ApiEmployee> = emptyList(),
     val sectors: List<CompanySector> = emptyList(),
@@ -431,6 +450,12 @@ data class ApiTask(
     // para o fio -- palavra que so existe de um lado e a familia de bug mais cara daqui.
     val awaitingReview: Boolean = false,
 
+    // Id de quem criou a tarefa (`task.assignedById`). So de leitura, como os de cima: o schema de
+    // entrada nao o declara e o z.object o descarta. Existe para o filtro "Empresa" usar a mesma
+    // regra do painel (`taskMatchesCompany`): destino empresa E criada pelo usuario atual. O
+    // `assignedBy` nao serve: e nome, vem vazio tanto para "fui eu" quanto para "nao se sabe".
+    val assignedById: String = "",
+
     // recurrenceSeriesId e o `recurrenceParentId ?: id` do servidor. Sem ele "toda a recorrencia"
     // casava exatamente UMA tarefa e parecia ter acertado.
     //
@@ -439,6 +464,14 @@ data class ApiTask(
     // montar esta lista aqui nem tentar devolve-la.
     val recurrenceSeriesId: String = "",
     val recurrenceExcludedDates: List<String> = emptyList(),
+    val recurrenceSlotDate: String = "",
+
+    // Pedido explicito de mudar a data de uma recorrente. O PUT reenvia todas as tarefas e nao adota
+    // data de ocorrencia, porque nao teria como separar edicao de aparelho desatualizado. Com a data
+    // que o aparelho conhece, ele compara com a gravada e so aplica se bater. Nulo no resto do tempo;
+    // o servidor nao devolve estes campos, entao a leitura seguinte os limpa.
+    val dateMoveFrom: String? = null,
+    val dateMoveScope: String? = null,
 
     // O que o SERVIDOR diz que esta pessoa pode fazer com esta tarefa. Ele ja mandava os tres desde
     // sempre e o app ignorava os tres, decidindo por conta propria -- nao era perda de dado (o
@@ -450,6 +483,9 @@ data class ApiTask(
     // nao travar todas as acoes de todo mundo. Default `false` aqui seria uma regressao silenciosa
     // em toda instalacao que falasse com um servidor antigo.
     val canEdit: Boolean = true,
+    val canMove: Boolean = true,
+    val canAssign: Boolean = true,
+    val canManageRecurrence: Boolean = true,
     val canComplete: Boolean = true,
     val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,

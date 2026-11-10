@@ -28,19 +28,20 @@ import {
 } from "@/components/calendar/calendar-task";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { TaskCreateDrawer } from "@/components/tasks/task-create-drawer";
-import { useTaskMutations } from "@/components/tasks/use-task-mutations";
+import { type UpdateTaskPayload, useTaskMutations } from "@/components/tasks/use-task-mutations";
 import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialog";
+import { RecurringDateDialog } from "@/components/tasks/recurring-date-dialog";
 import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import {
-  formatFileSizeMb,
   getDefaultDueDate,
   getDefaultRecurrence,
   recurrenceFromForm,
   recurrenceToForm,
+  shouldAskDateScope,
   type TaskEditState,
   type TaskFormState,
 } from "@/components/tasks/task-form-types";
-import { recurringTaskDatesInRange } from "@/lib/recurrence";
+import { recurringTaskDatesInRange, seriesSlotDate } from "@/lib/recurrence";
 import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 
 export const Route = createFileRoute("/calendario")({
@@ -73,6 +74,7 @@ function CalendarPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedOccurrenceDate, setSelectedOccurrenceDate] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [pendingDateEdit, setPendingDateEdit] = useState<UpdateTaskPayload | null>(null);
   const [commentBody, setCommentBody] = useState("");
   const [createForm, setCreateForm] = useState<TaskFormState>(() => {
     const dueDate = getDefaultDueDate();
@@ -120,6 +122,7 @@ function CalendarPage() {
     deleteTaskMutation,
     commentMutation,
     attachmentMutation,
+    removeAttachmentMutation,
     addSubtaskMutation,
     toggleSubtaskMutation,
     deleteSubtaskMutation,
@@ -173,7 +176,7 @@ function CalendarPage() {
       const recurringSeriesId = task.recurrenceParentId ?? task.id;
       actualSeriesDates.add(`${recurringSeriesId}:${task.dueDate}`);
       const latest = latestRecurringTask.get(recurringSeriesId);
-      if (!latest || task.dueDate > latest.dueDate) {
+      if (!latest || seriesSlotDate(task) > seriesSlotDate(latest)) {
         latestRecurringTask.set(recurringSeriesId, task);
       }
     }
@@ -395,7 +398,7 @@ function CalendarPage() {
     event.preventDefault();
     if (!selectedTask) return;
     const [selectedType, selectedId] = editForm.targetKey.split(":") as [TargetType, string];
-    updateTaskMutation.mutate({
+    const payload: UpdateTaskPayload = {
       id: selectedTask.id,
       title: editForm.title,
       description: editForm.description,
@@ -409,7 +412,14 @@ function CalendarPage() {
         .map((tag) => tag.trim())
         .filter(Boolean),
       recurrence: recurrenceFromForm(editForm.recurrence),
-    });
+    };
+    if (
+      shouldAskDateScope(selectedTask, Boolean(selectedPermissions?.canManageRecurrence), editForm)
+    ) {
+      setPendingDateEdit(payload);
+      return;
+    }
+    updateTaskMutation.mutate(payload);
   }
 
   function handleDeleteSelectedTask() {
@@ -426,11 +436,7 @@ function CalendarPage() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !selectedTask) return;
-    attachmentMutation.mutate({
-      taskId: selectedTask.id,
-      name: file.name,
-      sizeLabel: formatFileSizeMb(file.size),
-    });
+    attachmentMutation.mutate({ taskId: selectedTask.id, file });
   }
 
   const updateError =
@@ -441,7 +447,11 @@ function CalendarPage() {
   const commentError =
     commentMutation.error instanceof Error ? commentMutation.error.message : null;
   const attachmentError =
-    attachmentMutation.error instanceof Error ? attachmentMutation.error.message : null;
+    attachmentMutation.error instanceof Error
+      ? attachmentMutation.error.message
+      : removeAttachmentMutation.error instanceof Error
+        ? removeAttachmentMutation.error.message
+        : null;
 
   const taskDetailLayer = isMounted
     ? createPortal(
@@ -489,6 +499,15 @@ function CalendarPage() {
                 isCommenting={commentMutation.isPending}
                 onAttachmentFile={handleAttachmentFile}
                 isAttaching={attachmentMutation.isPending}
+                currentUserId={data.currentUser.id}
+                onRemoveAttachment={(attachmentId) =>
+                  removeAttachmentMutation.mutate({ taskId: selectedTask.id, attachmentId })
+                }
+                removingAttachmentId={
+                  removeAttachmentMutation.isPending
+                    ? removeAttachmentMutation.variables?.attachmentId
+                    : undefined
+                }
                 subtasks={selectedTask.subtasks}
                 onAddSubtask={(title) =>
                   addSubtaskMutation.mutate({ taskId: selectedTask.id, title })
@@ -786,6 +805,15 @@ function CalendarPage() {
             scope,
             occurrenceDate: selectedOccurrenceDate ?? selectedTask.dueDate,
           });
+        }}
+      />
+
+      <RecurringDateDialog
+        date={pendingDateEdit?.dueDate}
+        onClose={() => setPendingDateEdit(null)}
+        onConfirm={(dateScope) => {
+          if (pendingDateEdit) updateTaskMutation.mutate({ ...pendingDateEdit, dateScope });
+          setPendingDateEdit(null);
         }}
       />
     </AppShell>

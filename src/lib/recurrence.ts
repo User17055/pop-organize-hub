@@ -83,11 +83,17 @@ export function advanceRecurringDate(value: string, recurrence: TaskRecurrence) 
   return addDays(value, interval);
 }
 
+/** A data que a ocorrência ocupa na série, mesmo depois de ter sido movida "só esta". */
+export function seriesSlotDate(task: Pick<Task, "dueDate" | "recurrenceSlotDate">) {
+  return task.recurrenceSlotDate ?? task.dueDate;
+}
+
 export function recurringTaskDatesInRange(task: Task, rangeStart: string, rangeEnd: string) {
-  if (!task.recurrence || rangeEnd < task.dueDate) return [];
+  const slot = seriesSlotDate(task);
+  if (!task.recurrence || rangeEnd < slot) return [];
 
   const dates: string[] = [];
-  let occurrence = advanceRecurringDate(task.dueDate, task.recurrence);
+  let occurrence = advanceRecurringDate(slot, task.recurrence);
   let iterations = 0;
 
   while (occurrence < rangeStart && iterations < 10_000) {
@@ -108,4 +114,29 @@ export function recurringTaskDatesInRange(task: Task, rangeStart: string, rangeE
   }
 
   return dates;
+}
+
+export function sortedList<T extends number | string>(values?: T[]) {
+  if (!values?.length) return undefined;
+  return [...new Set(values)].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+}
+
+/**
+ * A cadência da regra, sem a data de fim e sem os horários. É o que decide quais datas a série
+ * gera: se ela muda, a série precisa ser dividida; fim e horários valem para a série inteira e
+ * não mudam data nenhuma. Listas vazias e ausentes contam como iguais, porque o painel e os
+ * aplicativos gravam a mesma regra de um jeito e de outro.
+ */
+export function recurrenceCadenceKey(recurrence?: TaskRecurrence) {
+  if (!recurrence) return "";
+  return JSON.stringify({
+    frequency: recurrence.frequency,
+    weekDays: sortedList(recurrence.weekDays),
+    excludedWeekDays: sortedList(recurrence.excludedWeekDays),
+    interval: recurrence.interval,
+    intervalDays: recurrence.intervalDays,
+    customUnit: recurrence.customUnit,
+    dayOfMonth: recurrence.dayOfMonth,
+    monthOfYear: recurrence.monthOfYear,
+  });
 }

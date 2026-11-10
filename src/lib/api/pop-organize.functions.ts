@@ -31,16 +31,29 @@ import {
   type Task,
   type TargetType,
 } from "../domain";
+import { removeDepartment } from "../department-removal";
+import { removeInvitation } from "../invitation-removal";
+import { removeAttachment } from "../attachment-removal";
 import { invalidateNativeShadow } from "../native-shadow";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
 import {
   canViewTask,
-  getManagerDepartmentAccess,
+  canConfigureDepartmentManager,
+  canEditDepartment,
   getTaskPermissions,
   isReviewManagerCandidateId,
   resolveTaskReviewManagerId,
 } from "../permissions";
-import { materializeRecurringTasks } from "../recurrence.server";
+import {
+  advanceRecurringDate,
+  applySeriesEndDate,
+  applySeriesTimes,
+  changeSeriesRecurrence,
+  moveOccurrenceDate,
+  moveSeriesFromOccurrence,
+  materializeRecurringTasks,
+} from "../recurrence.server";
+import { recurrenceCadenceKey, seriesSlotDate } from "../recurrence";
 
 const SESSION_COOKIE = "pop_organize_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
@@ -110,7 +123,7 @@ const createTaskSchema = z.object({
   responsibleIds: z.array(z.string().min(1)).max(100).default([]),
   reviewerId: z.string().optional(),
   requiresReview: z.boolean().default(false),
-  tags: z.array(z.string().trim().min(1)).default([]),
+  tags: z.array(z.string().trim().min(1)).max(500).default([]),
   checklist: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
   recurrence: recurrenceSchema,
 });
@@ -193,6 +206,10 @@ const resendEmployeeInvitationSchema = z.object({
   id: z.string().min(1, "Convite inválido."),
 });
 
+const cancelEmployeeInvitationSchema = z.object({
+  id: z.string().min(1, "Convite inválido."),
+});
+
 const acceptInvitationSchema = z.object({
   token: z.string().min(20, "Convite inválido."),
   password: z.string().min(8, "A senha deve ter pelo menos 8 caracteres."),
@@ -203,8 +220,8 @@ const permissionKeySchema = z.enum(allPermissionKeys as [PermissionKey, ...Permi
 const createPermissionGroupSchema = z.object({
   name: z.string().trim().min(2, "Informe um nome"),
   description: z.string().trim().max(200).default(""),
-  permissions: z.array(permissionKeySchema).default([]),
-  memberIds: z.array(z.string().min(1)).default([]),
+  permissions: z.array(permissionKeySchema).max(100).default([]),
+  memberIds: z.array(z.string().min(1)).max(500).default([]),
 });
 
 const updatePermissionGroupSchema = createPermissionGroupSchema.extend({
@@ -222,7 +239,7 @@ const createGroupSchema = z.object({
     .union([z.literal(""), z.string().min(1)])
     .optional()
     .transform((value) => value || undefined),
-  memberIds: z.array(z.string().min(1)).default([]),
+  memberIds: z.array(z.string().min(1)).max(500).default([]),
 });
 
 const updateGroupSchema = createGroupSchema.extend({
@@ -230,6 +247,10 @@ const updateGroupSchema = createGroupSchema.extend({
 });
 
 const deleteGroupSchema = z.object({
+  id: z.string().min(1),
+});
+
+const deleteDepartmentSchema = z.object({
   id: z.string().min(1),
 });
 
@@ -253,8 +274,10 @@ const updateTaskDetailsSchema = z.object({
   target: targetSchema,
   responsibleId: z.string().default(""),
   responsibleIds: z.array(z.string().min(1)).max(100).optional(),
-  tags: z.array(z.string().trim().min(1)).default([]),
+  tags: z.array(z.string().trim().min(1)).max(500).default([]),
   recurrence: recurrenceSchema,
+  // Só pesa se a data de uma recorrente mudar sem mudar a regra. Sem nada, vale só para esta.
+  dateScope: z.enum(["this", "following"]).optional(),
 });
 
 const deleteTaskSchema = z.object({
@@ -299,12 +322,6 @@ const addTaskCommentSchema = z.object({
   body: z.string().trim().min(1, "Escreva um comentário").max(1000),
 });
 
-const addTaskAttachmentSchema = z.object({
-  taskId: z.string().min(1),
-  name: z.string().trim().min(1, "Informe o nome do anexo").max(120),
-  sizeLabel: z.string().trim().max(40).optional(),
-});
-
 const addTaskSubtaskSchema = z.object({
   taskId: z.string().min(1),
   title: z.string().trim().min(1, "Informe o item").max(200),
@@ -325,6 +342,11 @@ const updateTaskSubtaskSchema = z.object({
 const deleteTaskSubtaskSchema = z.object({
   taskId: z.string().min(1),
   subtaskId: z.string().min(1),
+});
+
+const removeTaskAttachmentSchema = z.object({
+  taskId: z.string().min(1),
+  attachmentId: z.string().min(1),
 });
 
 const updateProfileSchema = z
@@ -554,7 +576,9 @@ function resolveTargetLabel(type: TargetType, id: string, db: Database) {
   return undefined;
 }
 
-function normalizeRecurrence(value: z.infer<typeof recurrenceSchema>): Task["recurrence"] {
+function normalizeRecurrence(
+  value: z.infer<typeof recurrenceSchema> | Task["recurrence"],
+): Task["recurrence"] {
   if (!value || value.frequency === "none") return undefined;
 
   const times = [...new Set(value.times ?? [])].sort();
@@ -587,73 +611,16 @@ function normalizeResponsibleIds(responsibleId: string, responsibleIds: string[]
   return [...new Set([responsibleId, ...responsibleIds].filter(Boolean))];
 }
 
-function getDateParts(dateValue: string) {
-  const [year, month, day] = dateValue.split("-").map(Number);
-  return { year, month, day };
-}
-
-function dateString(year: number, month: number, day: number) {
-  const lastDay = new Date(year, month, 0).getDate();
-  const date = new Date(year, month - 1, Math.min(day, lastDay));
-  return date.toISOString().slice(0, 10);
-}
-
-function addDays(dateValue: string, days: number) {
-  const date = new Date(`${dateValue}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function addMonths(dateValue: string, months: number, preferredDay?: number) {
-  const { year, month, day } = getDateParts(dateValue);
-  const target = new Date(year, month - 1 + months, 1);
-  return dateString(target.getFullYear(), target.getMonth() + 1, preferredDay ?? day);
-}
-
-function addYears(
-  dateValue: string,
-  years: number,
-  preferredMonth?: number,
-  preferredDay?: number,
-) {
-  const { year, month, day } = getDateParts(dateValue);
-  return dateString(year + years, preferredMonth ?? month, preferredDay ?? day);
-}
-
-function advanceRecurringDueDate(date: string, recurrence: NonNullable<Task["recurrence"]>) {
-  return recurrence.frequency === "daily"
-    ? addDays(date, 1)
-    : recurrence.frequency === "weekly"
-      ? addDays(date, 7)
-      : recurrence.frequency === "biweekly"
-        ? addDays(date, 14)
-        : recurrence.frequency === "monthly"
-          ? addMonths(date, 1, recurrence.dayOfMonth)
-          : recurrence.frequency === "yearly"
-            ? addYears(date, 1, recurrence.monthOfYear, recurrence.dayOfMonth)
-            : recurrence.customUnit === "weeks"
-              ? addDays(date, (recurrence.interval ?? recurrence.intervalDays ?? 1) * 7)
-              : recurrence.customUnit === "months"
-                ? addMonths(date, recurrence.interval ?? 1, recurrence.dayOfMonth)
-                : recurrence.customUnit === "years"
-                  ? addYears(
-                      date,
-                      recurrence.interval ?? 1,
-                      recurrence.monthOfYear,
-                      recurrence.dayOfMonth,
-                    )
-                  : addDays(date, recurrence.interval ?? recurrence.intervalDays ?? 1);
-}
-
 function getNextRecurringDueDate(task: Task) {
   if (!task.recurrence) return null;
 
   const { recurrence } = task;
   const currentDate = today();
-  let nextDueDate = advanceRecurringDueDate(task.dueDate, recurrence);
+  const excludedDates = new Set(task.recurrenceExcludedDates ?? []);
+  let nextDueDate = advanceRecurringDate(seriesSlotDate(task), recurrence);
   let skippedDates = 0;
-  while (nextDueDate <= currentDate && skippedDates < 10_000) {
-    nextDueDate = advanceRecurringDueDate(nextDueDate, recurrence);
+  while ((nextDueDate <= currentDate || excludedDates.has(nextDueDate)) && skippedDates < 10_000) {
+    nextDueDate = advanceRecurringDate(nextDueDate, recurrence);
     skippedDates += 1;
   }
   if (nextDueDate <= currentDate) return null;
@@ -693,6 +660,8 @@ function createNextRecurringTask(db: Database, task: Task) {
     recurrenceParentId: seriesId,
     recurrenceOccurrence: (task.recurrenceOccurrence ?? 1) + 1,
     recurrenceExcludedDates: task.recurrenceExcludedDates,
+    recurrenceSeriesEndDate: task.recurrenceSeriesEndDate,
+    dueTime: task.dueTime,
     subtasks: (task.subtasks ?? []).map((subtask, index) => ({
       id: `ts${index + 1}`,
       title: subtask.title,
@@ -1486,10 +1455,17 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
       if (responsibleChanged && !permissions.canAssign) {
         throw createHttpError("Você não tem permissão para alterar o responsável.", 403);
       }
+      const previousRecurrence = normalizeRecurrence(task.recurrence);
       const nextRecurrence = normalizeRecurrence(data.recurrence);
       if (
-        JSON.stringify(normalizeRecurrence(task.recurrence) ?? null) !==
-          JSON.stringify(nextRecurrence ?? null) &&
+        JSON.stringify(previousRecurrence ?? null) !== JSON.stringify(nextRecurrence ?? null) &&
+        !permissions.canManageRecurrence
+      ) {
+        throw createHttpError("Você não tem permissão para alterar a recorrência.", 403);
+      }
+      if (
+        data.dateScope === "following" &&
+        task.dueDate !== data.dueDate &&
         !permissions.canManageRecurrence
       ) {
         throw createHttpError("Você não tem permissão para alterar a recorrência.", 403);
@@ -1516,16 +1492,66 @@ export const updateTaskDetails = createServerFn({ method: "POST" })
         );
       }
 
+      const previousDueDate = task.dueDate;
+      const canRemoveOccurrence = (item: Task) =>
+        canViewTask({
+          task: item,
+          currentUser,
+          employees: db.employees,
+          departments: db.departments,
+          groups: db.groups,
+          permissionGroups: db.permissionGroups,
+        }) &&
+        getTaskPermissions({
+          task: item,
+          currentUser,
+          employees: db.employees,
+          departments: db.departments,
+          groups: db.groups,
+          permissionGroups: db.permissionGroups,
+        }).canDelete;
       task.title = data.title;
       task.description = data.description;
       task.priority = data.priority;
-      task.dueDate = data.dueDate;
       task.target = { ...data.target, label: targetLabel };
       task.responsibleId = nextResponsibleIds[0] ?? "";
       task.responsibleIds = nextResponsibleIds.length ? nextResponsibleIds : undefined;
       task.tags = data.tags;
-      task.recurrence = nextRecurrence;
-      invalidateNativeShadow(task, "dueDate", "target", "responsible", "recurrence");
+      if (recurrenceCadenceKey(previousRecurrence) !== recurrenceCadenceKey(nextRecurrence)) {
+        // A regra nova vale a partir desta ocorrência; as anteriores ficam como estão.
+        task.dueDate = data.dueDate;
+        changeSeriesRecurrence(
+          db,
+          task,
+          nextRecurrence,
+          previousDueDate < data.dueDate ? previousDueDate : data.dueDate,
+          canRemoveOccurrence,
+        );
+      } else if (task.recurrence && nextRecurrence) {
+        // Mesma cadência: a recorrência gravada fica (ela pode ter o que o formulário não mostra,
+        // como o intervalo de uma série diária criada no aplicativo).
+        if (previousDueDate !== data.dueDate) {
+          if (data.dateScope === "following") {
+            moveSeriesFromOccurrence(db, task, data.dueDate, canRemoveOccurrence);
+          } else {
+            moveOccurrenceDate(db, task, data.dueDate);
+          }
+        }
+        if (previousRecurrence?.endDate !== nextRecurrence.endDate) {
+          applySeriesEndDate(db, task, nextRecurrence.endDate, canRemoveOccurrence);
+        }
+        if (
+          JSON.stringify(previousRecurrence?.times ?? []) !==
+          JSON.stringify(nextRecurrence.times ?? [])
+        ) {
+          applySeriesTimes(db, task, nextRecurrence.times);
+        }
+      } else {
+        task.dueDate = data.dueDate;
+      }
+      // A recorrência não entra aqui: as funções acima invalidam só a parte que mudaram. Apagar a
+      // regra crua de uma tarefa que não mudou faria o aparelho enxergar mudança de cadência.
+      invalidateNativeShadow(task, "dueDate", "target", "responsible");
       return task;
     });
   });
@@ -1725,29 +1751,6 @@ export const addTaskComment = createServerFn({ method: "POST" })
     });
   });
 
-export const addTaskAttachment = createServerFn({ method: "POST" })
-  .validator((data) => addTaskAttachmentSchema.parse(data))
-  .handler(async ({ data }) => {
-    return mutateCurrentWorkspace((db, currentUserId) => {
-      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
-      if (!permissions.canAttach) {
-        throw createHttpError("Você não tem permissão para anexar arquivos nesta tarefa.", 403);
-      }
-
-      const currentCount = task.attachments ?? task.attachmentItems?.length ?? 0;
-      task.attachmentItems = task.attachmentItems ?? [];
-      task.attachmentItems.push({
-        id: nextId("ta", task.attachmentItems),
-        name: data.name,
-        sizeLabel: data.sizeLabel || "Arquivo",
-        uploadedById: currentUserId,
-        createdAt: new Date().toISOString(),
-      });
-      task.attachments = currentCount + 1;
-      return task;
-    });
-  });
-
 export const addTaskSubtask = createServerFn({ method: "POST" })
   .validator((data) => addTaskSubtaskSchema.parse(data))
   .handler(async ({ data }) => {
@@ -1817,10 +1820,28 @@ export const deleteTaskSubtask = createServerFn({ method: "POST" })
     });
   });
 
+export const removeTaskAttachment = createServerFn({ method: "POST" })
+  .validator((data) => removeTaskAttachmentSchema.parse(data))
+  .handler(async ({ data }) => {
+    let removedFileId: string | undefined;
+    const updatedTask = await mutateCurrentWorkspace((db, currentUserId) => {
+      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
+      const result = removeAttachment(task, data.attachmentId, currentUserId, permissions);
+      if (!result.ok) throw createHttpError(result.message, result.status);
+      removedFileId = result.fileId;
+      return task;
+    });
+    if (removedFileId) {
+      const { deleteRemovedAttachmentFile } = await import("../task-attachments.server");
+      await deleteRemovedAttachmentFile(removedFileId);
+    }
+    return updatedTask;
+  });
+
 export const deleteTask = createServerFn({ method: "POST" })
   .validator((data) => deleteTaskSchema.parse(data))
   .handler(async ({ data }) => {
-    return mutateCurrentWorkspace((db, currentUserId) => {
+    const result = await mutateCurrentWorkspace((db, currentUserId) => {
       const taskIndex = db.tasks.findIndex((item) => item.id === data.id);
       if (taskIndex === -1) throw createHttpError("Tarefa não encontrada.", 404);
 
@@ -1858,12 +1879,13 @@ export const deleteTask = createServerFn({ method: "POST" })
       const remainingSeries = seriesTasks.filter((item) => item.dueDate !== occurrenceDate);
 
       if (matchingTasks.length > 0 && remainingSeries.length === 0) {
-        const nextDueDate = advanceRecurringDueDate(occurrenceDate, task.recurrence);
+        const nextDueDate = advanceRecurringDate(occurrenceDate, task.recurrence);
         if (task.recurrence.endDate && nextDueDate > task.recurrence.endDate) {
           db.tasks = db.tasks.filter((item) => !belongsToSeries(item));
           return { ok: true, id: data.id, removedIds: matchingTasks.map((item) => item.id) };
         }
         task.dueDate = nextDueDate;
+        delete task.recurrenceSlotDate;
         task.status = "pending";
         task.recurrenceOccurrence = (task.recurrenceOccurrence ?? 1) + 1;
         invalidateNativeShadow(task, "dueDate", "recurrenceOccurrence");
@@ -1882,6 +1904,9 @@ export const deleteTask = createServerFn({ method: "POST" })
       }
       return { ok: true, id: data.id, removedIds };
     });
+    const { removeOrphanAttachmentFiles } = await import("../task-attachments.server");
+    void removeOrphanAttachmentFiles();
+    return result;
   });
 
 export const createDepartment = createServerFn({ method: "POST" })
@@ -1945,26 +1970,14 @@ export const updateDepartmentMembers = createServerFn({ method: "POST" })
       if (!department) throw createHttpError("Setor não encontrado.", 404);
 
       const currentUser = db.employees.find((employee) => employee.id === currentUserId);
-      const managerAccess = getManagerDepartmentAccess({
-        currentUser,
-        employees: db.employees,
-        departments: db.departments,
-      });
       if (
-        managerAccess &&
-        managerAccess.mode !== "all" &&
-        !managerAccess.departmentIds.has(department.id)
-      ) {
-        throw createHttpError("Você não pode gerenciar os membros deste setor.", 403);
-      }
-      const permissionSet = resolvePermissionSet({
-        currentUser,
-        employees: db.employees,
-        permissionGroups: db.permissionGroups,
-      });
-      if (
-        department.managerId !== currentUserId &&
-        !hasPermission(permissionSet, "manage.departments")
+        !canEditDepartment({
+          department,
+          currentUser,
+          employees: db.employees,
+          departments: db.departments,
+          permissionGroups: db.permissionGroups,
+        })
       ) {
         throw createHttpError("Você não pode gerenciar os membros deste setor.", 403);
       }
@@ -1992,33 +2005,22 @@ export const updateDepartmentDetails = createServerFn({ method: "POST" })
       if (!department) throw createHttpError("Setor não encontrado.", 404);
 
       const currentUser = db.employees.find((employee) => employee.id === currentUserId);
-      const managerAccess = getManagerDepartmentAccess({
-        currentUser,
-        employees: db.employees,
-        departments: db.departments,
-      });
       if (
-        managerAccess &&
-        managerAccess.mode !== "all" &&
-        !managerAccess.departmentIds.has(department.id)
-      ) {
-        throw createHttpError("Você não pode editar este setor.", 403);
-      }
-      const permissionSet = resolvePermissionSet({
-        currentUser,
-        employees: db.employees,
-        permissionGroups: db.permissionGroups,
-      });
-      if (
-        department.managerId !== currentUserId &&
-        !hasPermission(permissionSet, "manage.departments")
+        !canEditDepartment({
+          department,
+          currentUser,
+          employees: db.employees,
+          departments: db.departments,
+          permissionGroups: db.permissionGroups,
+        })
       ) {
         throw createHttpError("Você não pode editar este setor.", 403);
       }
 
-      const canConfigureManagerAccess =
-        db.company.ownerId === currentUserId ||
-        currentUser?.role.toLocaleLowerCase("pt-BR").includes("admin");
+      const canConfigureManagerAccess = canConfigureDepartmentManager({
+        currentUser,
+        ownerId: db.company.ownerId,
+      });
       const changesManagerAccess =
         data.managerId !== undefined ||
         data.managerAccessMode !== undefined ||
@@ -2050,6 +2052,17 @@ export const updateDepartmentDetails = createServerFn({ method: "POST" })
             : undefined;
       }
       return department;
+    });
+  });
+
+export const deleteDepartment = createServerFn({ method: "POST" })
+  .validator((data) => deleteDepartmentSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const currentUser = db.employees.find((employee) => employee.id === currentUserId);
+      const result = removeDepartment(db, data.id, currentUser);
+      if (!result.ok) throw createHttpError(result.message, result.status);
+      return { ok: true, id: data.id };
     });
   });
 
@@ -2261,6 +2274,23 @@ export const deleteEmployee = createServerFn({ method: "POST" })
         }
       });
       return { ok: true, id: data.id };
+    });
+  });
+
+export const cancelEmployeeInvitation = createServerFn({ method: "POST" })
+  .validator((data) => cancelEmployeeInvitationSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.employees",
+        "Seu grupo de permissão não pode cancelar convites.",
+      );
+      if (!removeInvitation(db, data.id)) {
+        throw createHttpError("Convite pendente não encontrado.", 404);
+      }
+      return { ok: true, invitationId: data.id };
     });
   });
 

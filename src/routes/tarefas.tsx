@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   useDeferredValue,
   useEffect,
@@ -25,6 +25,7 @@ import {
   Layers3,
   Network,
   Plus,
+  Printer,
   Repeat,
   Search,
   Settings2,
@@ -38,7 +39,8 @@ import { openPopAssistant } from "@/components/pop-launcher";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { TaskList } from "@/components/tasks/task-list";
 import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialog";
-import { useTaskMutations } from "@/components/tasks/use-task-mutations";
+import { RecurringDateDialog } from "@/components/tasks/recurring-date-dialog";
+import { type UpdateTaskPayload, useTaskMutations } from "@/components/tasks/use-task-mutations";
 import { emptyTaskFilters, taskMatchesFilters } from "@/components/tasks/task-filter-bar";
 import { PriorityBadge } from "@/components/app-shell";
 import {
@@ -47,7 +49,7 @@ import {
   recurrenceFromForm,
   recurrenceLabel,
   recurrenceToForm,
-  formatFileSizeMb,
+  shouldAskDateScope,
   type TaskEditState,
   type TaskFormState,
 } from "@/components/tasks/task-form-types";
@@ -228,6 +230,7 @@ function TasksPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [pendingDateEdit, setPendingDateEdit] = useState<UpdateTaskPayload | null>(null);
   const [showLayoutSettings, setShowLayoutSettings] = useState(false);
   const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
   const [layoutPreferences, setLayoutPreferences] =
@@ -284,6 +287,7 @@ function TasksPage() {
     deleteTaskMutation,
     commentMutation,
     attachmentMutation,
+    removeAttachmentMutation,
     addSubtaskMutation,
     toggleSubtaskMutation,
     deleteSubtaskMutation,
@@ -655,7 +659,7 @@ function TasksPage() {
     if (!selectedTask) return;
     const [selectedType, selectedId] = editForm.targetKey.split(":") as [TargetType, string];
 
-    updateTaskMutation.mutate({
+    const payload: UpdateTaskPayload = {
       id: selectedTask.id,
       title: editForm.title,
       description: editForm.description,
@@ -669,7 +673,14 @@ function TasksPage() {
         .map((tag) => tag.trim())
         .filter(Boolean),
       recurrence: recurrenceFromForm(editForm.recurrence),
-    });
+    };
+    if (
+      shouldAskDateScope(selectedTask, Boolean(selectedPermissions?.canManageRecurrence), editForm)
+    ) {
+      setPendingDateEdit(payload);
+      return;
+    }
+    updateTaskMutation.mutate(payload);
   }
 
   function handleReorderTask(task: Task, beforeTaskId: string | null) {
@@ -696,11 +707,7 @@ function TasksPage() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !selectedTask) return;
-    attachmentMutation.mutate({
-      taskId: selectedTask.id,
-      name: file.name,
-      sizeLabel: formatFileSizeMb(file.size),
-    });
+    attachmentMutation.mutate({ taskId: selectedTask.id, file });
   }
 
   const mutationError =
@@ -713,7 +720,11 @@ function TasksPage() {
   const commentError =
     commentMutation.error instanceof Error ? commentMutation.error.message : null;
   const attachmentError =
-    attachmentMutation.error instanceof Error ? attachmentMutation.error.message : null;
+    attachmentMutation.error instanceof Error
+      ? attachmentMutation.error.message
+      : removeAttachmentMutation.error instanceof Error
+        ? removeAttachmentMutation.error.message
+        : null;
   const subtaskError =
     addSubtaskMutation.error instanceof Error
       ? addSubtaskMutation.error.message
@@ -777,6 +788,15 @@ function TasksPage() {
                 isCommenting={commentMutation.isPending}
                 onAttachmentFile={handleAttachmentFile}
                 isAttaching={attachmentMutation.isPending}
+                currentUserId={data.currentUser.id}
+                onRemoveAttachment={(attachmentId) =>
+                  removeAttachmentMutation.mutate({ taskId: selectedTask.id, attachmentId })
+                }
+                removingAttachmentId={
+                  removeAttachmentMutation.isPending
+                    ? removeAttachmentMutation.variables?.attachmentId
+                    : undefined
+                }
                 subtasks={selectedTask.subtasks}
                 onAddSubtask={(title) =>
                   addSubtaskMutation.mutate({ taskId: selectedTask.id, title })
@@ -1246,9 +1266,21 @@ function TasksPage() {
                   </p>
                 )}
               </div>
-              <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary">
-                {taskRows.length} {taskRows.length === 1 ? "tarefa" : "tarefas"}
-              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                {selectedDirectoryDepartment && (
+                  <Link
+                    to="/imprimir/setor"
+                    search={{ setor: selectedDirectoryDepartment.id }}
+                    target="_blank"
+                    className="task-glass-control inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
+                  >
+                    <Printer className="h-4 w-4" /> Imprimir
+                  </Link>
+                )}
+                <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary">
+                  {taskRows.length} {taskRows.length === 1 ? "tarefa" : "tarefas"}
+                </span>
+              </div>
             </div>
           </section>
         )}
@@ -1557,6 +1589,15 @@ function TasksPage() {
             scope,
             occurrenceDate: selectedTask.dueDate,
           });
+        }}
+      />
+
+      <RecurringDateDialog
+        date={pendingDateEdit?.dueDate}
+        onClose={() => setPendingDateEdit(null)}
+        onConfirm={(dateScope) => {
+          if (pendingDateEdit) updateTaskMutation.mutate({ ...pendingDateEdit, dateScope });
+          setPendingDateEdit(null);
         }}
       />
 

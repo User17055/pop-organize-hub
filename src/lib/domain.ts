@@ -1,10 +1,5 @@
 export type TaskStatus =
-  | "pending"
-  | "in_progress"
-  | "waiting_review"
-  | "reopened"
-  | "completed"
-  | "canceled";
+  "pending" | "in_progress" | "waiting_review" | "reopened" | "completed" | "canceled";
 
 export type Priority = "low" | "medium" | "high" | "urgent";
 
@@ -43,6 +38,8 @@ export interface TaskAttachment {
   sizeLabel: string;
   uploadedById: string;
   createdAt: string;
+  /** O arquivo guardado. Anexo antigo não tem: só o nome e o tamanho foram gravados. */
+  fileId?: string;
 }
 
 export interface TaskSubtask {
@@ -285,6 +282,8 @@ export interface Task {
   priority: Priority;
   status: TaskStatus;
   dueDate: string;
+  /** Hora escolhida no aplicativo. O painel ainda não mostra; sem o campo, ela só sobrevivia em `nativeData`. */
+  dueTime?: string;
   createdAt: string;
   target: { type: TargetType; id: string; label: string };
   responsibleId: string;
@@ -299,7 +298,18 @@ export interface Task {
   recurrence?: TaskRecurrence;
   recurrenceParentId?: string;
   recurrenceOccurrence?: number;
+  /**
+   * Só na ocorrência cuja data mudou "só esta": a data que ela ocupa na série. É dela, e não da data
+   * atual, que o gerador e as projeções contam, para a série manter o ritmo.
+   */
+  recurrenceSlotDate?: string;
   recurrenceExcludedDates?: string[];
+  /**
+   * Último dia de uma série encerrada porque a regra mudou a partir de uma ocorrência. Só o
+   * servidor grava e lê: `recurrence.endDate` também recebe a data, mas os aplicativos reenviam a
+   * recorrência inteira a cada sincronização e poderiam apagá-la.
+   */
+  recurrenceSeriesEndDate?: string;
   commentItems?: TaskComment[];
   attachmentItems?: TaskAttachment[];
   subtasks?: TaskSubtask[];

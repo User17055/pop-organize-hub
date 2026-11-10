@@ -69,8 +69,9 @@ function SetoresPage() {
       managerVisibleDepartmentIds?: string[];
     }) => updateDepartmentDetails({ data: payload }),
     onSuccess: () => {
+      // O modo (criar x editar) só muda ao abrir de novo: zerar aqui deixava o diálogo,
+      // ainda na animação de saída, em "Criar setor" com os dados do setor salvo.
       setShowForm(false);
-      setEditingDepartmentId(null);
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
@@ -79,7 +80,6 @@ function SetoresPage() {
     mutationFn: (departmentId: string) => deleteDepartment({ data: { id: departmentId } }),
     onSuccess: () => {
       setShowForm(false);
-      setEditingDepartmentId(null);
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
@@ -183,6 +183,7 @@ function SetoresPage() {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (!showForm || isSaving) return;
     if (editingDepartmentId) {
       updateMutation.mutate({
         departmentId: editingDepartmentId,

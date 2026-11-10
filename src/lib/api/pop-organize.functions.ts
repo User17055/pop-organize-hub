@@ -33,6 +33,7 @@ import {
 } from "../domain";
 import { removeDepartment } from "../department-removal";
 import { removeInvitation } from "../invitation-removal";
+import { removeAttachment } from "../attachment-removal";
 import { invalidateNativeShadow } from "../native-shadow";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
 import {
@@ -341,6 +342,11 @@ const updateTaskSubtaskSchema = z.object({
 const deleteTaskSubtaskSchema = z.object({
   taskId: z.string().min(1),
   subtaskId: z.string().min(1),
+});
+
+const removeTaskAttachmentSchema = z.object({
+  taskId: z.string().min(1),
+  attachmentId: z.string().min(1),
 });
 
 const updateProfileSchema = z
@@ -1812,6 +1818,24 @@ export const deleteTaskSubtask = createServerFn({ method: "POST" })
       task.subtasks = (task.subtasks ?? []).filter((item) => item.id !== data.subtaskId);
       return task;
     });
+  });
+
+export const removeTaskAttachment = createServerFn({ method: "POST" })
+  .validator((data) => removeTaskAttachmentSchema.parse(data))
+  .handler(async ({ data }) => {
+    let removedFileId: string | undefined;
+    const updatedTask = await mutateCurrentWorkspace((db, currentUserId) => {
+      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
+      const result = removeAttachment(task, data.attachmentId, currentUserId, permissions);
+      if (!result.ok) throw createHttpError(result.message, result.status);
+      removedFileId = result.fileId;
+      return task;
+    });
+    if (removedFileId) {
+      const { deleteRemovedAttachmentFile } = await import("../task-attachments.server");
+      await deleteRemovedAttachmentFile(removedFileId);
+    }
+    return updatedTask;
   });
 
 export const deleteTask = createServerFn({ method: "POST" })

@@ -36,6 +36,7 @@ import type {
 } from "@/lib/domain";
 import { priorityLabels, unassignedResponsibleLabel } from "@/lib/domain";
 import type { TaskPermissions } from "@/lib/permissions";
+import { canRemoveAttachment } from "@/lib/attachment-removal";
 import { EmployeeAvatar } from "./employee-avatar";
 import { GlassDatePicker } from "./glass-date-picker";
 import { GlassSelect, RecurrenceFields } from "./recurrence-fields";
@@ -84,6 +85,9 @@ export function TaskDetailDrawer({
   isCommenting,
   onAttachmentFile,
   isAttaching,
+  currentUserId,
+  onRemoveAttachment,
+  removingAttachmentId,
   subtasks,
   onAddSubtask,
   onToggleSubtask,
@@ -114,6 +118,10 @@ export function TaskDetailDrawer({
   isCommenting: boolean;
   onAttachmentFile: (event: ChangeEvent<HTMLInputElement>) => void;
   isAttaching: boolean;
+  currentUserId?: string;
+  onRemoveAttachment?: (attachmentId: string) => void;
+  /** O anexo que está sendo removido agora, para travar o botão dele. */
+  removingAttachmentId?: string;
   subtasks: Task["subtasks"];
   onAddSubtask: (title: string) => void;
   onToggleSubtask: (subtaskId: string, done: boolean) => void;
@@ -859,6 +867,24 @@ export function TaskDetailDrawer({
                         <Download className="h-4 w-4" />
                       </a>
                     )}
+                    {onRemoveAttachment &&
+                      canRemoveAttachment(attachment, currentUserId, permissions) && (
+                        <button
+                          type="button"
+                          disabled={removingAttachmentId === attachment.id}
+                          onClick={() => {
+                            if (
+                              window.confirm(`Remover o anexo ${attachment.name} desta tarefa?`)
+                            ) {
+                              onRemoveAttachment(attachment.id);
+                            }
+                          }}
+                          aria-label={`Remover ${attachment.name}`}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition hover:bg-background hover:text-destructive disabled:opacity-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                   </div>
                 );
               })}

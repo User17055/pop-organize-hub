@@ -32,6 +32,7 @@ import {
   type TargetType,
 } from "../domain";
 import { removeDepartment } from "../department-removal";
+import { removeInvitation } from "../invitation-removal";
 import { invalidateNativeShadow } from "../native-shadow";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
 import {
@@ -201,6 +202,10 @@ const deleteEmployeeSchema = z.object({
 });
 
 const resendEmployeeInvitationSchema = z.object({
+  id: z.string().min(1, "Convite inválido."),
+});
+
+const cancelEmployeeInvitationSchema = z.object({
   id: z.string().min(1, "Convite inválido."),
 });
 
@@ -2245,6 +2250,23 @@ export const deleteEmployee = createServerFn({ method: "POST" })
         }
       });
       return { ok: true, id: data.id };
+    });
+  });
+
+export const cancelEmployeeInvitation = createServerFn({ method: "POST" })
+  .validator((data) => cancelEmployeeInvitationSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      requireGroupPermission(
+        db,
+        currentUserId,
+        "manage.employees",
+        "Seu grupo de permissão não pode cancelar convites.",
+      );
+      if (!removeInvitation(db, data.id)) {
+        throw createHttpError("Convite pendente não encontrado.", 404);
+      }
+      return { ok: true, invitationId: data.id };
     });
   });
 

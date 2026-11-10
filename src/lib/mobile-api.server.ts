@@ -42,6 +42,7 @@ import {
   moveSeriesFromOccurrence,
 } from "./recurrence.server";
 import { removeDepartment } from "./department-removal";
+import { removeInvitation } from "./invitation-removal";
 import { invalidateNativeShadow } from "./native-shadow";
 
 const MOBILE_SESSION_EXPIRY = "9999-12-31T23:59:59.999Z";
@@ -1382,9 +1383,7 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
           if (task.reviewerId === employee.id) task.reviewerId = undefined;
         });
       }
-      if (invitation) {
-        workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
-      }
+      if (invitation) removeInvitation(workspace, invitation.id);
     });
   } else if (action === "resendInvitation") {
     const invitationId = requiredText(input.invitationId, "O convite", 1);

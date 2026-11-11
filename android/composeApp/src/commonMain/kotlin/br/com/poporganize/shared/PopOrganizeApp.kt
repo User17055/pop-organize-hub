@@ -37,7 +37,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -58,6 +57,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Email
@@ -76,6 +76,7 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.TaskAlt
+import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -755,6 +756,9 @@ private enum class MorePage { Menu, Team, Sectors, Groups, Settings }
 private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
     var tab by remember { mutableStateOf(MainTab.Dashboard) }
     var morePage by remember { mutableStateOf(MorePage.Menu) }
+    // Numero do Inicio tocado. Vale ate tocar no X do filtro ou na propria aba Tarefas, que volta a
+    // mostrar tudo: quem toca na aba espera a lista inteira, nao a ultima filtragem.
+    var filtroTarefas by remember { mutableStateOf<FiltroRapido?>(null) }
     var showTaskEditor by remember { mutableStateOf(false) }
     val canViewCalendar =
         store.state.workspace != WorkspaceKind.Company || store.permissions.canViewCalendar
@@ -812,7 +816,8 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
             // O "comprimido" que o Material 3 desenha atras do icone selecionado e o sinal mais
             // reconhecivel de app Android que existe -- nenhum app de iPhone marca a aba assim.
             // Trocado por cor: item ativo em azul da marca, inativo apagado. Mesma informacao, sem
-            // o sotaque errado.
+            // o sotaque errado. (Superado no F10, mais abaixo: a aba ativa voltou a ter fundo, mas
+            // no formato e no gradiente do painel, nao no comprimido do Material.)
             // 49dp e a altura da barra de abas do iPhone. O padrao do Material 3 e 80dp, que e
             // medida de Android -- e como a area segura entra POR BAIXO desse valor, a barra
             // passou a ocupar ~114pt e a comecar alto demais na tela. Antes o defeito nao aparecia
@@ -834,61 +839,82 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
             //
             // Uma Row com `Arrangement.Center` no eixo vertical resolve porque a altura passa a ser
             // premissa, e nao restricao brigando com a conta interna do Material.
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 0.dp,
+            //
+            // F10 (decisao do Guilherme, 09/11 e 11/11): a barra virou uma PILULA FLUTUANTE, como a do
+            // painel aberto no celular, com a aba ativa num fundo no gradiente da marca. Isso reverte
+            // de proposito a escolha anterior de marcar a aba so pela cor (comentario no topo deste
+            // bloco); a montagem a mao continua, pelos mesmos motivos.
+            //
+            // A area segura agora vai na caixa de FORA: a pilula flutua acima do indicador de home e
+            // o que sobra embaixo e o fundo da tela, que e o que se espera de uma barra flutuante.
+            // Como `safeDrawing` inclui o teclado, e tambem isto que faz a barra subir com ele.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(insetsInferior)
+                    .padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 8.dp),
             ) {
-                Row(
-                    // O padding da area segura vai AQUI, dentro da Surface: assim a barra pinta a
-                    // propria cor ate a borda inferior, cobrindo a faixa atras do indicador de
-                    // home, enquanto o conteudo fica nos 49.dp de cima. Como `safeDrawing` inclui o
-                    // teclado, e tambem isto que faz a barra subir quando o teclado abre.
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .windowInsetsPadding(insetsInferior)
-                        .height(49.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 10.dp,
+                    // A sombra some no tema escuro (preta sobre quase preto); o fio separa a pilula
+                    // do fundo nos dois temas, como o PopCard.
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 ) {
-                    MainTab.entries.filter { item ->
-                        item != MainTab.Calendar || canViewCalendar
-                    }.forEach { item ->
-                        val selected = tab == item
-                        val cor = if (selected) {
-                            PopBlue
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                // `indication = null` tira a onda do Material. Barra de abas do
-                                // iPhone nao tem esse efeito: o item so troca de cor.
-                                //
-                                // Com a onda ligada, o toque desenhava um retangulo do tamanho da
-                                // celula inteira, e era isso que denunciava a barra montada a mao
-                                // -- o Guilherme descreveu como "da pra ver que foi feito uma
-                                // gambiarra, sao 2 elementos distintos", porque o retangulo revela
-                                // que o icone e o rotulo estao dentro de uma area clicavel maior
-                                // em vez de formarem uma peca so.
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                ) {
-                                    tab = item
-                                    if (item != MainTab.More) morePage = MorePage.Menu
-                                },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            Icon(item.icon, item.label, tint = cor, modifier = Modifier.size(24.dp))
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                item.label,
-                                fontSize = 11.sp,
-                                color = cor,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                            )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(5.dp)
+                            .height(49.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        MainTab.entries.filter { item ->
+                            item != MainTab.Calendar || canViewCalendar
+                        }.forEach { item ->
+                            val selected = tab == item
+                            val cor = if (selected) {
+                                Color.White
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(50))
+                                    .then(
+                                        if (selected) Modifier.background(PopBrandGradient) else Modifier,
+                                    )
+                                    // `indication = null` tira a onda do Material. Com a onda ligada,
+                                    // o toque desenhava um retangulo do tamanho da celula inteira, e
+                                    // era isso que denunciava a barra montada a mao -- o Guilherme
+                                    // descreveu como "da pra ver que foi feito uma gambiarra, sao 2
+                                    // elementos distintos".
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) {
+                                        tab = item
+                                        if (item != MainTab.More) morePage = MorePage.Menu
+                                        if (item == MainTab.Tasks) filtroTarefas = null
+                                    },
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                            ) {
+                                Icon(item.icon, item.label, tint = cor, modifier = Modifier.size(22.dp))
+                                Spacer(Modifier.height(1.dp))
+                                Text(
+                                    item.label,
+                                    fontSize = 11.sp,
+                                    lineHeight = 13.sp,
+                                    maxLines = 1,
+                                    color = cor,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                            }
                         }
                     }
                 }
@@ -903,9 +929,25 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
         AnimatedContent(targetState = tab to morePage, modifier = Modifier.padding(padding)) { (selected, page) ->
             when (selected) {
                 MainTab.Dashboard -> Refreshable(store) {
-                    DashboardScreen(store, onSeeAllTasks = { tab = MainTab.Tasks })
+                    DashboardScreen(
+                        store,
+                        onSeeAllTasks = {
+                            filtroTarefas = null
+                            tab = MainTab.Tasks
+                        },
+                        onAbrirFiltro = {
+                            filtroTarefas = it
+                            tab = MainTab.Tasks
+                        },
+                    )
                 }
-                MainTab.Tasks -> Refreshable(store) { TasksScreen(store) }
+                MainTab.Tasks -> Refreshable(store) {
+                    TasksScreen(
+                        store,
+                        filtro = filtroTarefas,
+                        onLimparFiltro = { filtroTarefas = null },
+                    )
+                }
                 MainTab.Calendar -> Refreshable(store) { CalendarScreen(store) }
                 MainTab.More -> when (page) {
                     MorePage.Menu -> MoreScreen(
@@ -1070,7 +1112,11 @@ private fun PageHeader(title: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
+private fun DashboardScreen(
+    store: PopStore,
+    onSeeAllTasks: () -> Unit,
+    onAbrirFiltro: (FiltroRapido) -> Unit,
+) {
     val tasks = store.visibleTasks
     // Sem `remember`: com chave nenhuma, este valor viveria enquanto a composicao vivesse, e as
     // linhas de tarefa logo abaixo chamam todayDate() fresco. Com o app aberto atravessando a
@@ -1116,6 +1162,21 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
     // existir, nao as quatro mais proximas. Uma tarefa atrasada de alta prioridade podia ficar
     // atras de tres de semana que vem, dentro do bloco chamado "Proximas tarefas".
     val upcoming = remember(tasks) { tasks.filterNot { it.completed }.sortedWith(taskListOrder) }
+    // Os quatro numeros contam com a MESMA funcao que filtra a lista quando sao tocados.
+    val contagens = remember(tasks, today) {
+        FiltroRapido.entries.associateWith { filtro -> tasks.count { filtro.aceita(it, today) } }
+    }
+    // "Por setor" so para quem responde por setor: admin ve todos; gestor, os que gerencia. Para o
+    // colaborador o bloco seria a empresa inteira medida por quem nao a administra.
+    val company = store.selectedCompany
+    val setoresDoBloco = when {
+        store.state.workspace != WorkspaceKind.Company || company == null -> emptyList()
+        store.isCurrentUserAdmin -> company.sectors
+        else -> company.sectors.filter { it.managedByCurrentUser }
+    }
+    val porSetor = remember(tasks, today, setoresDoBloco, company) {
+        resumoPorSetor(tasks, setoresDoBloco, company, today)
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1132,6 +1193,11 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
                 overdue = overdue,
                 hasFuture = upcoming.isNotEmpty(),
             )
+        }
+        item { NumerosDoInicio(contagens = contagens, onAbrir = onAbrirFiltro) }
+        if (porSetor.isNotEmpty()) {
+            item { SectionTitle("Por setor · esta semana") }
+            item { BlocoPorSetor(porSetor) }
         }
         item { SectionTitle("Próximas tarefas") }
         if (upcoming.isEmpty()) {
@@ -1153,6 +1219,224 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
                             fontSize = 14.sp,
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Os quatro numeros tocaveis do Inicio (F10). Cada um conta E filtra pela mesma `aceita`.
+ *
+ * "Esta semana" vai de hoje ate domingo e so pendentes: as de dias passados ja tem numero proprio
+ * em "Atrasadas", e somar as duas contaria a mesma tarefa duas vezes. "Concluidas na semana" e o
+ * que vence de segunda a domingo e ja foi concluido -- o aparelho nao recebe a data da conclusao,
+ * entao e a semana do PRAZO, nao a do clique.
+ */
+internal enum class FiltroRapido(val rotulo: String) {
+    Hoje("Hoje"),
+    Atrasadas("Atrasadas"),
+    Semana("Esta semana"),
+    ConcluidasSemana("Concluídas na semana"),
+}
+
+/** O prazo cai de segunda a domingo da semana de `today`. */
+internal fun prazoNaSemana(task: PopTask, today: LocalDate): Boolean {
+    val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } ?: return false
+    val diaDaSemana = isoDayNumber(today).toLong()
+    return offset in (1L - diaDaSemana)..(7L - diaDaSemana)
+}
+
+internal fun FiltroRapido.aceita(task: PopTask, today: LocalDate): Boolean {
+    val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } ?: return false
+    val nestaSemana = prazoNaSemana(task, today)
+    return when (this) {
+        FiltroRapido.Hoje -> !task.completed && offset == 0L
+        FiltroRapido.Atrasadas -> !task.completed && offset < 0L
+        FiltroRapido.Semana -> !task.completed && offset >= 0L && nestaSemana
+        FiltroRapido.ConcluidasSemana -> task.completed && nestaSemana
+    }
+}
+
+@Composable
+private fun NumerosDoInicio(contagens: Map<FiltroRapido, Int>, onAbrir: (FiltroRapido) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FiltroRapido.entries.chunked(2).forEach { linha ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                linha.forEach { filtro ->
+                    NumeroTocavel(
+                        filtro = filtro,
+                        valor = contagens[filtro] ?: 0,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onAbrir(filtro) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NumeroTocavel(filtro: FiltroRapido, valor: Int, modifier: Modifier, onClick: () -> Unit) {
+    val (icone, cor) = when (filtro) {
+        FiltroRapido.Hoje -> Icons.Rounded.Today to PopBlue
+        FiltroRapido.Atrasadas -> Icons.Rounded.ErrorOutline to PopRed
+        FiltroRapido.Semana -> Icons.Rounded.CalendarMonth to PopPurple
+        FiltroRapido.ConcluidasSemana -> Icons.Rounded.CheckCircle to PopGreen
+    }
+    // Atrasada so pinta de vermelho quando ha alguma: zero atrasadas e boa noticia, e um cartao
+    // vermelho com "0" dentro diria o contrario.
+    val alerta = filtro == FiltroRapido.Atrasadas && valor > 0
+    Surface(
+        modifier = modifier.clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = if (alerta) PopRed.copy(alpha = .1f) else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, if (alerta) PopRed.copy(alpha = .35f) else MaterialTheme.colorScheme.outline),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    valor.toString(),
+                    fontSize = 24.sp,
+                    lineHeight = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (alerta) PopRed else MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    filtro.rotulo,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 2,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Box(
+                Modifier.size(34.dp).background(cor.copy(alpha = .14f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icone, null, tint = cor, modifier = Modifier.size(19.dp))
+            }
+        }
+    }
+}
+
+/** O filtro do Inicio em uso na aba Tarefas, com o X que o desfaz. */
+@Composable
+private fun FiltroAtivo(rotulo: String, quantidade: Int, onLimpar: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onLimpar),
+            shape = RoundedCornerShape(50),
+            color = PopBlue.copy(alpha = .12f),
+            border = BorderStroke(1.dp, PopBlue.copy(alpha = .3f)),
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Filtro: $rotulo",
+                    color = PopBlue,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.width(4.dp))
+                Icon(Icons.Rounded.Close, "Limpar filtro", tint = PopBlue, modifier = Modifier.size(16.dp))
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Text(
+            plural(quantidade, "tarefa", "tarefas"),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+private data class ResumoSetor(
+    val nome: String,
+    val feitas: Int,
+    val total: Int,
+    val atrasadas: Int,
+)
+
+/**
+ * Por setor, a semana (segunda a domingo, pelo prazo) e o que ficou atrasado. Mede a SEMANA, e nao
+ * o total de sempre, pelo mesmo motivo do anel do cartao de cima: o acumulado so cresce e a barra
+ * travaria perto do fim sem dizer nada. Setor entra pela mesma regra do filtro do calendario
+ * (`setoresDaTarefa`): alvo, pessoa, responsavel ou membro do grupo. Setor sem nada na semana e sem
+ * atraso fica de fora, e o bloco mostra no maximo seis, os atrasados primeiro.
+ */
+private fun resumoPorSetor(
+    tasks: List<PopTask>,
+    setores: List<CompanySector>,
+    company: CompanyWorkspace?,
+    today: LocalDate,
+): List<ResumoSetor> {
+    if (setores.isEmpty() || company == null) return emptyList()
+    val setoresPorTarefa = tasks.associate { it.id to setoresDaTarefa(it, company) }
+    return setores.map { setor ->
+        val doSetor = tasks.filter { setor.id in setoresPorTarefa[it.id].orEmpty() }
+        // Tudo o que vence na semana, feito ou nao -- inclusive o de segunda que ficou para tras.
+        val daSemana = doSetor.filter { prazoNaSemana(it, today) }
+        ResumoSetor(
+            nome = setor.name,
+            feitas = daSemana.count { it.completed },
+            total = daSemana.size,
+            atrasadas = doSetor.count { FiltroRapido.Atrasadas.aceita(it, today) },
+        )
+    }
+        .filter { it.total > 0 || it.atrasadas > 0 }
+        .sortedWith(compareByDescending<ResumoSetor> { it.atrasadas }.thenBy { it.nome.lowercase() })
+        .take(6)
+}
+
+@Composable
+private fun BlocoPorSetor(resumos: List<ResumoSetor>) {
+    PopCard {
+        resumos.forEachIndexed { indice, resumo ->
+            if (indice > 0) Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    resumo.nome,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                if (resumo.atrasadas > 0) {
+                    Text(
+                        plural(resumo.atrasadas, "atrasada", "atrasadas"),
+                        color = PopRed,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    "${resumo.feitas}/${resumo.total}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            val fracao = if (resumo.total == 0) 0f else resumo.feitas.toFloat() / resumo.total
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50)),
+            ) {
+                if (fracao > 0f) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(fracao)
+                            .height(6.dp)
+                            .background(PopBrandGradient, RoundedCornerShape(50)),
+                    )
                 }
             }
         }
@@ -1379,8 +1663,19 @@ private fun agruparTarefas(
 private const val LIMITE_PARA_ABRIR_TUDO = 20
 
 @Composable
-private fun TasksScreen(store: PopStore) {
+private fun TasksScreen(
+    store: PopStore,
+    filtro: FiltroRapido? = null,
+    onLimparFiltro: () -> Unit = {},
+) {
     val tasks = store.visibleTasks
+    // Com um numero do Inicio tocado, a aba mostra so o que aquele numero contou, numa lista
+    // plana na ordem da lista de tarefas. A conta e a mesma funcao (`aceita`) que fez o numero:
+    // duas regras escritas em dois lugares acabariam mostrando "3 atrasadas" e listando 4.
+    val hojeDoFiltro = todayDate()
+    val filtradas = remember(tasks, filtro, hojeDoFiltro) {
+        filtro?.let { f -> tasks.filter { f.aceita(it, hojeDoFiltro) }.sortedWith(taskListOrder) }
+    }
     var removingId by remember { mutableStateOf<String?>(null) }
     var selectedTask by remember { mutableStateOf<PopTask?>(null) }
     var pendingDeleteTask by remember { mutableStateOf<PopTask?>(null) }
@@ -1438,10 +1733,34 @@ private fun TasksScreen(store: PopStore) {
                 )
             }
         }
-        if (tasks.isEmpty()) {
+        if (filtro != null && filtradas != null) {
+            item(key = "filtro-rapido") {
+                FiltroAtivo(rotulo = filtro.rotulo, quantidade = filtradas.size, onLimpar = onLimparFiltro)
+            }
+            if (filtradas.isEmpty()) {
+                item { EmptyState("Nada aqui", "Nenhuma tarefa em \"${filtro.rotulo}\" agora.") }
+            }
+            items(filtradas, key = { it.id }) { task ->
+                AnimatedVisibility(
+                    visible = removingId != task.id,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut(tween(220)) + shrinkVertically(tween(220)),
+                ) {
+                    SwipeableTaskRow(
+                        task = task,
+                        moveTargets = moveTargets,
+                        onOpen = { selectedTask = task },
+                        onToggle = { store.toggleTask(task.id) },
+                        onMove = { store.moveTask(task.id, it) },
+                        onDelete = { pendingDeleteTask = task },
+                    )
+                }
+            }
+        }
+        if (filtro == null && tasks.isEmpty()) {
             item { EmptyState("Seu espaço está livre", "Toque em + para criar a primeira tarefa.") }
         }
-        groupedTasks.forEach { grupo ->
+        if (filtro == null) groupedTasks.forEach { grupo ->
             val sector = grupo.titulo
             val sectorTasks = grupo.tarefas
             // Sem agrupamento real, nao ha cabecalho de grupo.
@@ -3466,11 +3785,11 @@ private fun CalendarMonthGrid(
             }
         }
         cells.chunked(7).forEach { week ->
-            Row(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                 week.forEach { day ->
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         if (day == null) {
-                            Spacer(Modifier.height(44.dp))
+                            Spacer(Modifier.height(ALTURA_CELULA_DIA))
                         } else {
                             val date = LocalDate(year, month, day)
                             CalendarDayCell(
@@ -3502,75 +3821,82 @@ private fun CalendarDayCell(
     val markers = ordered.take(3)
     val extra = ordered.size - markers.size
 
+    // Alternativa C do B11 (escolhida em 10/11, F10): o dia e um cartaozinho com contorno e os
+    // marcadores viram TRACOS de largura inteira, como o painel no celular. Altura fixa para a grade
+    // nao pular de tamanho entre um mes vazio e um cheio.
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .height(ALTURA_CELULA_DIA)
             .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (isSelected) PopBlue.copy(alpha = .1f) else MaterialTheme.colorScheme.surface,
+            )
+            .border(
+                width = if (isSelected) 1.5.dp else 1.dp,
+                color = if (isSelected) PopBlue else MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(10.dp),
+            )
             .clickable(onClick = onClick)
-            .padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Box(
-            modifier = Modifier.size(26.dp).then(
-                // O Android pinta "hoje" e "dia selecionado" exatamente igual, entao com outro dia
-                // escolhido nao da para achar hoje na grade. Aqui o selecionado e preenchido e o
-                // hoje e contornado: dois estados, duas aparencias.
-                when {
-                    isSelected -> Modifier.background(PopBlue, CircleShape)
-                    isToday -> Modifier.border(1.5.dp, PopBlue, CircleShape)
-                    else -> Modifier
-                },
-            ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                day.toString(),
-                fontSize = 12.sp,
-                color = when {
-                    isSelected -> Color.White
-                    isToday -> PopBlue
-                    else -> MaterialTheme.colorScheme.onSurface
-                },
-                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
-            )
-        }
-        Row(
-            modifier = Modifier.height(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            markers.forEach { task ->
-                Box(
-                    Modifier.size(5.dp).background(
-                        when {
-                            task.completed -> MaterialTheme.colorScheme.outline
-                            task.awaitingReview -> PopPurple
-                            else -> priorityColor(task.priority)
-                        },
-                        CircleShape,
-                    ),
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier.size(19.dp).then(
+                    // Hoje continua distinguivel do dia selecionado: hoje tem o numero num circulo
+                    // azul cheio; o selecionado tem o cartao inteiro contornado e tingido.
+                    if (isToday) Modifier.background(PopBlue, CircleShape) else Modifier,
+                ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    day.toString(),
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    color = when {
+                        isToday -> Color.White
+                        isSelected -> PopBlue
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                    fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
                 )
             }
-            // O "+N" no lugar de mais pontos: o Android chega a desenhar 20 bolinhas de 2dp em
-            // orbita num circulo de 38dp, o que vira um borrao que ninguem consegue contar. O
-            // numero tambem nao depende de distinguir matiz, ao contrario da cor sozinha.
+            Spacer(Modifier.weight(1f))
+            // O "+N" no lugar de mais tracos: o numero nao depende de distinguir matiz. Fica no
+            // canto do cabecalho, que nao tem altura fixa -- a linha de 8.dp de altura fixa onde ele
+            // morava antes e que cortava os digitos (B11).
             if (extra > 0) {
-                // A altura de linha herdada do tema e 20.sp: dentro desta linha de 8.dp o texto
-                // transbordava e o Compose o cortava, sobrando so o topo dos digitos.
                 Text(
                     "+$extra",
-                    fontSize = 8.sp,
-                    lineHeight = 8.sp,
+                    fontSize = 9.sp,
+                    lineHeight = 11.sp,
                     maxLines = 1,
-                    modifier = Modifier.wrapContentHeight(unbounded = true),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Bold,
                 )
             }
         }
+        markers.forEach { task ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .background(
+                        when {
+                            task.completed -> MaterialTheme.colorScheme.outline
+                            task.awaitingReview -> PopPurple
+                            else -> priorityColor(task.priority)
+                        },
+                        RoundedCornerShape(50),
+                    ),
+            )
+        }
     }
 }
+
+/** Altura de cada dia na grade do mes (cartaozinho da alternativa C). */
+private val ALTURA_CELULA_DIA = 50.dp
 
 @Composable
 private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {

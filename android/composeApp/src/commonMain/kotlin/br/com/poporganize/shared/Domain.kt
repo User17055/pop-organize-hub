@@ -144,9 +144,8 @@ data class CompanyWorkspace(
  * pendente nao pode ser contado, listado nem escolhido como responsavel: ele nao tem conta, e o
  * servidor nao resolveria o nome numa gravacao.
  *
- * O `members` cru fica acessivel de proposito, para o dia em que a tela Equipe ganhar uma secao de
- * convites pendentes como a do painel. Hoje o aplicativo nao sabe cancelar convite (so o Android
- * sabe), entao mostrar seria oferecer o que nao se pode desfazer.
+ * O `members` cru fica acessivel de proposito: a tela Equipe mostra os convites pendentes numa
+ * secao propria, so para quem pode cancela-los (`canManageEmployees`), e e de la que se cancela.
  */
 val CompanyWorkspace.activeMembers: List<CompanyMember>
     get() = members.filter { !it.pending }

@@ -4160,6 +4160,14 @@ private fun TeamScreen(store: PopStore) {
     // So gente de verdade. Os convites pendentes chegam nesta mesma lista e tem o MESMO nome das
     // pessoas que ja aceitaram, entao sem o filtro a Equipe mostra cada pessoa duas vezes.
     val members = company?.activeMembers.orEmpty()
+    // Convites pendentes, em secao propria e so para quem pode cancela-los: mostrar a quem nao pode
+    // seria oferecer uma linha que nao leva a nada. Ficam fora do contador de pessoas.
+    val convites = if (store.permissions.canManageEmployees) {
+        company?.members.orEmpty().filter { it.pending }.sortedBy { it.name.lowercase() }
+    } else {
+        emptyList()
+    }
+    var cancelando by remember { mutableStateOf<CompanyMember?>(null) }
     EntityListScreen(
         header = if (members.size == 1) "1 pessoa cadastrada" else "${members.size} pessoas cadastradas",
         emptyTitle = "Nenhum colaborador",
@@ -4181,9 +4189,36 @@ private fun TeamScreen(store: PopStore) {
                 badge = member.role.takeIf { it.isNotBlank() },
             )
         },
+        pendentesTitulo = if (convites.size == 1) "1 convite pendente" else "${convites.size} convites pendentes",
+        pendentes = convites.map { convite ->
+            EntityRow(
+                title = convite.name,
+                subtitle = company?.sectors?.firstOrNull { it.id == convite.sectorId }?.name.orEmpty(),
+                detail = convite.email,
+                initials = initialsOf(convite.name),
+                badge = "Pendente",
+                onClick = { cancelando = convite },
+                acao = "Cancelar convite de ${convite.name}",
+            )
+        },
         onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) MemberEditorDialog(store) { showEditor = false }
+    cancelando?.let { convite ->
+        ConfirmEntityDeleteDialog(
+            titulo = "Cancelar o convite de ${convite.name}?",
+            bloqueio = null,
+            aviso = "O link enviado para ${convite.email} deixa de funcionar. Tarefas atribuídas a " +
+                "${convite.name} voltam para a empresa. Para chamar de novo, envie outro convite.",
+            confirmar = "Cancelar convite",
+            voltar = "Voltar",
+            onConfirm = {
+                store.cancelInvitation(convite.id)
+                cancelando = null
+            },
+            onDismiss = { cancelando = null },
+        )
+    }
 }
 
 @Composable
@@ -4307,6 +4342,8 @@ private data class EntityRow(
     val badge: String? = null,
     /** Nulo quando quem esta vendo nao pode alterar a linha: ela fica sem toque e sem seta. */
     val onClick: (() -> Unit)? = null,
+    /** O que o toque faz, para o leitor de tela (descricao da seta). */
+    val acao: String = "Editar",
 )
 
 @Composable
@@ -4316,6 +4353,9 @@ private fun EntityListScreen(
     items: List<EntityRow>,
     onAdd: (() -> Unit)? = null,
     emptyDetail: String? = null,
+    /** Segunda secao, abaixo da lista: hoje so os convites pendentes da Equipe. Vazia = some. */
+    pendentes: List<EntityRow> = emptyList(),
+    pendentesTitulo: String = "",
 ) {
     // Sem onAdd a tela e somente leitura e o vazio precisa mandar o usuario para o painel web.
     val detail = emptyDetail
@@ -4328,6 +4368,10 @@ private fun EntityListScreen(
             item { SectionTitle(header) }
             if (items.isEmpty()) item { EmptyState(emptyTitle, detail) }
             items(items) { row -> EntityCard(row) }
+            if (pendentes.isNotEmpty()) {
+                item { SectionTitle(pendentesTitulo) }
+                items(pendentes) { row -> EntityCard(row) }
+            }
         }
         if (onAdd != null) {
             FloatingActionButton(onClick = onAdd, modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp)) {
@@ -4393,7 +4437,7 @@ private fun EntityCard(row: EntityRow) {
             if (toque != null) {
                 Icon(
                     Icons.Rounded.ChevronRight,
-                    contentDescription = "Editar",
+                    contentDescription = row.acao,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp).size(20.dp),
                 )
@@ -5378,6 +5422,10 @@ private fun ConfirmEntityDeleteDialog(
     aviso: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    confirmar: String = "Excluir",
+    // No convite o botao vermelho ja se chama "Cancelar convite"; um segundo "Cancelar" ao lado
+    // deixaria ambiguo qual dos dois desiste.
+    voltar: String = "Cancelar",
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -5388,13 +5436,13 @@ private fun ConfirmEntityDeleteDialog(
                 Button(
                     onClick = onConfirm,
                     colors = ButtonDefaults.buttonColors(containerColor = PopRed, contentColor = Color.White),
-                ) { Text("Excluir") }
+                ) { Text(confirmar) }
             } else {
                 TextButton(onClick = onDismiss) { Text("Entendi") }
             }
         },
         dismissButton = if (bloqueio == null) ({
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
+            TextButton(onClick = onDismiss) { Text(voltar) }
         }) else null,
     )
 }

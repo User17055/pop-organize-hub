@@ -454,6 +454,14 @@ class PopStore(private val platform: PopPlatformServices) {
         )
     }
 
+    // O mesmo `removeEmployee` que o Android usa: com o id de um convite o servidor passa pelo
+    // `removeInvitation`, que tambem solta as tarefas atribuidas ao convidado (alvo pessoal vai para
+    // a empresa, responsavel e revisor saem). Permissao: `manage.employees`, a mesma de convidar.
+    fun cancelInvitation(invitationId: String) = mutateWorkspace(
+        """{"action":"removeEmployee","employeeId":${json.encodeToString(invitationId)}}""",
+        "Convite cancelado.",
+    )
+
     fun addSector(name: String, description: String) = mutateWorkspace(
         """{"action":"createDepartment","name":${json.encodeToString(name.trim())},"description":${json.encodeToString(description.trim())}}""",
         "Setor criado.",

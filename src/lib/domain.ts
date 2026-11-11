@@ -284,6 +284,7 @@ export interface Task {
   dueDate: string;
   /** Hora escolhida no aplicativo. O painel ainda não mostra; sem o campo, ela só sobrevivia em `nativeData`. */
   dueTime?: string;
+  durationMinutes?: number;
   createdAt: string;
   target: { type: TargetType; id: string; label: string };
   responsibleId: string;

@@ -24,6 +24,9 @@ kotlin {
     }
 
     sourceSets {
+        androidUnitTest.dependencies {
+            implementation 'junit:junit:4.13.2'
+        }
         commonMain.dependencies {
             implementation compose.runtime
             implementation compose.foundation

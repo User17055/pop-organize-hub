@@ -5,6 +5,7 @@ import { z } from "zod";
 const mobileTaskSchema = z.object({
   id: z.number().int(),
   serverId: z.string().max(300).optional(),
+  clientId: z.string().max(120).regex(/^[a-zA-Z0-9_-]*$/).optional(),
   title: z.string().trim().min(3).max(300),
   department: z.string().max(120).default("Pessoal"),
   dueLabel: z.string().max(120),
@@ -61,6 +62,14 @@ const mobileTaskSchema = z.object({
 
 const mobileTasksPayloadSchema = z.object({
   tasks: z.array(mobileTaskSchema).max(5_000),
+  baseTasks: z.array(mobileTaskSchema).max(5_000).optional(),
+  taskOrder: z.array(z.string().min(1).max(300)).max(5_000).optional(),
+  baseTaskOrder: z.array(z.string().min(1).max(300)).max(5_000).optional(),
+  statusChanges: z.array(z.object({
+    serverId: z.string().min(1).max(300),
+    completed: z.boolean(),
+    mutationId: z.string().uuid(),
+  })).max(100).default([]),
   deletedServerIds: z.array(z.string().min(1).max(300)).max(5_000).default([]),
 });
 
@@ -103,6 +112,10 @@ export const Route = createFileRoute("/api/mobile/tasks")({
             request,
             parsed.data.tasks,
             parsed.data.deletedServerIds,
+            parsed.data.baseTasks,
+            parsed.data.taskOrder,
+            parsed.data.baseTaskOrder,
+            parsed.data.statusChanges,
           );
           if (result.deleted > 0) {
             const { removeOrphanAttachmentFiles } = await import("@/lib/task-attachments.server");

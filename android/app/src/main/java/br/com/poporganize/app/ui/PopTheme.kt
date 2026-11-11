@@ -32,6 +32,13 @@ val PoppinsFontFamily = FontFamily(
     Font(R.font.poppins_bold, FontWeight.ExtraBold),
 )
 
+// The same body face shipped by the web app; Poppins remains the display face.
+val InterFontFamily = FontFamily(
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_medium, FontWeight.Medium),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+)
+
 private fun TextStyle.withPoppins() = copy(fontFamily = PoppinsFontFamily)
 
 private val baseTypography = Typography()

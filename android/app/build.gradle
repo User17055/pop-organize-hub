@@ -13,6 +13,8 @@ def releaseKeyAlias = keystoreProperties.getProperty('keyAlias') ?: System.geten
 def releaseKeyPassword = keystoreProperties.getProperty('keyPassword') ?: System.getenv('POP_ANDROID_KEY_PASSWORD')
 def popApiBaseUrl = (project.findProperty('POP_API_BASE_URL') ?: System.getenv('POP_API_BASE_URL') ?: 'https://app.poporganize.com.br/api/mobile')
     .toString().replaceAll('/+$', '')
+def calendarTestInstall = (project.findProperty('POP_CALENDAR_TEST') ?: 'false').toString().toBoolean()
+def calendarPreviewEnabled = (project.findProperty('POP_CALENDAR_PREVIEW') ?: (!calendarTestInstall).toString()).toString().toBoolean()
 
 android {
     namespace = "br.com.poporganize.app"
@@ -21,9 +23,13 @@ android {
         applicationId "br.com.poporganize.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 15
+        versionCode 17
         versionName "1.0.14"
         manifestPlaceholders = [appLabel: "Pop Organize"]
+        if (calendarTestInstall) {
+            versionCode 29
+            versionName "1.0.15-teste"
+        }
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "POP_API_BASE_URL", "\"${popApiBaseUrl.replace('\\', '\\\\').replace('"', '\\"')}\""
     }
@@ -39,7 +45,10 @@ android {
     }
     buildTypes {
         debug {
-            manifestPlaceholders = [appLabel: "Pop Organize"]
+            manifestPlaceholders = [appLabel: calendarTestInstall ? "Pop Organize Teste" : "Pop Organize", calendarPreviewEnabled: calendarPreviewEnabled]
+            if (calendarTestInstall) {
+                applicationIdSuffix ".teste"
+            }
         }
         release {
             // A Play Console calcula a qualidade do DEX a partir do artefato de release. O perfil

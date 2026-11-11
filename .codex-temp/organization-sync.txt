@@ -1,0 +1,50 @@
+private fun organizationKey(accountId: String, workspaceId: String) = "sync_org_${accountId}_${workspaceId.ifBlank { "personal" }}"
+
+private suspend fun synchronizeOrganization(
+    context: Context, account: GoogleAccount, workspaceId: String, apply: (NativeTaskOrganization) -> Unit,
+) {
+    val key = organizationKey(account.id, workspaceId)
+    val mutex = synchronized(taskScopeLocks) { taskScopeLocks.getOrPut(key) { Mutex() } }
+    mutex.withLock {
+        val prefs = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        fun stored(suffix: String) = prefs.getString(key + suffix, null)?.let { decodeTaskOrganization(JSONObject(it)) }
+        var local = stored("")
+        var base = stored("_base")
+        if (base == null) {
+            val remote = loadRemoteTaskOrganization(account.apiToken, workspaceId)
+            // Before the first read, only newly created local IDs can exist in this cache.
+            local = local?.let { NativeTaskOrganization(
+                remote.folders + it.folders.filter { folder -> remote.folders.none { item -> item.id == folder.id } },
+                remote.lists + it.lists.filter { list -> remote.lists.none { item -> item.id == list.id } }) } ?: remote
+            base = remote
+            prefs.edit().putString(key, taskOrganizationJson(local).toString())
+                .putString("${key}_base", taskOrganizationJson(base).toString())
+                .putString("${key}_remote", taskOrganizationJson(remote).toString())
+                .putBoolean("${key}_dirty", local != base).commit()
+        }
+        val snapshot = local ?: base
+        val snapshotJson = taskOrganizationJson(snapshot).toString()
+        var accepted: NativeTaskOrganization? = null
+        var uploadError: Exception? = null
+        if (prefs.getBoolean("${key}_dirty", false)) {
+            try { accepted = syncRemoteTaskOrganization(account.apiToken, snapshot, workspaceId, base) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Exception) { uploadError = error }
+        }
+        val remote = loadRemoteTaskOrganization(account.apiToken, workspaceId)
+        val latestJson = prefs.getString(key, snapshotJson) ?: snapshotJson
+        val changedDuringRequest = latestJson != snapshotJson
+        val keepLocal = changedDuringRequest || uploadError != null
+        val nextLocal = if (keepLocal) decodeTaskOrganization(JSONObject(latestJson)) else remote
+        val nextBase = if (changedDuringRequest) accepted ?: base else if (uploadError != null) base else remote
+        prefs.edit().putString(key, taskOrganizationJson(nextLocal).toString())
+            .putString("${key}_base", taskOrganizationJson(nextBase).toString())
+            .putString("${key}_remote", taskOrganizationJson(remote).toString())
+            .putBoolean("${key}_dirty", keepLocal).commit()
+        apply(nextLocal)
+        uploadError?.localizedMessage?.let { error ->
+            if (taskSyncErrors[key] != error) { taskSyncErrors[key] = error; Toast.makeText(context, error, Toast.LENGTH_LONG).show() }
+        } ?: taskSyncErrors.remove(key)
+    }
+}
+

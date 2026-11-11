@@ -1,0 +1,61 @@
+
+/** Entry point used exclusively by the debug source-set activity. */
+@Composable
+fun PopCalendarPreview() {
+    check(BuildConfig.DEBUG)
+    val context = LocalContext.current
+    val people = remember {
+        listOf("Ana Oliveira" to "ana", "Bruno Lima" to "bruno", "Camila Santos" to "camila", "Daniel Souza" to "daniel").mapIndexed { index, (name, file) ->
+            val photo = runCatching { "data:image/jpeg;base64," + Base64.encodeToString(context.assets.open("calendar-preview/$file.jpg").use { it.readBytes() }, Base64.NO_WRAP) }.getOrDefault("")
+            CompanyMember(name, "$file@example.com", "Colaborador", if (index < 2) "Administrativo" else "Operações", "preview-$file", photoUrl = photo, sectorId = if (index < 2) "s1" else "s2")
+        }
+    }
+    val sectors = remember { listOf(CompanySector("Administrativo", "", "s1"), CompanySector("Operações", "", "s2")) }
+    val groups = remember { listOf(CompanyGroup("Equipe da manhã", "", "g1", people.take(2).map { it.id })) }
+    val tasks = remember {
+        mutableStateListOf<PopTask>().apply {
+            listOf(
+                Triple("Alinhamento da equipe", "09:00", "30 min"),
+                Triple("Conferir pedidos da semana", "10:00", "1 h"),
+                Triple("Contato com fornecedores", "10:30", "45 min"),
+                Triple("Organizar documentos", "14:00", "1 h 30 min"),
+                Triple("Enviar relatório do dia", "", "Sem duração"),
+            ).forEachIndexed { index, (title, time, duration) ->
+                val person = people[index % people.size]
+                add(PopTask(index + 1, title, person.sector, "Hoje", if (index == 2) "Alta" else "Média", dueTime = time, duration = duration,
+                    assignee = person.name, assignees = listOf(person.name), assignmentTargetId = person.id, assignmentTargetLabel = person.name,
+                    description = "Tarefa de exemplo para conferir a agenda. As alterações ficam somente nesta prévia."))
+            }
+        }
+    }
+    var editing by remember { mutableStateOf<Int?>(null) }
+    var creating by remember { mutableStateOf<LocalDate?>(null) }
+    var destination by remember { mutableStateOf(PopDestination.Calendar) }
+    PopTheme(lightTheme = false) {
+        Scaffold(
+            containerColor = PopBackground,
+            topBar = {
+                Text("PRÉVIA · DADOS DE EXEMPLO", color = PopMuted, fontSize = 9.sp, letterSpacing = 1.sp,
+                    modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = 3.dp, bottom = 3.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            },
+            bottomBar = { if (editing == null && creating == null) PopBottomBar(destination, true) { if (it == PopDestination.Calendar || it == PopDestination.Tasks) destination = it } },
+        ) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                if (editing != null || creating != null || destination == PopDestination.Tasks) {
+                    TasksScreen(
+                        tasks, true, true, "preview-ana", "Ana Oliveira", WorkSpace.Company, {},
+                        listOf("Empresa de exemplo"), listOf("Prévia local"), people, sectors, groups, 0, {}, {}, {},
+                        initialTaskId = editing, onInitialTaskOpened = {}, onTaskDeleted = {},
+                        initialCreateDate = creating, createOnly = creating != null,
+                        onCreateFormClosed = { creating = null }, detailOnly = editing != null, onDetailClosed = { editing = null },
+                    )
+                } else {
+                    CalendarScreen(tasks, true, people, sectors, groups, WorkSpace.Company, {},
+                        listOf("Empresa de exemplo"), listOf("Prévia local"), 0, "calendar-design-preview-v2", {}, {}, {},
+                        onToggleTaskComplete = { task -> val index = tasks.indexOfFirst { it.id == task.id }; if (index >= 0) tasks[index] = task.copy(completed = !task.completed) },
+                        onOpenTask = { editing = it.id }, onCreateTaskForDate = { creating = it })
+                }
+            }
+        }
+    }
+}

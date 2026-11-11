@@ -1,0 +1,11 @@
+allprojects {
+    tasks.register('writeSyncTestClasspath') {
+        doLast {
+            def unitTask = tasks.findByName('testDebugUnitTest')
+            if (unitTask != null) {
+                def target = new File(rootProject.projectDir.parentFile, ".codex-temp/sync-${project.name}-classpath.txt")
+                target.setText(unitTask.classpath.asPath, 'UTF-8')
+            }
+        }
+    }
+}

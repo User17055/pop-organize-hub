@@ -50,6 +50,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apartment
+import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.CalendarMonth
@@ -60,6 +61,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -145,6 +147,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1963,11 +1966,22 @@ private fun TaskDetailsDialog(
     onDismiss: () -> Unit,
 ) {
     var editando by remember(task.id) { mutableStateOf(false) }
+    // O id do anexo cujo link esta sendo pedido, para mostrar o progresso e nao pedir dois de uma vez.
+    var abrindoAnexo by remember(task.id) { mutableStateOf<String?>(null) }
+    var erroAnexo by remember(task.id) { mutableStateOf<String?>(null) }
+    val escopo = rememberCoroutineScope()
+    // O LocalUriHandler, e nao o openExternalUrl da plataforma: a abertura no iOS fica com a
+    // implementacao do proprio Compose, e a chamada compila e roda na previa desktop.
+    val abridor = LocalUriHandler.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(task.title, fontWeight = FontWeight.ExtraBold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Rolagem porque checklist e anexos juntos passam da altura do dialogo num iPhone pequeno.
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 if (task.description.isNotBlank()) Text(task.description)
                 // taskDateLabel, e nao a data crua: este era o unico ponto do app que mostrava
                 // "2026-08-24" em vez de "seg, 24 de agosto". Ficava atras do dialogo a mesma
@@ -2084,6 +2098,72 @@ private fun TaskDetailsDialog(
                             )
                             Text(item.title, modifier = Modifier.weight(1f))
                         }
+                    }
+                }
+                // Os anexos enviados pelo painel (F9). Tocar pede um link curto ao servidor e o abre
+                // no Safari, que baixa o arquivo; anexo antigo, sem arquivo guardado, so mostra o nome.
+                if (task.panelAttachments.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Anexos", fontWeight = FontWeight.Bold)
+                    task.panelAttachments.forEach { anexo ->
+                        val temArquivo = anexo.fileId.isNotBlank()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable(enabled = temArquivo && abrindoAnexo == null) {
+                                    abrindoAnexo = anexo.id
+                                    erroAnexo = null
+                                    escopo.launch {
+                                        val link = store.linkDoAnexoDoPainel(anexo)
+                                        val url = link.url
+                                        if (url != null) {
+                                            runCatching { abridor.openUri(url) }
+                                                .onFailure { erroAnexo = "Não foi possível abrir o anexo." }
+                                        } else {
+                                            erroAnexo = link.erro
+                                        }
+                                        abrindoAnexo = null
+                                    }
+                                }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Rounded.AttachFile,
+                                null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(anexo.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    listOf(anexo.sizeLabel, if (temArquivo) "" else "só o nome foi guardado")
+                                        .filter { it.isNotBlank() }
+                                        .joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (abrindoAnexo == anexo.id) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else if (temArquivo) {
+                                Icon(
+                                    Icons.Rounded.Download,
+                                    "Baixar ${anexo.name}",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    }
+                    erroAnexo?.let { mensagem ->
+                        Text(
+                            mensagem,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
                     }
                 }
             }

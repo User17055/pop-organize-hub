@@ -123,6 +123,10 @@ export type MobileTask = {
   assignmentTargetLabel?: string;
   assignees?: string[];
   checklist?: Array<{ id: string; title: string; done: boolean }>;
+  // Os anexos enviados pelo painel. Só de leitura, como os de revisão acima: o mobileTaskSchema não
+  // os declara, então não voltam pela gravação e não tocam `attachmentItems`. O arquivo sai pelo
+  // link de `createMobileAttachmentLink`; `fileId` vazio é anexo antigo, só com nome.
+  panelAttachments?: Array<{ id: string; name: string; sizeLabel: string; fileId: string }>;
 };
 
 type NativeTask = Task & {
@@ -808,6 +812,12 @@ function applicationOrigin(request: Request) {
   }
   if (process.env.NODE_ENV === "production") return "https://app.poporganize.com.br";
   return new URL(request.url).origin;
+}
+
+/** Link curto para o aplicativo abrir no Safari um anexo enviado pelo painel. */
+export async function createMobileAttachmentDownloadLink(request: Request, fileId: string) {
+  const { createMobileAttachmentLink } = await import("./task-attachments.server");
+  return createMobileAttachmentLink(request, fileId, applicationOrigin(request));
 }
 
 function activeCompanyMember(platform: PlatformDatabase, workspaceId: string, accountId: string) {
@@ -1848,6 +1858,12 @@ function taskToMobileTask(
       id: item.id,
       title: item.title,
       done: item.done,
+    })),
+    panelAttachments: (task.attachmentItems ?? []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      sizeLabel: item.sizeLabel,
+      fileId: item.fileId ?? "",
     })),
   };
 }

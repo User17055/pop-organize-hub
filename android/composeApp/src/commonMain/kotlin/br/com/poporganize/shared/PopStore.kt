@@ -792,6 +792,23 @@ class PopStore(private val platform: PopPlatformServices) {
 
     private fun persist() = platform.saveState(json.encodeToString(state))
 
+    /**
+     * Pede o link de um anexo enviado pelo painel. O Safari nao leva o token do aparelho, entao o
+     * servidor devolve um endereco de poucos minutos (`createMobileAttachmentLink`) e o download
+     * sai por la, como arquivo para salvar. Quem abre e a tela, pelo `LocalUriHandler`.
+     */
+    internal suspend fun linkDoAnexoDoPainel(anexo: ApiPanelAttachment): LinkDeAnexo {
+        val token = state.apiToken ?: return LinkDeAnexo(erro = "Entre na conta para baixar anexos.")
+        if (anexo.fileId.isBlank()) {
+            return LinkDeAnexo(erro = "Este anexo é antigo: o painel guardou só o nome.")
+        }
+        val response = platform.apiRequest(path = "anexos/${anexo.fileId}", method = "POST", token = token)
+        if (!response.successful) return LinkDeAnexo(erro = apiError(response, "Não foi possível abrir o anexo."))
+        val url = runCatching { json.decodeFromString<ApiAttachmentLink>(response.body).url }.getOrNull()
+        if (url.isNullOrBlank()) return LinkDeAnexo(erro = "O servidor devolveu um link inválido.")
+        return LinkDeAnexo(url = url)
+    }
+
     private fun apiError(response: ApiResponse, fallback: String): String =
         runCatching { json.decodeFromString<ApiError>(response.body).error }.getOrNull() ?: fallback
 }
@@ -873,6 +890,7 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     canComplete = canComplete,
     canCompleteAnytime = canCompleteAnytime,
     canDelete = canDelete,
+    panelAttachments = panelAttachments.orEmpty(),
     assignee = assignee,
     assignees = assignees,
     assignedBy = assignedBy,
@@ -880,6 +898,9 @@ private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask
     attachmentName = attachmentName,
     duration = duration,
 )
+
+/** Resultado de `linkDoAnexoDoPainel`: o endereco para abrir, ou a mensagem para mostrar. */
+internal data class LinkDeAnexo(val url: String? = null, val erro: String? = null)
 
 /** O alcance de uma mudanca de data, com as mesmas palavras do `dateMoveScope` no servidor. */
 internal const val DATA_SO_ESTA = "this"

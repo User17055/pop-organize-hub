@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { Database } from "./database";
 import { databasePool, hashToken, mutateDatabase, readDatabase } from "./database.server";
@@ -213,15 +213,53 @@ function downloadHeaders(name: string, size: number) {
   };
 }
 
-export async function downloadTaskAttachment(request: Request, fileId: string) {
-  const platform = await readDatabase();
-  const logged = sessionAccount(platform, request);
-  if (!logged) throw attachmentError("Sessão expirada. Faça login novamente.", 401);
+/**
+ * O aplicativo abre o anexo no Safari, que não leva o token do aparelho. Em vez de pôr o token no
+ * endereço, o aplicativo pede um link de poucos minutos, assinado com o hash da própria sessão:
+ * sair da conta derruba o link junto, e o link vale só para aquele arquivo.
+ */
+export const ATTACHMENT_LINK_TTL_MS = 5 * 60 * 1000;
 
+export function attachmentLinkSignature(tokenHash: string, fileId: string, expires: number) {
+  return createHmac("sha256", tokenHash).update(`anexo:${fileId}:${expires}`).digest("base64url");
+}
+
+function linkAccount(platform: Platform, request: Request, fileId: string) {
+  const params = new URL(request.url).searchParams;
+  const sessionId = params.get("s");
+  const signature = params.get("k");
+  const expires = Number(params.get("e"));
+  if (!sessionId || !signature || !Number.isSafeInteger(expires)) return null;
+  const now = Date.now();
+  // O teto impede que um link forjado com prazo distante sirva, mesmo que a assinatura vazasse.
+  if (expires <= now || expires > now + ATTACHMENT_LINK_TTL_MS) return null;
+  const session = platform.sessions.find(
+    (item) => item.id === sessionId && new Date(item.expiresAt).getTime() > now,
+  );
+  if (!session) return null;
+  const expected = Buffer.from(attachmentLinkSignature(session.tokenHash, fileId, expires));
+  const received = Buffer.from(signature);
+  if (expected.length !== received.length || !timingSafeEqual(expected, received)) return null;
+  const account = platform.accounts.find((item) => item.id === session.userId);
+  return account ? { session, account } : null;
+}
+
+/**
+ * A mesma conferência para o download e para o link do aplicativo: o link só sai para quem
+ * conseguiria baixar, e o download confere de novo, porque o acesso pode mudar nesses minutos.
+ */
+async function readableAttachment(
+  platform: Platform,
+  accountId: string,
+  fileId: string,
+  withData: boolean,
+) {
   const notFound = attachmentError("Anexo não encontrado.", 404);
   const pool = await attachmentsTable();
   const [rows] = await pool.execute<RowDataPacket[]>(
-    "SELECT workspace_id, task_id, name, data FROM task_attachment_files WHERE id = ? LIMIT 1",
+    withData
+      ? "SELECT workspace_id, task_id, name, data FROM task_attachment_files WHERE id = ? LIMIT 1"
+      : "SELECT workspace_id, task_id, name FROM task_attachment_files WHERE id = ? LIMIT 1",
     [fileId],
   );
   const row = rows[0];
@@ -229,10 +267,41 @@ export async function downloadTaskAttachment(request: Request, fileId: string) {
   // Sem acesso e inexistente respondem igual, para o endereço não confirmar que o arquivo existe.
   const workspace = platform.workspaces.find((item) => item.company.id === row.workspace_id);
   const task = workspace?.tasks.find((item) => item.id === row.task_id);
-  if (!workspace || !task || !activeMember(workspace, logged.account.id)) throw notFound;
+  if (!workspace || !task || !activeMember(workspace, accountId)) throw notFound;
   if (!task.attachmentItems?.some((item) => item.fileId === fileId)) throw notFound;
-  if (!canViewTask(permissionInput(workspace, task, logged.account.id))) throw notFound;
+  if (!canViewTask(permissionInput(workspace, task, accountId))) throw notFound;
+  return row;
+}
 
+export async function createMobileAttachmentLink(request: Request, fileId: string, origin: string) {
+  const token = (request.headers.get("authorization") ?? "").match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (!token) throw attachmentError("Sessão ausente.", 401);
+  const platform = await readDatabase();
+  const tokenHash = hashToken(token);
+  const session = platform.sessions.find(
+    (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > Date.now(),
+  );
+  if (!session) throw attachmentError("Sessão expirada. Faça login novamente.", 401);
+  await readableAttachment(platform, session.userId, fileId, false);
+
+  const expires = Date.now() + ATTACHMENT_LINK_TTL_MS;
+  const params = new URLSearchParams({
+    s: session.id,
+    e: String(expires),
+    k: attachmentLinkSignature(session.tokenHash, fileId, expires),
+  });
+  return {
+    url: `${origin}/api/anexos/${encodeURIComponent(fileId)}?${params.toString()}`,
+    expiresAt: new Date(expires).toISOString(),
+  };
+}
+
+export async function downloadTaskAttachment(request: Request, fileId: string) {
+  const platform = await readDatabase();
+  const logged = sessionAccount(platform, request) ?? linkAccount(platform, request, fileId);
+  if (!logged) throw attachmentError("Sessão expirada. Faça login novamente.", 401);
+
+  const row = await readableAttachment(platform, logged.account.id, fileId, true);
   const data = row.data as Buffer;
   return new Response(new Uint8Array(data), {
     status: 200,

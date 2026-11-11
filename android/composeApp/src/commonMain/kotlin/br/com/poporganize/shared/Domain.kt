@@ -192,6 +192,9 @@ data class PopTask(
     val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,
 
+    // Anexos do painel. So de leitura; ver a nota no ApiTask.
+    val panelAttachments: List<ApiPanelAttachment> = emptyList(),
+
     // Cofre da recorrencia: as palavras do servidor, guardadas cruas e devolvidas intactas.
     //
     // O RecurrenceKind acima so consegue representar quatro casos, e o servidor guarda mais: de
@@ -309,6 +312,22 @@ data class ApiSession(
 
 @Serializable
 data class ApiError(val error: String = "Não foi possível concluir a operação.")
+
+/**
+ * Um anexo enviado pelo painel (`panelAttachments` em `taskToMobileTask`). So de leitura. `fileId`
+ * vazio e anexo antigo, do qual o servidor so guardou o nome: aparece na lista, mas nao abre.
+ */
+@Serializable
+data class ApiPanelAttachment(
+    val id: String = "",
+    val name: String = "",
+    val sizeLabel: String = "",
+    val fileId: String = "",
+)
+
+/** Resposta de `POST anexos/{fileId}`: endereco de poucos minutos para o Safari baixar o arquivo. */
+@Serializable
+data class ApiAttachmentLink(val url: String = "", val expiresAt: String = "")
 
 @Serializable
 data class ApiWorkspaceResponse(val workspaces: List<ApiWorkspace> = emptyList())
@@ -489,6 +508,13 @@ data class ApiTask(
     val canComplete: Boolean = true,
     val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,
+
+    // Os anexos enviados pelo painel. So de leitura, como os de revisao: o mobileTaskSchema nao os
+    // declara e o z.object os descarta na volta, entao nao tocam o `attachmentItems` do servidor.
+    // NULO, e nao lista vazia, para a chave sair do JSON da gravacao (`explicitNulls = false`) em
+    // vez de reenviar a lista inteira a cada sincronizacao. O arquivo nao vem aqui: sai por um
+    // link pedido na hora (`abrirAnexoDoPainel`).
+    val panelAttachments: List<ApiPanelAttachment>? = null,
 )
 
 @Serializable

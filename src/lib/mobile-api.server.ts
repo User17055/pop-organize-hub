@@ -44,6 +44,13 @@ import {
 } from "./recurrence.server";
 import { removeDepartment } from "./department-removal";
 import { removeInvitation } from "./invitation-removal";
+import {
+  activeJustification,
+  applyTaskJustification,
+  JustificationError,
+  parseJustificationRequest,
+  saoPauloToday,
+} from "./task-justification";
 import { applyManagerAccess, isManagerAccessMode } from "./department-access";
 import { invalidateNativeShadow } from "./native-shadow";
 import { formatTaskDuration, parseTaskDuration } from "./task-duration";
@@ -131,6 +138,13 @@ export type MobileTask = {
   // os declara, então não voltam pela gravação e não tocam `attachmentItems`. O arquivo sai pelo
   // link de `createMobileAttachmentLink`; `fileId` vazio é anexo antigo, só com nome.
   panelAttachments?: Array<{ id: string; name: string; sizeLabel: string; fileId: string }>;
+  // F11, só de leitura como os de cima: o mobileTaskSchema não os declara. `canceled` é booleano, e
+  // não o status cru, pelo mesmo motivo do `awaitingReview`. `justification` é só a que vale agora
+  // (`activeJustification`), então o tipo não precisa viajar: com `canceled` é "não será feita",
+  // sem ele é "vou fazer depois". A gravação é pela ação `justifyTask`, nunca pelo PUT.
+  canceled?: boolean;
+  justification?: { text: string; authorName: string; createdAt: string };
+  canJustify?: boolean;
 };
 
 type NativeTask = Task & {
@@ -928,6 +942,49 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       createdCompanyId,
       ...(await readMobileWorkspaces(request)),
     };
+  }
+
+  // F11. Ação própria, e não pelo PUT de tarefas: o PUT reescreve a tarefa a partir do que o
+  // aparelho manda, e a justificativa e o status "Cancelada" não fazem parte do que ele manda.
+  // Vale também no espaço pessoal, por isso fica antes da trava de empresa.
+  if (action === "justifyTask") {
+    const taskId = requiredText(input.taskId, "A tarefa", 1);
+    const workspaceId = authorizedWorkspace.company.id;
+    await mutateDatabase((platform) => {
+      const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+      const currentUser = workspace?.employees.find(
+        (employee) => employee.id === account.id && employee.status === "active",
+      );
+      if (!workspace || !currentUser) throw mobileHttpError("Espaço não encontrado.", 404);
+      const task = workspace.tasks.find((item) => item.id === taskId);
+      if (!task) throw mobileHttpError("Tarefa não encontrada.", 404);
+      const permissions = getTaskPermissions({
+        task,
+        currentUser,
+        employees: workspace.employees,
+        departments: workspace.departments,
+        groups: workspace.groups,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!permissions.canChangeStatus) {
+        throw mobileHttpError("Você não tem permissão para justificar esta tarefa.", 403);
+      }
+      try {
+        applyTaskJustification(
+          task,
+          parseJustificationRequest(input),
+          account.id,
+          new Date().toISOString(),
+          saoPauloToday(),
+        );
+      } catch (error) {
+        if (error instanceof JustificationError) {
+          throw mobileHttpError(error.message, error.statusCode);
+        }
+        throw error;
+      }
+    });
+    return { ok: true };
   }
 
   if ((authorizedWorkspace.company.kind ?? "company") !== "company") {
@@ -1874,6 +1931,7 @@ function taskToMobileTask(
     task.assignedById && task.assignedById !== currentUser.id
       ? (workspace.employees.find((employee) => employee.id === task.assignedById)?.name ?? "")
       : "";
+  const justification = activeJustification(task);
   const creatorId = task.assignedById ?? task.nativeOwnerId;
   const createdBy = creatorId
     ? (workspace.employees.find((employee) => employee.id === creatorId)?.name ?? "")
@@ -1942,6 +2000,17 @@ function taskToMobileTask(
       sizeLabel: item.sizeLabel,
       fileId: item.fileId ?? "",
     })),
+    canceled: task.status === "canceled",
+    justification: justification
+      ? {
+          text: justification.text,
+          authorName:
+            workspace.employees.find((employee) => employee.id === justification.authorId)?.name ??
+            "",
+          createdAt: justification.updatedAt ?? justification.createdAt,
+        }
+      : undefined,
+    canJustify: permissions.canChangeStatus,
   };
 }
 

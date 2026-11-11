@@ -8,6 +8,7 @@ import { EmployeeAvatar } from "@/components/tasks/employee-avatar";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { Plus, TrendingUp, Clock, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { countOverdue, localIsoDate } from "@/lib/task-justification";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -57,15 +58,11 @@ function Dashboard() {
       hasPermission(permissionSet, key),
     );
   const getEmployee = (id: string) => employees.find((employee) => employee.id === id);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
   const total = tasks.length;
   const completed = tasks.filter((t) => t.status === "completed").length;
   const inProgress = tasks.filter((t) => t.status === "in_progress").length;
   const review = tasks.filter((t) => t.status === "waiting_review").length;
-  const overdue = tasks.filter(
-    (t) => new Date(`${t.dueDate}T00:00:00`) < today && t.status !== "completed",
-  ).length;
+  const { overdue, justified: justifiedOverdue } = countOverdue(tasks, localIsoDate());
 
   const stats = [
     {
@@ -93,6 +90,10 @@ function Dashboard() {
     {
       label: "Atrasadas",
       value: overdue,
+      detail:
+        justifiedOverdue > 0
+          ? `${justifiedOverdue} ${justifiedOverdue === 1 ? "justificada" : "justificadas"}`
+          : undefined,
       icon: AlertTriangle,
       chip: "bg-rose-500/12 text-rose-600 dark:bg-rose-400/15 dark:text-rose-400",
       search: { status: "all" as const, escopo: "overdue" as const },
@@ -164,6 +165,11 @@ function Dashboard() {
                   >
                     {s.value}
                   </div>
+                  {s.detail && (
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {s.detail}
+                    </div>
+                  )}
                 </div>
                 <span
                   className={cn(

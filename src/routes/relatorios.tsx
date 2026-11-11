@@ -13,6 +13,13 @@ import {
 } from "@/components/ui/sheet";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
 import { priorityLabels, statusLabels } from "@/lib/domain";
+import {
+  countOverdue,
+  isTaskOpen,
+  isTaskOverdue,
+  localIsoDate,
+  overdueLabel,
+} from "@/lib/task-justification";
 import { hasPermission, resolvePermissionSet } from "@/lib/permission-groups";
 import {
   AlertTriangle,
@@ -63,8 +70,11 @@ function RelatoriosPage() {
     );
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const todayIso = localIsoDate();
+  const lateCounts = (list: typeof tasks) => {
+    const counts = countOverdue(list, todayIso);
+    return { late: counts.overdue, lateJustified: counts.justified };
+  };
   const taskResponsibleIds = (task: (typeof tasks)[number]) =>
     Array.from(new Set([task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean)));
   const taskBelongsToDepartment = (task: (typeof tasks)[number], departmentId: string) => {
@@ -76,8 +86,7 @@ function RelatoriosPage() {
       ...d,
       total: dt.length,
       done: dt.filter((t) => t.status === "completed").length,
-      late: dt.filter((t) => new Date(`${t.dueDate}T00:00:00`) < today && t.status !== "completed")
-        .length,
+      ...lateCounts(dt),
     };
   });
 
@@ -89,9 +98,7 @@ function RelatoriosPage() {
       ...group,
       total: groupTasks.length,
       done: groupTasks.filter((task) => task.status === "completed").length,
-      late: groupTasks.filter(
-        (task) => new Date(`${task.dueDate}T00:00:00`) < today && task.status !== "completed",
-      ).length,
+      ...lateCounts(groupTasks),
       unassigned: groupTasks.filter(
         (task) => !task.responsibleId && !(task.responsibleIds ?? []).length,
       ).length,
@@ -101,8 +108,9 @@ function RelatoriosPage() {
   const assignedTasks = tasks.filter((task) => taskResponsibleIds(task).length > 0);
   const unassignedTasks = tasks.filter((task) => taskResponsibleIds(task).length === 0);
   const completedTasks = tasks.filter((task) => task.status === "completed");
-  const pendingTasks = tasks.filter((task) => task.status !== "completed");
-  const lateTasks = pendingTasks.filter((task) => new Date(`${task.dueDate}T00:00:00`) < today);
+  const pendingTasks = tasks.filter((task) => isTaskOpen(task));
+  const lateTasks = pendingTasks.filter((task) => isTaskOverdue(task, todayIso));
+  const lateJustified = countOverdue(lateTasks, todayIso).justified;
   const completionRate = tasks.length
     ? Math.round((completedTasks.length / tasks.length) * 100)
     : 0;
@@ -158,7 +166,11 @@ function RelatoriosPage() {
           {
             label: "Atrasadas",
             value: lateTasks.length,
-            detail: lateTasks.length ? "Precisam de atenção" : "Tudo dentro do prazo",
+            detail: lateTasks.length
+              ? lateJustified
+                ? `${lateJustified} ${lateJustified === 1 ? "justificada" : "justificadas"}`
+                : "Precisam de atenção"
+              : "Tudo dentro do prazo",
             icon: AlertTriangle,
           },
         ].map(({ label, value, detail, icon: Icon }) => (
@@ -205,7 +217,11 @@ function RelatoriosPage() {
                     </span>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs">
                       <span className="text-success">{d.done} concluídas</span>
-                      {d.late > 0 && <span className="text-destructive">{d.late} atrasadas</span>}
+                      {d.late > 0 && (
+                        <span className="text-destructive">
+                          {overdueLabel(d.late, d.lateJustified)}
+                        </span>
+                      )}
                       <span className="text-muted-foreground">{d.total} total</span>
                     </div>
                   </div>
@@ -271,7 +287,9 @@ function RelatoriosPage() {
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs">
                       <span className="text-success">{group.done} concluídas</span>
                       {group.late > 0 && (
-                        <span className="text-destructive">{group.late} atrasadas</span>
+                        <span className="text-destructive">
+                          {overdueLabel(group.late, group.lateJustified)}
+                        </span>
                       )}
                       {group.unassigned > 0 && (
                         <span className="text-warning">{group.unassigned} sem responsável</span>
@@ -382,7 +400,11 @@ function RelatoriosPage() {
                     <div className="text-2xl font-bold text-destructive">
                       {selectedDepartment.late}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-muted-foreground">Atrasadas</div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      {selectedDepartment.lateJustified > 0
+                        ? `Atrasadas (${selectedDepartment.lateJustified} ${selectedDepartment.lateJustified === 1 ? "justificada" : "justificadas"})`
+                        : "Atrasadas"}
+                    </div>
                   </div>
                 </div>
 
@@ -438,8 +460,7 @@ function RelatoriosPage() {
                       </p>
                     )}
                     {selectedDepartmentTasks.map((task) => {
-                      const isLate =
-                        new Date(`${task.dueDate}T00:00:00`) < today && task.status !== "completed";
+                      const isLate = isTaskOverdue(task, todayIso);
                       const responsibleIds = taskResponsibleIds(task);
                       const responsibleNames = responsibleIds
                         .map((id) => employees.find((employee) => employee.id === id)?.name)

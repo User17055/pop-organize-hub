@@ -32,6 +32,19 @@ export interface TaskComment {
   createdAt: string;
 }
 
+/**
+ * Por que uma tarefa não foi concluída no prazo. "later": vai ser feita depois (a tarefa segue
+ * aberta e atrasada, com o selo "Justificada"). "not_done": não será feita (a tarefa fica
+ * "Cancelada"). A regra de quando vale cada uma está em `task-justification.ts`.
+ */
+export interface TaskJustification {
+  kind: "later" | "not_done";
+  text: string;
+  authorId: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface TaskAttachment {
   id: string;
   name: string;
@@ -314,6 +327,8 @@ export interface Task {
   commentItems?: TaskComment[];
   attachmentItems?: TaskAttachment[];
   subtasks?: TaskSubtask[];
+  /** Por ocorrência: numa recorrente, cada linha da série tem a sua. */
+  justification?: TaskJustification;
 }
 
 export interface CurrentUser {

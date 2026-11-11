@@ -42,7 +42,16 @@ import { unassignedResponsibleLabel } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import { myTaskOriginLabels, type MyTaskLink, type MyTaskOrigin } from "@/lib/my-tasks";
 import { EmployeeAvatar } from "./employee-avatar";
-import { isOverdue, taskTargetLabel } from "./task-form-types";
+import { isJustifiedLate, isOverdue, taskTargetLabel } from "./task-form-types";
+
+/** F11: atrasada com "vou fazer depois". O motivo aparece na gaveta da tarefa. */
+function JustifiedBadge() {
+  return (
+    <span className="rounded-md bg-amber-500/12 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+      Justificada
+    </span>
+  );
+}
 
 const originStyles: Record<MyTaskOrigin, { icon: typeof UserRound; className: string }> = {
   individual: {
@@ -598,6 +607,7 @@ function TaskListImpl({
                             >
                               {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                             </span>
+                            {isJustifiedLate(task) && <JustifiedBadge />}
                           </div>
                         </TableCell>
                         <TableCell className="px-4 py-4">
@@ -797,6 +807,7 @@ function TaskListImpl({
                           Atrasada
                         </span>
                       )}
+                      {isJustifiedLate(task) && <JustifiedBadge />}
                       {progress && (
                         <span className="inline-flex items-center gap-1 font-semibold text-primary">
                           <ListChecks className="h-3.5 w-3.5" />

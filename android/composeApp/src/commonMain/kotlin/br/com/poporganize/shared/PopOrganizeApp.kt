@@ -53,6 +53,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apartment
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
@@ -1152,8 +1153,9 @@ private fun DashboardScreen(
     // Agora o titulo e o anel medem o DIA; atrasada tem linha propria e fica fora do denominador.
     // Concluida de hoje continua entrando -- ela e o numerador do anel.
     val todayTasks = remember(tasks, today) {
+        // Cancelada ("nao sera feita", F11) nao e trabalho do dia: sai do anel e do titulo.
         tasks.filter { task ->
-            parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } == 0L
+            !task.canceled && parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } == 0L
         }
     }
     val pendingToday = todayTasks.count { !it.completed }
@@ -1162,13 +1164,20 @@ private fun DashboardScreen(
     val overdue = remember(tasks, today) {
         tasks.count { task ->
             val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) }
-            !task.completed && offset != null && offset < 0L
+            task.aberta && offset != null && offset < 0L
+        }
+    }
+    // Das atrasadas, as que ja tem "vou fazer depois" (F11): o painel mostra "X atrasadas (Y justificadas)".
+    val justificadas = remember(tasks, today) {
+        tasks.count { task ->
+            val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) }
+            task.aberta && task.justification != null && offset != null && offset < 0L
         }
     }
     // A lista saia na ordem de armazenamento: as quatro primeiras eram as quatro primeiras a
     // existir, nao as quatro mais proximas. Uma tarefa atrasada de alta prioridade podia ficar
     // atras de tres de semana que vem, dentro do bloco chamado "Proximas tarefas".
-    val upcoming = remember(tasks) { tasks.filterNot { it.completed }.sortedWith(taskListOrder) }
+    val upcoming = remember(tasks) { tasks.filter { it.aberta }.sortedWith(taskListOrder) }
     // Os quatro numeros contam com a MESMA funcao que filtra a lista quando sao tocados.
     val contagens = remember(tasks, today) {
         FiltroRapido.entries.associateWith { filtro -> tasks.count { filtro.aceita(it, today) } }
@@ -1198,6 +1207,7 @@ private fun DashboardScreen(
                 completed = doneToday,
                 total = todayTasks.size,
                 overdue = overdue,
+                justificadas = justificadas,
                 hasFuture = upcoming.isNotEmpty(),
             )
         }
@@ -1258,9 +1268,9 @@ internal fun FiltroRapido.aceita(task: PopTask, today: LocalDate): Boolean {
     val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } ?: return false
     val nestaSemana = prazoNaSemana(task, today)
     return when (this) {
-        FiltroRapido.Hoje -> !task.completed && offset == 0L
-        FiltroRapido.Atrasadas -> !task.completed && offset < 0L
-        FiltroRapido.Semana -> !task.completed && offset >= 0L && nestaSemana
+        FiltroRapido.Hoje -> task.aberta && offset == 0L
+        FiltroRapido.Atrasadas -> task.aberta && offset < 0L
+        FiltroRapido.Semana -> task.aberta && offset >= 0L && nestaSemana
         FiltroRapido.ConcluidasSemana -> task.completed && nestaSemana
     }
 }
@@ -1388,7 +1398,8 @@ private fun resumoPorSetor(
     return setores.map { setor ->
         val doSetor = tasks.filter { setor.id in setoresPorTarefa[it.id].orEmpty() }
         // Tudo o que vence na semana, feito ou nao -- inclusive o de segunda que ficou para tras.
-        val daSemana = doSetor.filter { prazoNaSemana(it, today) }
+        // Cancelada nao entra no total: nao e trabalho da semana (F11).
+        val daSemana = doSetor.filter { !it.canceled && prazoNaSemana(it, today) }
         ResumoSetor(
             nome = setor.name,
             feitas = daSemana.count { it.completed },
@@ -1473,6 +1484,7 @@ private fun TodayHeroCard(
     completed: Int,
     total: Int,
     overdue: Int,
+    justificadas: Int = 0,
     hasFuture: Boolean,
 ) {
     val progress = if (total == 0) 0f else completed.toFloat() / total
@@ -1527,7 +1539,8 @@ private fun TodayHeroCard(
                             modifier = Modifier.size(14.dp),
                         )
                         Text(
-                            if (overdue == 1) "1 já passou do prazo" else "$overdue já passaram do prazo",
+                            (if (overdue == 1) "1 já passou do prazo" else "$overdue já passaram do prazo") +
+                                if (justificadas > 0) " ($justificadas " + (if (justificadas == 1) "justificada)" else "justificadas)") else "",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -1733,7 +1746,7 @@ private fun TasksScreen(
                 // para um dado de duas palavras, e a segunda empurrava a lista para baixo sem
                 // acrescentar nada.
                 Text(
-                    plural(tasks.count { !it.completed }, "pendente", "pendentes"),
+                    plural(tasks.count { it.aberta }, "pendente", "pendentes"),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 4.dp),
@@ -1793,7 +1806,7 @@ private fun TasksScreen(
             // Aberto = o padrao do grupo, invertido se o usuario tiver alternado este.
             val expanded = if (grupo.abreFechado) sector in alternados else sector !in alternados
             item(key = "sector-$sector") {
-                val pending = sectorTasks.count { !it.completed }
+                val pending = sectorTasks.count { it.aberta }
                 // Quantas deste grupo sao PARA HOJE.
                 //
                 // A contagem de pendentes responde "quanto falta neste grupo"; esta responde
@@ -1813,8 +1826,8 @@ private fun TasksScreen(
                 // `todayIso()` icado para fora do `count`: la dentro ele le o relogio e converte
                 // fuso uma vez POR TAREFA, a cada recomposicao do cabecalho.
                 val hojeIso = todayIso()
-                val atrasadas = sectorTasks.count { !it.completed && it.dueDate < hojeIso }
-                val hoje = sectorTasks.count { !it.completed && it.dueDate == hojeIso }
+                val atrasadas = sectorTasks.count { it.aberta && it.dueDate < hojeIso }
+                val hoje = sectorTasks.count { it.aberta && it.dueDate == hojeIso }
                 Surface(
                     modifier = Modifier.fillMaxWidth().clickable {
                         alternados = if (sector in alternados) {
@@ -1997,6 +2010,7 @@ private fun TaskDetailsDialog(
                     rotuloDePrazo(task),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                SecaoDeJustificativa(task, store, onTaskChanged)
                 // A prioridade era o unico campo de PopTask que este dialogo nao mostrava, embora
                 // a lista de onde ele e aberto estampe "Alta" e "Urgente" em cor. Quem abria para
                 // ver a tarefa inteira perdia justamente o campo mais visivel da linha.
@@ -2298,8 +2312,8 @@ private fun TaskRow(
     onMove: (AssignmentTarget) -> Unit,
     onDelete: () -> Unit,
 ) {
-    val isUrgent = task.priority == Priority.Urgent && !task.completed
-    val isOverdue = !task.completed && task.dueDate < todayIso()
+    val isUrgent = task.priority == Priority.Urgent && task.aberta
+    val isOverdue = task.aberta && task.dueDate < todayIso()
     // Mesma correcao aplicada ao CompactTaskRow da tela inicial: urgencia marcada por contorno, e
     // nao pintando o cartao inteiro de vermelho. Numa lista com varias tarefas o efeito era pior
     // que na home -- um bloco vermelho solido no meio da rolagem apaga tudo em volta.
@@ -2339,15 +2353,18 @@ private fun TaskRow(
             // sincronizacao seguinte -- o mesmo sintoma da tarefa em revisao, por outra causa.
             if (mostrarAcoes) IconButton(
                 onClick = onToggle,
-                enabled = task.canComplete && !aguardaRevisao,
+                // Cancelada se reabre pelo detalhe (F11), que grava o comentario automatico.
+                enabled = task.canComplete && !aguardaRevisao && !task.canceled,
             ) {
                 Icon(
                     when {
+                        task.canceled -> Icons.Rounded.Block
                         aguardaRevisao -> Icons.Rounded.HourglassEmpty
                         task.completed -> Icons.Rounded.CheckCircle
                         else -> Icons.Rounded.RadioButtonUnchecked
                     },
                     when {
+                        task.canceled -> "Cancelada"
                         aguardaRevisao -> "Aguarda revisão"
                         task.completed -> "Reabrir"
                         else -> "Concluir"
@@ -2358,6 +2375,7 @@ private fun TaskRow(
                     // vazio para pendente, circulo marcado para concluida: o icone passa a dizer o
                     // estado, e a cor passa a dizer a acao.
                     tint = when {
+                        task.canceled -> MaterialTheme.colorScheme.outline
                         aguardaRevisao -> PopOrange
                         task.completed -> PopGreen
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -2388,7 +2406,7 @@ private fun TaskRow(
                         // Sem hora marcada mostra um travessao, nao vazio: o vazio leria como falha
                         // de desenho, o travessao diz que a tarefa e do dia mas nao tem hora.
                         horario.ifBlank { "—" },
-                        color = if (task.completed) {
+                        color = if (!task.aberta) {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         } else {
                             MaterialTheme.colorScheme.onSurface
@@ -2434,7 +2452,7 @@ private fun TaskRow(
                     Text(
                         task.title,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (task.completed) {
+                        color = if (!task.aberta) {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         } else {
                             MaterialTheme.colorScheme.onSurface
@@ -2453,6 +2471,7 @@ private fun TaskRow(
                         Spacer(Modifier.width(8.dp))
                         Text("Urgente", color = PopRed, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                     }
+                    SeloDeJustificativa(task, isOverdue)
                 }
                 if (task.description.isNotBlank()) {
                     Text(
@@ -2697,10 +2716,168 @@ private fun assignmentIcon(kind: AssignmentKind): ImageVector = when (kind) {
     AssignmentKind.None -> Icons.Rounded.Business
 }
 
+/**
+ * "Cancelada" ou "Justificada" ao lado do titulo (F11). Justificada so faz sentido em atrasada: e a
+ * resposta ao "por que isto passou do prazo?".
+ */
+@Composable
+private fun SeloDeJustificativa(task: PopTask, atrasada: Boolean) {
+    val (texto, cor) = when {
+        task.canceled -> "Cancelada" to MaterialTheme.colorScheme.onSurfaceVariant
+        atrasada && task.justification != null -> "Justificada" to PopOrange
+        else -> return
+    }
+    Spacer(Modifier.width(8.dp))
+    Text(texto, color = cor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+}
+
+/** "2026-11-11T22:09:27.494Z" -> "11/11/2026". O que nao for ISO volta como veio. */
+private fun dataCurtaDeIso(valor: String): String {
+    val partes = valor.take(10).split("-")
+    return if (partes.size == 3) "${partes[2]}/${partes[1]}/${partes[0]}" else valor
+}
+
+/**
+ * Justificar tarefa nao concluida (F11), no detalhe da tarefa. As mesmas duas saidas do painel:
+ * "vou fazer depois" (so em atrasada; ela segue aberta, com o selo "Justificada") e "nao sera feita"
+ * (em qualquer aberta; vira Cancelada). Quem pode (`canJustify`, a permissao de mudar o status)
+ * edita ou desfaz. A regra e o comentario automatico estao no servidor: aqui so se oferece o que
+ * ele aceita, e a recusa dele aparece embaixo do campo.
+ */
+@Composable
+private fun SecaoDeJustificativa(task: PopTask, store: PopStore, onTaskChanged: (PopTask?) -> Unit) {
+    // "later" ou "not_done" enquanto o campo esta aberto; nulo fora dele.
+    var editando by remember(task.id) { mutableStateOf<String?>(null) }
+    var texto by remember(task.id) { mutableStateOf("") }
+    var salvando by remember(task.id) { mutableStateOf(false) }
+    var erro by remember(task.id) { mutableStateOf<String?>(null) }
+    val escopo = rememberCoroutineScope()
+    val atual = task.justification
+    val atrasada = task.aberta && task.dueDate < todayIso()
+    // Projecao nao tem linha no servidor; sem serverId a tarefa ainda nao subiu.
+    val pode = task.canJustify && task.serverId != null && !ehProjecao(task) && !store.state.apiToken.isNullOrBlank()
+    val oferecerAtraso = pode && atrasada && atual == null
+    val oferecerNaoSeraFeita = pode && task.aberta
+    val oferecerDesfazer = pode && (atual != null || task.canceled)
+    if (atual == null && !task.canceled && !oferecerAtraso && !oferecerNaoSeraFeita) return
+
+    fun enviar(kind: String?, valor: String) {
+        salvando = true
+        erro = null
+        escopo.launch {
+            val falha = store.justificarTarefa(task, kind, valor)
+            salvando = false
+            if (falha != null) {
+                erro = falha
+            } else {
+                editando = null
+                onTaskChanged(store.state.tasks.firstOrNull { it.serverId == task.serverId } ?: task)
+            }
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (task.canceled || atual == null) {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f)
+        } else {
+            PopOrange.copy(alpha = .12f)
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            when {
+                atual != null -> {
+                    Text(
+                        if (task.canceled) "Cancelada: não será feita" else "Justificada: vai fazer depois",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                    )
+                    Text(atual.text, fontSize = 13.sp)
+                    Text(
+                        listOf(atual.authorName, dataCurtaDeIso(atual.createdAt)).filter { it.isNotBlank() }.joinToString(" · "),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
+                }
+                task.canceled -> Text("Tarefa cancelada", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                else -> Text(
+                    if (oferecerAtraso) {
+                        "Não deu para concluir no prazo? Justifique o atraso ou diga que ela não será feita."
+                    } else {
+                        "Se esta tarefa não vai mais ser feita, registre o motivo."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                )
+            }
+            val tipo = editando
+            if (tipo != null) {
+                OutlinedTextField(
+                    value = texto,
+                    onValueChange = { if (it.length <= 500) texto = it },
+                    // Rotulo curto: o longo quebrava em duas linhas por cima da borda do campo.
+                    label = { Text(if (tipo == "later") "Por que atrasou?" else "Por que não será feita?") },
+                    placeholder = if (tipo == "later") ({ Text("E quando vai fazer") }) else null,
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                erro?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { editando = null; erro = null }, enabled = !salvando) { Text("Voltar") }
+                    TextButton(
+                        onClick = { enviar(tipo, texto) },
+                        enabled = !salvando && texto.trim().length >= 3,
+                    ) {
+                        Text(
+                            when {
+                                salvando -> "Salvando..."
+                                tipo == "not_done" -> "Cancelar a tarefa"
+                                else -> "Salvar justificativa"
+                            },
+                        )
+                    }
+                }
+            } else if (pode) {
+                FlowRowDeAcoes {
+                    if (oferecerAtraso) {
+                        OutlinedButton(onClick = { editando = "later"; texto = ""; erro = null }) { Text("Justificar atraso") }
+                    }
+                    if (atual != null) {
+                        OutlinedButton(onClick = {
+                            editando = if (task.canceled) "not_done" else "later"
+                            texto = atual.text
+                            erro = null
+                        }) { Text("Editar") }
+                    }
+                    if (oferecerNaoSeraFeita) {
+                        OutlinedButton(onClick = { editando = "not_done"; texto = ""; erro = null }) { Text("Não será feita") }
+                    }
+                    if (oferecerDesfazer) {
+                        OutlinedButton(onClick = { enviar(null, "") }, enabled = !salvando) {
+                            Text(if (task.canceled) "Reabrir tarefa" else "Remover justificativa")
+                        }
+                    }
+                }
+                erro?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FlowRowDeAcoes(content: @Composable () -> Unit) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) { content() }
+}
+
 @Composable
 private fun CompactTaskRow(task: PopTask) {
-    val isUrgent = task.priority == Priority.Urgent && !task.completed
-    val isOverdue = !task.completed && task.dueDate < todayIso()
+    val isUrgent = task.priority == Priority.Urgent && task.aberta
+    val isOverdue = task.aberta && task.dueDate < todayIso()
     val accent = priorityColor(task.priority)
 
     // A tarefa urgente pintava o cartao INTEIRO de vermelho solido. Com o cartao azul do topo na
@@ -2725,7 +2902,10 @@ private fun CompactTaskRow(task: PopTask) {
             Box(Modifier.size(9.dp).background(accent, CircleShape))
             Spacer(Modifier.size(11.dp))
             Column(Modifier.weight(1f)) {
-                Text(task.title, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(task.title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
+                    SeloDeJustificativa(task, isOverdue)
+                }
                 Text(
                     rotuloDePrazo(task),
                     color = if (isOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2804,7 +2984,7 @@ private fun calendarRowKey(row: CalendarRow): String = when (row) {
  * sem ele a tarefa sem data pularia para o topo em vez de ir para o fim.
  */
 private val taskListOrder = compareBy<PopTask>(
-    { it.completed },
+    { !it.aberta },
     { it.dueDate.ifBlank { "9999-12-31" } },
     { -it.priority.ordinal },
 )
@@ -2991,7 +3171,7 @@ private data class NaAgenda(val task: PopTask, val horario: String?)
 private val agendaOrder = compareBy<NaAgenda>(
     // Sem horario vai para o fim. "99:99" nao e hora valida e nunca colide com uma de verdade.
     { it.horario ?: "99:99" },
-    { it.task.completed },
+    { !it.task.aberta },
     { -it.task.priority.ordinal },
     { it.task.title },
 )
@@ -3170,7 +3350,7 @@ private fun CalendarScreen(store: PopStore) {
         }
         tasks.filter { task ->
             val responsaveis = responsaveisDaTarefa(task)
-            (!soPendentes || !task.completed) &&
+            (!soPendentes || task.aberta) &&
                 // Mesma regra do botao "Empresa" do painel (`taskMatchesCompany`): destino empresa
                 // E criada por quem esta usando. Dentro de empresa, `None` e o alvo `company`.
                 (!soEmpresa ||
@@ -3219,10 +3399,10 @@ private fun CalendarScreen(store: PopStore) {
     // dela seguiria aceso na grade, prometendo um dia que a agenda nao entregava.
     val past = remember(dated, today) {
         dated.filter { it.first < today }
-            .sortedWith(compareBy({ it.second.completed }, { it.first }))
+            .sortedWith(compareBy({ !it.second.aberta }, { it.first }))
             .map { it.second }
     }
-    val overdueCount = past.count { !it.completed }
+    val overdueCount = past.count { it.aberta }
     val upcoming = remember(tasksByDate, today) {
         tasksByDate.filterKeys { it >= today }.toList().sortedBy { it.first }
     }
@@ -3342,7 +3522,7 @@ private fun CalendarScreen(store: PopStore) {
                         // aberto", e numa empresa com meia duzia de series diarias passaria de
                         // noventa. O numero descreveria o calendario, nao o trabalho -- e leria
                         // como uma empresa afogada.
-                        "${dated.count { !it.second.completed && !ehProjecao(it.second) }} em aberto",
+                        "${dated.count { it.second.aberta && !ehProjecao(it.second) }} em aberto",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         modifier = Modifier.weight(1f).padding(bottom = 4.dp),
@@ -3901,7 +4081,7 @@ private fun CalendarDayCell(
 ) {
     // Pendentes primeiro: se o dia tem mais marcadores do que cabem, o que precisa aparecer e o
     // que ainda falta fazer, nao o que ja foi feito.
-    val ordered = dayTasks.filterNot { it.completed } + dayTasks.filter { it.completed }
+    val ordered = dayTasks.filter { it.aberta } + dayTasks.filterNot { it.aberta }
     val markers = ordered.take(3)
     val extra = ordered.size - markers.size
 
@@ -3968,7 +4148,7 @@ private fun CalendarDayCell(
                     .height(4.dp)
                     .background(
                         when {
-                            task.completed -> MaterialTheme.colorScheme.outline
+                            !task.aberta -> MaterialTheme.colorScheme.outline
                             task.awaitingReview -> PopPurple
                             else -> priorityColor(task.priority)
                         },
@@ -4073,12 +4253,12 @@ private fun AccountCard(store: PopStore) {
     // Sem `remember`, pelo mesmo motivo do DashboardScreen: congelado, o cartao de conta seguiria
     // contando pelo dia anterior depois da meia-noite.
     val today = todayDate()
-    val pending = tasks.count { !it.completed }
-    val done = tasks.size - pending
+    val pending = tasks.count { it.aberta }
+    val done = tasks.count { it.completed }
     val late = remember(tasks, today) {
         tasks.count { task ->
             val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } ?: 0L
-            !task.completed && offset < 0L
+            task.aberta && offset < 0L
         }
     }
     PopCard {

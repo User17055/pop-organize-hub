@@ -245,7 +245,17 @@ data class PopTask(
     val reminder: String = "Sem lembrete",
     val attachmentName: String = "",
     val duration: String = "Sem duração",
+
+    // Justificativa (F11). So de leitura; ver a nota no ApiTask. No FIM e com default porque o
+    // PopTask e um dos cinco simbolos que o modulo Android importa.
+    val canceled: Boolean = false,
+    val justification: ApiJustification? = null,
+    val canJustify: Boolean = false,
 )
+
+/** Ainda tem trabalho a fazer: nem concluida nem cancelada ("nao sera feita"). */
+val PopTask.aberta: Boolean
+    get() = !completed && !canceled
 
 @Serializable
 data class PopState(
@@ -549,6 +559,25 @@ data class ApiTask(
     // vez de reenviar a lista inteira a cada sincronizacao. O arquivo nao vem aqui: sai por um
     // link pedido na hora (`abrirAnexoDoPainel`).
     val panelAttachments: List<ApiPanelAttachment>? = null,
+
+    // Justificativa de tarefa nao concluida. So de leitura, como os anexos do painel: o
+    // mobileTaskSchema nao os declara e o z.object os descarta na volta. Justificar, editar e
+    // desfazer saem por uma acao propria (`justifyTask`), nunca pelo PUT. Booleano em vez do status
+    // cru do servidor, que e a regra deste contrato. NULOS pelo mesmo motivo dos anexos: servidor
+    // antigo nao manda, e a chave sai do JSON da gravacao.
+    //  - canceled: a tarefa foi marcada como "nao sera feita" (status `canceled` no servidor).
+    //  - justification: so a que vale agora ("vou fazer depois" em aberta, ou o motivo da cancelada).
+    //  - canJustify: a mesma permissao de mudar o status (`canChangeStatus`).
+    val canceled: Boolean? = null,
+    val justification: ApiJustification? = null,
+    val canJustify: Boolean? = null,
+)
+
+@Serializable
+data class ApiJustification(
+    val text: String = "",
+    val authorName: String = "",
+    val createdAt: String = "",
 )
 
 @Serializable

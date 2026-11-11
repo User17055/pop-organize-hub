@@ -35,6 +35,12 @@ import { removeDepartment } from "../department-removal";
 import { removeInvitation } from "../invitation-removal";
 import { applyManagerAccess } from "../department-access";
 import { removeAttachment } from "../attachment-removal";
+import {
+  applyTaskJustification,
+  JustificationError,
+  parseJustificationRequest,
+  saoPauloToday,
+} from "../task-justification";
 import { invalidateNativeShadow } from "../native-shadow";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
 import {
@@ -321,6 +327,13 @@ const updateTaskListTasksSchema = z.object({
 const addTaskCommentSchema = z.object({
   taskId: z.string().min(1),
   body: z.string().trim().min(1, "Escreva um comentário").max(1000),
+});
+
+const justifyTaskSchema = z.object({
+  taskId: z.string().min(1),
+  mode: z.enum(["set", "undo"]),
+  kind: z.enum(["later", "not_done"]).optional(),
+  text: z.string().max(2000).optional(),
 });
 
 const addTaskSubtaskSchema = z.object({
@@ -1748,6 +1761,33 @@ export const addTaskComment = createServerFn({ method: "POST" })
         createdAt: new Date().toISOString(),
       });
       task.comments = currentCount + 1;
+      return task;
+    });
+  });
+
+/** F11: justificar, editar ou desfazer. A regra está em `task-justification.ts`. */
+export const justifyTask = createServerFn({ method: "POST" })
+  .validator((data) => justifyTaskSchema.parse(data))
+  .handler(async ({ data }) => {
+    return mutateCurrentWorkspace((db, currentUserId) => {
+      const { task, permissions } = getTaskWithPermissions(db, data.taskId, currentUserId);
+      if (!permissions.canChangeStatus) {
+        throw createHttpError("Você não tem permissão para justificar esta tarefa.", 403);
+      }
+      try {
+        applyTaskJustification(
+          task,
+          parseJustificationRequest(data),
+          currentUserId,
+          new Date().toISOString(),
+          saoPauloToday(),
+        );
+      } catch (error) {
+        if (error instanceof JustificationError) {
+          throw createHttpError(error.message, error.statusCode);
+        }
+        throw error;
+      }
       return task;
     });
   });

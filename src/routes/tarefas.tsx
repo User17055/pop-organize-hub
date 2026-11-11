@@ -18,6 +18,7 @@ import { unassignedResponsibleLabel } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
 import { getMyTaskLink, type MyTaskLink, type MyTaskOrigin } from "@/lib/my-tasks";
+import { countOverdue, isTaskOpen, isTaskOverdue } from "@/lib/task-justification";
 import {
   Archive,
   ArrowLeft,
@@ -135,9 +136,9 @@ function taskMatchesAdminScope(task: Task, scope: TaskScope, data: WorkspaceData
   const today = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "America/Sao_Paulo",
   }).format(new Date());
-  if (scope === "today") return task.status !== "completed" && task.dueDate === today;
-  if (scope === "overdue") return task.status !== "completed" && task.dueDate < today;
-  if (scope === "upcoming") return task.status !== "completed" && task.dueDate > today;
+  if (scope === "today") return isTaskOpen(task) && task.dueDate === today;
+  if (scope === "overdue") return isTaskOverdue(task, today);
+  if (scope === "upcoming") return isTaskOpen(task) && task.dueDate > today;
 
   if (scope === "mine") return myTaskLinkFor(task, data) !== null;
 
@@ -432,10 +433,7 @@ function TasksPage() {
       selectedGroupId,
     ],
   );
-  const activeTaskRows = useMemo(
-    () => taskRows.filter((task) => task.status !== "completed"),
-    [taskRows],
-  );
+  const activeTaskRows = useMemo(() => taskRows.filter((task) => isTaskOpen(task)), [taskRows]);
   const isMineView = taskScope === "mine";
   // Na visão "Minhas tarefas", cada tarefa da pessoa leva o motivo (origem e papel). Calculado uma
   // vez aqui: serve ao filtro, aos contadores e ao selo de cada linha.
@@ -565,6 +563,7 @@ function TasksPage() {
     () => ({
       all: activeTaskRows.length,
       overdue: activeTaskRows.filter((task) => task.dueDate < organizerToday).length,
+      justified: countOverdue(activeTaskRows, organizerToday).justified,
       today: activeTaskRows.filter((task) => task.dueDate === organizerToday).length,
       upcoming: activeTaskRows.filter((task) => task.dueDate > organizerToday).length,
     }),
@@ -983,7 +982,13 @@ function TasksPage() {
             {(
               [
                 ["all", "Todas", organizerCounts.all],
-                ["overdue", "Atrasadas", organizerCounts.overdue],
+                [
+                  "overdue",
+                  organizerCounts.justified > 0
+                    ? `Atrasadas (${organizerCounts.justified} ${organizerCounts.justified === 1 ? "justificada" : "justificadas"})`
+                    : "Atrasadas",
+                  organizerCounts.overdue,
+                ],
                 ["today", "Hoje", organizerCounts.today],
                 ["upcoming", "Próximas", organizerCounts.upcoming],
               ] as const

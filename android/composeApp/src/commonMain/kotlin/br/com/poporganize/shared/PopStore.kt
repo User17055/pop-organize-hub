@@ -329,6 +329,12 @@ class PopStore(private val platform: PopPlatformServices, private val scope: Cor
 
     fun toggleTask(taskId: String) {
         val alvo = state.tasks.firstOrNull { it.id == taskId } ?: return
+        // Cancelada ("nao sera feita", F11) se reabre pela justificativa, que grava o comentario
+        // automatico. Marcar como concluida por aqui contornaria isso.
+        if (alvo.canceled) {
+            message = "Tarefa cancelada. Para retomá-la, abra a tarefa e toque em Reabrir."
+            return
+        }
         // Concluir atividade FUTURA sem a permissao exclusiva do Administrador e recusado pelo
         // servidor -- e uma recusa nao pode derrubar a carga INTEIRA por causa de um item errado.
         // O toque errado na agenda custava a sincronizacao do aparelho inteiro ate alguem perceber.
@@ -589,7 +595,8 @@ class PopStore(private val platform: PopPlatformServices, private val scope: Cor
 
     private fun publishNotifications() {
         if (state.currentUser != null || state.guestMode) {
-            platform.updateNotifications(state.tasks, state.currentUser?.firstName ?: "você")
+            // Cancelada nao sera feita: nao lembra dela (F11).
+            platform.updateNotifications(state.tasks.filterNot { it.canceled }, state.currentUser?.firstName ?: "você")
         } else {
             platform.updateNotifications(emptyList(), "")
         }
@@ -951,6 +958,35 @@ class PopStore(private val platform: PopPlatformServices, private val scope: Cor
         return LinkDeAnexo(url = url)
     }
 
+    /**
+     * Justificar tarefa nao concluida (F11), pela acao `justifyTask` do endpoint movel -- nunca pelo
+     * PUT, que nao carrega a justificativa. `kind` e "later" ("vou fazer depois", so em atrasada) ou
+     * "not_done" ("nao sera feita", vira Cancelada); `kind` nulo desfaz (a cancelada volta a
+     * pendente). A regra e o comentario automatico ficam no servidor. Vai no espaco da propria
+     * tarefa, empresa ou pessoal. Devolve a mensagem de erro, ou nulo se deu certo.
+     */
+    internal suspend fun justificarTarefa(task: PopTask, kind: String?, text: String): String? {
+        val token = state.apiToken ?: return "Entre na conta para justificar tarefas."
+        val serverId = task.serverId ?: return "Aguarde a tarefa sincronizar antes de justificar."
+        val workspaceId = (if (task.workspace == WorkspaceKind.Company) task.companyId else state.personalWorkspaceId)
+            ?: return "Espaço da tarefa não encontrado."
+        val body = if (kind == null) {
+            """{"action":"justifyTask","taskId":${json.encodeToString(serverId)},"undo":true}"""
+        } else {
+            """{"action":"justifyTask","taskId":${json.encodeToString(serverId)},"kind":${json.encodeToString(kind)},"text":${json.encodeToString(text.trim())}}"""
+        }
+        val response = platform.apiRequest(path = "workspaces", method = "POST", body = body, token = token, workspaceId = workspaceId)
+        if (state.apiToken != token) return null
+        if (!response.successful) return apiError(response, "Não foi possível salvar a justificativa.")
+        refreshTasks()
+        message = when (kind) {
+            null -> if (task.canceled) "Tarefa reaberta." else "Justificativa removida."
+            "not_done" -> "Tarefa cancelada."
+            else -> "Justificativa salva."
+        }
+        return null
+    }
+
     private fun apiError(response: ApiResponse, fallback: String): String =
         runCatching { json.decodeFromString<ApiError>(response.body).error }.getOrNull() ?: fallback
 }
@@ -1040,6 +1076,10 @@ internal fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTas
     reminder = reminder,
     attachmentName = attachmentName,
     duration = duration,
+    // Servidor antigo nao manda: nao cancelada, sem justificativa, e sem o botao de justificar.
+    canceled = canceled == true,
+    justification = justification,
+    canJustify = canJustify == true,
 )
 
 /** Resultado de `linkDoAnexoDoPainel`: o endereco para abrir, ou a mensagem para mostrar. */

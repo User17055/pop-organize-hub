@@ -198,6 +198,8 @@ fun PopOrganizeApp(platform: PopPlatformServices) {
             }
         }
         availableUpdate?.let { update ->
+            // LocalUriHandler, e nao o openExternalUrl: ver a nota em SettingsScreen.
+            val abridor = LocalUriHandler.current
             AlertDialog(
                 onDismissRequest = {
                     dismissedUpdateVersion = update.version
@@ -210,7 +212,7 @@ fun PopOrganizeApp(platform: PopPlatformServices) {
                         onClick = {
                             dismissedUpdateVersion = update.version
                             availableUpdate = null
-                            platform.openExternalUrl(update.storeUrl)
+                            runCatching { abridor.openUri(update.storeUrl) }
                         },
                     ) { Text("Atualizar") }
                 },
@@ -4417,6 +4419,10 @@ private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
     var deleting by remember { mutableStateOf(false) }
     var deletionError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    // Os links abrem pelo LocalUriHandler do Compose. O openExternalUrl/openSupportEmail do iosMain
+    // usam UIApplication.openURL(url), a forma antiga, que no iOS 18 nao faz nada: tocar em "Termos
+    // de Uso" no 1.0.15 nao abria coisa nenhuma (conferido no aparelho em 11/11).
+    val abridor = LocalUriHandler.current
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(18.dp),
@@ -4434,15 +4440,19 @@ private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
                 }
             }
         }
-        item { MoreItem(Icons.Rounded.Email, "Falar com o suporte", "contato@poporganize.com.br", platform::openSupportEmail) }
+        item {
+            MoreItem(Icons.Rounded.Email, "Falar com o suporte", "contato@poporganize.com.br") {
+                runCatching { abridor.openUri("mailto:contato@poporganize.com.br") }
+            }
+        }
         item {
             MoreItem(Icons.Rounded.ListAlt, "Termos de Uso", "Leia os termos do serviço") {
-                platform.openExternalUrl("https://app.poporganize.com.br/termos")
+                runCatching { abridor.openUri("https://app.poporganize.com.br/termos") }
             }
         }
         item {
             MoreItem(Icons.Rounded.Settings, "Política de Privacidade", "Como tratamos seus dados") {
-                platform.openExternalUrl("https://app.poporganize.com.br/privacidade")
+                runCatching { abridor.openUri("https://app.poporganize.com.br/privacidade") }
             }
         }
         if (!store.state.apiToken.isNullOrBlank()) item {

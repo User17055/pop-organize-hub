@@ -1,0 +1,17 @@
+const actualId='native-u2-21';
+const john=snapshot.accounts.find(a=>a.id==='u2');
+assert.ok(john);
+const johnToken=randomBytes(32).toString('hex');
+globalThis.syncAudit.sessions.push({id:auditId+'-john',userId:john.id,activeCompanyId:workspace.company.id,tokenHash:createHash('sha256').update(johnToken).digest('hex')});
+const johnRequest=request(johnToken);
+const before=(await readMobileTasks(johnRequest)).find(t=>t.serverId===actualId);
+const beforeEmployee=(await readMobileTasks(request(employeeToken))).find(t=>t.serverId===actualId);
+assert.ok(before,'Joao must receive the shared teste task');
+console.log(JSON.stringify({task:before.title,dueDate:before.dueDate,serverStatusBefore:raw(actualId).status,joaoSeesTask:true,cintiaSeesTask:!!beforeEmployee,canComplete:before.canComplete,requiresReview:before.requiresReview,assignees:before.assignees}));
+try {
+  await replaceMobileTasks(johnRequest,[{...before,completed:true}],[],[before]);
+  const afterJohn=(await readMobileTasks(johnRequest)).find(t=>t.serverId===actualId);
+  const afterEmployee=(await readMobileTasks(request(employeeToken))).find(t=>t.serverId===actualId);
+  console.log(JSON.stringify({simulatedOnlyInMemory:true,joaoSeesCompleted:afterJohn?.completed,cintiaSeesCompleted:afterEmployee?.completed,serverStatusAfter:raw(actualId).status,persistentWrites:0}));
+} catch(error) { console.log(JSON.stringify({simulatedOnlyInMemory:true,rejectionStatus:error.statusCode,message:error.message,persistentWrites:0})); }
+process.exit(0);

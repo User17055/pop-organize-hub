@@ -168,6 +168,7 @@ data class PopTask(
     val recurrence: RecurrenceKind = RecurrenceKind.None,
     val recurrenceSeriesId: String? = null,
     val serverId: String? = null,
+    val clientId: String = "",
 
     // So de leitura, vindos do servidor. Ver a nota no ApiTask sobre por que nao sao cofre.
     val requiresReview: Boolean = false,
@@ -246,6 +247,19 @@ data class PopState(
     val tasks: List<PopTask> = emptyList(),
     val apiToken: String? = null,
     val pendingDeletedServerIds: List<String> = emptyList(),
+    val pendingTaskDeletionsByWorkspace: Map<String, List<String>> = emptyMap(),
+    val taskSyncBaselines: Map<String, List<ApiTask>> = emptyMap(),
+    val lastRemoteTasks: Map<String, List<ApiTask>> = emptyMap(),
+    val syncRecoveryTasks: List<PopTask> = emptyList(),
+    val offlineAccounts: Map<String, OfflineTaskChanges> = emptyMap(),
+)
+
+@Serializable
+data class OfflineTaskChanges(
+    val tasks: List<PopTask> = emptyList(),
+    val baselines: Map<String, List<ApiTask>> = emptyMap(),
+    val deletions: Map<String, List<String>> = emptyMap(),
+    val recovery: List<PopTask> = emptyList(),
 )
 
 sealed interface AuthResult {
@@ -373,6 +387,7 @@ data class ApiTasksResponse(val tasks: List<ApiTask> = emptyList())
 data class ApiTask(
     val id: Int,
     val serverId: String? = null,
+    val clientId: String = "",
     val title: String,
     val department: String = "Pessoal",
     val dueLabel: String = "",
@@ -494,5 +509,6 @@ data class ApiTask(
 @Serializable
 data class ApiTasksPayload(
     val tasks: List<ApiTask>,
+    val baseTasks: List<ApiTask>? = null,
     val deletedServerIds: List<String> = emptyList(),
 )

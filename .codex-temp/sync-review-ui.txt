@@ -1,0 +1,37 @@
+private data class SyncReviewEntry(val local: PopTask, val remote: PopTask?)
+
+@Composable
+private fun TaskSyncReviewDialog(
+    entries: List<SyncReviewEntry>,
+    canCreate: Boolean,
+    onChoose: (SyncReviewEntry, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sincronização") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(if (entries.isEmpty()) "Nenhuma alteração pendente neste espaço." else
+                    "Revise as diferenças antes de escolher. Alterações sem conexão continuam salvas no aparelho.")
+                entries.forEach { entry ->
+                    val local = entry.local
+                    val remote = entry.remote
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(local.title, fontWeight = FontWeight.SemiBold)
+                        Text("No aparelho: ${local.description.ifBlank { "Sem descrição" }}\n${local.dueDate} ${local.dueTime} · ${local.priority} · ${if (local.completed) "Concluída" else "Pendente"}", fontSize = 12.sp)
+                        Text(if (remote == null) "Servidor: tarefa ausente ou rascunho local." else
+                            "Servidor: ${remote.title}\n${remote.description.ifBlank { "Sem descrição" }}\n${remote.dueDate} ${remote.dueTime} · ${remote.priority} · ${if (remote.completed) "Concluída" else "Pendente"}", fontSize = 12.sp)
+                        Row {
+                            TextButton(onClick = { onChoose(entry, true) }, enabled =
+                                if (remote == null) canCreate else remote.canEdit || remote.canComplete) { Text("Usar do aparelho") }
+                            TextButton(onClick = { onChoose(entry, false) }) { Text(if (remote == null) "Descartar cópia" else "Usar do servidor") }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
+    )
+}
+

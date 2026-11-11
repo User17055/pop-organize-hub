@@ -22,3 +22,11 @@ internal suspend fun <T> downloadTasksAfterUpload(
     }
     return TaskRefreshResult(download(), uploadError)
 }
+
+/** A denied local deletion cannot hide a server task that the employee must still see. */
+internal fun <T> tasksVisibleAfterRefresh(
+    tasks: List<T>,
+    pendingDeletionIds: Set<String>,
+    id: (T) -> String,
+    canDelete: (T) -> Boolean,
+): List<T> = tasks.filterNot { id(it) in pendingDeletionIds && canDelete(it) }

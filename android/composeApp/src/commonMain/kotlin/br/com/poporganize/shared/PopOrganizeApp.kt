@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -75,6 +76,7 @@ import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material3.AlertDialog
@@ -3574,6 +3576,25 @@ private fun CalendarDayCell(
 
 @Composable
 private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
+    var showSyncReview by remember { mutableStateOf(false) }
+    if (showSyncReview) {
+        val entries = store.syncReviewTasks()
+        AlertDialog(onDismissRequest = { showSyncReview = false }, title = { Text("Sincronização") },
+            text = {
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(if (entries.isEmpty()) "Nenhuma alteração pendente neste espaço." else "Revise as diferenças antes de escolher uma versão.")
+                    entries.forEach { local ->
+                        val remote = store.remoteReviewTask(local)
+                        Text("No aparelho: ${local.title}\n${local.description}\n${local.dueDate} ${local.dueTime}")
+                        Text(remote?.let { "Servidor: ${it.title}\n${it.description}\n${it.dueDate} ${it.dueTime}" } ?: "Servidor: tarefa ausente ou rascunho local.")
+                        Row {
+                            TextButton(onClick = { store.resolveSyncTask(local, true) }) { Text("Usar do aparelho") }
+                            TextButton(onClick = { store.resolveSyncTask(local, false) }) { Text(if (remote == null) "Descartar cópia" else "Usar do servidor") }
+                        }
+                    }
+                }
+            }, confirmButton = { TextButton(onClick = { showSyncReview = false }) { Text("Fechar") } })
+    }
     val company = store.selectedCompany
     val inCompany = store.state.workspace == WorkspaceKind.Company && company != null
     LazyColumn(
@@ -3624,6 +3645,7 @@ private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
             }
         }
         item { SectionTitle("Aplicativo") }
+        if (store.state.apiToken != null) item { MoreItem(Icons.Rounded.Sync, "Sincronização", "Revisar alterações pendentes") { showSyncReview = true } }
         item { MoreItem(Icons.Rounded.Settings, "Configurações", "Tema, conta e suporte") { onPage(MorePage.Settings) } }
     }
 }

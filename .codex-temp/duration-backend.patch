@@ -1,0 +1,53 @@
+diff --git a/src/lib/domain.ts b/src/lib/domain.ts
+index 3213d74..2408d4c 100644
+--- a/src/lib/domain.ts
++++ b/src/lib/domain.ts
+@@ -284,6 +284,7 @@ export interface Task {
+   dueDate: string;
+   /** Hora escolhida no aplicativo. O painel ainda não mostra; sem o campo, ela só sobrevivia em `nativeData`. */
+   dueTime?: string;
++  durationMinutes?: number;
+   createdAt: string;
+   target: { type: TargetType; id: string; label: string };
+   responsibleId: string;
+diff --git a/src/lib/mobile-api.server.ts b/src/lib/mobile-api.server.ts
+index bc1469d..9d23061 100644
+--- a/src/lib/mobile-api.server.ts
++++ b/src/lib/mobile-api.server.ts
+@@ -44,6 +44,7 @@ import {
+ import { removeDepartment } from "./department-removal";
+ import { removeInvitation } from "./invitation-removal";
+ import { invalidateNativeShadow } from "./native-shadow";
++import { formatTaskDuration, parseTaskDuration } from "./task-duration";
+ 
+ const MOBILE_SESSION_EXPIRY = "9999-12-31T23:59:59.999Z";
+ const NATIVE_SOURCE = "android";
+@@ -1819,7 +1820,9 @@ function taskToMobileTask(
+     attachmentData: canReadPrivateAttachment ? (native?.attachmentData ?? "") : "",
+     dueTime: native?.dueTime ?? task.dueTime ?? "",
+     recurrenceTimes: native?.recurrenceTimes ?? task.recurrence?.times ?? [],
+-    duration: native?.duration ?? "Sem duração",
++    duration: task.durationMinutes != null
++      ? formatTaskDuration(task.durationMinutes)
++      : native?.duration ?? "Sem duração",
+     ...recurrenceWire,
+     recurrenceOccurrence: native?.recurrenceOccurrence ?? task.recurrenceOccurrence ?? 1,
+     recurrenceSeriesId: task.recurrenceParentId ?? task.id,
+@@ -2281,6 +2284,8 @@ export async function replaceMobileTasks(
+           }
+           const nextDueTime = item.dueTime.trim();
+           existing.dueTime = nextDueTime || undefined;
++          existing.durationMinutes = parseTaskDuration(item.duration);
++          if (existing.nativeData) existing.nativeData.duration = item.duration;
+           if (!isNativeOwner && existing.nativeData) existing.nativeData.dueTime = nextDueTime;
+           // Alvo, responsáveis e recorrência têm permissão própria no painel (`updateTaskDetails`).
+           // Sem elas o valor enviado é só ignorado, e não recusado: o PUT carrega o espaço inteiro
+@@ -2402,6 +2407,8 @@ export async function replaceMobileTasks(
+         priority: priority(item.priority),
+         status: completed ? "completed" : "pending",
+         dueDate: item.dueDate,
++        dueTime: item.dueTime.trim() || undefined,
++        durationMinutes: parseTaskDuration(item.duration),
+         createdAt: new Date().toISOString().slice(0, 10),
+         target: mobileTaskTarget(workspace, account.id, item),
+         responsibleId: mobileResponsibleIds(workspace, account.id, item)[0] ?? "",

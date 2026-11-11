@@ -8,15 +8,22 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import br.com.poporganize.shared.sync.*
 import kotlin.math.absoluteValue
 import kotlin.random.Random
 
-class PopStore(private val platform: PopPlatformServices) {
+class PopStore(private val platform: PopPlatformServices, private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)) {
     // As tres bandeiras sao necessarias JUNTAS, e nenhuma delas pode sair sozinha.
     //
     // `encodeDefaults = true` precisa ficar: o mobileTaskSchema tem 18 campos estritamente
@@ -43,10 +50,10 @@ class PopStore(private val platform: PopPlatformServices) {
         encodeDefaults = true
         explicitNulls = false
     }
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     /** A ultima sincronizacao disparada, para o signOut nao revogar o token por baixo dela. */
     private var syncJob: Job? = null
+    private val taskSyncMutex = Mutex()
 
     var state by mutableStateOf(
         restore(),
@@ -129,7 +136,11 @@ class PopStore(private val platform: PopPlatformServices) {
 
     fun signIn(user: UserProfile, token: String) {
         update(sync = false) {
-            copy(currentUser = user, guestMode = false, apiToken = token)
+            val cached = if (currentUser?.id == user.id) OfflineTaskChanges(tasks, taskSyncBaselines, pendingTaskDeletionsByWorkspace, syncRecoveryTasks) else offlineAccounts[user.id]
+            copy(currentUser = user, guestMode = false, apiToken = token,
+                tasks = cached?.tasks ?: if (guestMode && currentUser == null) tasks else emptyList(), taskSyncBaselines = cached?.baselines.orEmpty(), lastRemoteTasks = emptyMap(),
+                pendingTaskDeletionsByWorkspace = cached?.deletions.orEmpty(),
+                syncRecoveryTasks = cached?.recovery.orEmpty(), pendingDeletedServerIds = emptyList())
         }
         scope.launch { refreshFromServer() }
     }
@@ -164,6 +175,9 @@ class PopStore(private val platform: PopPlatformServices) {
         }
         update {
             copy(
+                offlineAccounts = currentUser?.id?.let { id -> offlineAccounts + (id to OfflineTaskChanges(
+                    tasks, taskSyncBaselines, pendingTaskDeletionsByWorkspace, syncRecoveryTasks)) } ?: offlineAccounts,
+                taskSyncBaselines = emptyMap(), lastRemoteTasks = emptyMap(), pendingTaskDeletionsByWorkspace = emptyMap(), syncRecoveryTasks = emptyList(),
                 currentUser = null,
                 guestMode = false,
                 workspace = WorkspaceKind.Personal,
@@ -338,9 +352,11 @@ class PopStore(private val platform: PopPlatformServices) {
             val removed = tasks.firstOrNull { it.id == taskId }
             copy(
                 tasks = tasks.filterNot { it.id == taskId },
-                pendingDeletedServerIds = removed?.serverId
-                    ?.let { (pendingDeletedServerIds + it).distinct() }
-                    ?: pendingDeletedServerIds,
+                pendingTaskDeletionsByWorkspace = removed?.serverId?.let { id ->
+                    val workspaceId = if (removed.workspace == WorkspaceKind.Company) removed.companyId else personalWorkspaceId
+                    if (workspaceId == null) pendingTaskDeletionsByWorkspace else pendingTaskDeletionsByWorkspace +
+                        (workspaceId to (pendingTaskDeletionsByWorkspace[workspaceId].orEmpty() + id).distinct())
+                } ?: pendingTaskDeletionsByWorkspace,
             )
         }
         platform.playActionSound()
@@ -416,12 +432,13 @@ class PopStore(private val platform: PopPlatformServices) {
             val alvo = tasks.firstOrNull { it.id == taskId } ?: return@update this
             val serie = alvo.recurrenceSeriesId
             val removidas =
-                if (serie == null) listOf(alvo) else tasks.filter { it.recurrenceSeriesId == serie }
+                if (serie == null) listOf(alvo) else tasks.filter { it.recurrenceSeriesId == serie && it.workspace == alvo.workspace && it.companyId == alvo.companyId }
             val ids = removidas.map { it.id }.toSet()
             copy(
                 tasks = tasks.filterNot { it.id in ids },
-                pendingDeletedServerIds =
-                    (pendingDeletedServerIds + removidas.mapNotNull { it.serverId }).distinct(),
+                pendingTaskDeletionsByWorkspace = (if (alvo.workspace == WorkspaceKind.Company) alvo.companyId else personalWorkspaceId)?.let { workspaceId ->
+                    pendingTaskDeletionsByWorkspace + (workspaceId to (pendingTaskDeletionsByWorkspace[workspaceId].orEmpty() + removidas.mapNotNull { it.serverId }).distinct())
+                } ?: pendingTaskDeletionsByWorkspace,
             )
         }
         platform.playActionSound()
@@ -521,7 +538,13 @@ class PopStore(private val platform: PopPlatformServices) {
         platform.saveState(json.encodeToString(state))
         publishNotifications()
         // A referencia fica guardada para o signOut poder esperar por ela. Ver o comentario la.
-        if (sync && !state.apiToken.isNullOrBlank()) syncJob = scope.launch { syncTasks() }
+        if (sync && !state.apiToken.isNullOrBlank()) {
+            val token = state.apiToken!!
+            val kind = state.workspace
+            val companyId = state.selectedCompanyId.takeIf { kind == WorkspaceKind.Company }
+            val workspaceId = if (kind == WorkspaceKind.Company) companyId else state.personalWorkspaceId
+            if (workspaceId != null) syncJob = scope.launch { syncTasks(token, kind, companyId, workspaceId) }
+        }
     }
 
     private fun publishNotifications() {
@@ -535,7 +558,12 @@ class PopStore(private val platform: PopPlatformServices) {
     private fun restore(): PopState {
         val saved = platform.loadState()
         if (!saved.isNullOrBlank()) {
-            runCatching { json.decodeFromString<PopState>(saved) }.getOrNull()?.let { return it }
+            runCatching { json.decodeFromString<PopState>(saved) }.getOrNull()?.let { restored ->
+                // Older queues had no workspace ownership. Do not send them to whichever space
+                // happens to be selected after a restart; preserve the tasks for review instead.
+                return if (restored.pendingDeletedServerIds.isEmpty()) restored else restored.copy(
+                    pendingDeletedServerIds = emptyList(), syncRecoveryTasks = (restored.syncRecoveryTasks + restored.tasks).distinctBy { it.id })
+            }
         }
         return PopState(
             tasks = listOf(
@@ -623,7 +651,10 @@ class PopStore(private val platform: PopPlatformServices) {
                 ?: "Falha ao carregar seus espaços."
             return
         }
-        val remote = runCatching { json.decodeFromString<ApiWorkspaceResponse>(response.body) }.getOrNull()
+        val remote = runCatching {
+            require(json.parseToJsonElement(response.body).jsonObject["workspaces"] is JsonArray)
+            json.decodeFromString<ApiWorkspaceResponse>(response.body)
+        }.getOrNull()
             ?: return
         val personalId = remote.workspaces.firstOrNull { it.kind == "personal" }?.id
         val companies = remote.workspaces.filter { it.kind == "company" }.map { workspace ->
@@ -669,84 +700,153 @@ class PopStore(private val platform: PopPlatformServices) {
         refreshTasks()
     }
 
+    fun syncReviewTasks(): List<PopTask> {
+        val kind = state.workspace
+        val companyId = state.selectedCompanyId.takeIf { kind == WorkspaceKind.Company }
+        val id = if (kind == WorkspaceKind.Company) companyId else state.personalWorkspaceId
+        val wire = TaskSyncWire(json) { it.toPopTask(kind, companyId).toApiTask() }
+        val base = state.taskSyncBaselines[id].orEmpty().associateBy { it.serverId }
+        val remote = state.lastRemoteTasks[id].orEmpty()
+        val dirty = scopeTasks(kind, companyId).filter { task -> task.serverId.isNullOrBlank() ||
+            base[task.serverId]?.let { wire.mutation(it, task.toApiTask()) != null } == true }
+        val deleted = remote.filter { it.serverId in state.pendingTaskDeletionsByWorkspace[id].orEmpty() }.map { it.toPopTask(kind, companyId) }
+        val recovered = state.syncRecoveryTasks.filter { it.workspace == kind && (kind == WorkspaceKind.Personal || it.companyId == companyId) }
+        return (dirty + deleted + recovered).distinctBy { json.encodeToString(it) }
+    }
+
+    fun remoteReviewTask(task: PopTask): PopTask? {
+        val id = if (task.workspace == WorkspaceKind.Company) task.companyId else state.personalWorkspaceId
+        return state.lastRemoteTasks[id]?.firstOrNull { it.serverId == task.serverId }?.toPopTask(task.workspace, task.companyId)
+    }
+
+    fun resolveSyncTask(local: PopTask, useLocal: Boolean) {
+        val token = state.apiToken ?: return
+        val kind = local.workspace
+        val companyId = local.companyId.takeIf { kind == WorkspaceKind.Company }
+        val id = (if (kind == WorkspaceKind.Company) companyId else state.personalWorkspaceId) ?: return
+        scope.launch {
+            taskSyncMutex.withLock {
+                if (state.apiToken != token) return@withLock
+                val remote = state.lastRemoteTasks[id]?.firstOrNull { it.serverId == local.serverId }
+                val wire = TaskSyncWire(json) { it.toPopTask(kind, companyId).toApiTask() }
+                val chosen = if (!useLocal) remote?.toPopTask(kind, companyId)
+                    else if (remote != null) wire.reconcile(remote, local.toApiTask(), remote).first.toPopTask(kind, companyId)
+                    else {
+                        val allowed = if (kind == WorkspaceKind.Personal) state.personalPermissions.canCreateTasks else state.companies.firstOrNull { it.id == id }?.permissions?.canCreateTasks == true
+                        if (!allowed) { message = "Seu acesso não permite criar tarefas neste espaço."; return@withLock }
+                        local.copy(id = newId("task"), serverId = null, clientId = "")
+                    }
+                state = state.copy(
+                    tasks = state.tasks.filterNot { it.workspace == kind && it.companyId == companyId && (it.id == local.id || !it.serverId.isNullOrBlank() && it.serverId == local.serverId) } + listOfNotNull(chosen),
+                    taskSyncBaselines = state.taskSyncBaselines + (id to (state.taskSyncBaselines[id].orEmpty().filterNot { it.serverId == local.serverId } + listOfNotNull(remote))),
+                    pendingTaskDeletionsByWorkspace = state.pendingTaskDeletionsByWorkspace + (id to state.pendingTaskDeletionsByWorkspace[id].orEmpty().filterNot { it == local.serverId }),
+                    syncRecoveryTasks = state.syncRecoveryTasks.filterNot { it.workspace == kind && it.companyId == companyId && it.id == local.id },
+                )
+                persist()
+            }
+            syncTasks(token, kind, companyId, id)
+        }
+    }
+
+    private fun scopeTasks(kind: WorkspaceKind, companyId: String?) = state.tasks.filter {
+        it.workspace == kind && (kind == WorkspaceKind.Personal || it.companyId == companyId)
+    }
+
     private suspend fun refreshTasks() {
         val token = state.apiToken ?: return
         val kind = state.workspace
         val companyId = state.selectedCompanyId.takeIf { kind == WorkspaceKind.Company }
-        val workspaceId = if (kind == WorkspaceKind.Company) companyId else state.personalWorkspaceId
-        if (workspaceId.isNullOrBlank()) return
-        val response = platform.apiRequest(path = "tasks", token = token, workspaceId = workspaceId)
-        // A troca de espaco pode ter acontecido enquanto esta resposta viajava. Gravar a resposta no
-        // espaco atual poe tarefas de um espaco dentro de outro, e a sincronizacao seguinte as envia
-        // para la: o servidor acha as linhas pelo id, que se repete entre espacos, e as sobrescreve.
-        // A troca ja disparou a leitura do espaco novo; esta resposta so pode ser descartada.
-        val selectedCompanyId = state.selectedCompanyId.takeIf { state.workspace == WorkspaceKind.Company }
-        if (state.workspace != kind || selectedCompanyId != companyId) return
-        if (!response.successful) {
-            message = runCatching { json.decodeFromString<ApiError>(response.body).error }.getOrNull()
-                ?: "Falha ao sincronizar tarefas."
-            return
-        }
-        val remote = runCatching { json.decodeFromString<ApiTasksResponse>(response.body) }.getOrNull() ?: return
-        // Mesma corrida do refreshFromServer, e pela mesma razao: aqui tambem se grava em disco
-        // depois de uma ida ao servidor. O que vaza sao os titulos e os responsaveis das tarefas da
-        // empresa. Consertar so um dos dois deixaria metade do buraco aberto -- que foi exatamente
-        // o erro cometido no signOut.
-        if (state.apiToken != token) return
-        val otherTasks = state.tasks.filterNot {
-            it.workspace == kind && (kind == WorkspaceKind.Personal || it.companyId == companyId)
-        }
-        state = state.copy(tasks = otherTasks + remote.tasks.map { it.toPopTask(kind, companyId) })
-        message = "Dados sincronizados"
-        persist()
-        publishNotifications()
+        val workspaceId = (if (kind == WorkspaceKind.Company) companyId else state.personalWorkspaceId) ?: return
+        syncTasks(token, kind, companyId, workspaceId)
     }
 
-    private suspend fun syncTasks() {
-        val token = state.apiToken ?: return
-        val workspaceId = if (state.workspace == WorkspaceKind.Company) state.selectedCompanyId else state.personalWorkspaceId
-        if (workspaceId.isNullOrBlank()) return
-        val payload = ApiTasksPayload(
-            tasks = cargaAceitavel(visibleTasks).map { it.toApiTask() },
-            deletedServerIds = state.pendingDeletedServerIds,
-        )
-        val response = platform.apiRequest(
-            path = "tasks",
-            method = "PUT",
-            body = json.encodeToString(payload),
-            token = token,
-            workspaceId = workspaceId,
-        )
-        if (response.successful) {
-            state = state.copy(pendingDeletedServerIds = emptyList())
-            persist()
-            refreshTasks()
-        } else {
-            // Nao ha mais tratamento especial de 409 aqui. O que impedia a carga de subir agora e
-            // filtrado ANTES de montar o payload, em `cargaAceitavel` -- ver o comentario dela.
-            //
-            // O build 8 tentava desfazer a conclusao ao receber 409. Nao funcionou em aparelho: o
-            // sync seguinte passava, o sucesso chamava refreshTasks(), o servidor devolvia a mesma
-            // conclusao e o ciclo recomecava. Prevenir na carga resolve; remediar na resposta, nao.
-            // A mensagem crua do servidor ("Lista de tarefas invalida.") nao diz nada a quem usa o
-            // app, mas foi o que permitiu diagnosticar o bloqueio do recurrenceTimes em 27/08.
-            // Emoldurar em vez de esconder: fica legivel para o usuario e util para quem investiga.
-            //
-            // Dois pontos em vez de parenteses, e o ponto final do servidor aparado. A primeira
-            // versao usava parenteses e produzia "...pelo servidor (Lista de tarefas invalida.)."
-            // -- ponto dentro do parentese seguido de outro ponto fora. Com a mensagem do modo
-            // visitante da previa, que ja tem parentese propria, virava parentese dentro de
-            // parentese. Visto na previa em 27/08, depois de a redacao ja ter ido para o build 8.
-            val detalhe = runCatching { json.decodeFromString<ApiError>(response.body).error }
-                .getOrNull()
-                ?.trim()
-                ?.trimEnd('.')
-            message = if (detalhe.isNullOrBlank()) {
-                "Alterações salvas no aparelho; sincronização pendente."
-            } else {
-                "Servidor recusou a sincronização: $detalhe. As alterações estão salvas no aparelho."
-            }
+    private suspend fun syncTasks(token: String, kind: WorkspaceKind, companyId: String?, workspaceId: String) = taskSyncMutex.withLock {
+        if (state.apiToken != token) return@withLock
+        val ownerId = state.currentUser?.id ?: return@withLock
+        val taskWire = TaskSyncWire(json) { it.toPopTask(kind, companyId).toApiTask() }
+        val snapshot = scopeTasks(kind, companyId)
+        val base = state.taskSyncBaselines[workspaceId]
+        val bases = base.orEmpty().associateBy { it.serverId }
+        val deletions = state.pendingTaskDeletionsByWorkspace[workspaceId].orEmpty()
+        val canCreate = if (kind == WorkspaceKind.Personal) state.personalPermissions.canCreateTasks
+            else state.companies.firstOrNull { it.id == companyId }?.permissions?.canCreateTasks == true
+        val changed = cargaAceitavel(snapshot).mapNotNull { local ->
+            if (local.serverId.isNullOrBlank()) local.toApiTask().takeIf { canCreate }
+            else bases[local.serverId]?.let { taskWire.mutation(it, local.toApiTask()) }
         }
+        var uploadError: String? = null
+        var submitted = false
+        try {
+            if (changed.isNotEmpty() || deletions.isNotEmpty()) {
+                val payload = ApiTasksPayload(changed,
+                    baseTasks = base.orEmpty().filter { it.serverId in deletions || changed.any { item -> item.serverId == it.serverId } },
+                    deletedServerIds = deletions)
+                val response = platform.apiRequest(path = "tasks", method = "PUT", body = json.encodeToString(payload), token = token, workspaceId = workspaceId)
+                if (state.apiToken != token) return@withLock
+                if (response.successful && runCatching { json.parseToJsonElement(response.body).jsonObject["ok"]?.jsonPrimitive?.booleanOrNull == true }.getOrDefault(false)) {
+                    // Never acknowledge a deletion added while this request was in flight.
+                    val remaining = remainingTaskDeletions(state.pendingTaskDeletionsByWorkspace[workspaceId].orEmpty(), deletions)
+                    state = state.copy(pendingTaskDeletionsByWorkspace = state.pendingTaskDeletionsByWorkspace + (workspaceId to remaining))
+                    persist()
+                    submitted = true
+                } else uploadError = apiError(response, "Não foi possível enviar as alterações.")
+            }
+        } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+        catch (error: Exception) { uploadError = error.message ?: "Sem conexão para enviar as alterações." }
+        // A denied upload must never prevent incoming assignments from being read.
+        val response = try { platform.apiRequest(path = "tasks", token = token, workspaceId = workspaceId) }
+        catch (error: kotlinx.coroutines.CancellationException) { throw error }
+        catch (_: Exception) { message = "Sem conexão. As alterações continuam salvas no aparelho."; return@withLock }
+        if (state.apiToken != token) return@withLock
+        if (!response.successful) { message = apiError(response, "Não foi possível atualizar as tarefas."); return@withLock }
+        val remote = runCatching {
+            require(json.parseToJsonElement(response.body).jsonObject["tasks"] is JsonArray)
+            json.decodeFromString<ApiTasksResponse>(response.body).tasks
+        }.getOrNull()
+            ?: run { message = "Resposta inválida. Os dados locais foram preservados."; return@withLock }
+        val latest = scopeTasks(kind, companyId)
+        var pending = state.pendingTaskDeletionsByWorkspace[workspaceId].orEmpty()
+        val merged = mutableListOf<PopTask>()
+        val nextBase = mutableListOf<ApiTask>()
+        val matched = mutableSetOf<String>()
+        val recovery = state.syncRecoveryTasks.toMutableList()
+        if (base == null && snapshot.any { !it.serverId.isNullOrBlank() }) {
+            recovery.addAll(snapshot)
+            message = "A lista foi atualizada. A cópia anterior ficou preservada para revisão."
+        }
+        remote.forEach { incoming ->
+            val local = latest.firstOrNull { !it.serverId.isNullOrBlank() && it.serverId == incoming.serverId }
+                ?: latest.firstOrNull { it.serverId.isNullOrBlank() && incoming.serverId == "native-$ownerId-${it.toApiTask().clientId.ifBlank { it.toApiTask().id.toString() }}" }
+            if (local != null) matched.add(local.id)
+            val sent = changed.firstOrNull { it.serverId == incoming.serverId ||
+                (it.serverId.isNullOrBlank() && incoming.serverId == "native-$ownerId-${it.clientId.ifBlank { it.id.toString() }}") }
+            val original = bases[incoming.serverId] ?: sent ?:
+                snapshot.firstOrNull { base == null && it.serverId == incoming.serverId }?.toApiTask()
+            val result = if (original != null && local != null)
+                taskWire.reconcile(original, local.toApiTask(), incoming, sent.takeIf { submitted }) else incoming to incoming
+            if (local != null && !incoming.canEdit && original != null &&
+                taskHasChanges(taskWire.fields(original), taskWire.raw(local.toApiTask()))) recovery.add(local)
+            nextBase.add(if (incoming.serverId in pending && incoming.canDelete) bases[incoming.serverId] ?: result.second else result.second)
+            if (incoming.serverId in pending && incoming.canDelete) return@forEach
+            if (incoming.serverId in pending && !incoming.canDelete) pending = pending.filterNot { it == incoming.serverId }
+            merged.add(result.first.toPopTask(kind, companyId))
+        }
+        latest.filter { it.serverId.isNullOrBlank() && it.id !in matched }.forEach(merged::add)
+        latest.filter { local -> !local.serverId.isNullOrBlank() && remote.none { it.serverId == local.serverId } &&
+            bases[local.serverId]?.let { taskHasChanges(taskWire.fields(it), taskWire.raw(local.toApiTask())) } == true }.forEach(recovery::add)
+        state = state.copy(
+            tasks = state.tasks.filterNot { it.workspace == kind && (kind == WorkspaceKind.Personal || it.companyId == companyId) } + merged,
+            taskSyncBaselines = state.taskSyncBaselines + (workspaceId to nextBase),
+            lastRemoteTasks = state.lastRemoteTasks + (workspaceId to remote),
+            pendingTaskDeletionsByWorkspace = state.pendingTaskDeletionsByWorkspace + (workspaceId to pending),
+            syncRecoveryTasks = recovery.distinctBy { listOf(it.id, it.title, it.description, it.dueDate, it.completed.toString()) },
+        )
+        if (uploadError != null) message = "$uploadError As alterações continuam salvas no aparelho."
+        else if (merged.any { it.serverId.isNullOrBlank() || nextBase.firstOrNull { old -> old.serverId == it.serverId }?.let { old -> taskWire.mutation(old, it.toApiTask()) != null } == true } || pending.isNotEmpty())
+            message = "Há alterações pendentes neste espaço. Abra Mais → Sincronização para revisar."
+        else if (base != null) message = "Dados sincronizados"
+        persist()
+        publishNotifications()
     }
 
     /**
@@ -816,9 +916,10 @@ private fun ApiWorkspace.toPermissions() = WorkspacePermissions(
     canManagePermissions = canManagePermissions,
 )
 
-private fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask(
+internal fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTask(
     id = id.toString(),
     serverId = serverId,
+    clientId = clientId,
     title = title,
     description = description,
     dueDate = dueDate,
@@ -977,9 +1078,10 @@ private fun mesclarChecklist(atual: List<ChecklistItem>, linhas: List<String>): 
     }
 }
 
-private fun PopTask.toApiTask() = ApiTask(
+internal fun PopTask.toApiTask() = ApiTask(
     id = id.toIntOrNull() ?: id.hashCode().absoluteValue.coerceAtLeast(1),
     serverId = serverId,
+    clientId = clientId.ifBlank { if (serverId.isNullOrBlank()) id else "" },
     title = title,
     department = if (workspace == WorkspaceKind.Personal) "Pessoal" else assignment.label,
     dueLabel = dueDate,

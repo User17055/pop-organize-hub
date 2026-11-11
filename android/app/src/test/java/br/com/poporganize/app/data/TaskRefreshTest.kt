@@ -66,4 +66,29 @@ class TaskRefreshTest {
             assertTrue(!downloaded)
         }
     }
+
+    @Test
+    fun rejectedDeletionDoesNotHideReadOnlyAssignment() {
+        data class Task(val id: String, val canDelete: Boolean)
+        val assigned = Task("teste", false)
+        val editable = Task("local-delete", true)
+        val visible = tasksVisibleAfterRefresh(
+            listOf(assigned, editable), setOf("teste", "local-delete"), Task::id, Task::canDelete,
+        )
+        assertEquals(listOf(assigned), visible)
+    }
+
+    @Test
+    fun forbiddenReadIsStillReportedInsteadOfUsingUnauthorizedData() = runBlocking {
+        val deniedRead = IllegalStateException("403: usuário sem acesso ao espaço")
+        try {
+            downloadTasksAfterUpload<String>(
+                upload = { throw IllegalStateException("403: criação negada") },
+                download = { throw deniedRead },
+            )
+            throw AssertionError("Read permission failure must propagate")
+        } catch (error: IllegalStateException) {
+            assertSame(deniedRead, error)
+        }
+    }
 }

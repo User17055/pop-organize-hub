@@ -18,6 +18,7 @@ import br.com.poporganize.app.notifications.clearPopNotifications
 import br.com.poporganize.app.notifications.EXTRA_OPEN_TASK_ID
 import br.com.poporganize.app.notifications.schedulePopNotifications
 import br.com.poporganize.app.ui.PopOrganizeApp
+import br.com.poporganize.app.data.scheduleTaskStatusRecovery
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.install.model.UpdateAvailability
@@ -31,6 +32,7 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         schedulePopNotifications(this)
+        scheduleTaskStatusRecovery(this)
         enableEdgeToEdge()
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = false

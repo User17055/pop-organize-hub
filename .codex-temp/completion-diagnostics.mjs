@@ -1,0 +1,10 @@
+import {readdirSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const ref='/var/www/pop-organize-sync-JSXwNf/.output/server/_ssr';
+const filename=readdirSync(ref).find(f=>/^database\.server-.*\.mjs$/.test(f));
+const {readDatabase}=await import(pathToFileURL(resolve('/var/www/pop-organize/.output/server/_ssr',filename)));
+const db=await readDatabase();
+const clean=s=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+console.log(JSON.stringify({people:db.accounts.filter(a=>/joao|cintia|cinthia/.test(clean(a.name))).map(a=>({id:a.id,name:a.name})),testTasks:db.workspaces.filter(w=>w.company.kind==='company').flatMap(w=>w.tasks.filter(t=>clean(t.title)==='teste' && ([t.responsibleId,...(t.responsibleIds??[])].some(id=>['u7','u23','u24','u27'].includes(id)) || (t.nativeData?.assignees??[]).some(name=>/joao|cintia|cinthia/.test(clean(name))))).map(t=>({workspace:w.company.name,workspaceId:w.company.id,id:t.id,title:t.title,date:t.dueDate,status:t.status,requiresReview:!!t.requiresReview,responsibleIds:t.responsibleIds??[t.responsibleId],responsibleNames:(t.responsibleIds??[t.responsibleId]).map(id=>w.employees.find(e=>e.id===id)?.name??''),nativeAssignees:t.nativeData?.assignees??[]})))}));
+process.exit(0);

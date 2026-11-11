@@ -71,6 +71,9 @@ data class CompanyMember(
     val sectorId: String? = null,
     /** Ver `ApiEmployee.pending`. Quem consome isto e `activeMembers`, logo abaixo. */
     val pending: Boolean = false,
+    /** Ver `ApiEmployee.groupIds`: nulo = nao da para trocar o setor sem apagar os grupos. */
+    val groupIds: List<String>? = null,
+    val isOwner: Boolean = false,
 )
 
 @Serializable
@@ -84,6 +87,15 @@ data class CompanySector(
     // oferecida. E o contrario do `canEdit` de tarefa, em que a acao ja existia antes do campo.
     val canEdit: Boolean = false,
     val canDelete: Boolean = false,
+    /**
+     * Ate onde o gestor deste setor enxerga: "own" (o setor dele e os que gerencia), "selected"
+     * (esses mais `managerVisibleDepartmentIds`) ou "all". Mesmos nomes do servidor e do painel.
+     *
+     * Nulo, e nao "own", por default: servidor anterior ao F7 nao manda o campo e tambem nao sabe
+     * grava-lo, entao a tela esconde a opcao em vez de mostrar um "own" que pode nao ser verdade.
+     */
+    val managerAccessMode: String? = null,
+    val managerVisibleDepartmentIds: List<String> = emptyList(),
 )
 
 @Serializable
@@ -382,6 +394,14 @@ data class ApiEmployee(
      * equipe inteira.
      */
     val pending: Boolean = false,
+    /**
+     * Todos os grupos da pessoa (o servidor monta de `workspace.groups`, sem filtro de visibilidade).
+     * O `updateEmployee` REESCREVE os grupos com o que receber, e sem a lista tira a pessoa de todos;
+     * por isso a troca de setor manda esta lista de volta intacta. Nulo = nao veio, troca bloqueada.
+     */
+    val groupIds: List<String>? = null,
+    /** O dono nao pode ser alterado (o servidor recusa); a tela nem oferece. */
+    val isOwner: Boolean = false,
 )
 
 @Serializable

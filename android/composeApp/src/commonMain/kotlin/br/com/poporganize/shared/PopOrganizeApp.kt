@@ -4168,6 +4168,12 @@ private fun TeamScreen(store: PopStore) {
         emptyList()
     }
     var cancelando by remember { mutableStateOf<CompanyMember?>(null) }
+    var editando by remember { mutableStateOf<CompanyMember?>(null) }
+    // Quem pode ter setor e funcao trocados: o servidor recusa o dono e a propria conta, e sem a
+    // lista de grupos a troca apagaria os grupos da pessoa (ver `updateMember`).
+    val meuId = store.state.currentUser?.id
+    fun editavel(member: CompanyMember) = store.permissions.canManageEmployees && hasSector &&
+        !member.isOwner && member.id != meuId && member.groupIds != null
     EntityListScreen(
         header = if (members.size == 1) "1 pessoa cadastrada" else "${members.size} pessoas cadastradas",
         emptyTitle = "Nenhum colaborador",
@@ -4187,6 +4193,8 @@ private fun TeamScreen(store: PopStore) {
                 detail = member.email,
                 initials = initialsOf(member.name),
                 badge = member.role.takeIf { it.isNotBlank() },
+                onClick = if (editavel(member)) ({ editando = member }) else null,
+                acao = "Editar setor e função de ${member.name}",
             )
         },
         pendentesTitulo = if (convites.size == 1) "1 convite pendente" else "${convites.size} convites pendentes",
@@ -4204,6 +4212,7 @@ private fun TeamScreen(store: PopStore) {
         onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) MemberEditorDialog(store) { showEditor = false }
+    editando?.let { pessoa -> MemberSectorDialog(store, pessoa) { editando = null } }
     cancelando?.let { convite ->
         ConfirmEntityDeleteDialog(
             titulo = "Cancelar o convite de ${convite.name}?",
@@ -5078,12 +5087,34 @@ private fun CompanyEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     )
 }
 
+/** Escolha de um setor em chips. Usada no convite e na edicao de pessoa. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SectorChips(sectors: List<CompanySector>, selecionado: String?, onSelect: (String) -> Unit) {
+    Text("Setor", fontWeight = FontWeight.SemiBold)
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        sectors.sortedBy { it.name.lowercase() }.forEach { setor ->
+            FilterChip(
+                selected = selecionado == setor.id,
+                onClick = { onSelect(setor.id) },
+                label = { Text(setor.name, fontSize = 10.sp) },
+            )
+        }
+    }
+}
+
 @Composable
 private fun MemberEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("Colaborador") }
     var touched by remember { mutableStateOf(false) }
+    val sectors = store.selectedCompany?.sectors.orEmpty()
+    // Comeca no primeiro setor, como o convite fazia sozinho ate o build 20; agora da para trocar.
+    var sectorId by remember { mutableStateOf(sectors.firstOrNull()?.id) }
     val nameOk = name.hasAtLeast(2)
     val emailOk = isValidEmail(email)
     val roleOk = role.hasAtLeast(2)
@@ -5091,7 +5122,11 @@ private fun MemberEditorDialog(store: PopStore, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("Cadastrar pessoa") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Rolagem: com os chips de setor o dialogo passa da altura de um iPhone pequeno.
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 OutlinedTextField(
                     name,
                     { name = it },
@@ -5120,6 +5155,7 @@ private fun MemberEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                     supportingText = if (touched && !roleOk) ({ Text("Pelo menos 2 caracteres.") }) else null,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (sectors.size > 1) SectorChips(sectors, sectorId) { sectorId = it }
             }
         },
         confirmButton = {
@@ -5127,11 +5163,58 @@ private fun MemberEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                 onClick = {
                     touched = true
                     if (nameOk && emailOk && roleOk) {
-                        store.addMember(name, email, role)
+                        store.addMember(name, email, role, sectorId)
                         onDismiss()
                     }
                 },
             ) { Text("Cadastrar") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+/** Setor e funcao de uma pessoa ja cadastrada (F7). Grupos e permissoes ficam como estao. */
+@Composable
+private fun MemberSectorDialog(store: PopStore, member: CompanyMember, onDismiss: () -> Unit) {
+    val sectors = store.selectedCompany?.sectors.orEmpty()
+    var sectorId by remember(member.id) { mutableStateOf(member.sectorId) }
+    var role by remember(member.id) { mutableStateOf(member.role) }
+    val roleOk = role.hasAtLeast(2)
+    val mudou = sectorId != member.sectorId || role.trim() != member.role
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(member.name) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(member.email, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                OutlinedTextField(
+                    role,
+                    { role = it },
+                    label = { Text("Função") },
+                    singleLine = true,
+                    isError = !roleOk,
+                    supportingText = if (roleOk) null else ({ Text("Pelo menos 2 caracteres.") }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SectorChips(sectors, sectorId) { sectorId = it }
+                Text(
+                    "Grupos e permissões continuam como estão; para mudá-los, use o painel.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = roleOk && mudou && sectorId != null,
+                onClick = {
+                    sectorId?.let { store.updateMember(member, it, role) }
+                    onDismiss()
+                },
+            ) { Text("Salvar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
@@ -5281,13 +5364,31 @@ private fun SectorEditorDialog(
     var managerId by remember { mutableStateOf(sector.managerId) }
     var confirmandoExclusao by remember { mutableStateOf(false) }
     val podeTrocarGestor = store.permissions.canAssignSectorManager
+    // Acesso do gestor (F7). Nulo = servidor anterior ao campo: a opcao nao aparece.
+    val podeAcesso = podeTrocarGestor && sector.managerAccessMode != null
+    var modo by remember { mutableStateOf(sector.managerAccessMode ?: "own") }
+    var escolhidos by remember { mutableStateOf(sector.managerVisibleDepartmentIds.toSet()) }
+    val outrosSetores = store.selectedCompany?.sectors.orEmpty()
+        .filter { it.id != sector.id }
+        .sortedBy { it.name.lowercase() }
     EntityManageDialog(
         titulo = "Editar setor",
         nomeInicial = sector.name,
         descricaoInicial = sector.description,
         podeEditar = true,
         onSalvar = { name, description ->
-            store.updateSector(sector.id, name, description, managerId.takeIf { podeTrocarGestor && it != sector.managerId })
+            val listaFinal = if (modo == "selected") escolhidos.toList() else emptyList()
+            // So manda o acesso quando mudou, ou quando o gestor mudou junto (o servidor aplica no
+            // gestor que fica): editar so o nome nao sobrescreve o que alguem gravou no painel.
+            val acessoMudou = modo != sector.managerAccessMode ||
+                listaFinal.toSet() != (if (modo == "selected") sector.managerVisibleDepartmentIds.toSet() else emptySet())
+            store.updateSector(
+                sector.id,
+                name,
+                description,
+                managerId.takeIf { podeTrocarGestor && it != sector.managerId },
+                acesso = if (podeAcesso && (acessoMudou || managerId != sector.managerId)) modo to listaFinal else null,
+            )
         },
         onExcluir = if (sector.canDelete) ({ confirmandoExclusao = true }) else null,
         onDismiss = onDismiss,
@@ -5307,6 +5408,53 @@ private fun SectorEditorDialog(
                             )
                         }
                     }
+                }
+            }
+            if (podeAcesso) {
+                item {
+                    Text("Acesso do gestor", fontWeight = FontWeight.SemiBold)
+                    // Os tres modos do painel, com os mesmos nomes no fio ("own", "selected", "all").
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        listOf(
+                            "own" to "Setor próprio e gerenciados",
+                            "selected" to "Escolher setores",
+                            "all" to "Todos os setores",
+                        ).forEach { (valor, rotulo) ->
+                            FilterChip(
+                                selected = modo == valor,
+                                onClick = { modo = valor },
+                                label = { Text(rotulo, fontSize = 10.sp) },
+                            )
+                        }
+                    }
+                }
+                if (modo == "selected") {
+                    item {
+                        Text("Setores a mais que o gestor enxerga", fontSize = 12.sp)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            outrosSetores.forEach { outro ->
+                                val marcado = outro.id in escolhidos
+                                FilterChip(
+                                    selected = marcado,
+                                    onClick = { escolhidos = if (marcado) escolhidos - outro.id else escolhidos + outro.id },
+                                    label = { Text(outro.name, fontSize = 10.sp) },
+                                )
+                            }
+                        }
+                    }
+                }
+                item {
+                    Text(
+                        "Vale para o gestor escolhido acima. Tarefas atribuídas diretamente a ele continuam visíveis.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
                 }
             }
         },

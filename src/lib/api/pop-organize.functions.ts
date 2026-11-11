@@ -33,6 +33,7 @@ import {
 } from "../domain";
 import { removeDepartment } from "../department-removal";
 import { removeInvitation } from "../invitation-removal";
+import { applyManagerAccess } from "../department-access";
 import { removeAttachment } from "../attachment-removal";
 import { invalidateNativeShadow } from "../native-shadow";
 import { hasPermission, resolvePermissionSet } from "../permission-groups";
@@ -1952,11 +1953,7 @@ export const createDepartment = createServerFn({ method: "POST" })
       db.departments.push(department);
       const manager = db.employees.find((employee) => employee.id === data.managerId)!;
       if (data.managerAccessMode) {
-        manager.departmentAccessMode = data.managerAccessMode;
-        manager.visibleDepartmentIds =
-          data.managerAccessMode === "selected"
-            ? [...new Set(data.managerVisibleDepartmentIds)]
-            : undefined;
+        applyManagerAccess(manager, data.managerAccessMode, data.managerVisibleDepartmentIds);
       }
       return department;
     });
@@ -2045,11 +2042,7 @@ export const updateDepartmentDetails = createServerFn({ method: "POST" })
       if (data.color) department.color = data.color;
       const manager = db.employees.find((employee) => employee.id === department.managerId);
       if (manager && data.managerAccessMode) {
-        manager.departmentAccessMode = data.managerAccessMode;
-        manager.visibleDepartmentIds =
-          data.managerAccessMode === "selected"
-            ? [...new Set(data.managerVisibleDepartmentIds ?? [])]
-            : undefined;
+        applyManagerAccess(manager, data.managerAccessMode, data.managerVisibleDepartmentIds ?? []);
       }
       return department;
     });

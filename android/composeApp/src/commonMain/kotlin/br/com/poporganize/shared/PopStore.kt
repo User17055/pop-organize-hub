@@ -442,8 +442,10 @@ class PopStore(private val platform: PopPlatformServices) {
     // servidor tambem se defende disso (nao adota data de ocorrencia materializada), mas a regra
     // aqui e a mesma: NENHUM caminho do app mexe na data de uma ocorrencia.
 
-    fun addMember(name: String, email: String, role: String) {
-        val sectorId = selectedCompany?.sectors?.firstOrNull()?.id
+    // O setor vem do dialogo (F7). Ate o build 20 era sempre o primeiro da lista, e a pessoa caia
+    // num setor que ninguem escolheu. Nulo continua caindo no primeiro, para nao travar o convite.
+    fun addMember(name: String, email: String, role: String, sectorId: String? = null) {
+        val sectorId = sectorId ?: selectedCompany?.sectors?.firstOrNull()?.id
         if (sectorId == null) {
             message = "Cadastre um setor no painel web antes de convidar uma pessoa."
             return
@@ -462,6 +464,25 @@ class PopStore(private val platform: PopPlatformServices) {
         "Convite cancelado.",
     )
 
+    /**
+     * Troca setor e funcao de uma pessoa (F7). O `updateEmployee` reescreve os grupos com o que
+     * receber e, sem a lista, tira a pessoa de TODOS -- entao os grupos vao de volta exatamente
+     * como o servidor mandou. Sem essa lista (servidor antigo) a troca nao e feita.
+     * `permissionGroupId` e `canCreateTasks` ficam de fora de proposito: ausentes, o servidor nao
+     * mexe neles.
+     */
+    fun updateMember(member: CompanyMember, sectorId: String, role: String) {
+        val grupos = member.groupIds
+        if (grupos == null) {
+            message = "Atualize o servidor para trocar o setor pelo aplicativo."
+            return
+        }
+        mutateWorkspace(
+            """{"action":"updateEmployee","employeeId":${json.encodeToString(member.id)},"departmentId":${json.encodeToString(sectorId)},"role":${json.encodeToString(role.trim())},"groupIds":${json.encodeToString(grupos)}}""",
+            "Pessoa atualizada.",
+        )
+    }
+
     fun addSector(name: String, description: String) = mutateWorkspace(
         """{"action":"createDepartment","name":${json.encodeToString(name.trim())},"description":${json.encodeToString(description.trim())}}""",
         "Setor criado.",
@@ -472,10 +493,21 @@ class PopStore(private val platform: PopPlatformServices) {
         "Grupo criado.",
     )
 
-    fun updateSector(sectorId: String, name: String, description: String, managerId: String?) {
+    // `acesso` (F7): modo do gestor e setores escolhidos, so quando mudou. Nulo = o servidor nao
+    // mexe no acesso, e uma edicao de nome nao sobrescreve o que outra pessoa gravou no painel.
+    fun updateSector(
+        sectorId: String,
+        name: String,
+        description: String,
+        managerId: String?,
+        acesso: Pair<String, List<String>>? = null,
+    ) {
         val gestor = managerId?.let { ""","managerId":${json.encodeToString(it)}""" }.orEmpty()
+        val modo = acesso?.let { (mode, setores) ->
+            ""","managerAccessMode":${json.encodeToString(mode)},"managerVisibleDepartmentIds":${json.encodeToString(setores)}"""
+        }.orEmpty()
         mutateWorkspace(
-            """{"action":"updateDepartment","id":${json.encodeToString(sectorId)},"name":${json.encodeToString(name.trim())},"description":${json.encodeToString(description.trim())}$gestor}""",
+            """{"action":"updateDepartment","id":${json.encodeToString(sectorId)},"name":${json.encodeToString(name.trim())},"description":${json.encodeToString(description.trim())}$gestor$modo}""",
             "Setor atualizado.",
         )
     }
@@ -647,6 +679,8 @@ class PopStore(private val platform: PopPlatformServices) {
                         role = employee.role,
                         sectorId = employee.sectorId.ifBlank { null },
                         pending = employee.pending,
+                        groupIds = employee.groupIds,
+                        isOwner = employee.isOwner,
                     )
                 },
                 sectors = workspace.sectors,

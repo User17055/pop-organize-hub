@@ -43,6 +43,7 @@ import {
 } from "./recurrence.server";
 import { removeDepartment } from "./department-removal";
 import { removeInvitation } from "./invitation-removal";
+import { applyManagerAccess, isManagerAccessMode } from "./department-access";
 import { invalidateNativeShadow } from "./native-shadow";
 
 const MOBILE_SESSION_EXPIRY = "9999-12-31T23:59:59.999Z";
@@ -154,6 +155,14 @@ function publicUser(account: PlatformDatabase["accounts"][number]) {
     name: account.name,
     email: account.email,
     photoUrl: account.avatar ?? "",
+  };
+}
+
+function managerAccessSummary(manager: Database["employees"][number] | undefined) {
+  const mode = manager?.departmentAccessMode ?? "own";
+  return {
+    managerAccessMode: mode,
+    managerVisibleDepartmentIds: mode === "selected" ? (manager?.visibleDepartmentIds ?? []) : [],
   };
 }
 
@@ -321,6 +330,10 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             description: department.description ?? "",
             managedByCurrentUser: department.managerId === userId,
             managerId: department.managerId,
+            // Acesso do gestor (F7), lido do funcionário que gerencia, com o mesmo default do painel.
+            ...managerAccessSummary(
+              workspace.employees.find((employee) => employee.id === department.managerId),
+            ),
             canEdit: isCompany && canEditDepartment(departmentPermissionInput(department)),
             canDelete: isCompany && canDeleteDepartment(departmentPermissionInput(department)),
           })),
@@ -981,10 +994,34 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
     const name = formatDepartmentName(requiredText(input.name, "O nome").slice(0, 60));
     const description = requiredText(input.description, "A descrição", 3).slice(0, 320);
     const managerId = typeof input.managerId === "string" ? input.managerId.trim() : "";
+    // Acesso do gestor (F7): opcional. Ausente, nada muda, que é o que o app antigo manda.
+    if (input.managerAccessMode !== undefined && !isManagerAccessMode(input.managerAccessMode)) {
+      throw mobileHttpError("Modo de acesso do gestor inválido.");
+    }
+    const managerAccessMode = isManagerAccessMode(input.managerAccessMode)
+      ? input.managerAccessMode
+      : undefined;
+    const managerVisibleDepartmentIds = Array.isArray(input.managerVisibleDepartmentIds)
+      ? input.managerVisibleDepartmentIds.filter((item): item is string => typeof item === "string")
+      : [];
     await mutateDatabase((platform) => {
       const { workspace, currentUser } = activeCompanyMember(platform, workspaceId, account.id);
       const department = workspace.departments.find((item) => item.id === id);
       if (!department) throw mobileHttpError("Setor não encontrado.", 404);
+      if (
+        managerAccessMode &&
+        !canConfigureDepartmentManager({ currentUser, ownerId: workspace.company.ownerId })
+      ) {
+        throw mobileHttpError("Somente um administrador pode alterar o acesso do gestor.", 403);
+      }
+      if (
+        managerAccessMode === "selected" &&
+        managerVisibleDepartmentIds.some(
+          (departmentId) => !workspace.departments.some((item) => item.id === departmentId),
+        )
+      ) {
+        throw mobileHttpError("Um dos setores permitidos não foi encontrado.");
+      }
       if (
         !canEditDepartment({
           department,
@@ -1019,6 +1056,11 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       department.name = name;
       department.description = description;
       if (managerId) department.managerId = managerId;
+      if (managerAccessMode) {
+        // Do gestor que fica no setor depois desta gravação, como no painel.
+        const manager = workspace.employees.find((item) => item.id === department.managerId);
+        if (manager) applyManagerAccess(manager, managerAccessMode, managerVisibleDepartmentIds);
+      }
       if (renamed) renameTaskTargets(workspace, "department", id, name);
     });
   } else if (action === "deleteDepartment") {

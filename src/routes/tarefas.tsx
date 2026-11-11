@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
+  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -16,12 +17,14 @@ import type { PermissionKey, TargetType, Task, TaskStatus, WorkspaceData } from 
 import { unassignedResponsibleLabel } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permission-groups";
+import { getMyTaskLink, type MyTaskLink, type MyTaskOrigin } from "@/lib/my-tasks";
 import {
   Archive,
   ArrowLeft,
   Building2,
   ChevronDown,
   Columns3,
+  Eye,
   Layers3,
   Network,
   Plus,
@@ -30,6 +33,8 @@ import {
   Search,
   Settings2,
   Sparkles,
+  UserRound,
+  UserRoundCheck,
   Users,
   X,
 } from "lucide-react";
@@ -37,7 +42,7 @@ import { cn } from "@/lib/utils";
 import { TaskCreateDrawer } from "@/components/tasks/task-create-drawer";
 import { openPopAssistant } from "@/components/pop-launcher";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
-import { TaskList } from "@/components/tasks/task-list";
+import { TaskList, TaskOriginBadge } from "@/components/tasks/task-list";
 import { RecurringDeleteDialog } from "@/components/tasks/recurring-delete-dialog";
 import { RecurringDateDialog } from "@/components/tasks/recurring-date-dialog";
 import { type UpdateTaskPayload, useTaskMutations } from "@/components/tasks/use-task-mutations";
@@ -134,17 +139,10 @@ function taskMatchesAdminScope(task: Task, scope: TaskScope, data: WorkspaceData
   if (scope === "overdue") return task.status !== "completed" && task.dueDate < today;
   if (scope === "upcoming") return task.status !== "completed" && task.dueDate > today;
 
+  if (scope === "mine") return myTaskLinkFor(task, data) !== null;
+
   const currentEmployee = data.employees.find((employee) => employee.id === data.currentUser.id);
   if (!currentEmployee) return false;
-  if (scope === "mine") {
-    const responsibleIds = new Set(
-      [task.responsibleId, ...(task.responsibleIds ?? [])].filter(Boolean),
-    );
-    return (
-      responsibleIds.has(currentEmployee.id) ||
-      (task.target.type === "user" && task.target.id === currentEmployee.id)
-    );
-  }
   if (scope === "department") {
     return task.target.type === "department" && task.target.id === currentEmployee.departmentId;
   }
@@ -155,6 +153,46 @@ function taskMatchesAdminScope(task: Task, scope: TaskScope, data: WorkspaceData
       .map((group) => group.id),
   );
   return task.target.type === "group" && currentGroupIds.has(task.target.id);
+}
+
+/** Por que a tarefa é de quem está logado (visão "Minhas tarefas"); nulo quando não é. */
+function myTaskLinkFor(task: Task, data: WorkspaceData) {
+  // Quem revisa só conta enquanto a tarefa espera a revisão; nos outros casos não vale o cálculo.
+  const reviewManagerId =
+    task.status === "waiting_review"
+      ? getTaskPermissions({
+          task,
+          currentUser: data.currentUser,
+          employees: data.employees,
+          departments: data.departments,
+          groups: data.groups,
+          permissionGroups: data.permissionGroups,
+        }).reviewManagerId
+      : undefined;
+  return getMyTaskLink(task, data.currentUser.id, {
+    employees: data.employees,
+    departments: data.departments,
+    groups: data.groups,
+    reviewManagerId,
+  });
+}
+
+type MyOriginFilter = "all" | MyTaskOrigin | "review";
+
+const myOriginFilters: Array<{ key: MyOriginFilter; label: string; icon: typeof UserRound }> = [
+  { key: "all", label: "Todas", icon: UserRoundCheck },
+  { key: "individual", label: "Individuais", icon: UserRound },
+  { key: "department", label: "De setor", icon: Layers3 },
+  { key: "group", label: "De grupo", icon: Network },
+  { key: "company", label: "Da empresa", icon: Building2 },
+  { key: "review", label: "Para revisar", icon: Eye },
+];
+
+function linkMatchesOriginFilter(link: MyTaskLink | undefined, filter: MyOriginFilter) {
+  if (filter === "all") return true;
+  if (!link) return false;
+  if (filter === "review") return link.reason === "review";
+  return link.origin === filter;
 }
 
 function taskResponsibleIds(task: Task) {
@@ -211,6 +249,7 @@ function TasksPage() {
   const { data, isLoading, error } = useWorkspaceData();
   const [active, setActive] = useState<TaskStatus | "all">(initialStatus ?? "all");
   const [taskScope, setTaskScope] = useState<TaskScope>(initialScope ?? "all");
+  const [originFilter, setOriginFilter] = useState<MyOriginFilter>("all");
   const [search, setSearch] = useState("");
   const [directoryMode, setDirectoryMode] = useState<
     "company" | "departments" | "collaborators" | "groups"
@@ -312,6 +351,7 @@ function TasksPage() {
   useEffect(() => {
     setActive(initialStatus ?? "all");
     setTaskScope(initialScope ?? "all");
+    setOriginFilter("all");
   }, [initialScope, initialStatus]);
 
   useEffect(() => {
@@ -396,6 +436,40 @@ function TasksPage() {
     () => taskRows.filter((task) => task.status !== "completed"),
     [taskRows],
   );
+  const isMineView = taskScope === "mine";
+  // Na visão "Minhas tarefas", cada tarefa da pessoa leva o motivo (origem e papel). Calculado uma
+  // vez aqui: serve ao filtro, aos contadores e ao selo de cada linha.
+  const myTaskLinks = useMemo(() => {
+    const map = new Map<string, MyTaskLink>();
+    if (!data || !isMineView) return map;
+    for (const task of taskRows) {
+      const link = myTaskLinkFor(task, data);
+      if (link) map.set(task.id, link);
+    }
+    return map;
+  }, [data, isMineView, taskRows]);
+  const myOriginCounts = useMemo(() => {
+    const counts: Record<MyOriginFilter, number> = {
+      all: 0,
+      individual: 0,
+      department: 0,
+      group: 0,
+      company: 0,
+      review: 0,
+    };
+    for (const task of activeTaskRows) {
+      const link = myTaskLinks.get(task.id);
+      if (!link) continue;
+      counts.all += 1;
+      counts[link.origin] += 1;
+      if (link.reason === "review") counts.review += 1;
+    }
+    return counts;
+  }, [activeTaskRows, myTaskLinks]);
+  const originFor = useCallback(
+    (task: Task) => (isMineView ? (myTaskLinks.get(task.id) ?? null) : null),
+    [isMineView, myTaskLinks],
+  );
   const list = useMemo(
     () =>
       taskRows.filter(
@@ -406,11 +480,23 @@ function TasksPage() {
           (normalizedSearch === "" ||
             t.title.toLowerCase().includes(normalizedSearch) ||
             t.description.toLowerCase().includes(normalizedSearch)) &&
-          (!data || taskMatchesAdminScope(t, taskScope, data)) &&
+          (!data ||
+            (isMineView ? myTaskLinks.has(t.id) : taskMatchesAdminScope(t, taskScope, data))) &&
+          (!isMineView || linkMatchesOriginFilter(myTaskLinks.get(t.id), originFilter)) &&
           (!data ||
             taskMatchesFilters(t, filters, { employees: data.employees, groups: data.groups })),
       ),
-    [active, normalizedSearch, taskRows, taskScope, filters, data],
+    [
+      active,
+      normalizedSearch,
+      taskRows,
+      taskScope,
+      filters,
+      data,
+      isMineView,
+      myTaskLinks,
+      originFilter,
+    ],
   );
   const completedTasks = useMemo(
     () =>
@@ -422,9 +508,13 @@ function TasksPage() {
               (normalizedSearch === "" ||
                 task.title.toLowerCase().includes(normalizedSearch) ||
                 task.description.toLowerCase().includes(normalizedSearch)) &&
-              (!data || taskMatchesAdminScope(task, taskScope, data)),
+              (!data ||
+                (isMineView
+                  ? myTaskLinks.has(task.id) &&
+                    linkMatchesOriginFilter(myTaskLinks.get(task.id), originFilter)
+                  : taskMatchesAdminScope(task, taskScope, data))),
           ),
-    [active, normalizedSearch, taskRows, taskScope, data],
+    [active, normalizedSearch, taskRows, taskScope, data, isMineView, myTaskLinks, originFilter],
   );
 
   // Estes dois useMemo ficavam depois dos returns de carregamento e de erro logo abaixo. Enquanto
@@ -826,11 +916,13 @@ function TasksPage() {
 
   return (
     <AppShell
-      title={selectedOrganizerList?.name ?? "Tarefas"}
+      title={selectedOrganizerList?.name ?? (isMineView ? "Minhas tarefas" : "Tarefas")}
       subtitle={
         selectedOrganizerList
           ? "Tarefas selecionadas para esta lista"
-          : "Acompanhe e organize todas as demandas da empresa"
+          : isMineView
+            ? "Tudo o que está com você, de qualquer setor, grupo ou da empresa"
+            : "Acompanhe e organize todas as demandas da empresa"
       }
       actions={
         canCreateTask ? (
@@ -929,6 +1021,14 @@ function TasksPage() {
                   Empresa, setores, colaboradores ou grupos
                 </h2>
               </div>
+              <button
+                type="button"
+                onClick={() => applyScopeFilter("mine")}
+                className="inline-flex h-10 items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-4 text-xs font-bold text-primary transition hover:-translate-y-0.5 hover:bg-primary/15"
+              >
+                <UserRoundCheck className="h-4 w-4" />
+                Minhas tarefas
+              </button>
               {(selectedCompanyId ||
                 selectedDepartmentId ||
                 selectedCollaboratorId ||
@@ -1285,6 +1385,68 @@ function TasksPage() {
           </section>
         )}
 
+      {isMineView && !selectedOrganizerList && !hasDirectorySelection && (
+        <section className="task-glass-panel mb-4 rounded-[22px] p-4 sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+                Minhas tarefas
+              </p>
+              <h2 className="mt-1 font-display text-lg font-bold">
+                {myOriginCounts.all}{" "}
+                {myOriginCounts.all === 1 ? "tarefa aberta" : "tarefas abertas"} com você
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                As suas, as do seu setor e dos seus grupos sem responsável definido, e as que
+                esperam a sua revisão. O selo de cada uma mostra de onde ela veio.
+              </p>
+            </div>
+            {!isPersonalWorkspace && (
+              <button
+                type="button"
+                onClick={() => applyScopeFilter("all")}
+                className="task-glass-control inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-3 text-xs font-bold text-foreground/70 hover:text-primary"
+              >
+                <ArrowLeft className="h-4 w-4" /> Todas as tarefas
+              </button>
+            )}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {myOriginFilters
+              .filter(
+                (filter) =>
+                  filter.key === "all" ||
+                  filter.key === originFilter ||
+                  myOriginCounts[filter.key] > 0,
+              )
+              .map((filter) => {
+                const Icon = filter.icon;
+                const selected = originFilter === filter.key;
+                return (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    onClick={() => setOriginFilter(filter.key)}
+                    aria-pressed={selected}
+                    className={cn(
+                      "inline-flex h-9 items-center gap-2 rounded-full border px-3.5 text-xs font-bold transition",
+                      selected
+                        ? "border-primary/30 bg-primary/10 text-primary"
+                        : "border-border/65 bg-background/55 text-foreground/75 hover:border-primary/25",
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {filter.label}
+                    <span className="tabular-nums text-muted-foreground">
+                      {myOriginCounts[filter.key]}
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
+        </section>
+      )}
+
       {(isPersonalWorkspace ||
         hasDirectorySelection ||
         selectedOrganizerList ||
@@ -1477,6 +1639,7 @@ function TasksPage() {
                       onTitleWidthChange={(titleWidth) =>
                         setLayoutPreferences((current) => ({ ...current, titleWidth }))
                       }
+                      originFor={isMineView ? originFor : undefined}
                     />
                   )}
                 </section>
@@ -1541,6 +1704,11 @@ function TasksPage() {
                             <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                               {task.description}
                             </p>
+                            {isMineView && myTaskLinks.get(task.id) && (
+                              <div className="mt-2">
+                                <TaskOriginBadge link={myTaskLinks.get(task.id)!} />
+                              </div>
+                            )}
                             {task.recurrence && (
                               <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
                                 <Repeat className="h-3 w-3" />

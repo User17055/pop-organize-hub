@@ -22,6 +22,7 @@ import {
   Moon,
   Sun,
   UserRound,
+  UserRoundCheck,
   ChevronDown,
   Plus,
   Check,
@@ -51,7 +52,8 @@ import { hasPermission, isAdminUser, resolvePermissionSet } from "@/lib/permissi
 import { useTaskAlerts } from "@/hooks/use-task-alerts";
 import { NotificationsMenu } from "@/components/notifications-menu";
 import { PopDock } from "@/components/pop-launcher";
-import { BottomTabBar, type NavItem } from "@/components/bottom-tab-bar";
+import { BottomTabBar } from "@/components/bottom-tab-bar";
+import { isNavItemActive, navItemKey, type NavItem } from "@/components/nav-items";
 import { TaskOrganizerSheet } from "@/components/task-organizer-sheet";
 import { Toaster } from "@/components/ui/sonner";
 import {
@@ -74,8 +76,18 @@ import { toast } from "sonner";
 
 type NavVisibility = "all" | "admin" | PermissionKey;
 
-const nav: Array<NavItem & { visibility: NavVisibility }> = [
+const nav: Array<NavItem & { visibility: NavVisibility; companyOnly?: boolean }> = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true, visibility: "all" },
+  // No espaço pessoal toda tarefa já é da pessoa: o item só repetiria "Tarefas".
+  {
+    to: "/tarefas",
+    escopo: "mine",
+    label: "Minhas tarefas",
+    shortLabel: "Minhas",
+    icon: UserRoundCheck,
+    visibility: "all",
+    companyOnly: true,
+  },
   { to: "/tarefas", label: "Tarefas", icon: CheckSquare, visibility: "all" },
   { to: "/calendario", label: "Calendário", icon: CalendarDays, visibility: "pages.calendar" },
   { to: "/grupos", label: "Grupos", icon: FolderKanban, visibility: "pages.groups" },
@@ -221,6 +233,12 @@ export function AppShell({
   contentClassName?: string;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const escopo = useRouterState({
+    select: (s) => {
+      const value = (s.location.search as Record<string, unknown>).escopo;
+      return typeof value === "string" ? value : undefined;
+    },
+  });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data, error } = useWorkspaceData();
@@ -251,7 +269,10 @@ export function AppShell({
   });
   const canCreateTask = hasPermission(permissionSet, "tasks.create");
   const visibleNav = nav.filter((item) => {
-    if (data?.company.kind === "personal" && companyOnlyPaths.includes(item.to)) {
+    if (
+      data?.company.kind === "personal" &&
+      (item.companyOnly || companyOnlyPaths.includes(item.to))
+    ) {
       return false;
     }
     if (item.visibility === "all") return true;
@@ -658,12 +679,13 @@ export function AppShell({
           style={{ overscrollBehavior: "contain" }}
         >
           {visibleNav.map((item) => {
-            const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
+            const active = isNavItemActive(item, pathname, escopo, visibleNav);
             const Icon = item.icon;
             return (
               <Link
-                key={item.to}
+                key={navItemKey(item)}
                 to={item.to}
+                search={item.escopo ? { escopo: item.escopo } : undefined}
                 title={collapsed ? item.label : undefined}
                 className={cn(
                   "flex items-center rounded-2xl text-sm font-medium soft-transition transition-all duration-300",
@@ -1105,6 +1127,7 @@ export function AppShell({
         primaryItems={primaryMobileNav}
         moreItems={moreMobileNav}
         pathname={pathname}
+        escopo={escopo}
         userName={currentUser.name}
         userRole={currentUserRole}
         onOpenProfile={openProfile}

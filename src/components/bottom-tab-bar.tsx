@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Download, MoreHorizontal, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,18 +10,15 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { isNavItemActive, navItemKey, type NavItem } from "@/components/nav-items";
 
-export type NavItem = {
-  to: string;
-  label: string;
-  icon: (props: { className?: string }) => ReactNode;
-  exact?: boolean;
-};
+export type { NavItem };
 
 export function BottomTabBar({
   primaryItems,
   moreItems,
   pathname,
+  escopo,
   userName,
   userRole,
   onOpenProfile,
@@ -33,6 +30,7 @@ export function BottomTabBar({
   primaryItems: NavItem[];
   moreItems: NavItem[];
   pathname: string;
+  escopo?: string;
   userName: string;
   userRole: string;
   onOpenProfile: () => void;
@@ -47,19 +45,23 @@ export function BottomTabBar({
     if (menuOpen === undefined) setInternalMenuOpen(open);
     onMenuOpenChange?.(open);
   };
-  const moreActive = moreItems.some((item) =>
-    item.exact ? pathname === item.to : pathname.startsWith(item.to),
-  );
+  const allItems = [...primaryItems, ...moreItems];
+  const moreActive = moreItems.some((item) => isNavItemActive(item, pathname, escopo, allItems));
 
   return (
     <>
       <div className="app-bottom-tabs fixed bottom-0 left-0 right-0 z-40 px-2 sm:px-3 lg:hidden">
         <nav className="app-surface bottom-tab-glass mx-auto flex w-full max-w-md items-center gap-0.5 rounded-[24px] px-1.5 py-1.5 sm:gap-1 sm:rounded-[28px] sm:px-2 sm:py-2">
           {primaryItems.map((item) => {
-            const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
+            const active = isNavItemActive(item, pathname, escopo, allItems);
             const Icon = item.icon;
             return (
-              <Link key={item.to} to={item.to} className="min-w-0 flex-1">
+              <Link
+                key={navItemKey(item)}
+                to={item.to}
+                search={item.escopo ? { escopo: item.escopo } : undefined}
+                className="min-w-0 flex-1"
+              >
                 <motion.span
                   whileTap={{ scale: 0.98 }}
                   animate={{ y: active ? -1 : 0 }}
@@ -79,7 +81,7 @@ export function BottomTabBar({
                   )}
                   <span className="relative z-10 flex flex-col items-center gap-1">
                     <Icon className="h-[19px] w-[19px]" />
-                    <span className="max-w-full truncate">{item.label}</span>
+                    <span className="max-w-full truncate">{item.shortLabel ?? item.label}</span>
                   </span>
                 </motion.span>
               </Link>
@@ -125,11 +127,12 @@ export function BottomTabBar({
             <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">
               {moreItems.map((item) => {
                 const Icon = item.icon;
-                const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
+                const active = isNavItemActive(item, pathname, escopo, allItems);
                 return (
                   <Link
-                    key={item.to}
+                    key={navItemKey(item)}
                     to={item.to}
+                    search={item.escopo ? { escopo: item.escopo } : undefined}
                     onClick={() => setMoreOpen(false)}
                     className={cn(
                       "pressable flex min-h-[74px] min-w-0 flex-col items-center justify-center gap-2 rounded-2xl p-2 text-center text-[11px] font-semibold sm:p-3 sm:text-xs",

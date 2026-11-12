@@ -1,4 +1,39 @@
-# Sincronização — revisão de 11/11/2026
+# Sincronização — revisão de 12/11/2026
+
+## Atualizações automáticas recebidas da VPS — build 42, 12/11/2026
+
+Removido o botão Sincronização em Mais. Com o app em primeiro plano, o Android mantém uma requisição condicional de até 25 segundos para o espaço pessoal e a empresa selecionada. Uma gravação confirmada por `mutateDatabase` ou `saveDatabase`, no site ou na API móvel, acorda as conexões pendentes. A rota revalida a sessão, o acesso ao espaço e a visibilidade das tarefas antes de responder com a nova lista. O mesmo coordenador aplica as mudanças, preservando alterações locais ainda não confirmadas e a fila de conclusão.
+
+O canal se reconecta automaticamente após erro e fecha o socket ao sair do primeiro plano, trocar de conta ou de empresa. Há consulta de recuperação a cada dez segundos no Android e verificação de cinco segundos dentro da espera para descobrir alterações vindas de outro processo. Sem rede utilizável não existe entrega instantânea; alterações feitas offline permanecem na fila persistente e são enviadas automaticamente quando a conexão retorna. O servidor continua sendo a origem compartilhada dos dados e os recibos evitam reaplicar um envio antigo.
+
+Servidor publicado com saúde HTTP 200, backup `/var/www/pop-organize-sync-backup-20261112T134628Z`. Passaram 14 testes Node e os 34 cenários de regressão em cópia em memória. O teste HTTP confirmou que uma conexão da Cintia permanece esperando enquanto não há alterações e recebe a conclusão do João pelo aviso de commit antes do watchdog de cinco segundos; também conferiu resposta 304 no fim da espera e recusa de sessão inválida. Zero gravações nas tarefas reais nesses testes.
+
+Passaram 62 testes Kotlin e dois testes instrumentados no Samsung: observação de duas versões consecutivas, envio do ETag na espera seguinte, fechamento imediato do socket ao cancelar o observador e persistência/reenvio da fila após falha simulada. O transporte desses testes no aparelho era simulado, sem gravações nas tarefas reais. As rotas HTTP também passaram após a publicação, usando uma cópia em memória e conferência dos arquivos publicados contra a compilação limpa.
+
+Build 42 instalado como atualização no Samsung conectado. A captura `.codex-temp/build42-more.png` confirmou a retirada do botão. A conta aberta u2 ficou com zero alterações sujas, comandos de conclusão, envelopes pendentes ou recusas HTTP arquivadas; cópias históricas de recuperação preservadas.
+
+- [Baixar Pop Organize Teste — build 42](https://app.poporganize.com.br/downloads/pop-organize-teste-1.0.15-build42.apk).
+- APK `release/Pop-Organize-1.0.15-teste-build42-live-sync.apk`, 33.946.224 bytes.
+- SHA-256 `882d943d6a7484ddc075e436f63fe73939466fb873d48f5af74477f09dadda57`, confirmado no download HTTPS.
+
+## Envio automático e ordem de chegada — build 39
+
+Regra escolhida pelo usuário: **a edição que chegar por último à VPS prevalece no mesmo campo**. O Android envia os campos realmente alterados; uma edição de título não devolve descrição, responsáveis ou conclusão antigos ao servidor. O envio de conclusão continua independente do conteúdo.
+
+Alterações e envelopes HTTP são persistidos antes do envio. Cada envelope tem UUID e corpo imutáveis. A VPS grava alteração e recibo na mesma transação; repetir um envio após perder a resposta devolve seu recibo sem reaplicar uma edição antiga. A confirmação e o novo cache são gravados juntos no aparelho antes de retirar o envelope da fila. Uma edição feita durante o envio permanece para o próximo lote.
+
+WorkManager envia em segundo plano, recupera filas periodicamente e reage ao retorno de uma conexão validada. Com o app aberto, o worker acorda o coordenador da tela para evitar duas cópias concorrentes do cache. A entrega depende de rede utilizável, sessão e permissões válidas e da execução permitida pelo Android; recusas reais são informadas em Sincronização. Cópias históricas sem baseline permanecem preservadas e não são reenviadas automaticamente.
+
+Servidor publicado com backup `/var/www/pop-organize-sync-backup-20261112T002507Z` e saúde HTTP 200. Passaram 12 testes Node, 34 cenários de integração e a validação das rotas HTTP com recibos, ordem de chegada, reenvio e visibilidade entre João e Cintia. Esses cenários usaram banco clonado em memória, com zero gravações nas tarefas reais.
+
+Passaram 62 testes Kotlin e o teste instrumentado no Samsung conectado: falha de conexão simulada, reenvio do mesmo envelope, identidade própria para a edição seguinte e restauração da fila após falha simulada na gravação. O transporte desse teste era simulado e não alterou tarefas reais. Após abrir o app atualizado, a conta u2 ficou com zero alterações sujas, zero comandos de conclusão pendentes, zero envelopes pendentes e zero recusas HTTP arquivadas. As duas cópias históricas de recuperação foram preservadas.
+
+O teste adicional de regressão dos gestos da agenda não foi concluído: houve falha de localização da hora de exemplo e, nas tentativas seguintes, falha na injeção de toque pela automação. Isso não constitui validação do zoom neste build.
+
+- [Baixar Pop Organize Teste — build 39](https://app.poporganize.com.br/downloads/pop-organize-teste-1.0.15-build39.apk).
+- Instalado como atualização no Samsung conectado, preservando o aplicativo e sua sessão. Pacote `br.com.poporganize.app.teste`, versão `1.0.15-teste`, build 39.
+- APK: `release/Pop-Organize-1.0.15-teste-build39-durable-sync.apk`, 33.995.083 bytes.
+- SHA-256: `ef30f7cacb09ce31900d9fe3387291f3fe0d66fa21d60ba8ddcb95dc4cd0747c`; conferido também no download HTTPS.
 
 ## Conclusão com envio persistente — build 26
 

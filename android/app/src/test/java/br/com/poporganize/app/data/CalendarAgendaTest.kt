@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CalendarAgendaTest {
+    @Test fun endTimeUsesClockAndMarksTheFollowingDay() {
+        assertEquals("10:30", taskEndTime("09:00", "1 h 30 min"))
+        assertEquals("00:30 +1", taskEndTime("23:30", "1 h"))
+        assertEquals("09:00 +1", taskEndTime("09:00", "24 h"))
+        assertNull(taskEndTime("09:00", "Sem duração"))
+        assertNull(taskEndTime("24:00", "30 min"))
+    }
     @Test fun durationLabelsRoundTrip() {
         for (minutes in listOf(1, 15, 45, 60, 90, 120, 1440)) {
             assertEquals(minutes, taskDurationMinutes(taskDurationLabel(minutes)))

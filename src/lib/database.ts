@@ -78,6 +78,7 @@ export type Database = {
     string,
     { actorId: string; taskId: string; completed: boolean }
   >;
+  mobileTaskSyncMutations?: Record<string, { actorId: string; digest: string }>;
   permissionGroups: PermissionGroup[];
   sessions: SessionRecord[];
   invitations: InvitationRecord[];

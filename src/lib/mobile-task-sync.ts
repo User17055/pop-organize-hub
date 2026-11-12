@@ -66,11 +66,20 @@ export function changedMobileTaskFields(base: object, local: object): string[] {
 }
 
 /** Three-way merge: unrelated remote edits survive; competing edits fail atomically. */
-export function reconcileMobileTask<T extends object>(base: T, local: T, remote: T): T {
+export function reconcileMobileTask<T extends object>(
+  base: T,
+  local: T,
+  remote: T,
+  policy: "conflict" | "arrival" = "conflict",
+): T {
   const result = { ...remote };
   for (const group of mobileTaskFieldGroups) {
     if (sameGroup(base, local, group)) continue;
-    if (!sameGroup(base, remote, group) && !sameGroup(local, remote, group)) {
+    if (
+      policy === "conflict" &&
+      !sameGroup(base, remote, group) &&
+      !sameGroup(local, remote, group)
+    ) {
       throw Object.assign(
         new Error(
           "Esta tarefa foi alterada em outro aparelho ou no site. Atualize e revise a alteração pendente.",
@@ -84,4 +93,45 @@ export function reconcileMobileTask<T extends object>(base: T, local: T, remote:
     for (const key of group) (result as Fields)[key] = (local as Fields)[key];
   }
   return result;
+}
+
+/** Arrival order applies explicit edits while preserving unrelated rows created elsewhere. */
+export function reconcileMobileOrganization<
+  T extends {
+    folders: Array<{ id: string; name: string; parentId?: string; position: number }>;
+    lists: Array<{
+      id: string;
+      name: string;
+      folderId?: string;
+      taskIds: string[];
+      position: number;
+    }>;
+  },
+>(base: T, local: T, remote: T): T {
+  function rows<R extends { id: string }>(
+    before: R[],
+    desired: R[],
+    current: R[],
+    fields: Array<keyof R>,
+  ): R[] {
+    const original = new Map(before.map((row) => [row.id, row]));
+    const incoming = new Map(desired.map((row) => [row.id, row]));
+    const result = current.flatMap((row) => {
+      const old = original.get(row.id),
+        change = incoming.get(row.id);
+      if (old && !change) return [];
+      if (!old || !change) return [row];
+      const next = { ...row };
+      for (const field of fields)
+        if (stable(old[field]) !== stable(change[field])) next[field] = change[field];
+      return [next];
+    });
+    const present = new Set(current.map((row) => row.id));
+    return [...result, ...desired.filter((row) => !original.has(row.id) && !present.has(row.id))];
+  }
+  return {
+    ...remote,
+    folders: rows(base.folders, local.folders, remote.folders, ["name", "parentId", "position"]),
+    lists: rows(base.lists, local.lists, remote.lists, ["name", "folderId", "taskIds", "position"]),
+  };
 }

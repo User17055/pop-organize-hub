@@ -65,6 +65,7 @@ const mobileTaskSchema = z.object({
 });
 
 const mobileTasksPayloadSchema = z.object({
+  syncRequest: z.object({ mutationId: z.string().uuid(), policy: z.literal("arrival") }).optional(),
   tasks: z.array(mobileTaskSchema).max(5_000),
   baseTasks: z.array(mobileTaskSchema).max(5_000).optional(),
   taskOrder: z.array(z.string().min(1).max(300)).max(5_000).optional(),
@@ -97,9 +98,21 @@ export const Route = createFileRoute("/api/mobile/tasks")({
       GET: async ({ request }) => {
         try {
           const { readMobileTasks } = await import("@/lib/mobile-api.server");
-          const body = JSON.stringify({ tasks: await readMobileTasks(request) });
-          const etag = `"${createHash("sha256").update(body).digest("base64url")}"`;
-          const headers = { "cache-control": "no-store", etag };
+          const { taskUpdateRevision, waitForTaskUpdate } = await import("@/lib/mobile-task-updates.server");
+          const waitSeconds = Math.min(25, Number(request.headers.get("prefer")?.match(/\bwait=(\d+)\b/)?.[1] ?? 0));
+          const deadline = Date.now() + waitSeconds * 1_000;
+          let revision = taskUpdateRevision();
+          let body = JSON.stringify({ tasks: await readMobileTasks(request) });
+          let etag = `"${createHash("sha256").update(body).digest("base64url")}"`;
+          while (request.headers.get("if-none-match") === etag && Date.now() < deadline && !request.signal.aborted) {
+            // The watchdog also discovers changes made through a different server process.
+            await waitForTaskUpdate(revision, Math.min(5_000, deadline - Date.now()), request.signal);
+            if (request.signal.aborted) break;
+            revision = taskUpdateRevision();
+            body = JSON.stringify({ tasks: await readMobileTasks(request) });
+            etag = `"${createHash("sha256").update(body).digest("base64url")}"`;
+          }
+          const headers = { "cache-control": "no-store", etag, "x-pop-live-sync": "wait-v1" };
           if (request.headers.get("if-none-match") === etag) {
             return new Response(null, { status: 304, headers });
           }
@@ -125,6 +138,7 @@ export const Route = createFileRoute("/api/mobile/tasks")({
             parsed.data.taskOrder,
             parsed.data.baseTaskOrder,
             parsed.data.statusChanges,
+            parsed.data.syncRequest,
           );
           if (result.deleted > 0) {
             const { removeOrphanAttachmentFiles } = await import("@/lib/task-attachments.server");

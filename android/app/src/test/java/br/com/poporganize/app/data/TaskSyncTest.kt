@@ -7,6 +7,16 @@ import org.junit.Test
 class TaskSyncTest {
     private val base = mapOf("title" to "Original", "description" to "", "canEdit" to "true", "checklist" to "[]")
 
+    @Test fun laterServerEditAfterAnAcknowledgedUploadDoesNotGetUndone() {
+        val submitted = base + ("title" to "Celular A")
+        val laterServer = base + ("title" to "Celular B")
+        assertEquals(laterServer, reconcileTaskFields(base, submitted, laterServer, submitted).task)
+        val newLocal = submitted + ("title" to "Nova edição local")
+        val next = reconcileTaskFields(base, newLocal, laterServer, submitted)
+        assertEquals("Nova edição local", next.task["title"])
+        assertEquals("Celular A", next.baseline["title"])
+    }
+
     @Test fun remoteChangesMergeWithOnlyLocallyChangedFields() {
         val result = reconcileTaskFields(base, base + ("title" to "Local"), base + ("description" to "Site"))
         assertEquals("Local", result.task["title"])

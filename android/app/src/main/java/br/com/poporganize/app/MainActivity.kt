@@ -19,6 +19,10 @@ import br.com.poporganize.app.notifications.EXTRA_OPEN_TASK_ID
 import br.com.poporganize.app.notifications.schedulePopNotifications
 import br.com.poporganize.app.ui.PopOrganizeApp
 import br.com.poporganize.app.data.scheduleTaskStatusRecovery
+import br.com.poporganize.app.data.scheduleTaskContentRecovery
+import br.com.poporganize.app.data.scheduleTaskContentSync
+import br.com.poporganize.app.data.TaskSyncRequests
+import br.com.poporganize.app.data.observeTaskSyncConnectivity
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.install.model.UpdateAvailability
@@ -33,6 +37,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         schedulePopNotifications(this)
         scheduleTaskStatusRecovery(this)
+        scheduleTaskContentRecovery(this)
+        observeTaskSyncConnectivity(this)
         enableEdgeToEdge()
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
@@ -61,6 +67,17 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         clearPopNotifications(this)
         checkForUpdate()
+    }
+
+    override fun onStart() {
+        TaskSyncRequests.foreground = true
+        super.onStart()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        TaskSyncRequests.foreground = false
+        scheduleTaskContentSync(this)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

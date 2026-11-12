@@ -23,11 +23,11 @@ android {
         applicationId "br.com.poporganize.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 17
-        versionName "1.0.14"
+        versionCode 18
+        versionName "1.0.15"
         manifestPlaceholders = [appLabel: "Pop Organize"]
         if (calendarTestInstall) {
-            versionCode 29
+            versionCode 44
             versionName "1.0.15-teste"
         }
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -60,6 +60,17 @@ android {
             if (releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
                 signingConfig signingConfigs.release
             }
+        }
+    }
+    if (calendarTestInstall) {
+        buildTypes.create("performance") {
+            initWith buildTypes.release
+            matchingFallbacks = ['release']
+            applicationIdSuffix ".teste"
+            signingConfig signingConfigs.debug
+            debuggable false
+            jniDebuggable false
+            manifestPlaceholders = [appLabel: "Pop Organize Teste", calendarPreviewEnabled: false]
         }
     }
     compileOptions {

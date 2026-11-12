@@ -28,11 +28,18 @@ internal fun taskDurationLabel(minutes: Int?): String = when {
 internal fun agendaTimeLabel(minute: Int): String =
     "%02d:%02d".format(Math.floorMod(minute, 1440) / 60, Math.floorMod(minute, 1440) % 60)
 
+internal fun taskEndTime(start: String, duration: String): String? {
+    val minute = agendaMinute(start) ?: return null
+    val minutes = taskDurationMinutes(duration) ?: return null
+    val end = minute + minutes
+    return agendaTimeLabel(end) + if (end >= 1440) " +1" else ""
+}
+
 internal data class AgendaInterval<T>(val key: String, val task: T, val startMinute: Int, val durationMinutes: Int)
 internal data class AgendaPlacement<T>(val interval: AgendaInterval<T>, val column: Int, val columns: Int)
 
 /** Overlapping tasks share the available width; adjacent tasks use the same column. */
-internal fun <T> layoutAgendaIntervals(intervals: List<AgendaInterval<T>>): List<AgendaPlacement<T>> {
+internal fun <T> layoutAgendaIntervals(intervals: List<AgendaInterval<T>>, minimumDurationMinutes: Int = 30): List<AgendaPlacement<T>> {
     val sorted = intervals.sortedWith(compareBy({ it.startMinute }, { it.key }))
     val result = mutableListOf<AgendaPlacement<T>>()
     var group = mutableListOf<Pair<AgendaInterval<T>, Int>>()
@@ -47,7 +54,7 @@ internal fun <T> layoutAgendaIntervals(intervals: List<AgendaInterval<T>>): List
     for (interval in sorted) {
         if (interval.startMinute >= groupEnd && group.isNotEmpty()) flush()
         val column = columnEnds.indexOfFirst { it <= interval.startMinute }.let { if (it < 0) columnEnds.size else it }
-        val end = interval.startMinute + interval.durationMinutes.coerceAtLeast(30)
+        val end = interval.startMinute + interval.durationMinutes.coerceAtLeast(minimumDurationMinutes.coerceAtLeast(30))
         if (column == columnEnds.size) columnEnds.add(end) else columnEnds[column] = end
         group.add(interval to column)
         groupEnd = columnEnds.maxOrNull() ?: end

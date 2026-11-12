@@ -261,10 +261,19 @@ import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
 import br.com.poporganize.app.R
 import br.com.poporganize.app.BuildConfig
+import br.com.poporganize.app.data.TaskSyncRequests
+import br.com.poporganize.app.data.scheduleTaskContentSync
 import br.com.poporganize.app.data.AgendaInterval
+import br.com.poporganize.app.data.agendaHourHeight
+import br.com.poporganize.app.data.agendaMinimumCardHeight
+import br.com.poporganize.app.data.agendaMinimumDuration
+import br.com.poporganize.app.data.agendaCardHeight
+import br.com.poporganize.app.data.agendaDurationHeight
+import br.com.poporganize.app.data.normalizedAgendaZoom
 import br.com.poporganize.app.data.ProfileImages
 import br.com.poporganize.app.data.agendaMinute
 import br.com.poporganize.app.data.agendaTimeLabel
+import br.com.poporganize.app.data.taskEndTime
 import br.com.poporganize.app.data.layoutAgendaIntervals
 import br.com.poporganize.app.data.taskDurationMinutes
 import br.com.poporganize.app.data.taskDurationLabel
@@ -556,6 +565,7 @@ private const val CALENDAR_FILTER_SECTOR_PREFIX = "pop_organize_calendar_filter_
 private const val CALENDAR_FILTER_GROUP_PREFIX = "pop_organize_calendar_filter_group_"
 private const val CALENDAR_FILTER_PERSON_PREFIX = "pop_organize_calendar_filter_person_"
 private const val CALENDAR_HOURLY_VIEW_PREFIX = "pop_organize_calendar_hourly_view_"
+private const val CALENDAR_ZOOM_PREFIX = "pop_organize_calendar_hour_zoom_"
 private const val CALENDAR_FILTER_PENDING_PREFIX = "pop_organize_calendar_filter_pending_"
 private const val PERSONAL_WORKSPACE_STORAGE_VALUE = "personal"
 private val MOBILE_API_BASE_URL = BuildConfig.POP_API_BASE_URL.trimEnd('/')
@@ -568,6 +578,7 @@ private data class CachedRemoteTasks(val etag: String, val tasks: List<PopTask>)
 private val remoteTasksCache = mutableMapOf<String, CachedRemoteTasks>()
 private val taskScopeLocks = TaskStatusOutbox.scopeLocks
 private val taskSyncErrors = mutableMapOf<String, String>()
+private val notificationSnapshotMutex = Mutex()
 
 private data class StoredCalendarFilters(
     val sectorId: String?,
@@ -833,6 +844,7 @@ private fun queueTaskDeletion(
         .edit()
         .putString(deletedTasksKey(accountId, workspaceId), JSONArray(pending).toString())
         .apply()
+    scheduleTaskContentSync(context)
 }
 
 private fun acknowledgeTaskDeletions(
@@ -1004,7 +1016,7 @@ private fun saveCompanyTasks(
     accountId: String,
     workspaceId: String,
     tasks: List<PopTask>,
-) = saveTasks(context, companyTasksKey(accountId, workspaceId), tasks)
+) = TaskStatusOutbox.saveCache(context, accountId, workspaceId, tasksToJson(tasks))
 
 private fun saveAccountTasks(context: Context, accountId: String, tasks: List<PopTask>) =
     TaskStatusOutbox.saveCache(context, accountId, "", tasksToJson(tasks))
@@ -1012,6 +1024,7 @@ private fun saveAccountTasks(context: Context, accountId: String, tasks: List<Po
 private fun setAccountTasksDirty(context: Context, accountId: String, dirty: Boolean) {
     context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
         .edit().putBoolean(accountTasksDirtyKey(accountId), dirty).apply()
+    if (dirty) scheduleTaskContentSync(context)
 }
 
 private fun accountTasksAreDirty(context: Context, accountId: String): Boolean =
@@ -1026,6 +1039,7 @@ private fun setCompanyTasksDirty(
 ) {
     context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
         .edit().putBoolean(companyTasksDirtyKey(accountId, workspaceId), dirty).apply()
+    if (dirty) scheduleTaskContentSync(context)
 }
 
 private fun companyTasksAreDirty(context: Context, accountId: String, workspaceId: String): Boolean =
@@ -1422,59 +1436,28 @@ private suspend fun loadRemoteTasks(apiToken: String, workspaceId: String = ""):
 }
 
 private suspend fun syncRemoteTasks(
-    apiToken: String,
+    context: Context,
+    account: GoogleAccount,
     tasks: List<PopTask>,
     workspaceId: String = "",
     deletedServerIds: List<String> = emptyList(),
     baseTasks: List<PopTask>,
     taskOrder: List<String>? = null,
     baseTaskOrder: List<String>? = null,
-) {
-    withContext(Dispatchers.IO) {
-    val connection = (URL("$MOBILE_API_BASE_URL/tasks").openConnection() as java.net.HttpURLConnection).apply {
-        requestMethod = "PUT"
-        connectTimeout = 15_000
-        readTimeout = 20_000
-        doOutput = true
-        setRequestProperty("Authorization", "Bearer $apiToken")
-        setRequestProperty("User-Agent", "PopOrganize/${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}; Android)")
-        if (workspaceId.isNotBlank()) setRequestProperty("X-Workspace-Id", workspaceId)
-        else setRequestProperty("X-Workspace-Kind", "personal")
-        setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        setRequestProperty("Accept", "application/json")
-    }
-    try {
-        connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
-            writer.write(
-                JSONObject()
-                    .put("tasks", tasksToJson(tasks))
-                    .put("deletedServerIds", JSONArray(deletedServerIds))
-                    .put("baseTasks", tasksToJson(baseTasks))
-                    .apply { if (taskOrder != null) put("taskOrder", JSONArray(taskOrder)); if (baseTaskOrder != null) put("baseTaskOrder", JSONArray(baseTaskOrder)) }
-                    .toString(),
-            )
-        }
-        val responseCode = connection.responseCode
-        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
-            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-        if (responseCode !in 200..299) {
-            val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
-            throw IllegalStateException(response.optString("error", "Falha ao salvar tarefas."))
-        }
-        if (!JSONObject(responseText).getBoolean("ok")) {
-            throw IllegalStateException("O servidor não confirmou a gravação das tarefas.")
-        }
-        synchronized(remoteTasksCache) {
-            remoteTasksCache.remove("$apiToken::$workspaceId")
-        }
-    } finally {
-        connection.disconnect()
-    }
-    }
+): JSONObject {
+    val body = JSONObject().put("tasks", tasksToJson(tasks)).put("deletedServerIds", JSONArray(deletedServerIds))
+        .put("baseTasks", tasksToJson(baseTasks))
+        .apply { if (taskOrder != null) put("taskOrder", JSONArray(taskOrder)); if (baseTaskOrder != null) put("baseTaskOrder", JSONArray(baseTaskOrder)) }
+    val accepted = TaskSyncRequests.send(context, account.id, account.apiToken, workspaceId, body)
+    synchronized(remoteTasksCache) { remoteTasksCache.remove("${account.apiToken}::$workspaceId") }
+    return accepted
 }
 
-private fun taskOrderChanged(base: List<String>, local: List<String>): Boolean =
-    local.filter { it in base } != base.filter { it in local } || local.any { it !in base }
+private fun taskOrderChanged(base: List<String>, local: List<String>): Boolean {
+    val baseIds = base.toHashSet()
+    val localIds = local.toHashSet()
+    return local.filter { it in baseIds } != base.filter { it in localIds } || local.any { it !in baseIds }
+}
 
 private fun taskIdentity(task: PopTask, accountId: String) = task.serverId.ifBlank { "native-$accountId-${task.clientId.ifBlank { task.id.toString() }}" }
 
@@ -1493,6 +1476,12 @@ private fun taskFromFields(fields: Map<String, String>): PopTask {
 }
 
 /** One durable, serialized transaction per account/workspace, shared by every refresh trigger. */
+private data class AppliedTaskScope(val token: String, val baselineJson: String, val local: List<PopTask>, val remote: List<PopTask>)
+private val appliedTaskScopes = mutableMapOf<String, AppliedTaskScope>()
+private data class PreparedTaskScope(val tasks: List<PopTask>, val remoteJson: String, val baselineJson: String,
+    val localJson: String, val orderJson: String, val dirty: Boolean, val statusVersion: Long,
+    val organizationBefore: String?, val organizationAfter: String?)
+
 private suspend fun synchronizeTaskScope(
     context: Context,
     account: GoogleAccount,
@@ -1501,6 +1490,7 @@ private suspend fun synchronizeTaskScope(
     canCreate: Boolean,
     isCurrent: () -> Boolean,
     onBaseline: (String) -> Unit,
+    persistedTasks: (() -> List<PopTask>)? = null,
 ): List<PopTask> {
     val key = syncBaselineKey(account.id, workspaceId)
     val mutex = synchronized(taskScopeLocks) { taskScopeLocks.getOrPut(key) { Mutex() } }
@@ -1508,10 +1498,25 @@ private suspend fun synchronizeTaskScope(
         if (!isCurrent()) return@withLock emptyList()
         val preferences = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
         TaskStatusOutbox.migrate(context, account.id, workspaceId)
-        val snapshot = tasks.toList()
-        TaskStatusOutbox.saveCache(context, account.id, workspaceId, tasksToJson(snapshot))
+        val snapshot = if (persistedTasks != null) withContext(Dispatchers.Default) { persistedTasks.invoke() } else tasks.toList()
         val rawBase = preferences.getString(key, null)
-        val base = rawBase?.let { decodeTasks(it, emptyList(), strict = true) }
+        val wasDirty = if (workspaceId.isBlank()) accountTasksAreDirty(context, account.id)
+            else companyTasksAreDirty(context, account.id, workspaceId)
+        val previous = appliedTaskScopes[key]
+        var prefetched: List<PopTask>? = null
+        if (!wasDirty && previous != null && previous.token == account.apiToken && previous.baselineJson == rawBase && snapshot == previous.local &&
+            loadPendingTaskDeletions(context, account.id, workspaceId).isEmpty() &&
+            TaskStatusOutbox.all(context, account.id, workspaceId).isEmpty() &&
+            !TaskSyncRequests.hasPending(context, account.id, workspaceId)) {
+            val fetched = loadRemoteTasks(account.apiToken, workspaceId)
+            prefetched = fetched
+            if (!isCurrent()) return@withLock fetched
+            if (fetched == previous.remote && (persistedTasks != null || tasks.toList() == snapshot)) {
+                onBaseline(previous.baselineJson)
+                return@withLock fetched
+            }
+        }
+        val base = withContext(Dispatchers.Default) { rawBase?.let { decodeTasks(it, emptyList(), strict = true) } }
         val baseById = base.orEmpty().associateBy(PopTask::serverId)
         val originalOrder = preferences.getString("${key}_order_base", null)?.let { raw ->
             val array = JSONArray(raw); List(array.length()) { array.getString(it) }
@@ -1530,53 +1535,69 @@ private suspend fun synchronizeTaskScope(
             preferences.edit().putString(recoveryKey, entries.toString()).commit()
             warning = reason
         }
-        val wasDirty = if (workspaceId.isBlank()) accountTasksAreDirty(context, account.id)
-            else companyTasksAreDirty(context, account.id, workspaceId)
         if (base == null && (wasDirty || deletions.isNotEmpty() || snapshot.any { it.serverId.isNotBlank() })) {
             recover("Há alterações antigas sem versão de origem. A cópia foi preservada no aparelho para revisão; a lista será atualizada com o servidor.", snapshot, deletions)
             acknowledgeTaskDeletions(context, account.id, workspaceId, deletions)
             deletions = emptyList()
         }
-        val changed = snapshot.mapNotNull { task ->
+        val changed = withContext(Dispatchers.Default) { snapshot.mapNotNull { task ->
             if (task.serverId.isBlank()) task.copy(completed = false).takeIf { canCreate }
             else baseById[task.serverId]?.let { original ->
                 val contentOnly = task.copy(completed = original.completed)
-                contentOnly.takeIf { taskHasChanges(taskFields(original), taskFields(it)) }
+                contentOnly.takeIf { it != original && taskHasChanges(taskFields(original), taskFields(it)) }
             }
+        }
         }
         if (!canCreate && snapshot.any { it.serverId.isBlank() }) {
             recover("Seu acesso não permite criar tarefas neste espaço. Os rascunhos ficaram preservados no aparelho.", snapshot.filter { it.serverId.isBlank() })
         }
+        var acceptedRequest: JSONObject? = null
         val refresh = downloadTasksAfterUpload(
-            upload = if (changed.isNotEmpty() || deletions.isNotEmpty() || orderingChanged) {
+            upload = if (changed.isNotEmpty() || deletions.isNotEmpty() || orderingChanged || TaskSyncRequests.hasPending(context, account.id, workspaceId)) {
                 {
-                    syncRemoteTasks(account.apiToken, changed, workspaceId, deletions,
+                    prefetched = null
+                    val accepted = syncRemoteTasks(context, account, changed, workspaceId, deletions,
                         base.orEmpty().filter { old -> old.serverId in deletions || changed.any { it.serverId == old.serverId } },
                         taskOrder = snapshotOrder.takeIf { orderingChanged }, baseTaskOrder = originalOrder.takeIf { orderingChanged })
-                    acknowledgeTaskDeletions(context, account.id, workspaceId, deletions)
+                    acceptedRequest = accepted
+                    val acknowledged = accepted.getJSONArray("deletedServerIds")
+                    acknowledgeTaskDeletions(context, account.id, workspaceId, List(acknowledged.length()) { acknowledged.getString(it) })
                 }
             } else null,
-            download = { loadRemoteTasks(account.apiToken, workspaceId) },
+            download = { prefetched ?: loadRemoteTasks(account.apiToken, workspaceId) },
         )
         if (!isCurrent()) return@withLock refresh.tasks
-        val latest = tasks.toList() // includes edits made while HTTP was in progress
-        val pending = loadPendingTaskDeletions(context, account.id, workspaceId)
         val remote = refresh.tasks
+        var latest: List<PopTask>
+        var prepared: PreparedTaskScope
+        do {
+            latest = if (persistedTasks != null) withContext(Dispatchers.Default) { persistedTasks.invoke() } else tasks.toList()
+            prepared = withContext(Dispatchers.Default) {
+        val acceptedTasks = acceptedRequest?.getJSONArray("tasks")?.let { decodeTasks(it.toString(), emptyList(), strict = true) }.orEmpty()
+        val pending = loadPendingTaskDeletions(context, account.id, workspaceId)
         if (TaskStatusOutbox.markCreated(context, account.id, workspaceId, remote.mapTo(mutableSetOf(), PopTask::serverId))) scheduleTaskStatusSync(context)
         TaskStatusOutbox.consumeReceipts(context, account.id, workspaceId)
         val statusIntents = TaskStatusOutbox.all(context, account.id, workspaceId).filterNot { it.blocked }.associateBy { it.serverId }
+        val statusVersion = preferences.getLong(TaskStatusOutbox.VERSION, 0)
+        val localByServer = latest.filter { it.serverId.isNotBlank() }.associateBy(PopTask::serverId)
+        val draftsByIdentity = latest.filter { it.serverId.isBlank() }.associateBy { taskIdentity(it, account.id) }
+        val submittedByIdentity = acceptedTasks.associateBy { taskIdentity(it, account.id) }
+        val originalSnapshot = if (base == null) snapshot.associateBy(PopTask::serverId) else emptyMap()
+        val remoteIds = remote.mapTo(hashSetOf(), PopTask::serverId)
+        val pendingIds = pending.toHashSet()
         val matchedLocalIds = mutableSetOf<Int>()
         val nextBase = mutableListOf<PopTask>()
         val merged = mutableListOf<PopTask>()
         remote.forEach { incoming ->
-            val local = latest.firstOrNull { it.serverId.isNotBlank() && it.serverId == incoming.serverId }
-                ?: latest.firstOrNull { it.serverId.isBlank() && incoming.serverId == taskIdentity(it, account.id) }
+            val local = localByServer[incoming.serverId] ?: draftsByIdentity[incoming.serverId]
             if (local != null) matchedLocalIds.add(local.id)
             val old = baseById[incoming.serverId]
-            val submitted = changed.firstOrNull { it.serverId == incoming.serverId ||
-                (it.serverId.isBlank() && incoming.serverId == taskIdentity(it, account.id)) }
-            val original = old ?: submitted ?: snapshot.firstOrNull { base == null && it.serverId == incoming.serverId }
-            val reconciled = if (local != null && original != null) {
+            val submitted = submittedByIdentity[incoming.serverId]
+            val original = old ?: submitted ?: originalSnapshot[incoming.serverId]
+            val effectiveBase = submitted ?: original
+            val reconciled = if (local != null && original != null &&
+                local.copy(completed = incoming.completed, awaitingReview = incoming.awaitingReview) !=
+                effectiveBase?.copy(completed = incoming.completed, awaitingReview = incoming.awaitingReview)) {
                 reconcileTaskFields(taskFields(original), taskFields(local.copy(completed = incoming.completed, awaitingReview = incoming.awaitingReview)), taskFields(incoming),
                     submitted = submitted?.takeIf { refresh.uploadError == null }?.let(::taskFields),
                     canEdit = incoming.canEdit, canComplete = incoming.canComplete)
@@ -1585,10 +1606,10 @@ private suspend fun synchronizeTaskScope(
                 taskHasChanges(taskFields(old), taskFields(local))) {
                 recover("A permissão desta tarefa mudou. A alteração local foi preservada para revisão.", listOf(local))
             }
-            nextBase.add(if (incoming.serverId in pending && incoming.canDelete && old != null) old
+            nextBase.add(if (incoming.serverId in pendingIds && incoming.canDelete && old != null) old
                 else reconciled?.baseline?.let(::taskFromFields) ?: incoming)
-            if (incoming.serverId in pending && incoming.canDelete) return@forEach
-            if (incoming.serverId in pending && !incoming.canDelete) {
+            if (incoming.serverId in pendingIds && incoming.canDelete) return@forEach
+            if (incoming.serverId in pendingIds && !incoming.canDelete) {
                 acknowledgeTaskDeletions(context, account.id, workspaceId, listOf(incoming.serverId))
                 warning = "A exclusão não foi autorizada. A tarefa continua disponível."
             }
@@ -1596,11 +1617,11 @@ private suspend fun synchronizeTaskScope(
             merged.add(statusIntents[incoming.serverId]?.let { content.copy(completed = it.completed, awaitingReview = false) } ?: content)
         }
         latest.filter { it.serverId.isBlank() && it.id !in matchedLocalIds }.forEach(merged::add)
-        val missingEdited = latest.filter { it.serverId.isNotBlank() && it.serverId !in remote.map(PopTask::serverId) &&
-            baseById[it.serverId]?.let { old -> taskHasChanges(taskFields(old), taskFields(it)) } == true }
+        val missingEdited = latest.filter { it.serverId.isNotBlank() && it.serverId !in remoteIds &&
+            baseById[it.serverId]?.let { old -> old != it && taskHasChanges(taskFields(old), taskFields(it)) } == true }
         if (missingEdited.isNotEmpty()) recover("Uma tarefa editada foi removida ou seu acesso mudou. A cópia local foi preservada para revisão.", missingEdited)
         val remoteOrder = remote.map(PopTask::serverId)
-        val acceptedOrderBase = if (orderingChanged && refresh.uploadError == null) snapshotOrder else originalOrder
+        val acceptedOrderBase = acceptedRequest?.optJSONArray("taskOrder")?.let { order -> List(order.length()) { order.getString(it) } } ?: originalOrder
         val latestOrder = latest.filter { it.serverId.isNotBlank() || canCreate }.map { taskIdentity(it, account.id) }
         val pendingOrder = base != null && taskOrderChanged(acceptedOrderBase, latestOrder)
         if (pendingOrder) {
@@ -1610,41 +1631,92 @@ private suspend fun synchronizeTaskScope(
         val nextOrderBase = if (pendingOrder) remoteOrder.filter { it !in acceptedOrderBase } + acceptedOrderBase.filter { it in remoteOrder }
             else remoteOrder
         val nextById = nextBase.associateBy(PopTask::serverId)
-        val dirty = pendingOrder || merged.any { it.serverId.isBlank() || nextById[it.serverId]?.let { old -> taskHasChanges(taskFields(old), taskFields(it.copy(completed = old.completed))) } == true } ||
+        val dirty = pendingOrder || merged.any { it.serverId.isBlank() || nextById[it.serverId]?.let { old -> val content = it.copy(completed = old.completed, awaitingReview = old.awaitingReview); content != old && taskHasChanges(taskFields(old), taskFields(content)) } == true } ||
             loadPendingTaskDeletions(context, account.id, workspaceId).isNotEmpty()
         // Version and local content must reach disk atomically. Otherwise a process death
         // between the two writes could turn an old cache into a new edit and undo the server.
         val organizationStorage = organizationKey(account.id, workspaceId)
-        preferences.getString(organizationStorage, null)?.let { raw ->
+        val organizationBefore = preferences.getString(organizationStorage, null)
+        var organizationAfter: String? = null
+        organizationBefore?.let { raw ->
             runCatching { decodeTaskOrganization(JSONObject(raw)) }.getOrNull()
         }?.let { organization ->
             val identities = remote.mapNotNull { task ->
-                latest.firstOrNull { it.serverId.isBlank() && task.serverId == taskIdentity(it, account.id) }
-                    ?.let { it.id.toString() to task.serverId }
+                draftsByIdentity[task.serverId]?.let { it.id.toString() to task.serverId }
             }.toMap()
             val updated = organization.copy(lists = organization.lists.map { list -> list.copy(taskIds = list.taskIds.map { identities[it] ?: it }) })
-            if (updated != organization) preferences.edit().putString(organizationStorage, taskOrganizationJson(updated).toString())
-                .putBoolean("${organizationStorage}_dirty", true).commit()
+            if (updated != organization) organizationAfter = taskOrganizationJson(updated).toString()
         }
-        preferences.edit().putString("${key}_remote", tasksToJson(remote).toString())
-            .putString(key, tasksToJson(nextBase).toString())
-            .putString("${key}_order_base", JSONArray(nextOrderBase).toString())
-            .putString(if (workspaceId.isBlank()) accountTasksKey(account.id) else companyTasksKey(account.id, workspaceId), tasksToJson(merged).toString())
-            .putBoolean(if (workspaceId.isBlank()) accountTasksDirtyKey(account.id) else companyTasksDirtyKey(account.id, workspaceId), dirty)
-            .commit()
-        tasks.clear()
-        tasks.addAll(merged)
-        onBaseline(tasksToJson(nextBase).toString())
+        PreparedTaskScope(merged, tasksToJson(remote).toString(), tasksToJson(nextBase).toString(),
+            tasksToJson(merged).toString(), JSONArray(nextOrderBase).toString(), dirty, statusVersion, organizationBefore, organizationAfter)
+            }
+            if (!isCurrent()) return@withLock remote
+            // CPU work yields to the editor. Reconcile again if a newer edit arrived meanwhile.
+        } while ((persistedTasks == null && tasks.toList() != latest) ||
+            preferences.getLong(TaskStatusOutbox.VERSION, 0) != prepared.statusVersion ||
+            preferences.getString(organizationKey(account.id, workspaceId), null) != prepared.organizationBefore)
+        val organizationStorage = organizationKey(account.id, workspaceId)
+        val finalEditor = preferences.edit().putString("${key}_remote", prepared.remoteJson)
+            .putString(key, prepared.baselineJson)
+            .putString("${key}_order_base", prepared.orderJson)
+            .putString(if (workspaceId.isBlank()) accountTasksKey(account.id) else companyTasksKey(account.id, workspaceId), prepared.localJson)
+            .putBoolean(if (workspaceId.isBlank()) accountTasksDirtyKey(account.id) else companyTasksDirtyKey(account.id, workspaceId), prepared.dirty)
+        prepared.organizationAfter?.let { finalEditor.putString(organizationStorage, it).putBoolean("${organizationStorage}_dirty", true) }
+        TaskSyncRequests.finish(context, account.id, workspaceId, acceptedRequest, finalEditor)
+        check(TaskSyncRequests.commit(context, account.id, workspaceId, finalEditor, listOf(key, "${key}_remote", "${key}_order_base",
+            if (workspaceId.isBlank()) accountTasksKey(account.id) else companyTasksKey(account.id, workspaceId),
+            if (workspaceId.isBlank()) accountTasksDirtyKey(account.id) else companyTasksDirtyKey(account.id, workspaceId), organizationStorage, "${organizationStorage}_dirty"))) {
+            "A atualização ainda não foi salva no aparelho." }
+        if (tasks.toList() != prepared.tasks) androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            tasks.clear(); tasks.addAll(prepared.tasks)
+        }
+        onBaseline(prepared.baselineJson)
+        if (appliedTaskScopes.size >= 32) appliedTaskScopes.clear()
+        appliedTaskScopes[key] = AppliedTaskScope(account.apiToken, prepared.baselineJson, prepared.tasks.toList(), remote)
         val error = refresh.uploadError?.localizedMessage ?: warning
         if (error != null && taskSyncErrors[key] != error) {
             taskSyncErrors[key] = error
-            Toast.makeText(context, "$error Abra Mais → Sincronização para revisar.", Toast.LENGTH_LONG).show()
-        } else if (!dirty && error == null) taskSyncErrors.remove(key)
+            if (TaskSyncRequests.foreground) Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+        } else if (!prepared.dirty && error == null) taskSyncErrors.remove(key)
         remote
     }
 }
 
 private data class SyncReviewEntry(val local: PopTask, val remote: PopTask?, val statusPending: Boolean = false, val statusError: String = "")
+
+/** Worker entry point: same coordinator, durable state and mutexes as foreground refresh. */
+internal suspend fun synchronizeSavedTaskChanges(context: Context): Boolean = withContext(Dispatchers.Main.immediate) {
+    val prefs = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+    val accountId = prefs.getString(GOOGLE_ACCOUNT_ID_STORAGE, null) ?: return@withContext false
+    val token = prefs.getString(API_SESSION_TOKEN_STORAGE, null)?.takeIf { it.isNotBlank() } ?: return@withContext false
+    val account = GoogleAccount(accountId, prefs.getString(GOOGLE_ACCOUNT_NAME_STORAGE, "").orEmpty(),
+        prefs.getString(GOOGLE_ACCOUNT_EMAIL_STORAGE, "").orEmpty(), "", token)
+    fun current() = !TaskSyncRequests.foreground && prefs.getString(GOOGLE_ACCOUNT_ID_STORAGE, null) == accountId &&
+        prefs.getString(API_SESSION_TOKEN_STORAGE, null) == token
+    if (!current()) return@withContext false
+    val workspaces = loadMobileWorkspaces(token)
+    val scopes = listOf("" to true) + workspaces.filter { it.kind != "personal" }.map { it.id to it.canCreateTasks }
+    fun pending(id: String) = TaskSyncRequests.hasPending(context, accountId, id) || TaskSyncRequests.hasPending(context, accountId, id, "task-lists") ||
+        (if (id.isBlank()) accountTasksAreDirty(context, accountId) else companyTasksAreDirty(context, accountId, id)) ||
+        loadPendingTaskDeletions(context, accountId, id).isNotEmpty() || prefs.getBoolean("${organizationKey(accountId, id)}_dirty", false)
+    var failed = false
+    repeat(4) {
+        for ((id, canCreate) in scopes) {
+            if (!current()) return@withContext false
+            if (!pending(id)) continue
+            fun stored() = if (id.isBlank()) loadAccountTasks(context, accountId) else loadCompanyTasks(context, accountId, id)
+            try {
+                synchronizeTaskScope(context, account, id, stored().toMutableList(), canCreate, ::current, {}, ::stored)
+                if (current() && (prefs.getBoolean("${organizationKey(accountId, id)}_dirty", false) || TaskSyncRequests.hasPending(context, accountId, id, "task-lists"))) {
+                    synchronizeOrganization(context, account, id, isCurrent = ::current) {}
+                }
+            } catch (error: CancellationException) { throw error }
+            catch (_: Exception) { failed = true }
+        }
+        if (failed || scopes.none { pending(it.first) }) return@withContext failed
+    }
+    scopes.any { pending(it.first) }
+}
 
 @Composable
 private fun TaskSyncReviewDialog(
@@ -1656,48 +1728,31 @@ private fun TaskSyncReviewDialog(
     onResolveOrganization: (Boolean) -> Unit = {},
     onChoose: (SyncReviewEntry, Boolean) -> Unit,
     onDismiss: () -> Unit,
+    onRetry: () -> Unit = {},
+    errorMessage: String = "",
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Sincronização · build ${BuildConfig.VERSION_CODE}") },
         text = {
-            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(if (entries.isEmpty() && organizationVersions == null && !orderPending) "Nenhuma alteração pendente neste espaço." else
-                    "Revise as diferenças antes de escolher. Alterações sem conexão continuam salvas no aparelho.")
-                if (orderPending) {
-                    Text("Ordem das tarefas pendente", fontWeight = FontWeight.SemiBold)
-                    TextButton(onClick = { onResolveOrder(true) }) { Text("Usar ordem do aparelho") }
-                    TextButton(onClick = { onResolveOrder(false) }) { Text("Usar ordem do servidor") }
-                }
-                organizationVersions?.let { (local, remote) ->
-                    Text("Pastas e listas pendentes", fontWeight = FontWeight.SemiBold)
-                    Text("Aparelho: " + (local.folders.map { it.name } + local.lists.map { it.name }).joinToString(", "))
-                    Text("Servidor: " + (remote.folders.map { it.name } + remote.lists.map { it.name }).joinToString(", "))
-                    Row {
-                        TextButton(onClick = { onResolveOrganization(true) }) { Text("Usar do aparelho") }
-                        TextButton(onClick = { onResolveOrganization(false) }) { Text("Usar do servidor") }
-                    }
-                }
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (errorMessage.isNotBlank()) Text(errorMessage, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                Text(if (entries.isEmpty() && organizationVersions == null && !orderPending && errorMessage.isBlank())
+                    "Nenhum envio pendente neste espaço." else
+                    "As alterações são enviadas automaticamente quando há conexão. A última edição recebida pela VPS prevalece.")
+                if (orderPending) Text("Ordem das tarefas aguardando envio", color = PopMuted, fontSize = 12.sp)
+                if (organizationVersions != null) Text("Pastas e listas aguardando envio", color = PopMuted, fontSize = 12.sp)
                 entries.forEach { entry ->
-                    val local = entry.local
-                    val remote = entry.remote
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(local.title, fontWeight = FontWeight.SemiBold)
-                        Text("No aparelho: ${local.description.ifBlank { "Sem descrição" }}\n${local.dueDate} ${local.dueTime} · ${local.priority} · ${if (local.completed) "Concluída" else "Pendente"}", fontSize = 12.sp)
-                        Text(if (remote == null) "Servidor: tarefa ausente ou rascunho local." else
-                            "Servidor: ${remote.title}\n${remote.description.ifBlank { "Sem descrição" }}\n${remote.dueDate} ${remote.dueTime} · ${remote.priority} · ${if (remote.completed) "Concluída" else "Pendente"}", fontSize = 12.sp)
-                        if (entry.statusError.isNotBlank()) Text(entry.statusError, color = PopMuted, fontSize = 12.sp)
-                        if (entry.statusPending) Text("Aguardando confirmação do servidor.", fontSize = 12.sp)
-                        Row {
-                            TextButton(onClick = { onChoose(entry, true) }, enabled = !entry.statusPending &&
-                                (if (remote == null) canCreate else remote.canEdit || remote.canComplete)) { Text("Usar do aparelho") }
-                            TextButton(onClick = { onChoose(entry, false) }, enabled = !entry.statusPending) { Text(if (remote == null) "Descartar cópia" else "Usar do servidor") }
-                        }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(entry.local.title, fontWeight = FontWeight.SemiBold)
+                        Text(entry.statusError.ifBlank { "Salva no aparelho; aguardando confirmação da VPS." },
+                            color = if (entry.statusError.isBlank()) PopMuted else MaterialTheme.colorScheme.error, fontSize = 12.sp)
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
+        confirmButton = { TextButton(onClick = onRetry) { Text("Sincronizar agora") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
     )
 }
 
@@ -2071,53 +2126,27 @@ private suspend fun loadRemoteTaskOrganization(
 }
 
 private suspend fun syncRemoteTaskOrganization(
-    apiToken: String,
-    organization: NativeTaskOrganization,
-    workspaceId: String = "",
-    baseOrganization: NativeTaskOrganization,
-): NativeTaskOrganization = withContext(Dispatchers.IO) {
-    val connection = (URL("$MOBILE_API_BASE_URL/task-lists").openConnection() as java.net.HttpURLConnection).apply {
-        requestMethod = "PUT"
-        connectTimeout = 15_000
-        readTimeout = 20_000
-        doOutput = true
-        setRequestProperty("Authorization", "Bearer $apiToken")
-        if (workspaceId.isNotBlank()) setRequestProperty("X-Workspace-Id", workspaceId)
-        else setRequestProperty("X-Workspace-Kind", "personal")
-        setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        setRequestProperty("Accept", "application/json")
-    }
-    try {
-        connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
-            writer.write(taskOrganizationJson(organization).put("baseOrganization", taskOrganizationJson(baseOrganization)).toString())
-        }
-        val responseCode = connection.responseCode
-        val responseText = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
-            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-        val response = runCatching { JSONObject(responseText) }.getOrElse { JSONObject() }
-        if (responseCode !in 200..299) {
-            throw IllegalStateException(response.optString("error", "Falha ao salvar listas."))
-        }
-        decodeTaskOrganization(response)
-    } finally {
-        connection.disconnect()
-    }
-}
+    context: Context, account: GoogleAccount, organization: NativeTaskOrganization,
+    workspaceId: String, baseOrganization: NativeTaskOrganization,
+): JSONObject = TaskSyncRequests.send(context, account.id, account.apiToken, workspaceId,
+    taskOrganizationJson(organization).put("baseOrganization", taskOrganizationJson(baseOrganization)), "task-lists")
 
 private fun organizationKey(accountId: String, workspaceId: String) = "sync_org_${accountId}_${workspaceId.ifBlank { "personal" }}"
 
 private suspend fun synchronizeOrganization(
-    context: Context, account: GoogleAccount, workspaceId: String, apply: (NativeTaskOrganization) -> Unit,
+    context: Context, account: GoogleAccount, workspaceId: String, isCurrent: () -> Boolean = { true }, apply: (NativeTaskOrganization) -> Unit,
 ) {
     val key = organizationKey(account.id, workspaceId)
     val mutex = synchronized(taskScopeLocks) { taskScopeLocks.getOrPut(key) { Mutex() } }
     mutex.withLock {
+        if (!isCurrent()) return@withLock
         val prefs = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
         fun stored(suffix: String) = prefs.getString(key + suffix, null)?.let { decodeTaskOrganization(JSONObject(it)) }
         var local = stored("")
         var base = stored("_base")
         if (base == null) {
             val remote = loadRemoteTaskOrganization(account.apiToken, workspaceId)
+            if (!isCurrent()) return@withLock
             local = stored("") // include changes made during the first download
             // Before the first read, only newly created local IDs can exist in this cache.
             local = local?.let { NativeTaskOrganization(
@@ -2133,25 +2162,34 @@ private suspend fun synchronizeOrganization(
         val snapshot = local ?: originalBase
         val snapshotJson = taskOrganizationJson(snapshot).toString()
         var accepted: NativeTaskOrganization? = null
+        var acceptedRequest: JSONObject? = null
         var uploadError: Exception? = null
-        if (prefs.getBoolean("${key}_dirty", false)) {
-            try { accepted = syncRemoteTaskOrganization(account.apiToken, snapshot, workspaceId, originalBase) }
+        if (prefs.getBoolean("${key}_dirty", false) || TaskSyncRequests.hasPending(context, account.id, workspaceId, "task-lists")) {
+            try {
+                val receipt = syncRemoteTaskOrganization(context, account, snapshot, workspaceId, originalBase)
+                acceptedRequest = receipt
+                accepted = decodeTaskOrganization(receipt)
+            }
             catch (error: CancellationException) { throw error }
             catch (error: Exception) { uploadError = error }
         }
         val remote = loadRemoteTaskOrganization(account.apiToken, workspaceId)
+        if (!isCurrent()) return@withLock
         val latestJson = prefs.getString(key, snapshotJson) ?: snapshotJson
-        val changedDuringRequest = latestJson != snapshotJson
+        val changedDuringRequest = latestJson != snapshotJson || accepted?.let { taskOrganizationJson(it).toString() != latestJson } == true
         val keepLocal = changedDuringRequest || uploadError != null
         val nextLocal = if (keepLocal) decodeTaskOrganization(JSONObject(latestJson)) else remote
         val nextBase = if (changedDuringRequest) accepted ?: originalBase else if (uploadError != null) originalBase else remote
-        prefs.edit().putString(key, taskOrganizationJson(nextLocal).toString())
+        val editor = prefs.edit().putString(key, taskOrganizationJson(nextLocal).toString())
             .putString("${key}_base", taskOrganizationJson(nextBase).toString())
             .putString("${key}_remote", taskOrganizationJson(remote).toString())
-            .putBoolean("${key}_dirty", keepLocal).commit()
+            .putBoolean("${key}_dirty", keepLocal)
+        TaskSyncRequests.finish(context, account.id, workspaceId, acceptedRequest, editor, "task-lists")
+        check(TaskSyncRequests.commit(context, account.id, workspaceId, editor,
+            listOf(key, "${key}_base", "${key}_remote", "${key}_dirty"), "task-lists")) { "Não foi possível salvar a organização no aparelho." }
         apply(nextLocal)
         uploadError?.localizedMessage?.let { error ->
-            if (taskSyncErrors[key] != error) { taskSyncErrors[key] = error; Toast.makeText(context, error, Toast.LENGTH_LONG).show() }
+            if (taskSyncErrors[key] != error) { taskSyncErrors[key] = error; if (TaskSyncRequests.foreground) Toast.makeText(context, error, Toast.LENGTH_LONG).show() }
         } ?: taskSyncErrors.remove(key)
     }
 }
@@ -3358,6 +3396,16 @@ private fun PopMainContent(
     }
     var isRefreshing by remember { mutableStateOf(false) }
     var lastSyncedTasksJson by remember(sessionMode, sessionAccountId) { mutableStateOf("") }
+    var loadedContentRevision by remember(sessionAccountId) { mutableLongStateOf(context.getSharedPreferences(LOCAL_PREFERENCES, 0).getLong(TaskSyncRequests.REVISION, 0)) }
+    var contentRefreshSignal by remember(sessionAccountId) { mutableLongStateOf(0L) }
+    DisposableEffect(sessionAccountId) {
+        val prefs = context.getSharedPreferences(LOCAL_PREFERENCES, 0)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == TaskSyncRequests.SIGNAL) contentRefreshSignal++
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
     val lastSyncedCompanyTasks = remember(sessionMode, sessionAccountId) { mutableStateMapOf<String, String>() }
     val companyTaskGroups = remember(sessionMode, sessionAccountId) { mutableStateListOf<MutableList<PopTask>>() }
     val taskFolders = remember(sessionMode, sessionAccountId) { mutableStateListOf<NativeTaskFolder>() }
@@ -3466,6 +3514,7 @@ private fun PopMainContent(
         val key = organizationKey(account.id, id)
         context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE).edit()
             .putString(key, taskOrganizationJson(organization).toString()).putBoolean("${key}_dirty", true).commit()
+        scheduleTaskContentSync(context)
         applyOrganizationIfCurrent(account, id, organization)
         if (account.apiToken.isNotBlank()) navigationScope.launch {
             try { synchronizeOrganization(context, account, id) { applyOrganizationIfCurrent(account, id, it) } }
@@ -3541,7 +3590,11 @@ private fun PopMainContent(
         showCreateCompany = true
     }
 
+    val workspaceProjection = remember(sessionAccountId) { arrayOf<Pair<List<ApiWorkspaceSummary>, String>?>(null) }
     fun applyCompanyWorkspaces(workspaces: List<ApiWorkspaceSummary>) {
+        val projection = workspaces to googleAccount?.photoUrl.orEmpty()
+        if (workspaceProjection[0] == projection) return
+        workspaceProjection[0] = projection
         val companies = workspaces.filter { it.kind == "company" }
         val selectedId = companyIds.getOrNull(selectedCompanyIndex)
         val mappedGroups = remapWorkspaceTasks(companyIds.toList(), companyTaskGroups.toList(), companies.map { it.id }) { id ->
@@ -3670,6 +3723,21 @@ private fun PopMainContent(
     suspend fun refreshRemoteTasks(showFeedback: Boolean = false, includeCompany: Boolean = true) {
         val account = googleAccount ?: return
         if (account.apiToken.isBlank()) return
+        val syncPrefs = context.getSharedPreferences(LOCAL_PREFERENCES, 0)
+        val contentRevision = syncPrefs.getLong(TaskSyncRequests.REVISION, 0)
+        if (contentRevision != loadedContentRevision) {
+            // Background commits are forbidden while the editor is active. Adopt their
+            // durable cache on resume before producing another foreground snapshot.
+            personalTasks.clear(); personalTasks.addAll(loadAccountTasks(context, account.id))
+            lastSyncedTasksJson = syncPrefs.getString(syncBaselineKey(account.id, ""), "").orEmpty()
+            companyIds.forEachIndexed { index, id ->
+                companyTaskGroups.getOrNull(index)?.let { group ->
+                    group.clear(); group.addAll(loadCompanyTasks(context, account.id, id))
+                    lastSyncedCompanyTasks[id] = syncPrefs.getString(syncBaselineKey(account.id, id), "").orEmpty()
+                }
+            }
+            loadedContentRevision = contentRevision
+        }
         if (showFeedback) isRefreshing = true
         var failure: Exception? = null
         try {
@@ -3689,6 +3757,17 @@ private fun PopMainContent(
             }
         } finally {
             if (showFeedback) isRefreshing = false
+        }
+    }
+
+    fun persistTaskContentChanges(snapshot: List<PopTask>) {
+        if (sessionMode == SessionMode.Guest) {
+            check(context.getSharedPreferences(LOCAL_PREFERENCES, 0).edit().putString(GUEST_TASKS_STORAGE, tasksToJson(snapshot).toString()).commit())
+        } else {
+            val account = googleAccount ?: return
+            val id = if (workSpace == WorkSpace.Company) companyIds.getOrNull(selectedCompanyIndex).orEmpty() else ""
+            TaskStatusOutbox.saveContentChange(context, account.id, id, tasksToJson(snapshot))
+            scheduleTaskContentSync(context)
         }
     }
 
@@ -3747,6 +3826,7 @@ private fun PopMainContent(
                     TaskStatusOutbox.resumeAuthentication(context, account.id)
                 }
                 scheduleTaskStatusSync(context)
+                scheduleTaskContentSync(context)
             } catch (error: CancellationException) { throw error }
             catch (_: Exception) { Toast.makeText(context, "Não foi possível preparar o envio. As tarefas locais foram preservadas.", Toast.LENGTH_LONG).show() }
         }
@@ -3783,6 +3863,22 @@ private fun PopMainContent(
             }
         }
     }
+    val liveWorkspaceId = if (workSpace == WorkSpace.Company) companyIds.getOrNull(selectedCompanyIndex).orEmpty() else ""
+    LaunchedEffect(sessionMode, sessionApiToken, liveWorkspaceId, lifecycleOwner) {
+        val token = sessionApiToken?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        if (sessionMode == SessionMode.Guest) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            kotlinx.coroutines.coroutineScope {
+                listOf("", liveWorkspaceId).distinct().forEach { workspace ->
+                    launch {
+                        br.com.poporganize.app.data.observeTaskLiveUpdates(token, workspace) {
+                            if (liveSessionToken.value == token) refreshRemoteTasks()
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(sessionMode, sessionApiToken, lifecycleOwner) {
         if (sessionMode != SessionMode.Guest && !sessionApiToken.isNullOrBlank()) {
@@ -3795,13 +3891,19 @@ private fun PopMainContent(
             }
         }
     }
+    LaunchedEffect(sessionAccountId, sessionApiToken, contentRefreshSignal) {
+        if (contentRefreshSignal > 0 && TaskSyncRequests.foreground && !sessionApiToken.isNullOrBlank()) {
+            refreshRemoteTasks()
+        }
+    }
     LaunchedEffect(personalTasks.toList(), sessionMode, sessionApiToken, remoteTasksLoaded) {
         if (sessionMode == SessionMode.Guest) {
             saveGuestTasks(context, personalTasks)
         } else {
             val account = googleAccount ?: return@LaunchedEffect
-            saveAccountTasks(context, account.id, personalTasks)
-            val localJson = tasksToJson(personalTasks).toString()
+            val snapshot = personalTasks.toList()
+            val localJson = withContext(Dispatchers.Default) { tasksToJson(snapshot).toString() }
+            if (personalTasks.toList() != snapshot) return@LaunchedEffect
             if (remoteTasksLoaded && account.apiToken.isNotBlank() &&
                 (localJson != lastSyncedTasksJson || loadPendingTaskDeletions(context, account.id).isNotEmpty())) {
                 setAccountTasksDirty(context, account.id, true)
@@ -3816,9 +3918,12 @@ private fun PopMainContent(
         }
     }
     LaunchedEffect(personalTasks.toList(), companyTaskGroups.map { it.toList() }) {
+        val snapshot = personalTasks.toList() + companyTaskGroups.flatMap { it.toList() }
+        withContext(Dispatchers.IO) {
+        notificationSnapshotMutex.withLock {
         saveNotificationTaskSnapshot(
             context,
-            (personalTasks + companyTaskGroups.flatten()).flatMap { task ->
+            snapshot.flatMap { task ->
                 val times = task.recurrenceTimes.takeIf { it.size >= 2 } ?: listOf(task.dueTime)
                 times.map { time ->
                     NotificationTaskSnapshot(
@@ -3832,6 +3937,8 @@ private fun PopMainContent(
                 }
             },
         )
+        }
+        }
     }
 
     PullToRefreshBox(
@@ -3854,10 +3961,10 @@ private fun PopMainContent(
                 if (statusActions.isNotEmpty()) {
                     Surface(color = PopSurface, modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
                         Text(
-                            if (statusActions.any { it.blocked }) "Conclusão não enviada. Abra Mais → Sincronização."
+                            if (statusActions.any { it.blocked }) statusActions.last { it.blocked }.error.ifBlank { "O servidor recusou esta conclusão. Confira suas permissões." }
                             else "Conclusão aguardando confirmação do servidor",
                             color = PopMuted, fontSize = 12.sp,
-                            modifier = Modifier.clickable { showMoreSheet = true }.padding(horizontal = 20.dp, vertical = 8.dp),
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                         )
                     }
                 }
@@ -3921,6 +4028,7 @@ private fun PopMainContent(
                         currentUserId = sessionAccountId.orEmpty(),
                         currentUserName = googleAccount?.name.orEmpty(),
                                 onCompletionCommitted = ::persistTaskCompletion,
+                                onTasksCommitted = ::persistTaskContentChanges,
                         workSpace = workSpace,
                         onWorkSpaceChange = ::selectWorkSpace,
                         companyNames = companyNames,
@@ -4039,6 +4147,7 @@ private fun PopMainContent(
                                 currentUserId = sessionAccountId.orEmpty(),
                                 currentUserName = googleAccount?.name.orEmpty(),
                                 onCompletionCommitted = ::persistTaskCompletion,
+                                onTasksCommitted = ::persistTaskContentChanges,
                                 workSpace = workSpace,
                                 onWorkSpaceChange = ::selectWorkSpace,
                                 companyNames = companyNames,
@@ -4086,6 +4195,7 @@ private fun PopMainContent(
                                 currentUserId = sessionAccountId.orEmpty(),
                                 currentUserName = googleAccount?.name.orEmpty(),
                                 onCompletionCommitted = ::persistTaskCompletion,
+                                onTasksCommitted = ::persistTaskContentChanges,
                                 workSpace = workSpace,
                                 onWorkSpaceChange = ::selectWorkSpace,
                                 companyNames = companyNames,
@@ -4163,13 +4273,25 @@ private fun PopMainContent(
         val orderPending = reviewAccount != null && reviewTasks != null && taskOrderChanged(reviewOrderBase, reviewTasks.map { taskIdentity(it, reviewAccount.id) })
         statusOutboxRevision
         val currentIntents = reviewAccount?.let { TaskStatusOutbox.all(context, it.id, reviewWorkspace) }.orEmpty()
-        val currentEntries = syncReviewEntries.map { entry ->
+        val currentEntries = syncReviewEntries.map { captured ->
+            val latest = reviewTasks?.firstOrNull { it.id == captured.local.id || it.serverId.isNotBlank() && it.serverId == captured.local.serverId } ?: captured.local
+            val entry = captured.copy(local = latest, remote = reviewRemote.firstOrNull { it.serverId == captured.local.serverId })
             val remote = if (entry.remote != null && reviewAccount != null) decodeTasks(
                 TaskStatusOutbox.confirmed(context, reviewAccount.id, reviewWorkspace, tasksToJson(listOf(entry.remote))).toString(), emptyList(), strict = true).single() else entry.remote
             val intents = currentIntents.filter { reviewAccount != null && it.serverId == taskIdentity(entry.local, reviewAccount.id) }
             entry.copy(remote = remote, statusPending = intents.any { !it.blocked }, statusError = intents.lastOrNull { it.blocked }?.error.orEmpty())
         }.filter { entry -> entry.statusPending || entry.statusError.isNotBlank() || entry.remote == null || taskHasChanges(taskFields(entry.remote), taskFields(entry.local)) }
         TaskSyncReviewDialog(currentEntries, canCreateTask,
+            errorMessage = taskSyncErrors[reviewBaseKey].orEmpty().ifBlank {
+                listOf("tasks", "task-lists").mapNotNull { channel ->
+                    runCatching { JSONObject(orgPrefs.getString("${reviewBaseKey}_${channel}_request_v3_rejected", null) ?: return@runCatching "").optString("error") }.getOrNull()
+                }.filter(String::isNotBlank).distinct().joinToString("\n")
+            },
+            onRetry = {
+                scheduleTaskContentSync(context)
+                scheduleTaskStatusSync(context)
+                navigationScope.launch { refreshRemoteTasks(showFeedback = true) }
+            },
             orderPending = orderPending,
             onResolveOrder = { useLocal ->
                 if (reviewAccount != null && reviewTasks != null) navigationScope.launch {
@@ -4261,38 +4383,6 @@ private fun PopMainContent(
             modifier = Modifier.fillMaxWidth(),
         ) {
             KeepModalNavigationBarHidden()
-            if (googleAccount != null) {
-                TextButton(onClick = {
-                    val account = googleAccount ?: return@TextButton
-                    val id = if (workSpace == WorkSpace.Company) companyIds.getOrNull(selectedCompanyIndex).orEmpty() else ""
-                    val key = syncBaselineKey(account.id, id)
-                    val prefs = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
-                    val baseline = decodeTasks(prefs.getString(key, null), emptyList()).associateBy(PopTask::serverId)
-                    val remote = decodeTasks(prefs.getString("${key}_remote", null), emptyList()).associateBy(PopTask::serverId)
-                    val recovered = runCatching {
-                        val entries = JSONArray(prefs.getString("${key}_recovery", "[]"))
-                        (0 until entries.length()).flatMap { index ->
-                            decodeTasks(JSONObject(entries.getString(index)).getJSONArray("tasks").toString(), emptyList())
-                        }
-                    }.getOrDefault(emptyList())
-                    val differentRecovered = recovered.filter { local ->
-                        val incoming = remote[local.serverId]
-                        incoming == null || taskHasChanges(taskFields(incoming), taskFields(local))
-                    }
-                    val pending = tasks.filter { task -> task.serverId.isBlank() ||
-                        baseline[task.serverId]?.let { taskHasChanges(taskFields(it), taskFields(task)) } == true }
-                    val deletions = loadPendingTaskDeletions(context, account.id, id).mapNotNull { remote[it] }
-                    val completionIntents = TaskStatusOutbox.all(context, account.id, id)
-                    val intentCopies = completionIntents.mapNotNull { intent ->
-                        (tasks.firstOrNull { taskIdentity(it, account.id) == intent.serverId } ?: remote[intent.serverId])?.copy(completed = intent.completed)
-                    }
-                    syncReviewEntries = (intentCopies + pending + deletions + differentRecovered).distinctBy { tasksToJson(listOf(it)).toString() }
-                        .map { local -> SyncReviewEntry(local, remote[local.serverId], completionIntents.any { !it.blocked && it.serverId == taskIdentity(local, account.id) }) }
-                    syncReviewWorkspace = id
-                    showMoreSheet = false
-                    showSyncReview = true
-                }, modifier = Modifier.fillMaxWidth()) { Text("Sincronização e alterações pendentes") }
-            }
             MoreScreen(
                 sessionMode = sessionMode,
                 googleAccount = googleAccount,
@@ -4397,16 +4487,17 @@ private fun PopMainContent(
     LaunchedEffect(companyTaskGroups.map { it.toList() }, companyIds.toList(), sessionApiToken) {
         val account = googleAccount ?: return@LaunchedEffect
         if (account.apiToken.isBlank()) return@LaunchedEffect
-        val changedIds = companyIds.filterIndexed { index, id ->
-            val group = companyTaskGroups.getOrNull(index) ?: return@filterIndexed false
-            saveCompanyTasks(context, account.id, id, group)
-            val baseline = lastSyncedCompanyTasks[id]
+        val snapshots = companyIds.mapIndexed { index, id -> id to companyTaskGroups.getOrNull(index)?.toList().orEmpty() }
+        val baselines = lastSyncedCompanyTasks.toMap()
+        val changedIds = withContext(Dispatchers.Default) { snapshots.mapNotNull { (id, group) ->
+            val baseline = baselines[id]
             val dirty = companyTasksAreDirty(context, account.id, id) ||
                 (baseline != null && tasksToJson(group).toString() != baseline) ||
                 loadPendingTaskDeletions(context, account.id, id).isNotEmpty()
-            if (dirty) setCompanyTasksDirty(context, account.id, id, true)
-            dirty
-        }
+            id.takeIf { dirty }
+        } }
+        if (snapshots.any { (id, snapshot) -> companyTaskGroups.getOrNull(companyIds.indexOf(id))?.toList() != snapshot }) return@LaunchedEffect
+        changedIds.forEach { setCompanyTasksDirty(context, account.id, it, true) }
         if (changedIds.isNotEmpty()) {
             delay(350)
             navigationScope.launch {
@@ -5129,7 +5220,7 @@ private fun WorkSpaceHeader(
                 } else {
                 GoogleProfileAvatar(
                     photoUrl = profilePhotoUrl,
-                        modifier = Modifier.size(40.dp).clickable { onOpenMenu() },
+                        modifier = Modifier.size(40.dp),
                 )
             }
         }
@@ -5951,8 +6042,16 @@ private fun TasksScreen(
     detailOnly: Boolean = false,
     onDetailClosed: () -> Unit = {},
     onCompletionCommitted: (PopTask) -> Unit = {},
+    onTasksCommitted: (List<PopTask>) -> Unit = {},
 ) {
     val context = LocalContext.current
+    fun persistContent(before: List<PopTask>): Boolean = try {
+        onTasksCommitted(tasks.toList()); true
+    } catch (error: Exception) {
+        tasks.clear(); tasks.addAll(before)
+        Toast.makeText(context, error.localizedMessage, Toast.LENGTH_LONG).show()
+        false
+    }
     val keyboardController = LocalSoftwareKeyboardController.current
     var query by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
@@ -6280,26 +6379,21 @@ private fun TasksScreen(
 
     fun reorderTask(task: PopTask, targetTask: PopTask?, placeAfter: Boolean) {
         if (movingTaskId != null) return
-        movingTaskId = task.id
-        taskActionScope.launch {
-            delay(280)
-            val sourceIndex = tasks.indexOfFirst { it.id == task.id }
-            if (sourceIndex >= 0) {
-                val source = tasks.removeAt(sourceIndex)
-                val targetIndex = targetTask?.let { target ->
-                    tasks.indexOfFirst { it.id == target.id }.takeIf { it >= 0 }
-                }
-                val insertionIndex = when {
-                    targetIndex == null -> tasks.size
-                    placeAfter -> (targetIndex + 1).coerceAtMost(tasks.size)
-                    else -> targetIndex
-                }
-                tasks.add(insertionIndex, source)
-            }
-            reorderTaskId = null
-            delay(90)
-            movingTaskId = null
+        val beforeCommit = tasks.toList()
+        val sourceIndex = tasks.indexOfFirst { it.id == task.id }
+        if (sourceIndex < 0) return
+        val source = tasks.removeAt(sourceIndex)
+        val targetIndex = targetTask?.let { target -> tasks.indexOfFirst { it.id == target.id }.takeIf { it >= 0 } }
+        val insertionIndex = when {
+            targetIndex == null -> tasks.size
+            placeAfter -> (targetIndex + 1).coerceAtMost(tasks.size)
+            else -> targetIndex
         }
+        tasks.add(insertionIndex, source)
+        if (!persistContent(beforeCommit)) return
+        movingTaskId = task.id
+        reorderTaskId = null
+        taskActionScope.launch { delay(280); movingTaskId = null }
     }
 
     fun moveTaskOneStep(taskId: Int, direction: Int): Boolean {
@@ -6309,6 +6403,7 @@ private fun TasksScreen(
         val target = displayedPendingTasks.getOrNull(targetIndex) ?: return false
         val sourceIndex = tasks.indexOfFirst { it.id == taskId }
         if (sourceIndex < 0) return false
+        val beforeCommit = tasks.toList()
         val source = tasks.removeAt(sourceIndex)
         val targetSourceIndex = tasks.indexOfFirst { it.id == target.id }
         if (targetSourceIndex < 0) {
@@ -6318,7 +6413,7 @@ private fun TasksScreen(
         val insertionIndex =
             if (direction < 0) targetSourceIndex else (targetSourceIndex + 1).coerceAtMost(tasks.size)
         tasks.add(insertionIndex, source)
-        return true
+        return persistContent(beforeCommit)
     }
 
     fun openTask(sourceTask: PopTask) {
@@ -6436,6 +6531,7 @@ private fun TasksScreen(
                 .distinct()
                 .take(3)
         }
+        val beforeCommit = tasks.toList()
         tasks[index] = original.copy(
             title = editTitle.trim(),
             description = editDescription.trim(),
@@ -6469,6 +6565,7 @@ private fun TasksScreen(
             attachmentMimeType = editAttachmentMimeType,
             attachmentData = editAttachmentData,
         )
+        if (!persistContent(beforeCommit)) return
         finishTaskDetails()
     }
 
@@ -6484,7 +6581,9 @@ private fun TasksScreen(
     fun updateTaskReminder(reminder: String) {
         editReminder = reminder
         val index = tasks.indexOfFirst { it.id == editingTaskId }
+        val beforeCommit = tasks.toList()
         if (index >= 0) tasks[index] = tasks[index].copy(reminder = reminder)
+        if (index >= 0) persistContent(beforeCommit)
     }
 
     fun addTask() {
@@ -6516,6 +6615,7 @@ private fun TasksScreen(
             "Mensal" -> newTaskRecurrenceDetail.takeIf { it.isNotBlank() }?.let { "dia $it" }.orEmpty()
             else -> ""
         }
+        val beforeCommit = tasks.toList()
         tasks.add(
             0,
             PopTask(
@@ -6599,6 +6699,7 @@ private fun TasksScreen(
                 },
             ),
         )
+        if (!persistContent(beforeCommit)) return
         newTaskTitle = ""
         newTaskDescription = ""
         newTaskChecklistText = ""
@@ -7700,12 +7801,14 @@ private fun TasksScreen(
                                     editAttachmentData = ""
                                     val taskIndex = tasks.indexOfFirst { it.id == editingTaskId }
                                     if (taskIndex >= 0) {
+                                        val beforeCommit = tasks.toList()
                                         tasks[taskIndex] = tasks[taskIndex].copy(
                                             attachmentName = "",
                                             attachmentUri = "",
                                             attachmentMimeType = "",
                                             attachmentData = "",
                                         )
+                                        persistContent(beforeCommit)
                                     }
                                     Toast.makeText(context, "Anexo excluído.", Toast.LENGTH_SHORT).show()
                                 }
@@ -7798,9 +7901,10 @@ private fun TasksScreen(
                                 if (taskId != null) {
                                     deletingTaskId = taskId
                                     taskActionScope.launch {
-                                        delay(340)
+                                        val beforeCommit = tasks.toList()
                                         tasks.firstOrNull { it.id == taskId }?.let(onTaskDeleted)
                                         tasks.removeAll { it.id == taskId }
+                                        persistContent(beforeCommit)
                                         finishTaskDetails()
                                         deletingTaskId = null
                                     }
@@ -7818,7 +7922,7 @@ private fun TasksScreen(
                             if (taskId != null && selectedTask != null) {
                                 deletingTaskId = taskId
                                 taskActionScope.launch {
-                                    delay(340)
+                                    val beforeCommit = tasks.toList()
                                     if (recurringDelete) {
                                         val seriesTasks = tasks.filter {
                                             it.title == selectedTask.title &&
@@ -7833,6 +7937,7 @@ private fun TasksScreen(
                                         onTaskDeleted(selectedTask)
                                         tasks.removeAll { it.id == taskId }
                                     }
+                                    persistContent(beforeCommit)
                                     finishTaskDetails()
                                     deletingTaskId = null
                                 }
@@ -9731,13 +9836,18 @@ private fun TaskRow(
     }
     Row(rowModifier, verticalAlignment = Alignment.CenterVertically) {
         if (!leadingTime.isNullOrBlank()) {
-            Text(
-                leadingTime,
-                color = if (task.completed) PopMuted else PopText,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.width(52.dp),
-            )
+            Column(Modifier.width(52.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    leadingTime,
+                    color = if (task.completed) PopMuted else PopText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                taskEndTime(leadingTime, task.duration)?.let { end ->
+                    Text(end, color = PopMuted.copy(alpha = .8f), fontSize = 10.sp,
+                        lineHeight = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
             Box(
                 Modifier
                     .width(2.dp)
@@ -9942,10 +10052,14 @@ private fun CalendarScreen(
     val calendarListState = rememberLazyListState()
     var month by remember { mutableStateOf(anchorMonth) }
     var showFilters by remember { mutableStateOf(false) }
-    var showDayTimeline by remember { mutableStateOf(false) }
     var hourlyView by remember(filterStorageKey) {
         mutableStateOf(context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
             .getBoolean("$CALENDAR_HOURLY_VIEW_PREFIX$filterStorageKey", false))
+    }
+    val agendaZoom = remember(filterStorageKey) {
+        val preferences = context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE)
+        mutableFloatStateOf(normalizedAgendaZoom(preferences.getFloat("${CALENDAR_ZOOM_PREFIX}pinch_$filterStorageKey",
+            preferences.getInt("$CALENDAR_ZOOM_PREFIX$filterStorageKey", 100).toFloat())))
     }
     val storedFilters = remember(filterStorageKey) { loadCalendarFilters(context, filterStorageKey) }
     var sectorFilter by remember(filterStorageKey) { mutableStateOf(storedFilters.sectorId) }
@@ -10026,7 +10140,10 @@ private fun CalendarScreen(
         }
     }
 
-    LazyColumn(Modifier.fillMaxSize(), state = calendarListState, contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.fillMaxSize().agendaPinchZoom(hourlyView, filterStorageKey, calendarListState, agendaZoom) { value ->
+        context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE).edit()
+            .putFloat("${CALENDAR_ZOOM_PREFIX}pinch_$filterStorageKey", value).apply()
+    }, state = calendarListState, contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
             WorkSpaceHeader(
                 subtitle = if (workSpace == WorkSpace.Personal) "Seus prazos e tarefas" else "Calendário e prazos da empresa",
@@ -10125,13 +10242,15 @@ private fun CalendarScreen(
             Column(Modifier.padding(20.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(false to "Padrão", true to "Agenda de horas").forEach { (hours, label) ->
+                        val modeColor by animateColorAsState(if (hourlyView == hours) PopBlueSoft else PopSurface,
+                            animationSpec = tween(180), label = "calendar-view-selection")
                         Surface(
                             onClick = {
                                 hourlyView = hours
                                 context.getSharedPreferences(LOCAL_PREFERENCES, Context.MODE_PRIVATE).edit()
                                     .putBoolean("$CALENDAR_HOURLY_VIEW_PREFIX$filterStorageKey", hours).apply()
                             },
-                            color = if (hourlyView == hours) PopBlueSoft else PopSurface,
+                            color = modeColor,
                             contentColor = if (hourlyView == hours) PopBlue else PopMuted,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f),
@@ -10146,20 +10265,20 @@ private fun CalendarScreen(
                 }
                 Spacer(Modifier.height(16.dp))
                 SectionTitle(selectedDateLabel, selectedCountLabel)
-                if (hourlyView) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(selectedDate.format(DateTimeFormatter.ofPattern("EEEE, d 'de' MMMM", locale)).replaceFirstChar { it.uppercase() }, color = PopMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { showDayTimeline = true }, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Rounded.Fullscreen, "Ampliar agenda de horas", tint = PopBlue, modifier = Modifier.size(20.dp))
-                        }
+                if (!hourlyView) {
+                    if (selectedDayTasks.isEmpty()) {
+                        Text("Nenhuma tarefa para este dia.", color = PopMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
                     }
-                    CalendarTimelineContent(selectedDate, selectedDayTasks, onOpenTask)
-                } else if (selectedDayTasks.isEmpty()) {
-                    Text("Nenhuma tarefa para este dia.", color = PopMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
                 }
             }
         }
-        if (!hourlyView) {
+        if (hourlyView) {
+            item(key = "calendar-hour-timeline") {
+                Box(Modifier.animateItem(fadeInSpec = tween(200), fadeOutSpec = tween(120), placementSpec = null)) {
+                    CalendarTimelineContent(selectedDate, selectedDayTasks, onOpenTask, Modifier.padding(horizontal = 20.dp), agendaZoom.floatValue)
+                }
+            }
+        } else {
             calendarDayAgenda(selectedDayTasks, onOpenTask, onToggleTaskComplete)
         }
     }
@@ -10192,9 +10311,6 @@ private fun CalendarScreen(
             activeCount = activeFilterCount,
             onDismiss = { showFilters = false },
         )
-    }
-    if (showDayTimeline) {
-        CalendarDailyTimeline(selectedDate, selectedDayTasks, onOpenTask) { showDayTimeline = false }
     }
 }
 
@@ -10462,44 +10578,29 @@ private fun TaskDurationDialog(selected: String, startTime: String, onSelect: (S
 private fun weekDayToken(dayOfWeek: Int): String =
     listOf("S", "T", "Q", "Q2", "S2", "Sá", "D")[dayOfWeek.coerceIn(1, 7) - 1]
 
-/** An open color accent: the right and bottom edges blend into the page. */
+/** Calendar cards use the same surface and priority palette as the rest of the app. */
 @Composable
 private fun CalendarPrioritySurface(task: PopTask, onOpen: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val accent = if (task.completed) PopBlue else taskPriorityColor(task.priority)
-    val pageColor = PopBackground
+    val accent = taskPriorityColor(task.priority)
     val surfaceColor = PopSurface
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(12.dp)
     Box(
         modifier = modifier.clip(shape)
             .clickable(enabled = !task.calendarProjection, onClick = onOpen),
     ) {
         Canvas(Modifier.matchParentSize()) {
-            drawRect(Brush.horizontalGradient(0f to lerp(surfaceColor, accent, .09f), .45f to surfaceColor, 1f to pageColor))
-            drawRect(Brush.verticalGradient(0f to pageColor.copy(alpha = 0f), .55f to pageColor.copy(alpha = .18f), 1f to pageColor))
-            val stroke = 1.1.dp.toPx()
-            val inset = stroke / 2f
-            val radius = minOf(16.dp.toPx(), size.height / 2f).coerceAtLeast(stroke)
-            val left = Path().apply {
-                moveTo(radius, inset)
-                quadraticBezierTo(inset, inset, inset, radius)
-                lineTo(inset, size.height - inset)
-            }
-            drawPath(left, Brush.verticalGradient(0f to accent.copy(alpha = .75f), .5f to accent.copy(alpha = .38f), 1f to Color.Transparent), style = Stroke(stroke, cap = StrokeCap.Round))
-            val fadeEnd = (size.width * .78f).coerceAtLeast(radius + stroke)
-            drawLine(Brush.horizontalGradient(0f to accent.copy(alpha = .75f), .45f to accent.copy(alpha = .14f), 1f to Color.Transparent, startX = radius, endX = fadeEnd), Offset(radius, inset), Offset(fadeEnd, inset), stroke, StrokeCap.Round)
+            drawRect(surfaceColor)
+            drawRect(accent, size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height))
         }
         content()
     }
 }
 
 @Composable
-private fun CalendarOriginalTaskInfo(task: PopTask, modifier: Modifier = Modifier, includeAssignee: Boolean = false) {
+private fun CalendarOriginalTaskInfo(task: PopTask, modifier: Modifier = Modifier, includeAssignee: Boolean = false, showDate: Boolean = true, showContentIcons: Boolean = true) {
     val tint = PopMuted
-    val hasAttachment = task.attachmentName.isNotBlank() || task.attachmentData.isNotBlank()
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        if (task.recurrenceRule != "Não repetir") Icon(Icons.Rounded.Repeat, "Tarefa recorrente", tint = tint, modifier = Modifier.size(14.dp))
-        if (task.description.isNotBlank()) Icon(Icons.Rounded.Description, "Possui anotação", tint = tint, modifier = Modifier.size(14.dp))
-        if (hasAttachment) Icon(Icons.Rounded.AttachFile, "Possui anexo", tint = tint, modifier = Modifier.size(14.dp))
+        if (showContentIcons) CalendarTaskContentIcons(task, 14.dp)
         if (task.checklist.isNotEmpty()) {
             Icon(Icons.Rounded.Checklist, "Checklist", tint = tint, modifier = Modifier.size(14.dp))
             Text("${task.checklist.count { it.done }}/${task.checklist.size}", color = tint, fontFamily = InterFontFamily, fontSize = 10.sp, lineHeight = 14.sp)
@@ -10516,11 +10617,11 @@ private fun CalendarOriginalTaskInfo(task: PopTask, modifier: Modifier = Modifie
             else -> tint
         }
         val supportingInfo = buildList {
-            add(displayDueLabel(task))
+            if (showDate) add(displayDueLabel(task))
             if (status.isNotBlank()) add(status)
             if (includeAssignee) {
                 task.assignee.takeUnless { it.isBlank() || it == "Sem responsável" || it == "Eu" }?.let { add(it) }
-                taskDurationMinutes(task.duration)?.let { add(taskDurationLabel(it)) }
+                taskEndTime(task.dueTime, task.duration)?.let { add("até $it") }
             }
         }.joinToString(" · ")
         Text(supportingInfo, color = labelColor, fontFamily = InterFontFamily, fontSize = 11.sp, lineHeight = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -10546,7 +10647,7 @@ private fun LazyListScope.calendarDayAgenda(
             )
         }
         items(timedTasks, key = { "calendar-timed-${it.serverId.ifBlank { it.id.toString() }}" }, contentType = { "calendar-task" }) { task ->
-            Box(Modifier.padding(horizontal = 20.dp)) {
+            Box(Modifier.animateItem(fadeInSpec = tween(200), fadeOutSpec = tween(120), placementSpec = null).padding(horizontal = 20.dp)) {
                 val unavailable = task.calendarProjection
                 TaskRow(
                     task = task,
@@ -10570,7 +10671,7 @@ private fun LazyListScope.calendarDayAgenda(
             )
         }
         items(untimedTasks, key = { "calendar-untimed-${it.serverId.ifBlank { it.id.toString() }}" }, contentType = { "calendar-task" }) { task ->
-            Box(Modifier.padding(horizontal = 20.dp)) {
+            Box(Modifier.animateItem(fadeInSpec = tween(200), fadeOutSpec = tween(120), placementSpec = null).padding(horizontal = 20.dp)) {
                 val unavailable = task.calendarProjection
                 TaskRow(
                     task,
@@ -10583,74 +10684,41 @@ private fun LazyListScope.calendarDayAgenda(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CalendarDailyTimeline(date: LocalDate, tasks: List<PopTask>, onOpen: (PopTask) -> Unit, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = PopBackground) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
-            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Agenda do dia", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text(date.format(DateTimeFormatter.ofPattern("EEEE, d 'de' MMMM", Locale("pt", "BR"))), color = PopMuted, fontFamily = InterFontFamily, fontSize = 12.sp, lineHeight = 18.sp)
-                }
-                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Fechar horários") }
-            }
-            CalendarTimelineContent(date, tasks, { onDismiss(); onOpen(it) }, Modifier.weight(1f).verticalScroll(rememberScrollState()))
-        }
-    }
-}
-
-@Composable
-private fun CalendarTimelineContent(date: LocalDate, tasks: List<PopTask>, onOpen: (PopTask) -> Unit, modifier: Modifier = Modifier) {
-    val intervals = remember(tasks) { tasks.mapNotNull { task -> agendaMinute(task.dueTime)?.let { AgendaInterval(task.id.toString(), task, it, taskDurationMinutes(task.duration) ?: 30) } } }
-    val placements = remember(intervals) { layoutAgendaIntervals(intervals) }
+private fun CalendarTimelineContent(date: LocalDate, tasks: List<PopTask>, onOpen: (PopTask) -> Unit, modifier: Modifier = Modifier, zoom: Float = 100f) {
+    val intervals = remember(tasks) { tasks.mapNotNull { task -> agendaMinute(task.dueTime)?.let { AgendaInterval(task.id.toString(), task, it, taskDurationMinutes(task.duration) ?: 0) } } }
     val untimed = remember(tasks) { tasks.filter { agendaMinute(it.dueTime) == null } }
-    val hourHeight = 56f
+    val hourHeight = agendaHourHeight(zoom)
+    val fontScale = LocalDensity.current.fontScale
+    val minimumDuration = agendaMinimumDuration(zoom, fontScale)
+    val placements = remember(intervals, minimumDuration) { layoutAgendaIntervals(intervals, minimumDuration) }
     ProvideTextStyle(LocalTextStyle.current.copy(fontFamily = InterFontFamily)) {
         Column(modifier.fillMaxWidth()) {
             // The calendar list owns scrolling; hours and tasks share its full content height.
-            BoxWithConstraints(Modifier.fillMaxWidth().padding(end = 12.dp)) {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val gutter = 52.dp
                 val available = maxWidth - gutter
-                Box(Modifier.fillMaxWidth().height((24 * hourHeight).dp)) {
-                    repeat(24) { hour ->
-                        Row(Modifier.fillMaxWidth().offset(y = (hour * hourHeight).dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("%02d:00".format(hour), color = PopMuted.copy(alpha = .85f), fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.width(gutter).padding(start = 12.dp))
-                        }
-                    }
+                Box(Modifier.fillMaxWidth().height((24 * hourHeight + agendaMinimumCardHeight(fontScale) + 5f).dp)) {
+                    CalendarTimeAxis(date, hourHeight, gutter, Modifier.matchParentSize().zIndex(1f))
                     placements.forEach { item ->
                         val task = item.interval.task
-                        val accent = taskPriorityColor(task.priority)
                         val width = available / item.columns
                         val start = item.interval.startMinute
-                        val actualDuration = taskDurationMinutes(task.duration)
-                        val height = (item.interval.durationMinutes.coerceAtLeast(30).coerceAtMost(1440 - start) * hourHeight / 60f).dp
-                        val timeLabel = task.dueTime + if (actualDuration != null) "–${agendaTimeLabel(start + actualDuration)}" else ""
+                        val height = agendaCardHeight(start, item.interval.durationMinutes, zoom, fontScale).dp
+                        val durationHeight = agendaDurationHeight(start, item.interval.durationMinutes, zoom).dp
+                        val placementModifier = Modifier.offset(x = gutter + width * item.column,
+                            y = (start * hourHeight / 60f).dp + 5.dp)
+                            .width((width - 6.dp).coerceAtLeast(1.dp)).height(height)
+                        if (durationHeight < (agendaMinimumCardHeight(fontScale) + 8f).dp) {
+                            CalendarPointAppointment(task, placementModifier) { onOpen(task) }
+                        } else {
                         CalendarPrioritySurface(
                             task = task, onOpen = { onOpen(task) },
-                            modifier = Modifier.offset(x = gutter + width * item.column, y = (start * hourHeight / 60f).dp + 5.dp).width((width - 4.dp).coerceAtLeast(1.dp)).height((height - 3.dp).coerceAtLeast(4.dp)),
+                            modifier = placementModifier,
                         ) {
-                            Row(Modifier.fillMaxSize()) {
-                                if (height < 34.dp) {
-                                    Row(Modifier.fillMaxSize().padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text(task.title, modifier = Modifier.weight(1f), color = if (task.completed) PopMuted else PopText, fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (item.columns == 1) Text(timeLabel, color = PopMuted, fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-                                    }
-                                } else {
-                                    Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(task.title, color = if (task.completed) PopMuted else PopText, fontSize = if (height < 52.dp) 11.sp else 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = if (height < 52.dp) 1 else 2, overflow = TextOverflow.Ellipsis)
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(timeLabel, color = PopMuted, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.weight(1f))
-                                            if (item.columns == 1) Text(task.priority, color = accent, fontSize = 9.sp, lineHeight = 12.sp)
-                                        }
-                                        if (height >= 74.dp) CalendarOriginalTaskInfo(task, Modifier.fillMaxWidth())
-                                    }
-                                }
-                            }
+                            CalendarHourCardContent(task, height, item.columns == 1)
                         }
-                    }
-                    if (date == LocalDate.now()) {
-                        CalendarCurrentTimeLine(hourHeight, gutter)
+                        }
                     }
                 }
             }
@@ -10660,7 +10728,7 @@ private fun CalendarTimelineContent(date: LocalDate, tasks: List<PopTask>, onOpe
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         untimed.forEach { task ->
                             CalendarPrioritySurface(task, { onOpen(task) }, Modifier.fillMaxWidth()) {
-                                Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Top) {
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                         Text(task.title, color = if (task.completed) PopMuted else PopText, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         CalendarOriginalTaskInfo(task, Modifier.fillMaxWidth(), includeAssignee = true)
@@ -10678,16 +10746,117 @@ private fun CalendarTimelineContent(date: LocalDate, tasks: List<PopTask>, onOpe
 }
 
 @Composable
-private fun CalendarCurrentTimeLine(hourHeight: Float, gutter: Dp) {
-    // Only the time indicator recomposes on a clock tick, not all task cards.
-    val now by produceState(initialValue = LocalTime.now()) {
-        while (true) { value = LocalTime.now(); delay(30_000) }
+private fun CalendarPointAppointment(task: PopTask, modifier: Modifier, onOpen: () -> Unit) {
+    val accent = taskPriorityColor(task.priority)
+    Box(modifier.clip(RoundedCornerShape(12.dp)).background(PopSurface)
+        .clickable(enabled = !task.calendarProjection, onClick = onOpen)) {
+        Canvas(Modifier.matchParentSize()) {
+            drawRect(accent, size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height))
+        }
+        Column(Modifier.fillMaxSize().padding(start = 11.dp, end = 9.dp, top = 4.dp, bottom = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top) {
+                Text(task.title, color = if (task.completed) PopMuted else PopText, fontSize = 13.sp, lineHeight = 16.sp,
+                    fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    textDecoration = if (task.completed) TextDecoration.LineThrough else null, modifier = Modifier.weight(1f))
+                CalendarHourPriority(task.priority)
+            }
+            val end = taskEndTime(task.dueTime, task.duration)
+            CalendarHourTimeRow(task, task.dueTime + (end?.let { "–$it" } ?: ""))
+        }
     }
+}
+
+@Composable
+private fun CalendarTaskContentIcons(task: PopTask, iconSize: Dp = 13.dp) {
+    val recurring = task.recurrenceRule != "Não repetir"
+    val description = task.description.isNotBlank()
+    val attachment = task.attachmentName.isNotBlank() || task.attachmentData.isNotBlank() || task.attachmentUri.isNotBlank()
+    if (recurring || description || attachment) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (recurring) Icon(Icons.Rounded.Repeat, "Tarefa recorrente", tint = PopMuted, modifier = Modifier.size(iconSize))
+            if (description) Icon(Icons.Rounded.Description, "Possui anotação", tint = PopMuted, modifier = Modifier.size(iconSize))
+            if (attachment) Icon(Icons.Rounded.AttachFile, "Possui anexo", tint = PopMuted, modifier = Modifier.size(iconSize))
+        }
+    }
+}
+
+@Composable
+private fun CalendarHourTimeRow(task: PopTask, timeLabel: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(timeLabel, color = PopMuted, fontSize = 10.sp, lineHeight = 12.sp,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        CalendarTaskContentIcons(task)
+    }
+}
+
+@Composable
+private fun CalendarHourPriority(priority: String) {
+    Text(priority, color = taskPriorityColor(priority), fontSize = 10.sp, lineHeight = 13.sp,
+        fontWeight = FontWeight.Medium, maxLines = 1)
+}
+
+@Composable
+private fun CalendarHourCardContent(task: PopTask, height: Dp, fullWidth: Boolean) {
+    val timeLabel = task.dueTime + (taskEndTime(task.dueTime, task.duration)?.let { "–$it" } ?: "")
+    val detailHeight = height.value / LocalDensity.current.fontScale.coerceAtLeast(1f)
+    Column(
+        Modifier.fillMaxSize().padding(start = 11.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top) {
+            Text(task.title, color = if (task.completed) PopMuted else PopText,
+                fontSize = 13.sp, lineHeight = 16.sp,
+                fontWeight = FontWeight.SemiBold, textDecoration = if (task.completed) TextDecoration.LineThrough else null,
+                maxLines = if (detailHeight >= 76f) 2 else 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            CalendarHourPriority(task.priority)
+        }
+        CalendarHourTimeRow(task, timeLabel)
+        if (detailHeight >= 70f && fullWidth) {
+            Row(Modifier.fillMaxWidth().graphicsLayer { alpha = ((detailHeight - 70f) / 12f).coerceIn(0f, 1f) }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(task.assignee.takeUnless { it.isBlank() || it == "Sem responsável" }.orEmpty(),
+                    color = PopMuted, fontSize = 10.sp, lineHeight = 13.sp, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            }
+        }
+        if (detailHeight >= 115f && fullWidth) CalendarOriginalTaskInfo(task,
+            Modifier.fillMaxWidth().graphicsLayer { alpha = ((detailHeight - 115f) / 14f).coerceIn(0f, 1f) }, showDate = false, showContentIcons = false)
+    }
+}
+
+@Composable
+private fun CalendarTimeAxis(date: LocalDate, hourHeight: Float, gutter: Dp, modifier: Modifier) {
+    val today = date == LocalDate.now()
+    val now by produceState<LocalTime?>(initialValue = if (today) LocalTime.now() else null, today) {
+        if (today) while (true) { value = LocalTime.now(); delay(30_000) }
+    }
+    val currentMinute = now?.let { it.hour * 60 + it.minute }
+    val labelHeight = with(LocalDensity.current) { 14.sp.toDp().value }
+    Box(modifier) {
+        repeat(24) { hour ->
+            if (br.com.poporganize.app.data.agendaReferenceTimeVisible(hour * 60, currentMinute, hourHeight, labelHeight)) {
+                Text("%02d:00".format(hour), color = PopMuted.copy(alpha = .85f), fontSize = 11.sp, lineHeight = 14.sp,
+                    fontWeight = FontWeight.Medium, modifier = Modifier.offset(y = (hour * hourHeight).dp).width(gutter))
+            }
+            val detailAlpha = ((hourHeight - 100f) / 45f).coerceIn(0f, 1f)
+            if (detailAlpha > 0f && br.com.poporganize.app.data.agendaReferenceTimeVisible(hour * 60 + 30, currentMinute, hourHeight, labelHeight)) {
+                Text("%02d:30".format(hour), color = PopMuted.copy(alpha = .65f * detailAlpha), fontSize = 10.sp, lineHeight = 13.sp,
+                    modifier = Modifier.offset(y = ((hour + .5f) * hourHeight).dp).width(gutter))
+            }
+        }
+        now?.let { CalendarCurrentTimeLine(it, hourHeight, gutter) }
+    }
+}
+
+@Composable
+private fun CalendarCurrentTimeLine(now: LocalTime, hourHeight: Float, gutter: Dp) {
     val nowColor = MaterialTheme.colorScheme.error
-    Row(Modifier.fillMaxWidth().offset(y = ((now.hour * 60 + now.minute) * hourHeight / 60f).dp + 5.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(now.format(DateTimeFormatter.ofPattern("HH:mm")), color = nowColor, fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(gutter).padding(start = 12.dp))
-        Box(Modifier.size(5.dp).background(nowColor, CircleShape))
-        HorizontalDivider(color = nowColor, thickness = 1.dp)
+    val y = br.com.poporganize.app.data.agendaTimeOffset(now.hour * 60 + now.minute, hourHeight)
+    Row(Modifier.fillMaxWidth().offset(y = y.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(now.format(DateTimeFormatter.ofPattern("HH:mm")), color = nowColor, fontSize = 11.sp, lineHeight = 14.sp,
+            fontWeight = FontWeight.Medium, modifier = Modifier.width(gutter))
+        Box(Modifier.size(6.dp).background(nowColor, CircleShape))
+        HorizontalDivider(modifier = Modifier.weight(1f), color = nowColor, thickness = 1.5.dp)
     }
 }
 
@@ -14357,7 +14526,7 @@ fun PopCalendarPreview() {
     val tasks = remember {
         mutableStateListOf<PopTask>().apply {
             listOf(
-                Triple("Alinhamento da equipe", "09:00", "30 min"),
+                Triple("Alinhamento da equipe", "09:00", "Sem duração"),
                 Triple("Conferir pedidos da semana", "10:00", "1 h"),
                 Triple("Contato com fornecedores", "10:30", "45 min"),
                 Triple("Organizar documentos", "14:00", "1 h 30 min"),
@@ -14367,7 +14536,8 @@ fun PopCalendarPreview() {
                 add(PopTask(index + 1, title, person.sector, "Hoje", listOf("Média", "Alta", "Urgente", "Baixa", "Média")[index], dueTime = time, duration = duration,
                     assignee = person.name, assignees = listOf(person.name), assignmentTargetId = person.id, assignmentTargetLabel = person.name,
                     description = "Tarefa de exemplo para conferir a agenda. As alterações ficam somente nesta prévia.",
-                    attachmentName = if (index == 1) "pedido-exemplo.pdf" else "",
+                    attachmentName = if (index <= 1) "pedido-exemplo.pdf" else "",
+                    recurrenceRule = if (index == 0) "Diária" else "Não repetir",
                     checklist = if (index == 1) listOf(TaskChecklistItem("preview-1", "Conferir itens", true), TaskChecklistItem("preview-2", "Finalizar conferência")) else emptyList(),
                     completed = index == 4))
             }

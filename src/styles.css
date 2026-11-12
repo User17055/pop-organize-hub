@@ -1496,3 +1496,71 @@
     box-shadow: var(--shadow-glass);
   }
 }
+
+/*
+ * Entre 1024 e 1180 px (ex.: notebook de 1366 com zoom de 125%), o `overflow: hidden` do `html`
+ * para telas largas cortava o lado direito do painel sem deixar rolar até ele, apesar do
+ * `min-width` acima ter sido feito para isso. A janela rola na horizontal; a vertical continua
+ * com o conteúdo (`.app-scroll-content`).
+ */
+html.desktop-client {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/*
+ * Barra de rolagem visível onde há mouse ou touchpad. A regra de `@layer base` esconde a barra em
+ * todo elemento (bom no celular, onde o dedo rola); no computador isso deixava listas longas, como
+ * a de Tarefas, sem indicação de onde se está nem como arrastar. Fora de camada, esta regra vence a
+ * da base. A tabela larga de Tarefas ganha a barra horizontal, e a janela também quando é mais
+ * estreita que o mínimo do `desktop-client` (1180 px). Faixas de chips
+ * (`.mobile-horizontal-scroll`) continuam sem barra.
+ */
+@media (pointer: fine) {
+  .app-scroll-content,
+  .overflow-y-auto,
+  .overflow-auto,
+  .overflow-x-auto:not(.mobile-horizontal-scroll),
+  html.desktop-client {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--foreground) 34%, transparent) transparent;
+  }
+
+  /* Safari antigo e outros WebKit sem `scrollbar-color`. */
+  .app-scroll-content::-webkit-scrollbar,
+  .overflow-y-auto::-webkit-scrollbar,
+  .overflow-auto::-webkit-scrollbar,
+  .overflow-x-auto:not(.mobile-horizontal-scroll)::-webkit-scrollbar,
+  html.desktop-client::-webkit-scrollbar {
+    display: block;
+    width: 10px;
+    height: 10px;
+  }
+
+  .app-scroll-content::-webkit-scrollbar-thumb,
+  .overflow-y-auto::-webkit-scrollbar-thumb,
+  .overflow-auto::-webkit-scrollbar-thumb,
+  .overflow-x-auto:not(.mobile-horizontal-scroll)::-webkit-scrollbar-thumb,
+  html.desktop-client::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+    background-color: color-mix(in oklab, var(--foreground) 34%, transparent);
+  }
+
+  .app-scroll-content::-webkit-scrollbar-thumb:hover,
+  .overflow-y-auto::-webkit-scrollbar-thumb:hover,
+  .overflow-auto::-webkit-scrollbar-thumb:hover,
+  .overflow-x-auto:not(.mobile-horizontal-scroll)::-webkit-scrollbar-thumb:hover,
+  html.desktop-client::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in oklab, var(--foreground) 50%, transparent);
+  }
+
+  .app-scroll-content::-webkit-scrollbar-track,
+  .overflow-y-auto::-webkit-scrollbar-track,
+  .overflow-auto::-webkit-scrollbar-track,
+  .overflow-x-auto:not(.mobile-horizontal-scroll)::-webkit-scrollbar-track,
+  html.desktop-client::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

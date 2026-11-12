@@ -34,6 +34,7 @@ import { Route as ApiMobileInvitationsRouteImport } from './routes/api/mobile/in
 import { Route as ApiMobileTaskListsRouteImport } from './routes/api/mobile/task-lists'
 import { Route as ApiMobileTasksRouteImport } from './routes/api/mobile/tasks'
 import { Route as ApiMobileWorkspacesRouteImport } from './routes/api/mobile/workspaces'
+import { Route as ApiMobileAnexosFileIdRouteImport } from './routes/api/mobile/anexos/$fileId'
 import { Route as ApiMobileAuthAppleRouteImport } from './routes/api/mobile/auth/apple'
 import { Route as ApiMobileAuthGoogleRouteImport } from './routes/api/mobile/auth/google'
 import { Route as ApiMobileAuthLogoutRouteImport } from './routes/api/mobile/auth/logout'
@@ -165,6 +166,11 @@ const ApiMobileWorkspacesRoute = ApiMobileWorkspacesRouteImport.update({
   path: '/api/mobile/workspaces',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMobileAnexosFileIdRoute = ApiMobileAnexosFileIdRouteImport.update({
+  id: '/api/mobile/anexos/$fileId',
+  path: '/api/mobile/anexos/$fileId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMobileAuthAppleRoute = ApiMobileAuthAppleRouteImport.update({
   id: '/api/mobile/auth/apple',
   path: '/api/mobile/auth/apple',
@@ -219,6 +225,7 @@ export interface FileRoutesByFullPath {
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/anexos/': typeof ApiAnexosIndexRoute
+  '/api/mobile/anexos/$fileId': typeof ApiMobileAnexosFileIdRoute
   '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
   '/api/mobile/auth/logout': typeof ApiMobileAuthLogoutRoute
@@ -251,6 +258,7 @@ export interface FileRoutesByTo {
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/anexos': typeof ApiAnexosIndexRoute
+  '/api/mobile/anexos/$fileId': typeof ApiMobileAnexosFileIdRoute
   '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
   '/api/mobile/auth/logout': typeof ApiMobileAuthLogoutRoute
@@ -284,6 +292,7 @@ export interface FileRoutesById {
   '/api/mobile/tasks': typeof ApiMobileTasksRoute
   '/api/mobile/workspaces': typeof ApiMobileWorkspacesRoute
   '/api/anexos/': typeof ApiAnexosIndexRoute
+  '/api/mobile/anexos/$fileId': typeof ApiMobileAnexosFileIdRoute
   '/api/mobile/auth/apple': typeof ApiMobileAuthAppleRoute
   '/api/mobile/auth/google': typeof ApiMobileAuthGoogleRoute
   '/api/mobile/auth/logout': typeof ApiMobileAuthLogoutRoute
@@ -318,6 +327,7 @@ export interface FileRouteTypes {
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
     | '/api/anexos/'
+    | '/api/mobile/anexos/$fileId'
     | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
     | '/api/mobile/auth/logout'
@@ -350,6 +360,7 @@ export interface FileRouteTypes {
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
     | '/api/anexos'
+    | '/api/mobile/anexos/$fileId'
     | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
     | '/api/mobile/auth/logout'
@@ -382,6 +393,7 @@ export interface FileRouteTypes {
     | '/api/mobile/tasks'
     | '/api/mobile/workspaces'
     | '/api/anexos/'
+    | '/api/mobile/anexos/$fileId'
     | '/api/mobile/auth/apple'
     | '/api/mobile/auth/google'
     | '/api/mobile/auth/logout'
@@ -415,6 +427,7 @@ export interface RootRouteChildren {
   ApiMobileTasksRoute: typeof ApiMobileTasksRoute
   ApiMobileWorkspacesRoute: typeof ApiMobileWorkspacesRoute
   ApiAnexosIndexRoute: typeof ApiAnexosIndexRoute
+  ApiMobileAnexosFileIdRoute: typeof ApiMobileAnexosFileIdRoute
   ApiMobileAuthAppleRoute: typeof ApiMobileAuthAppleRoute
   ApiMobileAuthGoogleRoute: typeof ApiMobileAuthGoogleRoute
   ApiMobileAuthLogoutRoute: typeof ApiMobileAuthLogoutRoute
@@ -599,6 +612,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMobileWorkspacesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mobile/anexos/$fileId': {
+      id: '/api/mobile/anexos/$fileId'
+      path: '/api/mobile/anexos/$fileId'
+      fullPath: '/api/mobile/anexos/$fileId'
+      preLoaderRoute: typeof ApiMobileAnexosFileIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mobile/auth/apple': {
       id: '/api/mobile/auth/apple'
       path: '/api/mobile/auth/apple'
@@ -663,6 +683,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMobileTasksRoute: ApiMobileTasksRoute,
   ApiMobileWorkspacesRoute: ApiMobileWorkspacesRoute,
   ApiAnexosIndexRoute: ApiAnexosIndexRoute,
+  ApiMobileAnexosFileIdRoute: ApiMobileAnexosFileIdRoute,
   ApiMobileAuthAppleRoute: ApiMobileAuthAppleRoute,
   ApiMobileAuthGoogleRoute: ApiMobileAuthGoogleRoute,
   ApiMobileAuthLogoutRoute: ApiMobileAuthLogoutRoute,

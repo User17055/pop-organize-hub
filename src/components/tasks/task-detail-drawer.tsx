@@ -41,6 +41,7 @@ import { EmployeeAvatar } from "./employee-avatar";
 import { GlassDatePicker } from "./glass-date-picker";
 import { GlassSelect, RecurrenceFields } from "./recurrence-fields";
 import { TaskSubtaskChecklist } from "./task-subtask-checklist";
+import { TaskJustificationSection } from "./task-justification-section";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,6 +52,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { recurrenceCadenceKey } from "@/lib/recurrence";
 import {
+  isJustifiedLate,
   isOverdue,
   recurrenceFromForm,
   recurrenceLabel,
@@ -358,7 +360,17 @@ export function TaskDetailDrawer({
               Atrasada
             </span>
           )}
+          {isJustifiedLate(task) && (
+            <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/12 text-amber-700 dark:text-amber-400 font-semibold">
+              Justificada
+            </span>
+          )}
         </div>
+        <TaskJustificationSection
+          task={task}
+          canJustify={permissions.canChangeStatus}
+          authorName={(id) => getEmployee(id)?.name}
+        />
         {task.status === "waiting_review" && (
           <div className="mt-3 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3">
             <div className="flex items-start gap-2.5">

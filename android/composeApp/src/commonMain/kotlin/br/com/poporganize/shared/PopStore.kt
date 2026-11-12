@@ -329,6 +329,12 @@ class PopStore(private val platform: PopPlatformServices, private val scope: Cor
 
     fun toggleTask(taskId: String) {
         val alvo = state.tasks.firstOrNull { it.id == taskId } ?: return
+        // Cancelada ("nao sera feita", F11) se reabre pela justificativa, que grava o comentario
+        // automatico. Marcar como concluida por aqui contornaria isso.
+        if (alvo.canceled) {
+            message = "Tarefa cancelada. Para retomá-la, abra a tarefa e toque em Reabrir."
+            return
+        }
         // Concluir atividade FUTURA sem a permissao exclusiva do Administrador e recusado pelo
         // servidor -- e uma recusa nao pode derrubar a carga INTEIRA por causa de um item errado.
         // O toque errado na agenda custava a sincronizacao do aparelho inteiro ate alguem perceber.
@@ -459,8 +465,10 @@ class PopStore(private val platform: PopPlatformServices, private val scope: Cor
     // servidor tambem se defende disso (nao adota data de ocorrencia materializada), mas a regra
     // aqui e a mesma: NENHUM caminho do app mexe na data de uma ocorrencia.
 
-    fun addMember(name: String, email: String, role: String) {
-        val sectorId = selectedCompany?.sectors?.firstOrNull()?.id
+    // O setor vem do dialogo (F7). Ate o build 20 era sempre o primeiro da lista, e a pessoa caia
+    // num setor que ninguem escolheu. Nulo continua caindo no primeiro, para nao travar o convite.
+    fun addMember(name: String, email: String, role: String, sectorId: String? = null) {
+        val sectorId = sectorId ?: selectedCompany?.sectors?.firstOrNull()?.id
         if (sectorId == null) {
             message = "Cadastre um setor no painel web antes de convidar uma pessoa."
             return
@@ -468,6 +476,33 @@ class PopStore(private val platform: PopPlatformServices, private val scope: Cor
         mutateWorkspace(
             """{"action":"inviteEmployee","name":${json.encodeToString(name.trim())},"email":${json.encodeToString(email.trim())},"role":${json.encodeToString(role.trim())},"departmentId":${json.encodeToString(sectorId)},"groupIds":[]}""",
             "Convite enviado.",
+        )
+    }
+
+    // O mesmo `removeEmployee` que o Android usa: com o id de um convite o servidor passa pelo
+    // `removeInvitation`, que tambem solta as tarefas atribuidas ao convidado (alvo pessoal vai para
+    // a empresa, responsavel e revisor saem). Permissao: `manage.employees`, a mesma de convidar.
+    fun cancelInvitation(invitationId: String) = mutateWorkspace(
+        """{"action":"removeEmployee","employeeId":${json.encodeToString(invitationId)}}""",
+        "Convite cancelado.",
+    )
+
+    /**
+     * Troca setor e funcao de uma pessoa (F7). O `updateEmployee` reescreve os grupos com o que
+     * receber e, sem a lista, tira a pessoa de TODOS -- entao os grupos vao de volta exatamente
+     * como o servidor mandou. Sem essa lista (servidor antigo) a troca nao e feita.
+     * `permissionGroupId` e `canCreateTasks` ficam de fora de proposito: ausentes, o servidor nao
+     * mexe neles.
+     */
+    fun updateMember(member: CompanyMember, sectorId: String, role: String) {
+        val grupos = member.groupIds
+        if (grupos == null) {
+            message = "Atualize o servidor para trocar o setor pelo aplicativo."
+            return
+        }
+        mutateWorkspace(
+            """{"action":"updateEmployee","employeeId":${json.encodeToString(member.id)},"departmentId":${json.encodeToString(sectorId)},"role":${json.encodeToString(role.trim())},"groupIds":${json.encodeToString(grupos)}}""",
+            "Pessoa atualizada.",
         )
     }
 
@@ -481,10 +516,21 @@ class PopStore(private val platform: PopPlatformServices, private val scope: Cor
         "Grupo criado.",
     )
 
-    fun updateSector(sectorId: String, name: String, description: String, managerId: String?) {
+    // `acesso` (F7): modo do gestor e setores escolhidos, so quando mudou. Nulo = o servidor nao
+    // mexe no acesso, e uma edicao de nome nao sobrescreve o que outra pessoa gravou no painel.
+    fun updateSector(
+        sectorId: String,
+        name: String,
+        description: String,
+        managerId: String?,
+        acesso: Pair<String, List<String>>? = null,
+    ) {
         val gestor = managerId?.let { ""","managerId":${json.encodeToString(it)}""" }.orEmpty()
+        val modo = acesso?.let { (mode, setores) ->
+            ""","managerAccessMode":${json.encodeToString(mode)},"managerVisibleDepartmentIds":${json.encodeToString(setores)}"""
+        }.orEmpty()
         mutateWorkspace(
-            """{"action":"updateDepartment","id":${json.encodeToString(sectorId)},"name":${json.encodeToString(name.trim())},"description":${json.encodeToString(description.trim())}$gestor}""",
+            """{"action":"updateDepartment","id":${json.encodeToString(sectorId)},"name":${json.encodeToString(name.trim())},"description":${json.encodeToString(description.trim())}$gestor$modo}""",
             "Setor atualizado.",
         )
     }
@@ -549,7 +595,8 @@ class PopStore(private val platform: PopPlatformServices, private val scope: Cor
 
     private fun publishNotifications() {
         if (state.currentUser != null || state.guestMode) {
-            platform.updateNotifications(state.tasks, state.currentUser?.firstName ?: "você")
+            // Cancelada nao sera feita: nao lembra dela (F11).
+            platform.updateNotifications(state.tasks.filterNot { it.canceled }, state.currentUser?.firstName ?: "você")
         } else {
             platform.updateNotifications(emptyList(), "")
         }
@@ -670,6 +717,8 @@ class PopStore(private val platform: PopPlatformServices, private val scope: Cor
                         role = employee.role,
                         sectorId = employee.sectorId.ifBlank { null },
                         pending = employee.pending,
+                        groupIds = employee.groupIds,
+                        isOwner = employee.isOwner,
                     )
                 },
                 sectors = workspace.sectors,
@@ -892,6 +941,52 @@ class PopStore(private val platform: PopPlatformServices, private val scope: Cor
 
     private fun persist() = platform.saveState(json.encodeToString(state))
 
+    /**
+     * Pede o link de um anexo enviado pelo painel. O Safari nao leva o token do aparelho, entao o
+     * servidor devolve um endereco de poucos minutos (`createMobileAttachmentLink`) e o download
+     * sai por la, como arquivo para salvar. Quem abre e a tela, pelo `LocalUriHandler`.
+     */
+    internal suspend fun linkDoAnexoDoPainel(anexo: ApiPanelAttachment): LinkDeAnexo {
+        val token = state.apiToken ?: return LinkDeAnexo(erro = "Entre na conta para baixar anexos.")
+        if (anexo.fileId.isBlank()) {
+            return LinkDeAnexo(erro = "Este anexo é antigo: o painel guardou só o nome.")
+        }
+        val response = platform.apiRequest(path = "anexos/${anexo.fileId}", method = "POST", token = token)
+        if (!response.successful) return LinkDeAnexo(erro = apiError(response, "Não foi possível abrir o anexo."))
+        val url = runCatching { json.decodeFromString<ApiAttachmentLink>(response.body).url }.getOrNull()
+        if (url.isNullOrBlank()) return LinkDeAnexo(erro = "O servidor devolveu um link inválido.")
+        return LinkDeAnexo(url = url)
+    }
+
+    /**
+     * Justificar tarefa nao concluida (F11), pela acao `justifyTask` do endpoint movel -- nunca pelo
+     * PUT, que nao carrega a justificativa. `kind` e "later" ("vou fazer depois", so em atrasada) ou
+     * "not_done" ("nao sera feita", vira Cancelada); `kind` nulo desfaz (a cancelada volta a
+     * pendente). A regra e o comentario automatico ficam no servidor. Vai no espaco da propria
+     * tarefa, empresa ou pessoal. Devolve a mensagem de erro, ou nulo se deu certo.
+     */
+    internal suspend fun justificarTarefa(task: PopTask, kind: String?, text: String): String? {
+        val token = state.apiToken ?: return "Entre na conta para justificar tarefas."
+        val serverId = task.serverId ?: return "Aguarde a tarefa sincronizar antes de justificar."
+        val workspaceId = (if (task.workspace == WorkspaceKind.Company) task.companyId else state.personalWorkspaceId)
+            ?: return "Espaço da tarefa não encontrado."
+        val body = if (kind == null) {
+            """{"action":"justifyTask","taskId":${json.encodeToString(serverId)},"undo":true}"""
+        } else {
+            """{"action":"justifyTask","taskId":${json.encodeToString(serverId)},"kind":${json.encodeToString(kind)},"text":${json.encodeToString(text.trim())}}"""
+        }
+        val response = platform.apiRequest(path = "workspaces", method = "POST", body = body, token = token, workspaceId = workspaceId)
+        if (state.apiToken != token) return null
+        if (!response.successful) return apiError(response, "Não foi possível salvar a justificativa.")
+        refreshTasks()
+        message = when (kind) {
+            null -> if (task.canceled) "Tarefa reaberta." else "Justificativa removida."
+            "not_done" -> "Tarefa cancelada."
+            else -> "Justificativa salva."
+        }
+        return null
+    }
+
     private fun apiError(response: ApiResponse, fallback: String): String =
         runCatching { json.decodeFromString<ApiError>(response.body).error }.getOrNull() ?: fallback
 }
@@ -974,13 +1069,21 @@ internal fun ApiTask.toPopTask(kind: WorkspaceKind, companyId: String?) = PopTas
     canComplete = canComplete,
     canCompleteAnytime = canCompleteAnytime,
     canDelete = canDelete,
+    panelAttachments = panelAttachments.orEmpty(),
     assignee = assignee,
     assignees = assignees,
     assignedBy = assignedBy,
     reminder = reminder,
     attachmentName = attachmentName,
     duration = duration,
+    // Servidor antigo nao manda: nao cancelada, sem justificativa, e sem o botao de justificar.
+    canceled = canceled == true,
+    justification = justification,
+    canJustify = canJustify == true,
 )
+
+/** Resultado de `linkDoAnexoDoPainel`: o endereco para abrir, ou a mensagem para mostrar. */
+internal data class LinkDeAnexo(val url: String? = null, val erro: String? = null)
 
 /** O alcance de uma mudanca de data, com as mesmas palavras do `dateMoveScope` no servidor. */
 internal const val DATA_SO_ESTA = "this"

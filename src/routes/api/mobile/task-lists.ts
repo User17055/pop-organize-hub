@@ -20,8 +20,10 @@ const organizationSchema = z.object({
   folders: z.array(folderSchema).max(100),
   lists: z.array(listSchema).max(200),
 });
-const payloadSchema = organizationSchema.extend({ baseOrganization: organizationSchema.optional(),
-  syncRequest: z.object({mutationId:z.string().uuid(),policy:z.literal("arrival")}).optional() });
+const payloadSchema = organizationSchema.extend({
+  baseOrganization: organizationSchema.optional(),
+  syncRequest: z.object({ mutationId: z.string().uuid(), policy: z.literal("arrival") }).optional(),
+});
 
 function errorResponse(error: unknown) {
   const status =
@@ -54,9 +56,17 @@ export const Route = createFileRoute("/api/mobile/task-lists")({
             return Response.json({ error: "Organização de tarefas inválida." }, { status: 400 });
           }
           const { replaceMobileTaskOrganization } = await import("@/lib/mobile-api.server");
-          return Response.json(await replaceMobileTaskOrganization(request, parsed.data, parsed.data.baseOrganization, parsed.data.syncRequest), {
-            headers: { "cache-control": "no-store" },
-          });
+          return Response.json(
+            await replaceMobileTaskOrganization(
+              request,
+              parsed.data,
+              parsed.data.baseOrganization,
+              parsed.data.syncRequest,
+            ),
+            {
+              headers: { "cache-control": "no-store" },
+            },
+          );
         } catch (error) {
           return errorResponse(error);
         }

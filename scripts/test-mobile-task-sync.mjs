@@ -26,6 +26,20 @@ test("arrival policy accepts the arriving edit while preserving untouched server
   assert.equal(merged.description,"Outra edição");
 });
 
+test("arrival edits retain server-owned panel attachments and justification metadata", () => {
+  const original = {...base, canceled:false, panelAttachments:[], justification:null, canJustify:true};
+  const remote = {...original, canceled:true,
+    panelAttachments:[{id:"a1",name:"Documento.pdf",sizeLabel:"10 KB",fileId:"file-1"}],
+    justification:{text:"Atividade reagendada",authorName:"Ana",createdAt:"2026-11-12T12:00:00Z"},
+    canJustify:false};
+  const merged = reconcileMobileTask(original, {...original,title:"Título atualizado"}, remote, "arrival");
+  assert.equal(merged.title,"Título atualizado");
+  assert.equal(merged.canceled,true);
+  assert.deepEqual(merged.panelAttachments,remote.panelAttachments);
+  assert.deepEqual(merged.justification,remote.justification);
+  assert.equal(merged.canJustify,false);
+});
+
 test("arrival organization edits preserve newly created remote folders and untouched fields", () => {
   const base = {folders:[{id:"f1",name:"Antes",position:0}],lists:[]};
   const local = {folders:[{id:"f1",name:"Celular",position:0}],lists:[]};

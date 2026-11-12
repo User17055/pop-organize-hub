@@ -25,7 +25,11 @@ import {
   type Task,
 } from "./domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "./permission-groups";
-import { changedMobileTaskFields, reconcileMobileTask, reconcileMobileOrganization } from "./mobile-task-sync";
+import {
+  changedMobileTaskFields,
+  reconcileMobileTask,
+  reconcileMobileOrganization,
+} from "./mobile-task-sync";
 import {
   canConfigureDepartmentManager,
   canDeleteDepartment,
@@ -44,6 +48,14 @@ import {
 } from "./recurrence.server";
 import { removeDepartment } from "./department-removal";
 import { removeInvitation } from "./invitation-removal";
+import {
+  activeJustification,
+  applyTaskJustification,
+  JustificationError,
+  parseJustificationRequest,
+  saoPauloToday,
+} from "./task-justification";
+import { applyManagerAccess, isManagerAccessMode } from "./department-access";
 import { invalidateNativeShadow } from "./native-shadow";
 import { formatTaskDuration, parseTaskDuration } from "./task-duration";
 
@@ -126,6 +138,17 @@ export type MobileTask = {
   assignmentTargetLabel?: string;
   assignees?: string[];
   checklist?: Array<{ id: string; title: string; done: boolean }>;
+  // Os anexos enviados pelo painel. Só de leitura, como os de revisão acima: o mobileTaskSchema não
+  // os declara, então não voltam pela gravação e não tocam `attachmentItems`. O arquivo sai pelo
+  // link de `createMobileAttachmentLink`; `fileId` vazio é anexo antigo, só com nome.
+  panelAttachments?: Array<{ id: string; name: string; sizeLabel: string; fileId: string }>;
+  // F11, só de leitura como os de cima: o mobileTaskSchema não os declara. `canceled` é booleano, e
+  // não o status cru, pelo mesmo motivo do `awaitingReview`. `justification` é só a que vale agora
+  // (`activeJustification`), então o tipo não precisa viajar: com `canceled` é "não será feita",
+  // sem ele é "vou fazer depois". A gravação é pela ação `justifyTask`, nunca pelo PUT.
+  canceled?: boolean;
+  justification?: { text: string; authorName: string; createdAt: string };
+  canJustify?: boolean;
 };
 
 type NativeTask = Task & {
@@ -153,6 +176,14 @@ function publicUser(account: PlatformDatabase["accounts"][number]) {
     name: account.name,
     email: account.email,
     photoUrl: account.avatar ?? "",
+  };
+}
+
+function managerAccessSummary(manager: Database["employees"][number] | undefined) {
+  const mode = manager?.departmentAccessMode ?? "own";
+  return {
+    managerAccessMode: mode,
+    managerVisibleDepartmentIds: mode === "selected" ? (manager?.visibleDepartmentIds ?? []) : [],
   };
 }
 
@@ -320,6 +351,10 @@ function workspaceSummaries(platform: PlatformDatabase, userId: string) {
             description: department.description ?? "",
             managedByCurrentUser: department.managerId === userId,
             managerId: department.managerId,
+            // Acesso do gestor (F7), lido do funcionário que gerencia, com o mesmo default do painel.
+            ...managerAccessSummary(
+              workspace.employees.find((employee) => employee.id === department.managerId),
+            ),
             canEdit: isCompany && canEditDepartment(departmentPermissionInput(department)),
             canDelete: isCompany && canDeleteDepartment(departmentPermissionInput(department)),
           })),
@@ -815,6 +850,12 @@ function applicationOrigin(request: Request) {
   return new URL(request.url).origin;
 }
 
+/** Link curto para o aplicativo abrir no Safari um anexo enviado pelo painel. */
+export async function createMobileAttachmentDownloadLink(request: Request, fileId: string) {
+  const { createMobileAttachmentLink } = await import("./task-attachments.server");
+  return createMobileAttachmentLink(request, fileId, applicationOrigin(request));
+}
+
 function activeCompanyMember(platform: PlatformDatabase, workspaceId: string, accountId: string) {
   const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
   const currentUser = workspace?.employees.find(
@@ -907,6 +948,49 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
     };
   }
 
+  // F11. Ação própria, e não pelo PUT de tarefas: o PUT reescreve a tarefa a partir do que o
+  // aparelho manda, e a justificativa e o status "Cancelada" não fazem parte do que ele manda.
+  // Vale também no espaço pessoal, por isso fica antes da trava de empresa.
+  if (action === "justifyTask") {
+    const taskId = requiredText(input.taskId, "A tarefa", 1);
+    const workspaceId = authorizedWorkspace.company.id;
+    await mutateDatabase((platform) => {
+      const workspace = platform.workspaces.find((item) => item.company.id === workspaceId);
+      const currentUser = workspace?.employees.find(
+        (employee) => employee.id === account.id && employee.status === "active",
+      );
+      if (!workspace || !currentUser) throw mobileHttpError("Espaço não encontrado.", 404);
+      const task = workspace.tasks.find((item) => item.id === taskId);
+      if (!task) throw mobileHttpError("Tarefa não encontrada.", 404);
+      const permissions = getTaskPermissions({
+        task,
+        currentUser,
+        employees: workspace.employees,
+        departments: workspace.departments,
+        groups: workspace.groups,
+        permissionGroups: workspace.permissionGroups,
+      });
+      if (!permissions.canChangeStatus) {
+        throw mobileHttpError("Você não tem permissão para justificar esta tarefa.", 403);
+      }
+      try {
+        applyTaskJustification(
+          task,
+          parseJustificationRequest(input),
+          account.id,
+          new Date().toISOString(),
+          saoPauloToday(),
+        );
+      } catch (error) {
+        if (error instanceof JustificationError) {
+          throw mobileHttpError(error.message, error.statusCode);
+        }
+        throw error;
+      }
+    });
+    return { ok: true };
+  }
+
   if ((authorizedWorkspace.company.kind ?? "company") !== "company") {
     throw mobileHttpError("Os cadastros de equipe estão disponíveis apenas em empresas.", 409);
   }
@@ -976,10 +1060,34 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
     const name = formatDepartmentName(requiredText(input.name, "O nome").slice(0, 60));
     const description = requiredText(input.description, "A descrição", 3).slice(0, 320);
     const managerId = typeof input.managerId === "string" ? input.managerId.trim() : "";
+    // Acesso do gestor (F7): opcional. Ausente, nada muda, que é o que o app antigo manda.
+    if (input.managerAccessMode !== undefined && !isManagerAccessMode(input.managerAccessMode)) {
+      throw mobileHttpError("Modo de acesso do gestor inválido.");
+    }
+    const managerAccessMode = isManagerAccessMode(input.managerAccessMode)
+      ? input.managerAccessMode
+      : undefined;
+    const managerVisibleDepartmentIds = Array.isArray(input.managerVisibleDepartmentIds)
+      ? input.managerVisibleDepartmentIds.filter((item): item is string => typeof item === "string")
+      : [];
     await mutateDatabase((platform) => {
       const { workspace, currentUser } = activeCompanyMember(platform, workspaceId, account.id);
       const department = workspace.departments.find((item) => item.id === id);
       if (!department) throw mobileHttpError("Setor não encontrado.", 404);
+      if (
+        managerAccessMode &&
+        !canConfigureDepartmentManager({ currentUser, ownerId: workspace.company.ownerId })
+      ) {
+        throw mobileHttpError("Somente um administrador pode alterar o acesso do gestor.", 403);
+      }
+      if (
+        managerAccessMode === "selected" &&
+        managerVisibleDepartmentIds.some(
+          (departmentId) => !workspace.departments.some((item) => item.id === departmentId),
+        )
+      ) {
+        throw mobileHttpError("Um dos setores permitidos não foi encontrado.");
+      }
       if (
         !canEditDepartment({
           department,
@@ -1014,6 +1122,11 @@ export async function mutateMobileWorkspace(request: Request, rawInput: unknown)
       department.name = name;
       department.description = description;
       if (managerId) department.managerId = managerId;
+      if (managerAccessMode) {
+        // Do gestor que fica no setor depois desta gravação, como no painel.
+        const manager = workspace.employees.find((item) => item.id === department.managerId);
+        if (manager) applyManagerAccess(manager, managerAccessMode, managerVisibleDepartmentIds);
+      }
       if (renamed) renameTaskTargets(workspace, "department", id, name);
     });
   } else if (action === "deleteDepartment") {
@@ -1588,11 +1701,22 @@ export async function readMobileTasks(request: Request) {
       (item) => item.company.id === workspace.company.id,
     );
     const currentAccount = platform.accounts.find((item) => item.id === account.id);
-    const token = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
-    const session = token && platform.sessions.find((item) => item.tokenHash === hashToken(token) && item.userId === account.id);
-    const stillAuthorized = currentWorkspace && (currentWorkspace.company.kind === "personal"
-      ? currentWorkspace.company.ownerId === account.id
-      : currentWorkspace.employees.some((employee) => employee.id === account.id && employee.status === "active"));
+    const token = request.headers
+      .get("authorization")
+      ?.match(/^Bearer\s+(.+)$/i)?.[1]
+      ?.trim();
+    const session =
+      token &&
+      platform.sessions.find(
+        (item) => item.tokenHash === hashToken(token) && item.userId === account.id,
+      );
+    const stillAuthorized =
+      currentWorkspace &&
+      (currentWorkspace.company.kind === "personal"
+        ? currentWorkspace.company.ownerId === account.id
+        : currentWorkspace.employees.some(
+            (employee) => employee.id === account.id && employee.status === "active",
+          ));
     if (!currentWorkspace || !currentAccount || !session || !stillAuthorized) {
       throw Object.assign(new Error("Espaco da conta nao encontrado."), { statusCode: 401 });
     }
@@ -1635,45 +1759,96 @@ export async function replaceMobileTaskOrganization(
   baseOrganization?: MobileTaskOrganization,
   syncRequest?: { mutationId: string; policy: "arrival" },
 ) {
-  const digest = syncRequest ? createHash("sha256").update(JSON.stringify({organization,baseOrganization})).digest("hex") : undefined;
+  const digest = syncRequest
+    ? createHash("sha256").update(JSON.stringify({ organization, baseOrganization })).digest("hex")
+    : undefined;
   const { workspace: authorizedWorkspace, account } = await requireMobileWorkspace(request);
   return mutateDatabase((platform) => {
     const workspace = platform.workspaces.find(
       (item) => item.company.id === authorizedWorkspace.company.id,
     );
     const currentAccount = platform.accounts.find((item) => item.id === account.id);
-    const token = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
-    const session = token && platform.sessions.find((item) => item.tokenHash === hashToken(token) && item.userId === account.id);
-    const authorized = workspace && (workspace.company.kind === "personal" ? workspace.company.ownerId === account.id
-      : workspace.employees.some((employee) => employee.id === account.id && employee.status === "active"));
+    const token = request.headers
+      .get("authorization")
+      ?.match(/^Bearer\s+(.+)$/i)?.[1]
+      ?.trim();
+    const session =
+      token &&
+      platform.sessions.find(
+        (item) => item.tokenHash === hashToken(token) && item.userId === account.id,
+      );
+    const authorized =
+      workspace &&
+      (workspace.company.kind === "personal"
+        ? workspace.company.ownerId === account.id
+        : workspace.employees.some(
+            (employee) => employee.id === account.id && employee.status === "active",
+          ));
     if (!workspace || !currentAccount || !session || !authorized) {
       throw Object.assign(new Error("Espaço da conta não encontrado."), { statusCode: 401 });
     }
 
     const currentOrganization = () => ({
-      folders: (workspace.taskFolders ?? []).filter(folder => folder.ownerId === account.id).map(({ownerId:_ownerId,...row}) => row),
-      lists: (workspace.taskLists ?? []).filter(list => list.ownerId === account.id).map(({ownerId:_ownerId,...row}) => row),
+      folders: (workspace.taskFolders ?? [])
+        .filter((folder) => folder.ownerId === account.id)
+        .map(({ ownerId: _ownerId, ...row }) => row),
+      lists: (workspace.taskLists ?? [])
+        .filter((list) => list.ownerId === account.id)
+        .map(({ ownerId: _ownerId, ...row }) => row),
     });
     if (syncRequest) {
-      if (!baseOrganization) throw Object.assign(new Error("Envio sem versão de origem."),{statusCode:400});
-      const receipt = workspace.mobileTaskSyncMutations?.["org:"+syncRequest.mutationId];
+      if (!baseOrganization)
+        throw Object.assign(new Error("Envio sem versão de origem."), { statusCode: 400 });
+      const receipt = workspace.mobileTaskSyncMutations?.["org:" + syncRequest.mutationId];
       if (receipt) {
-        if (receipt.actorId !== account.id || receipt.digest !== digest) throw Object.assign(new Error("Identificação de envio reutilizada."),{statusCode:409});
-        return {...currentOrganization(),ok:true,mutationId:syncRequest.mutationId,replayed:true};
+        if (receipt.actorId !== account.id || receipt.digest !== digest)
+          throw Object.assign(new Error("Identificação de envio reutilizada."), {
+            statusCode: 409,
+          });
+        return {
+          ...currentOrganization(),
+          ok: true,
+          mutationId: syncRequest.mutationId,
+          replayed: true,
+        };
       }
-      organization = reconcileMobileOrganization(baseOrganization,organization,currentOrganization());
+      organization = reconcileMobileOrganization(
+        baseOrganization,
+        organization,
+        currentOrganization(),
+      );
     }
     if (baseOrganization && !syncRequest) {
-      const canonical = (value: MobileTaskOrganization) => JSON.stringify({
-        folders: value.folders.map((folder) => [folder.id, folder.name.trim(), folder.parentId ?? "", folder.position]),
-        lists: value.lists.map((list) => [list.id, list.name.trim(), list.folderId ?? "", list.taskIds, list.position]),
-      });
+      const canonical = (value: MobileTaskOrganization) =>
+        JSON.stringify({
+          folders: value.folders.map((folder) => [
+            folder.id,
+            folder.name.trim(),
+            folder.parentId ?? "",
+            folder.position,
+          ]),
+          lists: value.lists.map((list) => [
+            list.id,
+            list.name.trim(),
+            list.folderId ?? "",
+            list.taskIds,
+            list.position,
+          ]),
+        });
       const current = {
         folders: (workspace.taskFolders ?? []).filter((folder) => folder.ownerId === account.id),
         lists: (workspace.taskLists ?? []).filter((list) => list.ownerId === account.id),
       };
-      if (canonical(baseOrganization) !== canonical(current) && canonical(organization) !== canonical(current)) {
-        throw Object.assign(new Error("As pastas ou listas foram alteradas em outro aparelho. Abra Sincronização para escolher uma versão."), { statusCode: 409 });
+      if (
+        canonical(baseOrganization) !== canonical(current) &&
+        canonical(organization) !== canonical(current)
+      ) {
+        throw Object.assign(
+          new Error(
+            "As pastas ou listas foram alteradas em outro aparelho. Abra Sincronização para escolher uma versão.",
+          ),
+          { statusCode: 409 },
+        );
       }
     }
 
@@ -1699,8 +1874,16 @@ export async function replaceMobileTaskOrganization(
         .map((task) => task.serverId)
         .filter((id): id is string => Boolean(id)),
     );
-    if (baseOrganization && organization.lists.some((list) => list.taskIds.some((id) => /^\d+$/.test(id) && !visibleTaskIds.has(id)))) {
-      throw Object.assign(new Error("Aguarde as tarefas locais serem sincronizadas antes de enviar a lista."), { statusCode: 409 });
+    if (
+      baseOrganization &&
+      organization.lists.some((list) =>
+        list.taskIds.some((id) => /^\d+$/.test(id) && !visibleTaskIds.has(id)),
+      )
+    ) {
+      throw Object.assign(
+        new Error("Aguarde as tarefas locais serem sincronizadas antes de enviar a lista."),
+        { statusCode: 409 },
+      );
     }
     workspace.taskFolders = [
       ...(workspace.taskFolders ?? []).filter((folder) => folder.ownerId !== account.id),
@@ -1718,7 +1901,10 @@ export async function replaceMobileTaskOrganization(
 
     if (syncRequest) {
       workspace.mobileTaskSyncMutations ??= {};
-      workspace.mobileTaskSyncMutations["org:"+syncRequest.mutationId] = {actorId:account.id,digest:digest!};
+      workspace.mobileTaskSyncMutations["org:" + syncRequest.mutationId] = {
+        actorId: account.id,
+        digest: digest!,
+      };
     }
     return {
       folders: workspace.taskFolders
@@ -1727,7 +1913,7 @@ export async function replaceMobileTaskOrganization(
       lists: workspace.taskLists
         .filter((list) => list.ownerId === account.id)
         .map(({ ownerId: _ownerId, ...list }) => list),
-      ...(syncRequest ? {ok:true,mutationId:syncRequest.mutationId,replayed:false} : {}),
+      ...(syncRequest ? { ok: true, mutationId: syncRequest.mutationId, replayed: false } : {}),
     } satisfies MobileTaskOrganization;
   });
 }
@@ -1842,6 +2028,7 @@ function taskToMobileTask(
     task.assignedById && task.assignedById !== currentUser.id
       ? (workspace.employees.find((employee) => employee.id === task.assignedById)?.name ?? "")
       : "";
+  const justification = activeJustification(task);
   const creatorId = task.assignedById ?? task.nativeOwnerId;
   const createdBy = creatorId
     ? (workspace.employees.find((employee) => employee.id === creatorId)?.name ?? "")
@@ -1872,9 +2059,10 @@ function taskToMobileTask(
     attachmentData: canReadPrivateAttachment ? (native?.attachmentData ?? "") : "",
     dueTime: native?.dueTime ?? task.dueTime ?? "",
     recurrenceTimes: native?.recurrenceTimes ?? task.recurrence?.times ?? [],
-    duration: task.durationMinutes != null
-      ? formatTaskDuration(task.durationMinutes)
-      : native?.duration ?? "Sem duração",
+    duration:
+      task.durationMinutes != null
+        ? formatTaskDuration(task.durationMinutes)
+        : (native?.duration ?? "Sem duração"),
     ...recurrenceWire,
     recurrenceOccurrence: native?.recurrenceOccurrence ?? task.recurrenceOccurrence ?? 1,
     recurrenceSeriesId: task.recurrenceParentId ?? task.id,
@@ -1904,6 +2092,23 @@ function taskToMobileTask(
       title: item.title,
       done: item.done,
     })),
+    panelAttachments: (task.attachmentItems ?? []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      sizeLabel: item.sizeLabel,
+      fileId: item.fileId ?? "",
+    })),
+    canceled: task.status === "canceled",
+    justification: justification
+      ? {
+          text: justification.text,
+          authorName:
+            workspace.employees.find((employee) => employee.id === justification.authorId)?.name ??
+            "",
+          createdAt: justification.updatedAt ?? justification.createdAt,
+        }
+      : undefined,
+    canJustify: permissions.canChangeStatus,
   };
 }
 
@@ -2083,11 +2288,23 @@ function normalizeMobileTaskTitle(value: string) {
   return withoutPopPrefix || trimmed;
 }
 
-function taskStatusReceipt(task: NativeTask, workspace: Database, user: Database["employees"][number]) {
+function taskStatusReceipt(
+  task: NativeTask,
+  workspace: Database,
+  user: Database["employees"][number],
+) {
   const mobile = taskToMobileTask(task, workspace, user);
-  return { id: mobile.id, serverId: mobile.serverId!, clientId: mobile.clientId,
-    completed: mobile.completed, awaitingReview: mobile.awaitingReview, requiresReview: mobile.requiresReview,
-    isReviewer: mobile.isReviewer, canComplete: mobile.canComplete, canCompleteAnytime: mobile.canCompleteAnytime };
+  return {
+    id: mobile.id,
+    serverId: mobile.serverId!,
+    clientId: mobile.clientId,
+    completed: mobile.completed,
+    awaitingReview: mobile.awaitingReview,
+    requiresReview: mobile.requiresReview,
+    isReviewer: mobile.isReviewer,
+    canComplete: mobile.canComplete,
+    canCompleteAnytime: mobile.canCompleteAnytime,
+  };
 }
 
 export async function replaceMobileTasks(
@@ -2100,8 +2317,20 @@ export async function replaceMobileTasks(
   statusChanges: Array<{ serverId: string; completed: boolean; mutationId: string }> = [],
   syncRequest?: { mutationId: string; policy: "arrival" },
 ) {
-  const requestDigest = syncRequest ? createHash("sha256").update(JSON.stringify({ tasks, deletedServerIds,
-    baseTasks, taskOrder, baseTaskOrder, statusChanges })).digest("hex") : undefined;
+  const requestDigest = syncRequest
+    ? createHash("sha256")
+        .update(
+          JSON.stringify({
+            tasks,
+            deletedServerIds,
+            baseTasks,
+            taskOrder,
+            baseTaskOrder,
+            statusChanges,
+          }),
+        )
+        .digest("hex")
+    : undefined;
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
   if (!token) throw Object.assign(new Error("Sessão ausente."), { statusCode: 401 });
@@ -2131,14 +2360,25 @@ export async function replaceMobileTasks(
     if (!currentUser)
       throw Object.assign(new Error("Usuário sem acesso ao espaço."), { statusCode: 403 });
     if (syncRequest) {
-      if (!baseTasks || statusChanges.length) throw Object.assign(new Error("Envio identificado inválido."), { statusCode: 400 });
+      if (!baseTasks || statusChanges.length)
+        throw Object.assign(new Error("Envio identificado inválido."), { statusCode: 400 });
       const receipt = workspace.mobileTaskSyncMutations?.[syncRequest.mutationId];
       if (receipt) {
         if (receipt.actorId !== account.id || receipt.digest !== requestDigest) {
-          throw Object.assign(new Error("Identificação de envio reutilizada com outro conteúdo."), { statusCode: 409 });
+          throw Object.assign(new Error("Identificação de envio reutilizada com outro conteúdo."), {
+            statusCode: 409,
+          });
         }
-        return { ok: true, count: 0, created: 0, updated: 0, deleted: 0, statusResults: [],
-          mutationId: syncRequest.mutationId, replayed: true };
+        return {
+          ok: true,
+          count: 0,
+          created: 0,
+          updated: 0,
+          deleted: 0,
+          statusResults: [],
+          mutationId: syncRequest.mutationId,
+          replayed: true,
+        };
       }
     }
     const permissionSet = resolvePermissionSet({
@@ -2164,26 +2404,53 @@ export async function replaceMobileTasks(
     const shiftedTaskIds = new Set<string>();
 
     if (taskOrder) {
-      if (!baseTaskOrder || !baseTasks) throw Object.assign(new Error("A ordem das tarefas precisa de uma versão de origem."), { statusCode: 400 });
+      if (!baseTaskOrder || !baseTasks)
+        throw Object.assign(new Error("A ordem das tarefas precisa de uma versão de origem."), {
+          statusCode: 400,
+        });
       const visible = new Set(visibleMobileTasks(workspace, account).map((task) => task.serverId));
-      const common = new Set(baseTaskOrder.filter((id) => visible.has(id) && taskOrder.includes(id)));
+      const common = new Set(
+        baseTaskOrder.filter((id) => visible.has(id) && taskOrder.includes(id)),
+      );
       const current = workspace.tasks.map((task) => task.id).filter((id) => common.has(id));
       const original = baseTaskOrder.filter((id) => common.has(id));
       const desired = taskOrder.filter((id) => common.has(id));
-      if (!syncRequest && JSON.stringify(current) !== JSON.stringify(original) && JSON.stringify(current) !== JSON.stringify(desired)) {
-        throw Object.assign(new Error("A ordem das tarefas mudou em outro aparelho. Abra Sincronização para revisar."), { statusCode: 409 });
+      if (
+        !syncRequest &&
+        JSON.stringify(current) !== JSON.stringify(original) &&
+        JSON.stringify(current) !== JSON.stringify(desired)
+      ) {
+        throw Object.assign(
+          new Error(
+            "A ordem das tarefas mudou em outro aparelho. Abra Sincronização para revisar.",
+          ),
+          { statusCode: 409 },
+        );
       }
     }
 
     // Checked under the database row lock, before any deletion or edit. Legacy clients
     // keep their protocol; modern clients send only changes with their original base.
     if (baseTasks) {
-      const bases = new Map(baseTasks.filter((task) => task.serverId).map((task) => [task.serverId!, task]));
+      const bases = new Map(
+        baseTasks.filter((task) => task.serverId).map((task) => [task.serverId!, task]),
+      );
       const currentTask = (id: string) => {
         const task = workspace.tasks.find((task) => task.id === id) as NativeTask | undefined;
-        if (task && !canViewTask({ task, currentUser, employees: workspace.employees,
-          departments: workspace.departments, groups: workspace.groups, permissionGroups: workspace.permissionGroups })) {
-          throw Object.assign(new Error("Você não tem mais acesso a esta tarefa."), { statusCode: 403 });
+        if (
+          task &&
+          !canViewTask({
+            task,
+            currentUser,
+            employees: workspace.employees,
+            departments: workspace.departments,
+            groups: workspace.groups,
+            permissionGroups: workspace.permissionGroups,
+          })
+        ) {
+          throw Object.assign(new Error("Você não tem mais acesso a esta tarefa."), {
+            statusCode: 403,
+          });
         }
         return task ? taskToMobileTask(task, workspace, currentUser) : undefined;
       };
@@ -2192,7 +2459,12 @@ export async function replaceMobileTasks(
         if (!current) continue; // deletion retries are idempotent
         const base = bases.get(id);
         if (!base || (!syncRequest && changedMobileTaskFields(base, current).length)) {
-          throw Object.assign(new Error("A tarefa que você tentou excluir foi alterada. Atualize e revise a exclusão."), { statusCode: 409 });
+          throw Object.assign(
+            new Error(
+              "A tarefa que você tentou excluir foi alterada. Atualize e revise a exclusão.",
+            ),
+            { statusCode: 409 },
+          );
         }
       }
       tasks = tasks.flatMap((item) => {
@@ -2202,38 +2474,73 @@ export async function replaceMobileTasks(
           const creationId = `native-${account.id}-${item.clientId || item.id}`;
           if (workspace.tasks.some((task) => task.id === creationId)) return [];
           if (item.clientId && workspace.mobileTaskCreationIds?.includes(creationId)) {
-            throw Object.assign(new Error("Esta tarefa foi excluída em outro aparelho. Abra Sincronização para revisar a cópia local."), { statusCode: 409 });
+            throw Object.assign(
+              new Error(
+                "Esta tarefa foi excluída em outro aparelho. Abra Sincronização para revisar a cópia local.",
+              ),
+              { statusCode: 409 },
+            );
           }
           return [item];
         }
         const base = bases.get(item.serverId);
         const current = currentTask(item.serverId);
         if (!current) return []; // a deleted task must never be resurrected
-        if (!base) throw Object.assign(new Error("Atualize esta tarefa antes de enviar alterações."), { statusCode: 409 });
+        if (!base)
+          throw Object.assign(new Error("Atualize esta tarefa antes de enviar alterações."), {
+            statusCode: 409,
+          });
         const changed = changedMobileTaskFields(base, item);
         if (!changed.length) return [];
         const task = workspace.tasks.find((task) => task.id === item.serverId) as NativeTask;
-        const permissions = getTaskPermissions({ task, currentUser, employees: workspace.employees,
-          departments: workspace.departments, groups: workspace.groups, permissionGroups: workspace.permissionGroups });
+        const permissions = getTaskPermissions({
+          task,
+          currentUser,
+          employees: workspace.employees,
+          departments: workspace.departments,
+          groups: workspace.groups,
+          permissionGroups: workspace.permissionGroups,
+        });
         const nativeOwner = task.nativeOwnerId === account.id;
         const denied = changed.some((field) => {
           const key = field as keyof MobileTask;
           if (JSON.stringify(base[key]) === JSON.stringify(item[key])) return false;
           if (field === "reminder") return false;
-          if (field === "completed") return item.completed
-            ? !permissions.canComplete || (item.dueDate > today && !isAdministrator)
-            : !permissions.canReopen;
+          if (field === "completed")
+            return item.completed
+              ? !permissions.canComplete || (item.dueDate > today && !isAdministrator)
+              : !permissions.canReopen;
           if (field === "checklist") return !isAdministrator;
           if (!permissions.canEditContent && !nativeOwner) return true;
-          if (["assignee", "assignees"].includes(field)) return !permissions.canAssign && !nativeOwner;
-          if (["assignmentType", "assignmentTargetId", "assignmentTargetLabel", "department"].includes(field))
+          if (["assignee", "assignees"].includes(field))
+            return !permissions.canAssign && !nativeOwner;
+          if (
+            [
+              "assignmentType",
+              "assignmentTargetId",
+              "assignmentTargetLabel",
+              "department",
+            ].includes(field)
+          )
             return !permissions.canMove && !permissions.canAssign && !nativeOwner;
-          if (field.startsWith("recurrence")) return !permissions.canManageRecurrence && !nativeOwner;
+          if (field.startsWith("recurrence"))
+            return !permissions.canManageRecurrence && !nativeOwner;
           return false;
         });
-        if (denied) throw Object.assign(new Error("Sua permissão não permite aplicar uma das alterações pendentes. Atualize e revise a tarefa."), { statusCode: 403 });
-        return [{ ...reconcileMobileTask(base, item, current, syncRequest ? "arrival" : "conflict"),
-          dateMoveFrom: item.dateMoveFrom, dateMoveScope: item.dateMoveScope }];
+        if (denied)
+          throw Object.assign(
+            new Error(
+              "Sua permissão não permite aplicar uma das alterações pendentes. Atualize e revise a tarefa.",
+            ),
+            { statusCode: 403 },
+          );
+        return [
+          {
+            ...reconcileMobileTask(base, item, current, syncRequest ? "arrival" : "conflict"),
+            dateMoveFrom: item.dateMoveFrom,
+            dateMoveScope: item.dateMoveScope,
+          },
+        ];
       });
     }
 
@@ -2269,7 +2576,9 @@ export async function replaceMobileTasks(
         });
       }
       if ((task as NativeTask).nativeData?.clientId) {
-        workspace.mobileTaskCreationIds = Array.from(new Set([...(workspace.mobileTaskCreationIds ?? []), task.id]));
+        workspace.mobileTaskCreationIds = Array.from(
+          new Set([...(workspace.mobileTaskCreationIds ?? []), task.id]),
+        );
       }
       workspace.tasks.splice(taskIndex, 1);
       deleted += 1;
@@ -2296,9 +2605,12 @@ export async function replaceMobileTasks(
         const task = rawTask as NativeTask;
         return (
           task.id === item.serverId ||
-          (!item.serverId && task.nativeSource === NATIVE_SOURCE &&
+          (!item.serverId &&
+            task.nativeSource === NATIVE_SOURCE &&
             task.nativeOwnerId === account.id &&
-            (item.clientId ? task.nativeData?.clientId === item.clientId : !task.nativeData?.clientId && task.nativeData?.id === item.id))
+            (item.clientId
+              ? task.nativeData?.clientId === item.clientId
+              : !task.nativeData?.clientId && task.nativeData?.id === item.id))
         );
       }) as NativeTask | undefined;
 
@@ -2356,8 +2668,15 @@ export async function replaceMobileTasks(
       // aparelho ou pela divisão de uma série logo acima, neste mesmo envio. Recriá-la como tarefa
       // nova a ressuscitava como série solta, duplicando ocorrências.
       if (!existing && item.serverId) continue;
-      if (!existing && item.clientId && workspace.mobileTaskCreationIds?.includes(`native-${account.id}-${item.clientId}`)) {
-        throw Object.assign(new Error("Esta tarefa foi excluída em outro aparelho. Revise a cópia local."), { statusCode: 409 });
+      if (
+        !existing &&
+        item.clientId &&
+        workspace.mobileTaskCreationIds?.includes(`native-${account.id}-${item.clientId}`)
+      ) {
+        throw Object.assign(
+          new Error("Esta tarefa foi excluída em outro aparelho. Revise a cópia local."),
+          { statusCode: 409 },
+        );
       }
 
       if (existing) {
@@ -2561,7 +2880,9 @@ export async function replaceMobileTasks(
         });
       }
 
-      const usedMobileIds = new Set(workspace.tasks.map((task) => (task as NativeTask).nativeData?.id ?? mobileId(task.id)));
+      const usedMobileIds = new Set(
+        workspace.tasks.map((task) => (task as NativeTask).nativeData?.id ?? mobileId(task.id)),
+      );
       let nativeId = item.id;
       while (usedMobileIds.has(nativeId)) nativeId = nativeId >= 2147483647 ? 1 : nativeId + 1;
       const newTask: NativeTask = {
@@ -2602,15 +2923,19 @@ export async function replaceMobileTasks(
         },
       };
       workspace.tasks.unshift(newTask as Task);
-      if (item.clientId) workspace.mobileTaskCreationIds = [...(workspace.mobileTaskCreationIds ?? []), newTask.id];
+      if (item.clientId)
+        workspace.mobileTaskCreationIds = [...(workspace.mobileTaskCreationIds ?? []), newTask.id];
       requestedTaskOrder.push(newTask.id);
       created += 1;
     }
 
     const tasksById = new Map(workspace.tasks.map((task) => [task.id, task]));
-    const visibleOrderIds = new Set(visibleMobileTasks(workspace, account).map((task) => task.serverId));
-    const liveTaskOrder = [...new Set(baseTasks ? (taskOrder ?? []) : requestedTaskOrder)]
-      .filter((id) => tasksById.has(id) && visibleOrderIds.has(id));
+    const visibleOrderIds = new Set(
+      visibleMobileTasks(workspace, account).map((task) => task.serverId),
+    );
+    const liveTaskOrder = [...new Set(baseTasks ? (taskOrder ?? []) : requestedTaskOrder)].filter(
+      (id) => tasksById.has(id) && visibleOrderIds.has(id),
+    );
     if (liveTaskOrder.length > 1) {
       const orderedIds = new Set(liveTaskOrder);
       let orderedIndex = 0;
@@ -2623,44 +2948,104 @@ export async function replaceMobileTasks(
     }
     // Explicit status commands do not carry an old task snapshot or depend on unrelated
     // drafts, checklist edits, or ordering. Persist the receipt in the SAME transaction.
-    const statusResults: Array<{ mutationId: string; task: ReturnType<typeof taskStatusReceipt>; replayed: boolean }> = [];
+    const statusResults: Array<{
+      mutationId: string;
+      task: ReturnType<typeof taskStatusReceipt>;
+      replayed: boolean;
+    }> = [];
     for (const change of statusChanges) {
-      const task = workspace.tasks.find((item) => item.id === change.serverId) as NativeTask | undefined;
-      if (!task) throw Object.assign(new Error("A tarefa foi removida deste espaço."), { statusCode: 404 });
-      const input = { task, currentUser, employees: workspace.employees, departments: workspace.departments,
-        groups: workspace.groups, permissionGroups: workspace.permissionGroups };
-      if (!canViewTask(input)) throw Object.assign(new Error("Você não tem mais acesso a esta tarefa."), { statusCode: 403 });
+      const task = workspace.tasks.find((item) => item.id === change.serverId) as
+        | NativeTask
+        | undefined;
+      if (!task)
+        throw Object.assign(new Error("A tarefa foi removida deste espaço."), { statusCode: 404 });
+      const input = {
+        task,
+        currentUser,
+        employees: workspace.employees,
+        departments: workspace.departments,
+        groups: workspace.groups,
+        permissionGroups: workspace.permissionGroups,
+      };
+      if (!canViewTask(input))
+        throw Object.assign(new Error("Você não tem mais acesso a esta tarefa."), {
+          statusCode: 403,
+        });
       const previous = workspace.mobileTaskStatusMutations?.[change.mutationId];
       if (previous) {
-        if (previous.actorId !== account.id || previous.taskId !== task.id || previous.completed !== change.completed) {
-          throw Object.assign(new Error("A confirmação desta alteração não corresponde à tarefa."), { statusCode: 409 });
+        if (
+          previous.actorId !== account.id ||
+          previous.taskId !== task.id ||
+          previous.completed !== change.completed
+        ) {
+          throw Object.assign(
+            new Error("A confirmação desta alteração não corresponde à tarefa."),
+            { statusCode: 409 },
+          );
         }
-        statusResults.push({ mutationId: change.mutationId, task: taskStatusReceipt(task, workspace, currentUser), replayed: true });
+        statusResults.push({
+          mutationId: change.mutationId,
+          task: taskStatusReceipt(task, workspace, currentUser),
+          replayed: true,
+        });
         continue;
       }
       const permissions = getTaskPermissions(input);
       if (change.completed && task.status !== "completed") {
-        if (!permissions.canComplete) throw Object.assign(new Error("Seu acesso não permite concluir esta tarefa."), { statusCode: 403 });
+        if (!permissions.canComplete)
+          throw Object.assign(new Error("Seu acesso não permite concluir esta tarefa."), {
+            statusCode: 403,
+          });
         if (task.dueDate > today && !permissions.canCompleteAnytime) {
-          throw Object.assign(new Error("Somente o administrador pode concluir antes da data."), { statusCode: 403 });
+          throw Object.assign(new Error("Somente o administrador pode concluir antes da data."), {
+            statusCode: 403,
+          });
         }
-        task.status = task.requiresReview && !permissions.canApproveReview && permissions.reviewManagerId !== account.id
-          ? "waiting_review" : "completed";
-      } else if (!change.completed && (task.status === "completed" || task.status === "waiting_review")) {
-        if (!permissions.canReopen) throw Object.assign(new Error("Seu acesso não permite reabrir esta tarefa."), { statusCode: 403 });
+        task.status =
+          task.requiresReview &&
+          !permissions.canApproveReview &&
+          permissions.reviewManagerId !== account.id
+            ? "waiting_review"
+            : "completed";
+      } else if (
+        !change.completed &&
+        (task.status === "completed" || task.status === "waiting_review")
+      ) {
+        if (!permissions.canReopen)
+          throw Object.assign(new Error("Seu acesso não permite reabrir esta tarefa."), {
+            statusCode: 403,
+          });
         task.status = task.status === "waiting_review" ? "reopened" : "pending";
       }
       if (task.nativeData) task.nativeData.completed = task.status === "completed";
       workspace.mobileTaskStatusMutations ??= {};
-      workspace.mobileTaskStatusMutations[change.mutationId] = { actorId: account.id, taskId: task.id, completed: change.completed };
-      statusResults.push({ mutationId: change.mutationId, task: taskStatusReceipt(task, workspace, currentUser), replayed: false });
+      workspace.mobileTaskStatusMutations[change.mutationId] = {
+        actorId: account.id,
+        taskId: task.id,
+        completed: change.completed,
+      };
+      statusResults.push({
+        mutationId: change.mutationId,
+        task: taskStatusReceipt(task, workspace, currentUser),
+        replayed: false,
+      });
       updated += 1;
     }
     if (syncRequest) {
       workspace.mobileTaskSyncMutations ??= {};
-      workspace.mobileTaskSyncMutations[syncRequest.mutationId] = { actorId: account.id, digest: requestDigest! };
+      workspace.mobileTaskSyncMutations[syncRequest.mutationId] = {
+        actorId: account.id,
+        digest: requestDigest!,
+      };
     }
-    return { ok: true, count: created + updated + deleted, created, updated, deleted, statusResults,
-      ...(syncRequest ? { mutationId: syncRequest.mutationId, replayed: false } : {}) };
+    return {
+      ok: true,
+      count: created + updated + deleted,
+      created,
+      updated,
+      deleted,
+      statusResults,
+      ...(syncRequest ? { mutationId: syncRequest.mutationId, replayed: false } : {}),
+    };
   });
 }

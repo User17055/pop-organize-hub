@@ -268,9 +268,15 @@ async function principal() {
   // 2. Assinaturas dos ultimos builds, com o quadro culpado do primeiro log
   const assinaturas = [];
   for (const b of builds) {
-    const lista = await api.listarTudo(
-      `/v1/builds/${b.id}/diagnosticSignatures?fields[diagnosticSignatures]=diagnosticType,signature,weight&limit=50`,
-    );
+    let lista = [];
+    try {
+      lista = await api.listarTudo(
+        `/v1/builds/${b.id}/diagnosticSignatures?fields[diagnosticSignatures]=diagnosticType,signature,weight&limit=50`,
+      );
+    } catch (erro) {
+      // Build so do TestFlight ou sem uso na loja: a Apple responde 404, nao lista vazia.
+      if (erro.status !== 404) throw erro;
+    }
     for (const s of lista
       .sort((x, y) => (y.attributes?.weight ?? 0) - (x.attributes?.weight ?? 0))
       .slice(0, 10)) {

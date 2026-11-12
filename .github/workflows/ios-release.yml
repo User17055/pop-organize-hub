@@ -169,5 +169,8 @@ jobs:
         run: |
           set -e
           ipa="$(ls "$RUNNER_TEMP"/export/*.ipa | head -1)"
+          # O altool sai com 0 mesmo quando a Apple recusa o envio (build 21, 12/11):
+          # so conta como enviado se ele disser UPLOAD SUCCEEDED.
           xcrun altool --upload-app -f "$ipa" -t ios \
-            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID"
+            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID" 2>&1 | tee "$RUNNER_TEMP/altool.log"
+          grep -q "UPLOAD SUCCEEDED" "$RUNNER_TEMP/altool.log"

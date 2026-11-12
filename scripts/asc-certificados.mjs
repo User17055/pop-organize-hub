@@ -76,15 +76,15 @@ async function principal() {
   });
 
   const certificados = await listar(token);
+  const alvo = deixadosPeloCi(certificados);
+  // O log do Actions e publico: o nome de certificado que nao e do CI leva a razao social.
   console.log(`Certificados na conta: ${certificados.length}`);
   for (const c of certificados) {
     const a = c.attributes ?? {};
-    console.log(
-      `  ${c.id}  ${a.certificateType}  ${a.name ?? ""}  vence ${a.expirationDate ?? "?"}`,
-    );
+    const nome = alvo.includes(c) ? a.name : "(nome omitido)";
+    console.log(`  ${c.id}  ${a.certificateType}  ${nome}  vence ${a.expirationDate ?? "?"}`);
   }
 
-  const alvo = deixadosPeloCi(certificados);
   console.log(`Deixados pelo CI (desenvolvimento, "${MARCA_DO_CI}"): ${alvo.length}`);
   if (!revogar) {
     console.log("Sem --revogar: nada foi alterado.");

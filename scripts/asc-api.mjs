@@ -81,7 +81,21 @@ export function criarCliente(credenciais, { fazerFetch = fetch, agora = () => Da
     return todos;
   }
 
-  return { chamar, listarTudo };
+  // Igual ao listarTudo, guardando tambem os recursos de "included" (pedidos com include=).
+  async function listarComIncluidos(caminho) {
+    const data = [];
+    const included = [];
+    let proxima = caminho;
+    while (proxima) {
+      const pagina = await chamar("GET", proxima);
+      data.push(...(pagina.data ?? []));
+      included.push(...(pagina.included ?? []));
+      proxima = pagina.links?.next ?? null;
+    }
+    return { data, included };
+  }
+
+  return { chamar, listarTudo, listarComIncluidos };
 }
 
 // A Apple responde { errors: [{ code, title, detail }] }. So o codigo e o titulo vao para o log:

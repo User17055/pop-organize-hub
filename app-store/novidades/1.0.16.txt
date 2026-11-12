@@ -1,0 +1,7 @@
+• Tarefa atrasada agora pode ser justificada: "vou fazer depois" ou "não será feita". Dá para editar e reabrir, e cada mudança fica registrada nos comentários.
+• Os anexos das tarefas abrem direto no aplicativo.
+• Início renovado: os números levam à lista filtrada, há um resumo por setor e o calendário ficou mais claro.
+• Na Equipe, convites pendentes podem ser cancelados, e o setor e a função de cada pessoa podem ser trocados.
+• Gestores de setor acompanham as tarefas do próprio setor.
+• Os links de Termos de uso, Privacidade e suporte voltaram a abrir.
+• Telas de boas-vindas mais leves.

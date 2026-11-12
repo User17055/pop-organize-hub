@@ -9,6 +9,9 @@ name: App Store Connect (avulso)
 #   testflight    leva o build informado ate os testadores: espera o processamento, confere a
 #                 criptografia, grava o "O que testar" e libera para os grupos internos. O
 #                 ios-release.yml ja faz isso sozinho no fim de cada envio.
+#   loja          prepara a versao da App Store (versao do projeto, lancamento MANUAL): anexa o
+#                 build informado, grava os textos de app-store/ e as informacoes de revisao
+#                 (secret APPSTORE_REVISAO). So envia para a revisao com "enviar_revisao".
 #
 # O nome do arquivo ficou o antigo de proposito: workflow_dispatch so aparece para arquivo que
 # existe no branch padrao, e assim da para rodar a versao de outro branch antes do merge.
@@ -24,19 +27,29 @@ on:
         options:
           - certificados
           - testflight
+          - loja
       aplicar:
         description: "Aplicar as mudancas (sem isto, so le e mostra o que faria)"
         required: false
         default: false
         type: boolean
       build:
-        description: "testflight: numero do build (ex.: 22)"
+        description: "testflight/loja: numero do build (ex.: 22)"
         required: false
         type: string
       o_que_testar:
         description: "testflight: texto do O que testar (pt-BR); vazio = nao mexe"
         required: false
         type: string
+      versao:
+        description: "loja: versao (vazio = a do projeto Xcode)"
+        required: false
+        type: string
+      enviar_revisao:
+        description: "loja: depois de preencher, ENVIAR para a revisao da Apple (lancamento continua manual)"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   asc:
@@ -58,12 +71,15 @@ jobs:
           APLICAR: ${{ inputs.aplicar }}
           BUILD: ${{ inputs.build }}
           O_QUE_TESTAR: ${{ inputs.o_que_testar }}
+          ENVIAR_REVISAO: ${{ inputs.enviar_revisao }}
+          VERSAO: ${{ inputs.versao }}
+          APPSTORE_REVISAO: ${{ secrets.APPSTORE_REVISAO }}
         run: |
           set -e
           KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
           echo "$APPSTORE_API_PRIVATE_KEY" | base64 --decode > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
-          export KEY_PATH O_QUE_TESTAR
+          export KEY_PATH O_QUE_TESTAR APPSTORE_REVISAO
           trap 'rm -f "$KEY_PATH"' EXIT
           case "$TAREFA" in
             certificados)
@@ -73,5 +89,12 @@ jobs:
               # Lendo, nao espera o processamento: mostra o estado de agora.
               if [ "$APLICAR" = "true" ]; then node scripts/asc-testflight.mjs --build "$BUILD" --aplicar
               else node scripts/asc-testflight.mjs --build "$BUILD" --esperar-min 0; fi ;;
+            loja)
+              extra=()
+              if [ -n "$BUILD" ]; then extra+=(--build "$BUILD"); fi
+              if [ -n "$VERSAO" ]; then extra+=(--versao "$VERSAO"); fi
+              if [ "$ENVIAR_REVISAO" = "true" ]; then node scripts/asc-loja.mjs "${extra[@]}" --enviar-revisao
+              elif [ "$APLICAR" = "true" ]; then node scripts/asc-loja.mjs "${extra[@]}" --aplicar
+              else node scripts/asc-loja.mjs "${extra[@]}" --mostrar-textos; fi ;;
             *) echo "::error::tarefa desconhecida: $TAREFA"; exit 1 ;;
           esac

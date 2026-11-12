@@ -1,0 +1,25 @@
+{
+  "package": "br.com.poporganize.app",
+  "versionName": "1.0.15",
+  "versionCode": 18,
+  "debuggable": false,
+  "targetSdk": 36,
+  "previewComponentsAbsent": true,
+  "productionAPI": true,
+  "native16KVerified": [
+    ".apk:lib/arm64-v8a/libandroidx.graphics.path.so",
+    ".apk:lib/x86_64/libandroidx.graphics.path.so",
+    ".aab:base/lib/arm64-v8a/libandroidx.graphics.path.so",
+    ".aab:base/lib/x86_64/libandroidx.graphics.path.so"
+  ],
+  "artifacts": {
+    "Pop-Organize-1.0.15-build18.aab": {
+      "bytes": 15462429,
+      "sha256": "6dcc7bff0b239908f0d0e14239fc047f5c6378957d4a294cc64a7632e860bd48"
+    },
+    "Pop-Organize-1.0.15-build18.apk": {
+      "bytes": 12202795,
+      "sha256": "fe482c09ed6d91321d1b94732de29f21e30da9ed9bb081f54838ac58d92d7cc3"
+    }
+  }
+}

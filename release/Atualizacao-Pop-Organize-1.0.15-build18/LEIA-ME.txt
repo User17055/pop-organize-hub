@@ -1,0 +1,13 @@
+POP ORGANIZE — ATUALIZAÇÃO 1.0.15 (BUILD 18)
+
+Para atualizar na Google Play, envie este arquivo:
+Pop-Organize-1.0.15-build18.aab
+
+As notas para copiar na publicação estão em:
+Pop-Organize-1.0.15-build18-notas.txt
+
+O APK é a cópia de produção para instalação direta; não é o arquivo para enviar à Google Play.
+O arquivo mapping.txt é o mapeamento de diagnóstico do R8 e já está incorporado no AAB.
+Os arquivos publicacao.md e verificacao.json registram as validações e os hashes.
+
+Estes arquivos estão somente no computador. Nenhum envio à Google Play foi realizado.

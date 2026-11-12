@@ -8,7 +8,7 @@ const durationSource = await readFile(new URL("../src/lib/task-duration.ts", imp
 const durationJS = ts.transpileModule(durationSource, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
 const durationURL = `data:text/javascript;base64,${Buffer.from(durationJS).toString("base64")}`;
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText.replace('"./task-duration"', JSON.stringify(durationURL));
-const { reconcileMobileTask, changedMobileTaskFields } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+const { reconcileMobileTask, changedMobileTaskFields, reconcileMobileOrganization } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
 const base = { serverId: "t1", title: "Original", description: "", dueDate: "2026-11-11", dueLabel: "Hoje",
   assignmentType: "user", assignmentTargetId: "u1", assignees: ["Ana"], checklist: [], attachmentName: "", canEdit: true };
 
@@ -18,6 +18,20 @@ test("a local edit preserves unrelated website changes", () => {
 });
 test("competing changes reject atomically with HTTP 409", () => {
   assert.throws(() => reconcileMobileTask(base, { ...base, title: "Local" }, { ...base, title: "Site" }), { statusCode: 409 });
+});
+
+test("arrival policy accepts the arriving edit while preserving untouched server fields", () => {
+  const merged = reconcileMobileTask(base, {...base,title:"Celular"}, {...base,title:"Site",description:"Outra edição"}, "arrival");
+  assert.equal(merged.title,"Celular");
+  assert.equal(merged.description,"Outra edição");
+});
+
+test("arrival organization edits preserve newly created remote folders and untouched fields", () => {
+  const base = {folders:[{id:"f1",name:"Antes",position:0}],lists:[]};
+  const local = {folders:[{id:"f1",name:"Celular",position:0}],lists:[]};
+  const remote = {folders:[{id:"f1",name:"Site",position:3},{id:"f2",name:"Novo",position:1}],lists:[]};
+  assert.deepEqual(reconcileMobileOrganization(base,local,remote).folders,
+    [{id:"f1",name:"Celular",position:3},{id:"f2",name:"Novo",position:1}]);
 });
 test("a lost upload response can be retried without conflict", () => {
   const local = { ...base, title: "Local" };

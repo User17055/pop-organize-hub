@@ -21,7 +21,7 @@ internal object TaskStatusOutbox {
     private fun cacheKey(account: String, workspace: String) = if (workspace.isBlank()) "pop_organize_account_tasks_$account" else "pop_organize_company_tasks_${account}_$workspace"
     private fun dirtyKey(account: String, workspace: String) = if (workspace.isBlank()) "pop_organize_account_tasks_dirty_$account" else "pop_organize_company_tasks_dirty_${account}_$workspace"
     private fun prefs(context: Context) = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-    private fun durableCommit(p: SharedPreferences, editor: SharedPreferences.Editor, keys: List<String>): Boolean {
+    internal fun durableCommit(p: SharedPreferences, editor: SharedPreferences.Editor, keys: List<String>): Boolean {
         val previous = p.all.filterKeys { it in keys }
         if (editor.commit()) return true
         // SharedPreferences changes its in-memory values even if the disk write fails.
@@ -59,6 +59,7 @@ internal object TaskStatusOutbox {
         val latest = pending.filter { it.accountId == account && it.workspaceId == workspace && !it.blocked }.associateBy { it.serverId }
         val confirmed = (0 until acknowledgements.length()).map { acknowledgements.getJSONObject(it) }
             .filter { it.getString("accountId") == account && it.getString("workspaceId") == workspace }.associateBy { it.getString("serverId") }
+        if (latest.isEmpty() && confirmed.isEmpty()) return raw
         val result = JSONArray(raw.toString())
         repeat(result.length()) { i ->
             val task = result.getJSONObject(i)
@@ -80,6 +81,13 @@ internal object TaskStatusOutbox {
     }
     fun saveCache(context: Context, account: String, workspace: String, tasks: JSONArray) = synchronized(storageLock) {
         prefs(context).edit().putString(cacheKey(account, workspace), protect(context, account, workspace, tasks).toString()).apply()
+    }
+    fun saveContentChange(context: Context, account: String, workspace: String, tasks: JSONArray) = synchronized(storageLock) {
+        val p = prefs(context)
+        check(durableCommit(p, p.edit().putString(cacheKey(account, workspace), protect(context, account, workspace, tasks).toString())
+            .putBoolean(dirtyKey(account, workspace), true), listOf(cacheKey(account, workspace), dirtyKey(account, workspace)))) {
+            "Não foi possível salvar a alteração no aparelho."
+        }
     }
     fun enqueue(context: Context, account: String, workspace: String, task: JSONObject, localTasks: JSONArray) {
         synchronized(storageLock) {

@@ -65,6 +65,10 @@ class PopStoreSyncTest {
     }
     @Test fun editsMadeWhileDownloadIsInFlightArePreserved() = runBlocking {
         val platform = Platform(initial()); val started = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+        platform.put = { _, _ ->
+            platform.tasksResponse = json.encodeToString(ApiTasksResponse(listOf(api.copy(completed = true))))
+            ApiResponse(200, "{\"ok\":true}")
+        }
         platform.get = { started.complete(Unit); release.await(); ApiResponse(200, platform.tasksResponse) }
         val testScope = CoroutineScope(Dispatchers.Unconfined)
         val store = PopStore(platform, testScope)

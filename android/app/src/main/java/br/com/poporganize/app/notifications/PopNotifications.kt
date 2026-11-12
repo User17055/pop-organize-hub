@@ -110,9 +110,12 @@ fun saveNotificationTaskSnapshot(context: Context, tasks: List<NotificationTaskS
                 .put("completed", task.completed),
         )
     }
-    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    val serialized = json.toString()
+    if (preferences.getString(TASK_SNAPSHOT, null) == serialized) return
+    preferences
         .edit()
-        .putString(TASK_SNAPSHOT, json.toString())
+        .putString(TASK_SNAPSHOT, serialized)
         .apply()
     scheduleTaskReminders(context, tasks)
 }

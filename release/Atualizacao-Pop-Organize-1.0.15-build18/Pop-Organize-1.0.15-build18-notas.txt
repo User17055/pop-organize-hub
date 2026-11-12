@@ -1,0 +1,7 @@
+<pt-BR>
+Melhorias de desempenho e estabilidade ao carregar e atualizar tarefas.
+Atualização automática das tarefas compartilhadas entre o site e os aparelhos.
+Alterações feitas sem internet ficam salvas e são enviadas ao reconectar.
+Calendário com os modos Padrão e Agenda de horas, zoom por pinça e ajustes nos cartões, prioridades e indicador da hora atual.
+Ícones de recorrência, descrição e anexo nos cartões da agenda.
+</pt-BR>

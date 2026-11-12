@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import process from "node:process";
 import mysql from "mysql2/promise";
 import { OAuth2Client } from "google-auth-library";
+import { notifyTaskUpdate } from "./mobile-task-updates.server";
 
 import {
   nextId,
@@ -1045,6 +1046,7 @@ export async function readDatabase(): Promise<PlatformDatabase> {
 export async function saveDatabase(db: PlatformDatabase) {
   const mysql = getMysqlPool();
   await saveMysqlDatabase(mysql, db);
+  notifyTaskUpdate();
 }
 
 export async function mutateDatabase<T>(mutator: (db: PlatformDatabase) => T | Promise<T>) {
@@ -1066,6 +1068,7 @@ export async function mutateDatabase<T>(mutator: (db: PlatformDatabase) => T | P
       MYSQL_STATE_ID,
     ]);
     await connection.commit();
+    notifyTaskUpdate();
     return result;
   } catch (error) {
     await connection.rollback();

@@ -303,6 +303,49 @@ await check('um comando reabrir devolve o mesmo estado aos dois responsáveis',a
   assert.equal((await readMobileTasks(request(employeeToken))).find(t=>t.serverId==='t2458').completed,false);
 });
 
+await check('chegada à VPS prevalece por campo sem reenviar uma cópia inteira',async()=>{
+  const {task}=await create(999999870);
+  const first={...task,title:'Primeiro envio'};
+  const second={...task,title:'Último envio'};
+  await replaceMobileTasks(request(),[first],[],[task],undefined,undefined,[],{mutationId:randomUUID(),policy:'arrival'});
+  raw(task.serverId).description='Descrição alterada no site';
+  await replaceMobileTasks(request(),[second],[],[task],undefined,undefined,[],{mutationId:randomUUID(),policy:'arrival'});
+  assert.equal(raw(task.serverId).title,'Último envio');
+  assert.equal(raw(task.serverId).description,'Descrição alterada no site');
+});
+await check('repetir envio cuja resposta se perdeu não desfaz edição posterior',async()=>{
+  const {task}=await create(999999871);
+  const first={...task,title:'Celular A'},second={...task,title:'Celular B'};
+  const id=randomUUID();
+  await replaceMobileTasks(request(),[first],[],[task],undefined,undefined,[],{mutationId:id,policy:'arrival'});
+  await replaceMobileTasks(request(),[second],[],[task],undefined,undefined,[],{mutationId:randomUUID(),policy:'arrival'});
+  const replay=await replaceMobileTasks(request(),[first],[],[task],undefined,undefined,[],{mutationId:id,policy:'arrival'});
+  assert.equal(replay.replayed,true);
+  assert.equal(raw(task.serverId).title,'Celular B');
+  await assert.rejects(replaceMobileTasks(request(),[{...first,title:'Conteúdo trocado'}],[],[task],undefined,undefined,[],{mutationId:id,policy:'arrival'}),{statusCode:409});
+});
+await check('exclusão explícita recebida por último respeita a política e sua confirmação',async()=>{
+  const {task}=await create(999999872);
+  raw(task.serverId).title='Alterado antes da exclusão';
+  const id=randomUUID();
+  await replaceMobileTasks(request(),[],[task.serverId],[task],undefined,undefined,[],{mutationId:id,policy:'arrival'});
+  assert.equal(raw(task.serverId),undefined);
+  const replay=await replaceMobileTasks(request(),[],[task.serverId],[task],undefined,undefined,[],{mutationId:id,policy:'arrival'});
+  assert.equal(replay.replayed,true);
+});
+await check('pastas mantêm alterações não concorrentes e não reaplicam envio antigo',async()=>{
+  const before=await readMobileTaskOrganization(request());
+  const first={folders:[...before.folders,{id:'folder-arrival-a',name:'Primeiro nome',position:20}],lists:before.lists};
+  const id=randomUUID();
+  await replaceMobileTaskOrganization(request(),first,before,{mutationId:id,policy:'arrival'});
+  const current=await readMobileTaskOrganization(request());
+  const later={...current,folders:current.folders.map(row=>row.id==='folder-arrival-a'?{...row,name:'Nome posterior'}:row)};
+  await replaceMobileTaskOrganization(request(),later,current,{mutationId:randomUUID(),policy:'arrival'});
+  const replay=await replaceMobileTaskOrganization(request(),first,before,{mutationId:id,policy:'arrival'});
+  assert.equal(replay.replayed,true);
+  assert.equal((await readMobileTaskOrganization(request())).folders.find(row=>row.id==='folder-arrival-a').name,'Nome posterior');
+});
+
 globalThis.syncAudit=undefined;
 assert.ok(!(await readDatabase()).sessions.some(s=>s.id?.startsWith(auditId)));
 console.log(JSON.stringify({passed:results.length,scenarios:results,persistentWrites:writes}));

@@ -60,7 +60,7 @@ fun reconcileTaskFields(
             else -> canEdit
         }
         // A successful submission may have become the base while the user edited again.
-        val effectiveBase = if (submitted != null && sameTaskFields(submitted, remote, group)) remote else base
+        val effectiveBase = submitted ?: base
         if (allowed && !sameTaskFields(effectiveBase, local, group) && !sameTaskFields(local, remote, group)) {
             for (key in group) {
                 local[key]?.let { task[key] = it }

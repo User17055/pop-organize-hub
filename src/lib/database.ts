@@ -75,6 +75,7 @@ export type Database = {
   taskLists: TaskListDefinition[];
   mobileTaskCreationIds?: string[];
   mobileTaskStatusMutations?: Record<string, { actorId: string; taskId: string; completed: boolean }>;
+  mobileTaskSyncMutations?: Record<string, { actorId: string; digest: string }>;
   permissionGroups: PermissionGroup[];
   sessions: SessionRecord[];
   invitations: InvitationRecord[];

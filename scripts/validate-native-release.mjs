@@ -1,6 +1,7 @@
 import { hostname } from "node:os";
 
 const mode = process.argv[2] ?? "store";
+const platform = process.argv[3] ?? "all";
 const apiBaseUrl = process.env.POP_API_BASE_URL ?? "https://app.poporganize.com.br/api/mobile";
 const privateIpv4Patterns = [
   /^10\./,
@@ -15,6 +16,8 @@ function fail(message) {
   console.error(`Native release validation failed: ${message}`);
   process.exit(1);
 }
+
+if (!["all", "android"].includes(platform)) fail("platform must be all or android.");
 
 function isPrivateHost(host) {
   const normalized = host.toLowerCase();
@@ -44,8 +47,6 @@ if (mode === "store") {
   const { existsSync, readFileSync } = await import("node:fs");
   const androidGradle = readFileSync("android/app/build.gradle", "utf8");
   const androidVariables = readFileSync("android/variables.gradle", "utf8");
-  const xcodeProject = readFileSync("ios/App/App.xcodeproj/project.pbxproj", "utf8");
-  const entitlements = readFileSync("ios/App/App/App.entitlements", "utf8");
   if (!/targetSdkVersion\s*=\s*36/.test(androidVariables)) {
     fail("Android store builds must target API 36.");
   }
@@ -64,6 +65,12 @@ if (mode === "store") {
   if (!existsSync("android/keystore.properties") && !hasSigningEnvironment) {
     fail("configure android/keystore.properties or the POP_ANDROID_* signing variables.");
   }
+  if (platform === "android") {
+    console.log("Android release environment validation passed.");
+    process.exit(0);
+  }
+  const xcodeProject = readFileSync("ios/App/App.xcodeproj/project.pbxproj", "utf8");
+  const entitlements = readFileSync("ios/App/App/App.entitlements", "utf8");
   if (!xcodeProject.includes("https://app.poporganize.com.br/api/mobile")) {
     fail("the iOS Release API URL is not configured.");
   }

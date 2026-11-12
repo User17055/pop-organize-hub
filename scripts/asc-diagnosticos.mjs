@@ -333,7 +333,15 @@ async function principal() {
   const arquivo = path.join(args.saida, "saude-do-app.md");
   fs.writeFileSync(arquivo, relatorio);
 
-  // So contagens no log publico.
+  // So contagens no log publico. As cruas (antes de filtro) separam "sem volume" de "li errado".
+  const categorias = (xcode?.productData ?? []).reduce(
+    (n, p) => n + (p.metricCategories?.length ?? 0),
+    0,
+  );
+  console.log(
+    `Cru: ${xcode?.productData?.length ?? "sem productData"} produto(s), ${categorias} categoria(s) de metrica; ` +
+      `${envios.length} crash(es) do TestFlight no total; ${builds.length} build(s) lido(s).`,
+  );
   const resumo =
     `Metricas: ${metricas.length} linha(s). Assinaturas: ${assinaturas.length}. ` +
     `Crashes do TestFlight em ${args.dias} dias: ${crashes.length}. Relatorio: ${arquivo}`;

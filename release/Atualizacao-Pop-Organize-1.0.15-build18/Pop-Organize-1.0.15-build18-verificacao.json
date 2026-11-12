@@ -14,12 +14,18 @@
   ],
   "artifacts": {
     "Pop-Organize-1.0.15-build18.aab": {
-      "bytes": 15462429,
-      "sha256": "6dcc7bff0b239908f0d0e14239fc047f5c6378957d4a294cc64a7632e860bd48"
+      "bytes": 15782146,
+      "sha256": "d2bca30e7f8c466ce9a9d4d6f6c3e0e6392ddb9133e151e3a8d535a53ae32c1e"
     },
     "Pop-Organize-1.0.15-build18.apk": {
-      "bytes": 12202795,
-      "sha256": "fe482c09ed6d91321d1b94732de29f21e30da9ed9bb081f54838ac58d92d7cc3"
+      "bytes": 12522526,
+      "sha256": "1698063bd5b6481f34c3bc4c73716c364c7f82b721037aa4179a8d663118b3b3"
     }
-  }
+  },
+  "sourceCommit": "d543c31229a7d5e01844405dd19d41dbdaf4532a",
+  "regeneratedAfterMerge": true,
+  "uploadCertificateSha256": "15ad0895bde195be2097664b3c1aaebe07d8131fb9a48ecbc139e0cbd44f8334",
+  "signatureMatchesPreviousBuild": true,
+  "bundletoolValidated": true,
+  "apk16KZipAlignment": true
 }

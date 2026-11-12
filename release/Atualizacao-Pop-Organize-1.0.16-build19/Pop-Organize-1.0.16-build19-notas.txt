@@ -1,0 +1,3 @@
+Horário de início e término no mesmo seletor, com duração calculada automaticamente.
+Calendário para selecionar a data de conclusão das atividades.
+Assinatura LisonTech nas configurações.

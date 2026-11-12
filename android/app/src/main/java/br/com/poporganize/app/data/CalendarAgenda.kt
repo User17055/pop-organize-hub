@@ -35,6 +35,18 @@ internal fun taskEndTime(start: String, duration: String): String? {
     return agendaTimeLabel(end) + if (end >= 1440) " +1" else ""
 }
 
+/** Earlier end times belong to the next day; equal times require an explicit full day. */
+internal fun taskDurationFromEndTime(start: String, end: String, fullDay: Boolean = false): Int? {
+    val first = agendaMinute(start) ?: return null
+    val last = agendaMinute(end) ?: return null
+    val difference = last - first
+    return (if (difference < 0 || difference == 0 && fullDay) difference + 1440 else difference)
+        .takeIf { it in 1..1440 }
+}
+
+internal fun taskScheduleLabel(start: String, duration: String): String =
+    if (start.isBlank()) "Sem horário" else start + (taskEndTime(start, duration)?.let { " até $it" } ?: "")
+
 internal data class AgendaInterval<T>(val key: String, val task: T, val startMinute: Int, val durationMinutes: Int)
 internal data class AgendaPlacement<T>(val interval: AgendaInterval<T>, val column: Int, val columns: Int)
 

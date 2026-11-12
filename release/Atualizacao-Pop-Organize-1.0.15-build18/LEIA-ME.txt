@@ -11,3 +11,5 @@ O arquivo mapping.txt é o mapeamento de diagnóstico do R8 e já está incorpor
 Os arquivos publicacao.md e verificacao.json registram as validações e os hashes.
 
 Estes arquivos estão somente no computador. Nenhum envio à Google Play foi realizado.
+
+Pacotes regenerados após o merge d543c31. Use os arquivos atualizados desta pasta.

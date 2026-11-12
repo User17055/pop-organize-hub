@@ -1,0 +1,14 @@
+﻿{
+    "package":  "br.com.poporganize.app.teste",
+    "versionName":  "1.0.16-teste",
+    "versionCode":  45,
+    "buildType":  "performance",
+    "debuggable":  false,
+    "installedDevice":  "RQCY600X7WJ",
+    "coldLaunchMs":  362,
+    "sha256":  "94800c3e13732281ddbb695bfabcd793eb65d3d130ef49b6ea52fa436b530a2c",
+    "kotlinTestsPassed":  65,
+    "scheduleDeviceTestsPassed":  1,
+    "developerSignatureVisuallyChecked":  true,
+    "published":  false
+}

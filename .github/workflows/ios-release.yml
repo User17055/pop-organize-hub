@@ -86,6 +86,16 @@ jobs:
           cp ~/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8 ~/.appstoreconnect/private_keys/
           chmod 600 ~/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
 
+      # Cada maquina do CI cria um "Apple Development: Created via API" e leva a chave embora; o
+      # proximo archive acha esse certificado e para em "Revoke certificate". Revoga so esses
+      # (desenvolvimento + marca do CI), nunca distribuicao nem certificado de pessoa.
+      - name: Revogar certificados de desenvolvimento deixados pelo CI
+        continue-on-error: true
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: KEY_PATH=~/private_keys/AuthKey_${KEY_ID}.p8 node scripts/asc-certificados.mjs --revogar
+
       - name: Gerar o Archive assinado
         env:
           TEAM_ID: ${{ secrets.APPSTORE_TEAM_ID }}
@@ -169,5 +179,16 @@ jobs:
         run: |
           set -e
           ipa="$(ls "$RUNNER_TEMP"/export/*.ipa | head -1)"
+          # O altool sai com 0 mesmo quando a Apple recusa o envio (build 21, 12/11):
+          # so conta como enviado se ele disser UPLOAD SUCCEEDED.
           xcrun altool --upload-app -f "$ipa" -t ios \
-            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID"
+            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID" 2>&1 | tee "$RUNNER_TEMP/altool.log"
+          grep -q "UPLOAD SUCCEEDED" "$RUNNER_TEMP/altool.log"
+
+      - name: Revogar o certificado de desenvolvimento desta execucao
+        if: always()
+        continue-on-error: true
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: KEY_PATH=~/private_keys/AuthKey_${KEY_ID}.p8 node scripts/asc-certificados.mjs --revogar

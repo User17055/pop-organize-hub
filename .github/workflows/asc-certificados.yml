@@ -1,0 +1,45 @@
+name: Certificados da Apple (App Store Connect)
+
+# Lista os certificados da conta e, se pedido, revoga os de desenvolvimento que o CI deixou
+# ("Apple Development: Created via API"). Roda em Linux, em cerca de um minuto, sem Mac.
+# O ios-release.yml faz a mesma limpeza sozinho antes e depois do archive; este serve para
+# conferir ou destravar sem gastar um build.
+
+on:
+  workflow_dispatch:
+    inputs:
+      revogar:
+        description: "Revogar os certificados de desenvolvimento criados pelo CI (sem isto, so lista)"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  certificados:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Listar (e revogar, se pedido)
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          REVOGAR: ${{ inputs.revogar }}
+        run: |
+          set -e
+          KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          echo "$APPSTORE_API_PRIVATE_KEY" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          export KEY_PATH
+          if [ "$REVOGAR" = "true" ]; then
+            node scripts/asc-certificados.mjs --revogar
+          else
+            node scripts/asc-certificados.mjs
+          fi
+          rm -f "$KEY_PATH"

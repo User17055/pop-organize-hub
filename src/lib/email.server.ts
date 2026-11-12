@@ -83,6 +83,43 @@ export async function sendVerificationCode(
   return {};
 }
 
+// Aviso interno (webhook da App Store Connect). Texto puro, sem dado de cliente.
+export async function sendInternalNotice(to: string[], subject: string, text: string) {
+  const host = process.env.SMTP_HOST?.trim() || "email-ssl.com.br";
+  const port = Number(process.env.SMTP_PORT || 465);
+  const secure = (process.env.SMTP_SECURE || "true").toLowerCase() !== "false";
+  const user = process.env.SMTP_USER?.trim();
+  const password = process.env.SMTP_PASSWORD;
+  const from = process.env.EMAIL_FROM?.trim() || user;
+
+  if (!user || !password || !from) {
+    if (process.env.NODE_ENV === "production") {
+      throw Object.assign(new Error("O envio de e-mail ainda não foi configurado."), {
+        statusCode: 503,
+      });
+    }
+    console.info(`[Pop Organize] Aviso interno para ${to.join(", ")}: ${subject}\n${text}`);
+    return { delivered: false };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: { user, pass: password },
+    connectionTimeout: 15_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 20_000,
+  });
+
+  try {
+    await transporter.sendMail({ from: `Pop Organize <${from}>`, to, subject, text });
+  } finally {
+    transporter.close();
+  }
+  return { delivered: true };
+}
+
 export async function sendEmployeeInvitation({
   email,
   employeeName,

@@ -221,7 +221,7 @@ export function montarRelatorio({
       if (c.resumo.quadros.length) r.push("```", ...c.resumo.quadros, "```", "");
     }
     r.push(
-      "Os quadros do app vem sem simbolo. Para o nome da funcao: baixar o dSYM do run do build",
+      "Se os quadros do app vierem sem simbolo (so endereco): baixar o dSYM do run do build",
       "(`gh run download <id> -n pop-organize-ios-dsym`) e usar `scripts/macho-symbolicate.mjs`.",
       "",
     );

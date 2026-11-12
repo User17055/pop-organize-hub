@@ -24,6 +24,7 @@ import {
 } from "@/lib/api/pop-organize.functions";
 import { workspaceQueryKey } from "@/lib/api/use-workspace";
 import type { Task, TaskFolder, TaskListDefinition, WorkspaceData } from "@/lib/domain";
+import { isTaskOpen } from "@/lib/task-justification";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -49,9 +50,7 @@ function taskTimeLabel(task: Task) {
 
 function listCounts(list: TaskListDefinition, tasks: Task[]) {
   const today = todayIso();
-  const selected = tasks.filter(
-    (task) => list.taskIds.includes(task.id) && task.status !== "completed",
-  );
+  const selected = tasks.filter((task) => list.taskIds.includes(task.id) && isTaskOpen(task));
   return {
     total: selected.length,
     overdue: selected.filter((task) => task.dueDate < today).length,

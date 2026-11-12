@@ -6,6 +6,7 @@ import type {
   TaskRecurrence,
 } from "@/lib/domain";
 import { recurrenceCadenceKey } from "@/lib/recurrence";
+import { isJustifiedOverdue, isTaskOverdue, localIsoDate } from "@/lib/task-justification";
 
 export type TaskFormState = {
   title: string;
@@ -126,12 +127,14 @@ export function formatFileSizeMb(sizeInBytes: number) {
   return `${sizeInMb.toFixed(precision).replace(".", ",")} MB`;
 }
 
+/** Aberta e com prazo vencido. Cancelada não é atrasada (F11). */
 export function isOverdue(task: Task) {
-  if (task.status === "completed") return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(`${task.dueDate}T00:00:00`);
-  return due < today;
+  return isTaskOverdue(task, localIsoDate());
+}
+
+/** Atrasada com "vou fazer depois": o selo "Justificada". */
+export function isJustifiedLate(task: Task) {
+  return isJustifiedOverdue(task, localIsoDate());
 }
 
 export function taskTargetLabel(target: Task["target"]) {

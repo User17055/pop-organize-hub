@@ -38,7 +38,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -52,15 +51,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apartment
+import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -78,6 +81,7 @@ import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.TaskAlt
+import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -146,6 +150,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -196,6 +201,8 @@ fun PopOrganizeApp(platform: PopPlatformServices) {
             }
         }
         availableUpdate?.let { update ->
+            // LocalUriHandler, e nao o openExternalUrl: ver a nota em SettingsScreen.
+            val abridor = LocalUriHandler.current
             AlertDialog(
                 onDismissRequest = {
                     dismissedUpdateVersion = update.version
@@ -208,7 +215,7 @@ fun PopOrganizeApp(platform: PopPlatformServices) {
                         onClick = {
                             dismissedUpdateVersion = update.version
                             availableUpdate = null
-                            platform.openExternalUrl(update.storeUrl)
+                            runCatching { abridor.openUri(update.storeUrl) }
                         },
                     ) { Text("Atualizar") }
                 },
@@ -757,6 +764,9 @@ private enum class MorePage { Menu, Team, Sectors, Groups, Settings }
 private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
     var tab by remember { mutableStateOf(MainTab.Dashboard) }
     var morePage by remember { mutableStateOf(MorePage.Menu) }
+    // Numero do Inicio tocado. Vale ate tocar no X do filtro ou na propria aba Tarefas, que volta a
+    // mostrar tudo: quem toca na aba espera a lista inteira, nao a ultima filtragem.
+    var filtroTarefas by remember { mutableStateOf<FiltroRapido?>(null) }
     var showTaskEditor by remember { mutableStateOf(false) }
     val canViewCalendar =
         store.state.workspace != WorkspaceKind.Company || store.permissions.canViewCalendar
@@ -814,7 +824,8 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
             // O "comprimido" que o Material 3 desenha atras do icone selecionado e o sinal mais
             // reconhecivel de app Android que existe -- nenhum app de iPhone marca a aba assim.
             // Trocado por cor: item ativo em azul da marca, inativo apagado. Mesma informacao, sem
-            // o sotaque errado.
+            // o sotaque errado. (Superado no F10, mais abaixo: a aba ativa voltou a ter fundo, mas
+            // no formato e no gradiente do painel, nao no comprimido do Material.)
             // 49dp e a altura da barra de abas do iPhone. O padrao do Material 3 e 80dp, que e
             // medida de Android -- e como a area segura entra POR BAIXO desse valor, a barra
             // passou a ocupar ~114pt e a comecar alto demais na tela. Antes o defeito nao aparecia
@@ -836,61 +847,82 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
             //
             // Uma Row com `Arrangement.Center` no eixo vertical resolve porque a altura passa a ser
             // premissa, e nao restricao brigando com a conta interna do Material.
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 0.dp,
+            //
+            // F10 (decisao do Guilherme, 09/11 e 11/11): a barra virou uma PILULA FLUTUANTE, como a do
+            // painel aberto no celular, com a aba ativa num fundo no gradiente da marca. Isso reverte
+            // de proposito a escolha anterior de marcar a aba so pela cor (comentario no topo deste
+            // bloco); a montagem a mao continua, pelos mesmos motivos.
+            //
+            // A area segura agora vai na caixa de FORA: a pilula flutua acima do indicador de home e
+            // o que sobra embaixo e o fundo da tela, que e o que se espera de uma barra flutuante.
+            // Como `safeDrawing` inclui o teclado, e tambem isto que faz a barra subir com ele.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(insetsInferior)
+                    .padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 8.dp),
             ) {
-                Row(
-                    // O padding da area segura vai AQUI, dentro da Surface: assim a barra pinta a
-                    // propria cor ate a borda inferior, cobrindo a faixa atras do indicador de
-                    // home, enquanto o conteudo fica nos 49.dp de cima. Como `safeDrawing` inclui o
-                    // teclado, e tambem isto que faz a barra subir quando o teclado abre.
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .windowInsetsPadding(insetsInferior)
-                        .height(49.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 10.dp,
+                    // A sombra some no tema escuro (preta sobre quase preto); o fio separa a pilula
+                    // do fundo nos dois temas, como o PopCard.
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 ) {
-                    MainTab.entries.filter { item ->
-                        item != MainTab.Calendar || canViewCalendar
-                    }.forEach { item ->
-                        val selected = tab == item
-                        val cor = if (selected) {
-                            PopBlue
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                // `indication = null` tira a onda do Material. Barra de abas do
-                                // iPhone nao tem esse efeito: o item so troca de cor.
-                                //
-                                // Com a onda ligada, o toque desenhava um retangulo do tamanho da
-                                // celula inteira, e era isso que denunciava a barra montada a mao
-                                // -- o Guilherme descreveu como "da pra ver que foi feito uma
-                                // gambiarra, sao 2 elementos distintos", porque o retangulo revela
-                                // que o icone e o rotulo estao dentro de uma area clicavel maior
-                                // em vez de formarem uma peca so.
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                ) {
-                                    tab = item
-                                    if (item != MainTab.More) morePage = MorePage.Menu
-                                },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            Icon(item.icon, item.label, tint = cor, modifier = Modifier.size(24.dp))
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                item.label,
-                                fontSize = 11.sp,
-                                color = cor,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                            )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(5.dp)
+                            .height(49.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        MainTab.entries.filter { item ->
+                            item != MainTab.Calendar || canViewCalendar
+                        }.forEach { item ->
+                            val selected = tab == item
+                            val cor = if (selected) {
+                                Color.White
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(50))
+                                    .then(
+                                        if (selected) Modifier.background(PopBrandGradient) else Modifier,
+                                    )
+                                    // `indication = null` tira a onda do Material. Com a onda ligada,
+                                    // o toque desenhava um retangulo do tamanho da celula inteira, e
+                                    // era isso que denunciava a barra montada a mao -- o Guilherme
+                                    // descreveu como "da pra ver que foi feito uma gambiarra, sao 2
+                                    // elementos distintos".
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) {
+                                        tab = item
+                                        if (item != MainTab.More) morePage = MorePage.Menu
+                                        if (item == MainTab.Tasks) filtroTarefas = null
+                                    },
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                            ) {
+                                Icon(item.icon, item.label, tint = cor, modifier = Modifier.size(22.dp))
+                                Spacer(Modifier.height(1.dp))
+                                Text(
+                                    item.label,
+                                    fontSize = 11.sp,
+                                    lineHeight = 13.sp,
+                                    maxLines = 1,
+                                    color = cor,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                            }
                         }
                     }
                 }
@@ -905,9 +937,25 @@ private fun MainScreen(store: PopStore, platform: PopPlatformServices) {
         AnimatedContent(targetState = tab to morePage, modifier = Modifier.padding(padding)) { (selected, page) ->
             when (selected) {
                 MainTab.Dashboard -> Refreshable(store) {
-                    DashboardScreen(store, onSeeAllTasks = { tab = MainTab.Tasks })
+                    DashboardScreen(
+                        store,
+                        onSeeAllTasks = {
+                            filtroTarefas = null
+                            tab = MainTab.Tasks
+                        },
+                        onAbrirFiltro = {
+                            filtroTarefas = it
+                            tab = MainTab.Tasks
+                        },
+                    )
                 }
-                MainTab.Tasks -> Refreshable(store) { TasksScreen(store) }
+                MainTab.Tasks -> Refreshable(store) {
+                    TasksScreen(
+                        store,
+                        filtro = filtroTarefas,
+                        onLimparFiltro = { filtroTarefas = null },
+                    )
+                }
                 MainTab.Calendar -> Refreshable(store) { CalendarScreen(store) }
                 MainTab.More -> when (page) {
                     MorePage.Menu -> MoreScreen(
@@ -1072,7 +1120,11 @@ private fun PageHeader(title: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
+private fun DashboardScreen(
+    store: PopStore,
+    onSeeAllTasks: () -> Unit,
+    onAbrirFiltro: (FiltroRapido) -> Unit,
+) {
     val tasks = store.visibleTasks
     // Sem `remember`: com chave nenhuma, este valor viveria enquanto a composicao vivesse, e as
     // linhas de tarefa logo abaixo chamam todayDate() fresco. Com o app aberto atravessando a
@@ -1101,8 +1153,9 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
     // Agora o titulo e o anel medem o DIA; atrasada tem linha propria e fica fora do denominador.
     // Concluida de hoje continua entrando -- ela e o numerador do anel.
     val todayTasks = remember(tasks, today) {
+        // Cancelada ("nao sera feita", F11) nao e trabalho do dia: sai do anel e do titulo.
         tasks.filter { task ->
-            parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } == 0L
+            !task.canceled && parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } == 0L
         }
     }
     val pendingToday = todayTasks.count { !it.completed }
@@ -1111,13 +1164,35 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
     val overdue = remember(tasks, today) {
         tasks.count { task ->
             val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) }
-            !task.completed && offset != null && offset < 0L
+            task.aberta && offset != null && offset < 0L
+        }
+    }
+    // Das atrasadas, as que ja tem "vou fazer depois" (F11): o painel mostra "X atrasadas (Y justificadas)".
+    val justificadas = remember(tasks, today) {
+        tasks.count { task ->
+            val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) }
+            task.aberta && task.justification != null && offset != null && offset < 0L
         }
     }
     // A lista saia na ordem de armazenamento: as quatro primeiras eram as quatro primeiras a
     // existir, nao as quatro mais proximas. Uma tarefa atrasada de alta prioridade podia ficar
     // atras de tres de semana que vem, dentro do bloco chamado "Proximas tarefas".
-    val upcoming = remember(tasks) { tasks.filterNot { it.completed }.sortedWith(taskListOrder) }
+    val upcoming = remember(tasks) { tasks.filter { it.aberta }.sortedWith(taskListOrder) }
+    // Os quatro numeros contam com a MESMA funcao que filtra a lista quando sao tocados.
+    val contagens = remember(tasks, today) {
+        FiltroRapido.entries.associateWith { filtro -> tasks.count { filtro.aceita(it, today) } }
+    }
+    // "Por setor" so para quem responde por setor: admin ve todos; gestor, os que gerencia. Para o
+    // colaborador o bloco seria a empresa inteira medida por quem nao a administra.
+    val company = store.selectedCompany
+    val setoresDoBloco = when {
+        store.state.workspace != WorkspaceKind.Company || company == null -> emptyList()
+        store.isCurrentUserAdmin -> company.sectors
+        else -> company.sectors.filter { it.managedByCurrentUser }
+    }
+    val porSetor = remember(tasks, today, setoresDoBloco, company) {
+        resumoPorSetor(tasks, setoresDoBloco, company, today)
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1132,8 +1207,14 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
                 completed = doneToday,
                 total = todayTasks.size,
                 overdue = overdue,
+                justificadas = justificadas,
                 hasFuture = upcoming.isNotEmpty(),
             )
+        }
+        item { NumerosDoInicio(contagens = contagens, onAbrir = onAbrirFiltro) }
+        if (porSetor.isNotEmpty()) {
+            item { SectionTitle("Por setor · esta semana") }
+            item { BlocoPorSetor(porSetor) }
         }
         item { SectionTitle("Próximas tarefas") }
         if (upcoming.isEmpty()) {
@@ -1155,6 +1236,225 @@ private fun DashboardScreen(store: PopStore, onSeeAllTasks: () -> Unit) {
                             fontSize = 14.sp,
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Os quatro numeros tocaveis do Inicio (F10). Cada um conta E filtra pela mesma `aceita`.
+ *
+ * "Esta semana" vai de hoje ate domingo e so pendentes: as de dias passados ja tem numero proprio
+ * em "Atrasadas", e somar as duas contaria a mesma tarefa duas vezes. "Concluidas na semana" e o
+ * que vence de segunda a domingo e ja foi concluido -- o aparelho nao recebe a data da conclusao,
+ * entao e a semana do PRAZO, nao a do clique.
+ */
+internal enum class FiltroRapido(val rotulo: String) {
+    Hoje("Hoje"),
+    Atrasadas("Atrasadas"),
+    Semana("Esta semana"),
+    ConcluidasSemana("Concluídas na semana"),
+}
+
+/** O prazo cai de segunda a domingo da semana de `today`. */
+internal fun prazoNaSemana(task: PopTask, today: LocalDate): Boolean {
+    val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } ?: return false
+    val diaDaSemana = isoDayNumber(today).toLong()
+    return offset in (1L - diaDaSemana)..(7L - diaDaSemana)
+}
+
+internal fun FiltroRapido.aceita(task: PopTask, today: LocalDate): Boolean {
+    val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } ?: return false
+    val nestaSemana = prazoNaSemana(task, today)
+    return when (this) {
+        FiltroRapido.Hoje -> task.aberta && offset == 0L
+        FiltroRapido.Atrasadas -> task.aberta && offset < 0L
+        FiltroRapido.Semana -> task.aberta && offset >= 0L && nestaSemana
+        FiltroRapido.ConcluidasSemana -> task.completed && nestaSemana
+    }
+}
+
+@Composable
+private fun NumerosDoInicio(contagens: Map<FiltroRapido, Int>, onAbrir: (FiltroRapido) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FiltroRapido.entries.chunked(2).forEach { linha ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                linha.forEach { filtro ->
+                    NumeroTocavel(
+                        filtro = filtro,
+                        valor = contagens[filtro] ?: 0,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onAbrir(filtro) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NumeroTocavel(filtro: FiltroRapido, valor: Int, modifier: Modifier, onClick: () -> Unit) {
+    val (icone, cor) = when (filtro) {
+        FiltroRapido.Hoje -> Icons.Rounded.Today to PopBlue
+        FiltroRapido.Atrasadas -> Icons.Rounded.ErrorOutline to PopRed
+        FiltroRapido.Semana -> Icons.Rounded.CalendarMonth to PopPurple
+        FiltroRapido.ConcluidasSemana -> Icons.Rounded.CheckCircle to PopGreen
+    }
+    // Atrasada so pinta de vermelho quando ha alguma: zero atrasadas e boa noticia, e um cartao
+    // vermelho com "0" dentro diria o contrario.
+    val alerta = filtro == FiltroRapido.Atrasadas && valor > 0
+    Surface(
+        modifier = modifier.clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = if (alerta) PopRed.copy(alpha = .1f) else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, if (alerta) PopRed.copy(alpha = .35f) else MaterialTheme.colorScheme.outline),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    valor.toString(),
+                    fontSize = 24.sp,
+                    lineHeight = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (alerta) PopRed else MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    filtro.rotulo,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 2,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Box(
+                Modifier.size(34.dp).background(cor.copy(alpha = .14f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icone, null, tint = cor, modifier = Modifier.size(19.dp))
+            }
+        }
+    }
+}
+
+/** O filtro do Inicio em uso na aba Tarefas, com o X que o desfaz. */
+@Composable
+private fun FiltroAtivo(rotulo: String, quantidade: Int, onLimpar: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onLimpar),
+            shape = RoundedCornerShape(50),
+            color = PopBlue.copy(alpha = .12f),
+            border = BorderStroke(1.dp, PopBlue.copy(alpha = .3f)),
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Filtro: $rotulo",
+                    color = PopBlue,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.width(4.dp))
+                Icon(Icons.Rounded.Close, "Limpar filtro", tint = PopBlue, modifier = Modifier.size(16.dp))
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Text(
+            plural(quantidade, "tarefa", "tarefas"),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+private data class ResumoSetor(
+    val nome: String,
+    val feitas: Int,
+    val total: Int,
+    val atrasadas: Int,
+)
+
+/**
+ * Por setor, a semana (segunda a domingo, pelo prazo) e o que ficou atrasado. Mede a SEMANA, e nao
+ * o total de sempre, pelo mesmo motivo do anel do cartao de cima: o acumulado so cresce e a barra
+ * travaria perto do fim sem dizer nada. Setor entra pela mesma regra do filtro do calendario
+ * (`setoresDaTarefa`): alvo, pessoa, responsavel ou membro do grupo. Setor sem nada na semana e sem
+ * atraso fica de fora, e o bloco mostra no maximo seis, os atrasados primeiro.
+ */
+private fun resumoPorSetor(
+    tasks: List<PopTask>,
+    setores: List<CompanySector>,
+    company: CompanyWorkspace?,
+    today: LocalDate,
+): List<ResumoSetor> {
+    if (setores.isEmpty() || company == null) return emptyList()
+    val setoresPorTarefa = tasks.associate { it.id to setoresDaTarefa(it, company) }
+    return setores.map { setor ->
+        val doSetor = tasks.filter { setor.id in setoresPorTarefa[it.id].orEmpty() }
+        // Tudo o que vence na semana, feito ou nao -- inclusive o de segunda que ficou para tras.
+        // Cancelada nao entra no total: nao e trabalho da semana (F11).
+        val daSemana = doSetor.filter { !it.canceled && prazoNaSemana(it, today) }
+        ResumoSetor(
+            nome = setor.name,
+            feitas = daSemana.count { it.completed },
+            total = daSemana.size,
+            atrasadas = doSetor.count { FiltroRapido.Atrasadas.aceita(it, today) },
+        )
+    }
+        .filter { it.total > 0 || it.atrasadas > 0 }
+        .sortedWith(compareByDescending<ResumoSetor> { it.atrasadas }.thenBy { it.nome.lowercase() })
+        .take(6)
+}
+
+@Composable
+private fun BlocoPorSetor(resumos: List<ResumoSetor>) {
+    PopCard {
+        resumos.forEachIndexed { indice, resumo ->
+            if (indice > 0) Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    resumo.nome,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                if (resumo.atrasadas > 0) {
+                    Text(
+                        plural(resumo.atrasadas, "atrasada", "atrasadas"),
+                        color = PopRed,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    "${resumo.feitas}/${resumo.total}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            val fracao = if (resumo.total == 0) 0f else resumo.feitas.toFloat() / resumo.total
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50)),
+            ) {
+                if (fracao > 0f) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(fracao)
+                            .height(6.dp)
+                            .background(PopBrandGradient, RoundedCornerShape(50)),
+                    )
                 }
             }
         }
@@ -1184,6 +1484,7 @@ private fun TodayHeroCard(
     completed: Int,
     total: Int,
     overdue: Int,
+    justificadas: Int = 0,
     hasFuture: Boolean,
 ) {
     val progress = if (total == 0) 0f else completed.toFloat() / total
@@ -1238,7 +1539,8 @@ private fun TodayHeroCard(
                             modifier = Modifier.size(14.dp),
                         )
                         Text(
-                            if (overdue == 1) "1 já passou do prazo" else "$overdue já passaram do prazo",
+                            (if (overdue == 1) "1 já passou do prazo" else "$overdue já passaram do prazo") +
+                                if (justificadas > 0) " ($justificadas " + (if (justificadas == 1) "justificada)" else "justificadas)") else "",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -1381,8 +1683,19 @@ private fun agruparTarefas(
 private const val LIMITE_PARA_ABRIR_TUDO = 20
 
 @Composable
-private fun TasksScreen(store: PopStore) {
+private fun TasksScreen(
+    store: PopStore,
+    filtro: FiltroRapido? = null,
+    onLimparFiltro: () -> Unit = {},
+) {
     val tasks = store.visibleTasks
+    // Com um numero do Inicio tocado, a aba mostra so o que aquele numero contou, numa lista
+    // plana na ordem da lista de tarefas. A conta e a mesma funcao (`aceita`) que fez o numero:
+    // duas regras escritas em dois lugares acabariam mostrando "3 atrasadas" e listando 4.
+    val hojeDoFiltro = todayDate()
+    val filtradas = remember(tasks, filtro, hojeDoFiltro) {
+        filtro?.let { f -> tasks.filter { f.aceita(it, hojeDoFiltro) }.sortedWith(taskListOrder) }
+    }
     var removingId by remember { mutableStateOf<String?>(null) }
     var selectedTask by remember { mutableStateOf<PopTask?>(null) }
     var pendingDeleteTask by remember { mutableStateOf<PopTask?>(null) }
@@ -1433,17 +1746,41 @@ private fun TasksScreen(store: PopStore) {
                 // para um dado de duas palavras, e a segunda empurrava a lista para baixo sem
                 // acrescentar nada.
                 Text(
-                    plural(tasks.count { !it.completed }, "pendente", "pendentes"),
+                    plural(tasks.count { it.aberta }, "pendente", "pendentes"),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
             }
         }
-        if (tasks.isEmpty()) {
+        if (filtro != null && filtradas != null) {
+            item(key = "filtro-rapido") {
+                FiltroAtivo(rotulo = filtro.rotulo, quantidade = filtradas.size, onLimpar = onLimparFiltro)
+            }
+            if (filtradas.isEmpty()) {
+                item { EmptyState("Nada aqui", "Nenhuma tarefa em \"${filtro.rotulo}\" agora.") }
+            }
+            items(filtradas, key = { it.id }) { task ->
+                AnimatedVisibility(
+                    visible = removingId != task.id,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut(tween(220)) + shrinkVertically(tween(220)),
+                ) {
+                    SwipeableTaskRow(
+                        task = task,
+                        moveTargets = moveTargets,
+                        onOpen = { selectedTask = task },
+                        onToggle = { store.toggleTask(task.id) },
+                        onMove = { store.moveTask(task.id, it) },
+                        onDelete = { pendingDeleteTask = task },
+                    )
+                }
+            }
+        }
+        if (filtro == null && tasks.isEmpty()) {
             item { EmptyState("Seu espaço está livre", "Toque em + para criar a primeira tarefa.") }
         }
-        groupedTasks.forEach { grupo ->
+        if (filtro == null) groupedTasks.forEach { grupo ->
             val sector = grupo.titulo
             val sectorTasks = grupo.tarefas
             // Sem agrupamento real, nao ha cabecalho de grupo.
@@ -1469,7 +1806,7 @@ private fun TasksScreen(store: PopStore) {
             // Aberto = o padrao do grupo, invertido se o usuario tiver alternado este.
             val expanded = if (grupo.abreFechado) sector in alternados else sector !in alternados
             item(key = "sector-$sector") {
-                val pending = sectorTasks.count { !it.completed }
+                val pending = sectorTasks.count { it.aberta }
                 // Quantas deste grupo sao PARA HOJE.
                 //
                 // A contagem de pendentes responde "quanto falta neste grupo"; esta responde
@@ -1489,8 +1826,8 @@ private fun TasksScreen(store: PopStore) {
                 // `todayIso()` icado para fora do `count`: la dentro ele le o relogio e converte
                 // fuso uma vez POR TAREFA, a cada recomposicao do cabecalho.
                 val hojeIso = todayIso()
-                val atrasadas = sectorTasks.count { !it.completed && it.dueDate < hojeIso }
-                val hoje = sectorTasks.count { !it.completed && it.dueDate == hojeIso }
+                val atrasadas = sectorTasks.count { it.aberta && it.dueDate < hojeIso }
+                val hoje = sectorTasks.count { it.aberta && it.dueDate == hojeIso }
                 Surface(
                     modifier = Modifier.fillMaxWidth().clickable {
                         alternados = if (sector in alternados) {
@@ -1646,11 +1983,22 @@ private fun TaskDetailsDialog(
     onDismiss: () -> Unit,
 ) {
     var editando by remember(task.id) { mutableStateOf(false) }
+    // O id do anexo cujo link esta sendo pedido, para mostrar o progresso e nao pedir dois de uma vez.
+    var abrindoAnexo by remember(task.id) { mutableStateOf<String?>(null) }
+    var erroAnexo by remember(task.id) { mutableStateOf<String?>(null) }
+    val escopo = rememberCoroutineScope()
+    // O LocalUriHandler, e nao o openExternalUrl da plataforma: a abertura no iOS fica com a
+    // implementacao do proprio Compose, e a chamada compila e roda na previa desktop.
+    val abridor = LocalUriHandler.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(task.title, fontWeight = FontWeight.ExtraBold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Rolagem porque checklist e anexos juntos passam da altura do dialogo num iPhone pequeno.
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 if (task.description.isNotBlank()) Text(task.description)
                 // taskDateLabel, e nao a data crua: este era o unico ponto do app que mostrava
                 // "2026-08-24" em vez de "seg, 24 de agosto". Ficava atras do dialogo a mesma
@@ -1662,6 +2010,7 @@ private fun TaskDetailsDialog(
                     rotuloDePrazo(task),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                SecaoDeJustificativa(task, store, onTaskChanged)
                 // A prioridade era o unico campo de PopTask que este dialogo nao mostrava, embora
                 // a lista de onde ele e aberto estampe "Alta" e "Urgente" em cor. Quem abria para
                 // ver a tarefa inteira perdia justamente o campo mais visivel da linha.
@@ -1767,6 +2116,72 @@ private fun TaskDetailsDialog(
                             )
                             Text(item.title, modifier = Modifier.weight(1f))
                         }
+                    }
+                }
+                // Os anexos enviados pelo painel (F9). Tocar pede um link curto ao servidor e o abre
+                // no Safari, que baixa o arquivo; anexo antigo, sem arquivo guardado, so mostra o nome.
+                if (task.panelAttachments.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Anexos", fontWeight = FontWeight.Bold)
+                    task.panelAttachments.forEach { anexo ->
+                        val temArquivo = anexo.fileId.isNotBlank()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable(enabled = temArquivo && abrindoAnexo == null) {
+                                    abrindoAnexo = anexo.id
+                                    erroAnexo = null
+                                    escopo.launch {
+                                        val link = store.linkDoAnexoDoPainel(anexo)
+                                        val url = link.url
+                                        if (url != null) {
+                                            runCatching { abridor.openUri(url) }
+                                                .onFailure { erroAnexo = "Não foi possível abrir o anexo." }
+                                        } else {
+                                            erroAnexo = link.erro
+                                        }
+                                        abrindoAnexo = null
+                                    }
+                                }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Rounded.AttachFile,
+                                null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(anexo.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    listOf(anexo.sizeLabel, if (temArquivo) "" else "só o nome foi guardado")
+                                        .filter { it.isNotBlank() }
+                                        .joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (abrindoAnexo == anexo.id) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else if (temArquivo) {
+                                Icon(
+                                    Icons.Rounded.Download,
+                                    "Baixar ${anexo.name}",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    }
+                    erroAnexo?.let { mensagem ->
+                        Text(
+                            mensagem,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
                     }
                 }
             }
@@ -1897,8 +2312,8 @@ private fun TaskRow(
     onMove: (AssignmentTarget) -> Unit,
     onDelete: () -> Unit,
 ) {
-    val isUrgent = task.priority == Priority.Urgent && !task.completed
-    val isOverdue = !task.completed && task.dueDate < todayIso()
+    val isUrgent = task.priority == Priority.Urgent && task.aberta
+    val isOverdue = task.aberta && task.dueDate < todayIso()
     // Mesma correcao aplicada ao CompactTaskRow da tela inicial: urgencia marcada por contorno, e
     // nao pintando o cartao inteiro de vermelho. Numa lista com varias tarefas o efeito era pior
     // que na home -- um bloco vermelho solido no meio da rolagem apaga tudo em volta.
@@ -1938,15 +2353,18 @@ private fun TaskRow(
             // sincronizacao seguinte -- o mesmo sintoma da tarefa em revisao, por outra causa.
             if (mostrarAcoes) IconButton(
                 onClick = onToggle,
-                enabled = task.canComplete && !aguardaRevisao,
+                // Cancelada se reabre pelo detalhe (F11), que grava o comentario automatico.
+                enabled = task.canComplete && !aguardaRevisao && !task.canceled,
             ) {
                 Icon(
                     when {
+                        task.canceled -> Icons.Rounded.Block
                         aguardaRevisao -> Icons.Rounded.HourglassEmpty
                         task.completed -> Icons.Rounded.CheckCircle
                         else -> Icons.Rounded.RadioButtonUnchecked
                     },
                     when {
+                        task.canceled -> "Cancelada"
                         aguardaRevisao -> "Aguarda revisão"
                         task.completed -> "Reabrir"
                         else -> "Concluir"
@@ -1957,6 +2375,7 @@ private fun TaskRow(
                     // vazio para pendente, circulo marcado para concluida: o icone passa a dizer o
                     // estado, e a cor passa a dizer a acao.
                     tint = when {
+                        task.canceled -> MaterialTheme.colorScheme.outline
                         aguardaRevisao -> PopOrange
                         task.completed -> PopGreen
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -1987,7 +2406,7 @@ private fun TaskRow(
                         // Sem hora marcada mostra um travessao, nao vazio: o vazio leria como falha
                         // de desenho, o travessao diz que a tarefa e do dia mas nao tem hora.
                         horario.ifBlank { "—" },
-                        color = if (task.completed) {
+                        color = if (!task.aberta) {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         } else {
                             MaterialTheme.colorScheme.onSurface
@@ -2033,7 +2452,7 @@ private fun TaskRow(
                     Text(
                         task.title,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (task.completed) {
+                        color = if (!task.aberta) {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         } else {
                             MaterialTheme.colorScheme.onSurface
@@ -2052,6 +2471,7 @@ private fun TaskRow(
                         Spacer(Modifier.width(8.dp))
                         Text("Urgente", color = PopRed, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                     }
+                    SeloDeJustificativa(task, isOverdue)
                 }
                 if (task.description.isNotBlank()) {
                     Text(
@@ -2296,10 +2716,168 @@ private fun assignmentIcon(kind: AssignmentKind): ImageVector = when (kind) {
     AssignmentKind.None -> Icons.Rounded.Business
 }
 
+/**
+ * "Cancelada" ou "Justificada" ao lado do titulo (F11). Justificada so faz sentido em atrasada: e a
+ * resposta ao "por que isto passou do prazo?".
+ */
+@Composable
+private fun SeloDeJustificativa(task: PopTask, atrasada: Boolean) {
+    val (texto, cor) = when {
+        task.canceled -> "Cancelada" to MaterialTheme.colorScheme.onSurfaceVariant
+        atrasada && task.justification != null -> "Justificada" to PopOrange
+        else -> return
+    }
+    Spacer(Modifier.width(8.dp))
+    Text(texto, color = cor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+}
+
+/** "2026-11-11T22:09:27.494Z" -> "11/11/2026". O que nao for ISO volta como veio. */
+private fun dataCurtaDeIso(valor: String): String {
+    val partes = valor.take(10).split("-")
+    return if (partes.size == 3) "${partes[2]}/${partes[1]}/${partes[0]}" else valor
+}
+
+/**
+ * Justificar tarefa nao concluida (F11), no detalhe da tarefa. As mesmas duas saidas do painel:
+ * "vou fazer depois" (so em atrasada; ela segue aberta, com o selo "Justificada") e "nao sera feita"
+ * (em qualquer aberta; vira Cancelada). Quem pode (`canJustify`, a permissao de mudar o status)
+ * edita ou desfaz. A regra e o comentario automatico estao no servidor: aqui so se oferece o que
+ * ele aceita, e a recusa dele aparece embaixo do campo.
+ */
+@Composable
+private fun SecaoDeJustificativa(task: PopTask, store: PopStore, onTaskChanged: (PopTask?) -> Unit) {
+    // "later" ou "not_done" enquanto o campo esta aberto; nulo fora dele.
+    var editando by remember(task.id) { mutableStateOf<String?>(null) }
+    var texto by remember(task.id) { mutableStateOf("") }
+    var salvando by remember(task.id) { mutableStateOf(false) }
+    var erro by remember(task.id) { mutableStateOf<String?>(null) }
+    val escopo = rememberCoroutineScope()
+    val atual = task.justification
+    val atrasada = task.aberta && task.dueDate < todayIso()
+    // Projecao nao tem linha no servidor; sem serverId a tarefa ainda nao subiu.
+    val pode = task.canJustify && task.serverId != null && !ehProjecao(task) && !store.state.apiToken.isNullOrBlank()
+    val oferecerAtraso = pode && atrasada && atual == null
+    val oferecerNaoSeraFeita = pode && task.aberta
+    val oferecerDesfazer = pode && (atual != null || task.canceled)
+    if (atual == null && !task.canceled && !oferecerAtraso && !oferecerNaoSeraFeita) return
+
+    fun enviar(kind: String?, valor: String) {
+        salvando = true
+        erro = null
+        escopo.launch {
+            val falha = store.justificarTarefa(task, kind, valor)
+            salvando = false
+            if (falha != null) {
+                erro = falha
+            } else {
+                editando = null
+                onTaskChanged(store.state.tasks.firstOrNull { it.serverId == task.serverId } ?: task)
+            }
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (task.canceled || atual == null) {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f)
+        } else {
+            PopOrange.copy(alpha = .12f)
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            when {
+                atual != null -> {
+                    Text(
+                        if (task.canceled) "Cancelada: não será feita" else "Justificada: vai fazer depois",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                    )
+                    Text(atual.text, fontSize = 13.sp)
+                    Text(
+                        listOf(atual.authorName, dataCurtaDeIso(atual.createdAt)).filter { it.isNotBlank() }.joinToString(" · "),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
+                }
+                task.canceled -> Text("Tarefa cancelada", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                else -> Text(
+                    if (oferecerAtraso) {
+                        "Não deu para concluir no prazo? Justifique o atraso ou diga que ela não será feita."
+                    } else {
+                        "Se esta tarefa não vai mais ser feita, registre o motivo."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                )
+            }
+            val tipo = editando
+            if (tipo != null) {
+                OutlinedTextField(
+                    value = texto,
+                    onValueChange = { if (it.length <= 500) texto = it },
+                    // Rotulo curto: o longo quebrava em duas linhas por cima da borda do campo.
+                    label = { Text(if (tipo == "later") "Por que atrasou?" else "Por que não será feita?") },
+                    placeholder = if (tipo == "later") ({ Text("E quando vai fazer") }) else null,
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                erro?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { editando = null; erro = null }, enabled = !salvando) { Text("Voltar") }
+                    TextButton(
+                        onClick = { enviar(tipo, texto) },
+                        enabled = !salvando && texto.trim().length >= 3,
+                    ) {
+                        Text(
+                            when {
+                                salvando -> "Salvando..."
+                                tipo == "not_done" -> "Cancelar a tarefa"
+                                else -> "Salvar justificativa"
+                            },
+                        )
+                    }
+                }
+            } else if (pode) {
+                FlowRowDeAcoes {
+                    if (oferecerAtraso) {
+                        OutlinedButton(onClick = { editando = "later"; texto = ""; erro = null }) { Text("Justificar atraso") }
+                    }
+                    if (atual != null) {
+                        OutlinedButton(onClick = {
+                            editando = if (task.canceled) "not_done" else "later"
+                            texto = atual.text
+                            erro = null
+                        }) { Text("Editar") }
+                    }
+                    if (oferecerNaoSeraFeita) {
+                        OutlinedButton(onClick = { editando = "not_done"; texto = ""; erro = null }) { Text("Não será feita") }
+                    }
+                    if (oferecerDesfazer) {
+                        OutlinedButton(onClick = { enviar(null, "") }, enabled = !salvando) {
+                            Text(if (task.canceled) "Reabrir tarefa" else "Remover justificativa")
+                        }
+                    }
+                }
+                erro?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FlowRowDeAcoes(content: @Composable () -> Unit) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) { content() }
+}
+
 @Composable
 private fun CompactTaskRow(task: PopTask) {
-    val isUrgent = task.priority == Priority.Urgent && !task.completed
-    val isOverdue = !task.completed && task.dueDate < todayIso()
+    val isUrgent = task.priority == Priority.Urgent && task.aberta
+    val isOverdue = task.aberta && task.dueDate < todayIso()
     val accent = priorityColor(task.priority)
 
     // A tarefa urgente pintava o cartao INTEIRO de vermelho solido. Com o cartao azul do topo na
@@ -2324,7 +2902,10 @@ private fun CompactTaskRow(task: PopTask) {
             Box(Modifier.size(9.dp).background(accent, CircleShape))
             Spacer(Modifier.size(11.dp))
             Column(Modifier.weight(1f)) {
-                Text(task.title, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(task.title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
+                    SeloDeJustificativa(task, isOverdue)
+                }
                 Text(
                     rotuloDePrazo(task),
                     color = if (isOverdue) PopRed else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2403,7 +2984,7 @@ private fun calendarRowKey(row: CalendarRow): String = when (row) {
  * sem ele a tarefa sem data pularia para o topo em vez de ir para o fim.
  */
 private val taskListOrder = compareBy<PopTask>(
-    { it.completed },
+    { !it.aberta },
     { it.dueDate.ifBlank { "9999-12-31" } },
     { -it.priority.ordinal },
 )
@@ -2590,7 +3171,7 @@ private data class NaAgenda(val task: PopTask, val horario: String?)
 private val agendaOrder = compareBy<NaAgenda>(
     // Sem horario vai para o fim. "99:99" nao e hora valida e nunca colide com uma de verdade.
     { it.horario ?: "99:99" },
-    { it.task.completed },
+    { !it.task.aberta },
     { -it.task.priority.ordinal },
     { it.task.title },
 )
@@ -2769,7 +3350,7 @@ private fun CalendarScreen(store: PopStore) {
         }
         tasks.filter { task ->
             val responsaveis = responsaveisDaTarefa(task)
-            (!soPendentes || !task.completed) &&
+            (!soPendentes || task.aberta) &&
                 // Mesma regra do botao "Empresa" do painel (`taskMatchesCompany`): destino empresa
                 // E criada por quem esta usando. Dentro de empresa, `None` e o alvo `company`.
                 (!soEmpresa ||
@@ -2818,10 +3399,10 @@ private fun CalendarScreen(store: PopStore) {
     // dela seguiria aceso na grade, prometendo um dia que a agenda nao entregava.
     val past = remember(dated, today) {
         dated.filter { it.first < today }
-            .sortedWith(compareBy({ it.second.completed }, { it.first }))
+            .sortedWith(compareBy({ !it.second.aberta }, { it.first }))
             .map { it.second }
     }
-    val overdueCount = past.count { !it.completed }
+    val overdueCount = past.count { it.aberta }
     val upcoming = remember(tasksByDate, today) {
         tasksByDate.filterKeys { it >= today }.toList().sortedBy { it.first }
     }
@@ -2941,7 +3522,7 @@ private fun CalendarScreen(store: PopStore) {
                         // aberto", e numa empresa com meia duzia de series diarias passaria de
                         // noventa. O numero descreveria o calendario, nao o trabalho -- e leria
                         // como uma empresa afogada.
-                        "${dated.count { !it.second.completed && !ehProjecao(it.second) }} em aberto",
+                        "${dated.count { it.second.aberta && !ehProjecao(it.second) }} em aberto",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         modifier = Modifier.weight(1f).padding(bottom = 4.dp),
@@ -3468,11 +4049,11 @@ private fun CalendarMonthGrid(
             }
         }
         cells.chunked(7).forEach { week ->
-            Row(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                 week.forEach { day ->
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         if (day == null) {
-                            Spacer(Modifier.height(44.dp))
+                            Spacer(Modifier.height(ALTURA_CELULA_DIA))
                         } else {
                             val date = LocalDate(year, month, day)
                             CalendarDayCell(
@@ -3500,79 +4081,86 @@ private fun CalendarDayCell(
 ) {
     // Pendentes primeiro: se o dia tem mais marcadores do que cabem, o que precisa aparecer e o
     // que ainda falta fazer, nao o que ja foi feito.
-    val ordered = dayTasks.filterNot { it.completed } + dayTasks.filter { it.completed }
+    val ordered = dayTasks.filter { it.aberta } + dayTasks.filterNot { it.aberta }
     val markers = ordered.take(3)
     val extra = ordered.size - markers.size
 
+    // Alternativa C do B11 (escolhida em 10/11, F10): o dia e um cartaozinho com contorno e os
+    // marcadores viram TRACOS de largura inteira, como o painel no celular. Altura fixa para a grade
+    // nao pular de tamanho entre um mes vazio e um cheio.
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .height(ALTURA_CELULA_DIA)
             .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (isSelected) PopBlue.copy(alpha = .1f) else MaterialTheme.colorScheme.surface,
+            )
+            .border(
+                width = if (isSelected) 1.5.dp else 1.dp,
+                color = if (isSelected) PopBlue else MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(10.dp),
+            )
             .clickable(onClick = onClick)
-            .padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Box(
-            modifier = Modifier.size(26.dp).then(
-                // O Android pinta "hoje" e "dia selecionado" exatamente igual, entao com outro dia
-                // escolhido nao da para achar hoje na grade. Aqui o selecionado e preenchido e o
-                // hoje e contornado: dois estados, duas aparencias.
-                when {
-                    isSelected -> Modifier.background(PopBlue, CircleShape)
-                    isToday -> Modifier.border(1.5.dp, PopBlue, CircleShape)
-                    else -> Modifier
-                },
-            ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                day.toString(),
-                fontSize = 12.sp,
-                color = when {
-                    isSelected -> Color.White
-                    isToday -> PopBlue
-                    else -> MaterialTheme.colorScheme.onSurface
-                },
-                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
-            )
-        }
-        Row(
-            modifier = Modifier.height(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            markers.forEach { task ->
-                Box(
-                    Modifier.size(5.dp).background(
-                        when {
-                            task.completed -> MaterialTheme.colorScheme.outline
-                            task.awaitingReview -> PopPurple
-                            else -> priorityColor(task.priority)
-                        },
-                        CircleShape,
-                    ),
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier.size(19.dp).then(
+                    // Hoje continua distinguivel do dia selecionado: hoje tem o numero num circulo
+                    // azul cheio; o selecionado tem o cartao inteiro contornado e tingido.
+                    if (isToday) Modifier.background(PopBlue, CircleShape) else Modifier,
+                ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    day.toString(),
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    color = when {
+                        isToday -> Color.White
+                        isSelected -> PopBlue
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                    fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
                 )
             }
-            // O "+N" no lugar de mais pontos: o Android chega a desenhar 20 bolinhas de 2dp em
-            // orbita num circulo de 38dp, o que vira um borrao que ninguem consegue contar. O
-            // numero tambem nao depende de distinguir matiz, ao contrario da cor sozinha.
+            Spacer(Modifier.weight(1f))
+            // O "+N" no lugar de mais tracos: o numero nao depende de distinguir matiz. Fica no
+            // canto do cabecalho, que nao tem altura fixa -- a linha de 8.dp de altura fixa onde ele
+            // morava antes e que cortava os digitos (B11).
             if (extra > 0) {
-                // A altura de linha herdada do tema e 20.sp: dentro desta linha de 8.dp o texto
-                // transbordava e o Compose o cortava, sobrando so o topo dos digitos.
                 Text(
                     "+$extra",
-                    fontSize = 8.sp,
-                    lineHeight = 8.sp,
+                    fontSize = 9.sp,
+                    lineHeight = 11.sp,
                     maxLines = 1,
-                    modifier = Modifier.wrapContentHeight(unbounded = true),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Bold,
                 )
             }
         }
+        markers.forEach { task ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .background(
+                        when {
+                            !task.aberta -> MaterialTheme.colorScheme.outline
+                            task.awaitingReview -> PopPurple
+                            else -> priorityColor(task.priority)
+                        },
+                        RoundedCornerShape(50),
+                    ),
+            )
+        }
     }
 }
+
+/** Altura de cada dia na grade do mes (cartaozinho da alternativa C). */
+private val ALTURA_CELULA_DIA = 50.dp
 
 @Composable
 private fun MoreScreen(store: PopStore, onPage: (MorePage) -> Unit) {
@@ -3665,12 +4253,12 @@ private fun AccountCard(store: PopStore) {
     // Sem `remember`, pelo mesmo motivo do DashboardScreen: congelado, o cartao de conta seguiria
     // contando pelo dia anterior depois da meia-noite.
     val today = todayDate()
-    val pending = tasks.count { !it.completed }
-    val done = tasks.size - pending
+    val pending = tasks.count { it.aberta }
+    val done = tasks.count { it.completed }
     val late = remember(tasks, today) {
         tasks.count { task ->
             val offset = parseIsoDate(task.dueDate)?.let { daysBetween(today, it) } ?: 0L
-            !task.completed && offset < 0L
+            task.aberta && offset < 0L
         }
     }
     PopCard {
@@ -3774,6 +4362,20 @@ private fun TeamScreen(store: PopStore) {
     // So gente de verdade. Os convites pendentes chegam nesta mesma lista e tem o MESMO nome das
     // pessoas que ja aceitaram, entao sem o filtro a Equipe mostra cada pessoa duas vezes.
     val members = company?.activeMembers.orEmpty()
+    // Convites pendentes, em secao propria e so para quem pode cancela-los: mostrar a quem nao pode
+    // seria oferecer uma linha que nao leva a nada. Ficam fora do contador de pessoas.
+    val convites = if (store.permissions.canManageEmployees) {
+        company?.members.orEmpty().filter { it.pending }.sortedBy { it.name.lowercase() }
+    } else {
+        emptyList()
+    }
+    var cancelando by remember { mutableStateOf<CompanyMember?>(null) }
+    var editando by remember { mutableStateOf<CompanyMember?>(null) }
+    // Quem pode ter setor e funcao trocados: o servidor recusa o dono e a propria conta, e sem a
+    // lista de grupos a troca apagaria os grupos da pessoa (ver `updateMember`).
+    val meuId = store.state.currentUser?.id
+    fun editavel(member: CompanyMember) = store.permissions.canManageEmployees && hasSector &&
+        !member.isOwner && member.id != meuId && member.groupIds != null
     EntityListScreen(
         header = if (members.size == 1) "1 pessoa cadastrada" else "${members.size} pessoas cadastradas",
         emptyTitle = "Nenhum colaborador",
@@ -3793,11 +4395,41 @@ private fun TeamScreen(store: PopStore) {
                 detail = member.email,
                 initials = initialsOf(member.name),
                 badge = member.role.takeIf { it.isNotBlank() },
+                onClick = if (editavel(member)) ({ editando = member }) else null,
+                acao = "Editar setor e função de ${member.name}",
+            )
+        },
+        pendentesTitulo = if (convites.size == 1) "1 convite pendente" else "${convites.size} convites pendentes",
+        pendentes = convites.map { convite ->
+            EntityRow(
+                title = convite.name,
+                subtitle = company?.sectors?.firstOrNull { it.id == convite.sectorId }?.name.orEmpty(),
+                detail = convite.email,
+                initials = initialsOf(convite.name),
+                badge = "Pendente",
+                onClick = { cancelando = convite },
+                acao = "Cancelar convite de ${convite.name}",
             )
         },
         onAdd = if (canAdd) ({ showEditor = true }) else null,
     )
     if (showEditor) MemberEditorDialog(store) { showEditor = false }
+    editando?.let { pessoa -> MemberSectorDialog(store, pessoa) { editando = null } }
+    cancelando?.let { convite ->
+        ConfirmEntityDeleteDialog(
+            titulo = "Cancelar o convite de ${convite.name}?",
+            bloqueio = null,
+            aviso = "O link enviado para ${convite.email} deixa de funcionar. Tarefas atribuídas a " +
+                "${convite.name} voltam para a empresa. Para chamar de novo, envie outro convite.",
+            confirmar = "Cancelar convite",
+            voltar = "Voltar",
+            onConfirm = {
+                store.cancelInvitation(convite.id)
+                cancelando = null
+            },
+            onDismiss = { cancelando = null },
+        )
+    }
 }
 
 @Composable
@@ -3921,6 +4553,8 @@ private data class EntityRow(
     val badge: String? = null,
     /** Nulo quando quem esta vendo nao pode alterar a linha: ela fica sem toque e sem seta. */
     val onClick: (() -> Unit)? = null,
+    /** O que o toque faz, para o leitor de tela (descricao da seta). */
+    val acao: String = "Editar",
 )
 
 @Composable
@@ -3930,6 +4564,9 @@ private fun EntityListScreen(
     items: List<EntityRow>,
     onAdd: (() -> Unit)? = null,
     emptyDetail: String? = null,
+    /** Segunda secao, abaixo da lista: hoje so os convites pendentes da Equipe. Vazia = some. */
+    pendentes: List<EntityRow> = emptyList(),
+    pendentesTitulo: String = "",
 ) {
     // Sem onAdd a tela e somente leitura e o vazio precisa mandar o usuario para o painel web.
     val detail = emptyDetail
@@ -3942,6 +4579,10 @@ private fun EntityListScreen(
             item { SectionTitle(header) }
             if (items.isEmpty()) item { EmptyState(emptyTitle, detail) }
             items(items) { row -> EntityCard(row) }
+            if (pendentes.isNotEmpty()) {
+                item { SectionTitle(pendentesTitulo) }
+                items(pendentes) { row -> EntityCard(row) }
+            }
         }
         if (onAdd != null) {
             FloatingActionButton(onClick = onAdd, modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp)) {
@@ -4007,7 +4648,7 @@ private fun EntityCard(row: EntityRow) {
             if (toque != null) {
                 Icon(
                     Icons.Rounded.ChevronRight,
-                    contentDescription = "Editar",
+                    contentDescription = row.acao,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp).size(20.dp),
                 )
@@ -4033,6 +4674,10 @@ private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
     var deleting by remember { mutableStateOf(false) }
     var deletionError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    // Os links abrem pelo LocalUriHandler do Compose. O openExternalUrl/openSupportEmail do iosMain
+    // usam UIApplication.openURL(url), a forma antiga, que no iOS 18 nao faz nada: tocar em "Termos
+    // de Uso" no 1.0.15 nao abria coisa nenhuma (conferido no aparelho em 11/11).
+    val abridor = LocalUriHandler.current
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(18.dp),
@@ -4050,15 +4695,19 @@ private fun SettingsScreen(store: PopStore, platform: PopPlatformServices) {
                 }
             }
         }
-        item { MoreItem(Icons.Rounded.Email, "Falar com o suporte", "contato@poporganize.com.br", platform::openSupportEmail) }
+        item {
+            MoreItem(Icons.Rounded.Email, "Falar com o suporte", "contato@poporganize.com.br") {
+                runCatching { abridor.openUri("mailto:contato@poporganize.com.br") }
+            }
+        }
         item {
             MoreItem(Icons.Rounded.ListAlt, "Termos de Uso", "Leia os termos do serviço") {
-                platform.openExternalUrl("https://app.poporganize.com.br/termos")
+                runCatching { abridor.openUri("https://app.poporganize.com.br/termos") }
             }
         }
         item {
             MoreItem(Icons.Rounded.Settings, "Política de Privacidade", "Como tratamos seus dados") {
-                platform.openExternalUrl("https://app.poporganize.com.br/privacidade")
+                runCatching { abridor.openUri("https://app.poporganize.com.br/privacidade") }
             }
         }
         if (!store.state.apiToken.isNullOrBlank()) item {
@@ -4640,12 +5289,34 @@ private fun CompanyEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     )
 }
 
+/** Escolha de um setor em chips. Usada no convite e na edicao de pessoa. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SectorChips(sectors: List<CompanySector>, selecionado: String?, onSelect: (String) -> Unit) {
+    Text("Setor", fontWeight = FontWeight.SemiBold)
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        sectors.sortedBy { it.name.lowercase() }.forEach { setor ->
+            FilterChip(
+                selected = selecionado == setor.id,
+                onClick = { onSelect(setor.id) },
+                label = { Text(setor.name, fontSize = 10.sp) },
+            )
+        }
+    }
+}
+
 @Composable
 private fun MemberEditorDialog(store: PopStore, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("Colaborador") }
     var touched by remember { mutableStateOf(false) }
+    val sectors = store.selectedCompany?.sectors.orEmpty()
+    // Comeca no primeiro setor, como o convite fazia sozinho ate o build 20; agora da para trocar.
+    var sectorId by remember { mutableStateOf(sectors.firstOrNull()?.id) }
     val nameOk = name.hasAtLeast(2)
     val emailOk = isValidEmail(email)
     val roleOk = role.hasAtLeast(2)
@@ -4653,7 +5324,11 @@ private fun MemberEditorDialog(store: PopStore, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("Cadastrar pessoa") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Rolagem: com os chips de setor o dialogo passa da altura de um iPhone pequeno.
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 OutlinedTextField(
                     name,
                     { name = it },
@@ -4682,6 +5357,7 @@ private fun MemberEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                     supportingText = if (touched && !roleOk) ({ Text("Pelo menos 2 caracteres.") }) else null,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (sectors.size > 1) SectorChips(sectors, sectorId) { sectorId = it }
             }
         },
         confirmButton = {
@@ -4689,11 +5365,58 @@ private fun MemberEditorDialog(store: PopStore, onDismiss: () -> Unit) {
                 onClick = {
                     touched = true
                     if (nameOk && emailOk && roleOk) {
-                        store.addMember(name, email, role)
+                        store.addMember(name, email, role, sectorId)
                         onDismiss()
                     }
                 },
             ) { Text("Cadastrar") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+/** Setor e funcao de uma pessoa ja cadastrada (F7). Grupos e permissoes ficam como estao. */
+@Composable
+private fun MemberSectorDialog(store: PopStore, member: CompanyMember, onDismiss: () -> Unit) {
+    val sectors = store.selectedCompany?.sectors.orEmpty()
+    var sectorId by remember(member.id) { mutableStateOf(member.sectorId) }
+    var role by remember(member.id) { mutableStateOf(member.role) }
+    val roleOk = role.hasAtLeast(2)
+    val mudou = sectorId != member.sectorId || role.trim() != member.role
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(member.name) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(member.email, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                OutlinedTextField(
+                    role,
+                    { role = it },
+                    label = { Text("Função") },
+                    singleLine = true,
+                    isError = !roleOk,
+                    supportingText = if (roleOk) null else ({ Text("Pelo menos 2 caracteres.") }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SectorChips(sectors, sectorId) { sectorId = it }
+                Text(
+                    "Grupos e permissões continuam como estão; para mudá-los, use o painel.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = roleOk && mudou && sectorId != null,
+                onClick = {
+                    sectorId?.let { store.updateMember(member, it, role) }
+                    onDismiss()
+                },
+            ) { Text("Salvar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
@@ -4843,13 +5566,31 @@ private fun SectorEditorDialog(
     var managerId by remember { mutableStateOf(sector.managerId) }
     var confirmandoExclusao by remember { mutableStateOf(false) }
     val podeTrocarGestor = store.permissions.canAssignSectorManager
+    // Acesso do gestor (F7). Nulo = servidor anterior ao campo: a opcao nao aparece.
+    val podeAcesso = podeTrocarGestor && sector.managerAccessMode != null
+    var modo by remember { mutableStateOf(sector.managerAccessMode ?: "own") }
+    var escolhidos by remember { mutableStateOf(sector.managerVisibleDepartmentIds.toSet()) }
+    val outrosSetores = store.selectedCompany?.sectors.orEmpty()
+        .filter { it.id != sector.id }
+        .sortedBy { it.name.lowercase() }
     EntityManageDialog(
         titulo = "Editar setor",
         nomeInicial = sector.name,
         descricaoInicial = sector.description,
         podeEditar = true,
         onSalvar = { name, description ->
-            store.updateSector(sector.id, name, description, managerId.takeIf { podeTrocarGestor && it != sector.managerId })
+            val listaFinal = if (modo == "selected") escolhidos.toList() else emptyList()
+            // So manda o acesso quando mudou, ou quando o gestor mudou junto (o servidor aplica no
+            // gestor que fica): editar so o nome nao sobrescreve o que alguem gravou no painel.
+            val acessoMudou = modo != sector.managerAccessMode ||
+                listaFinal.toSet() != (if (modo == "selected") sector.managerVisibleDepartmentIds.toSet() else emptySet())
+            store.updateSector(
+                sector.id,
+                name,
+                description,
+                managerId.takeIf { podeTrocarGestor && it != sector.managerId },
+                acesso = if (podeAcesso && (acessoMudou || managerId != sector.managerId)) modo to listaFinal else null,
+            )
         },
         onExcluir = if (sector.canDelete) ({ confirmandoExclusao = true }) else null,
         onDismiss = onDismiss,
@@ -4869,6 +5610,53 @@ private fun SectorEditorDialog(
                             )
                         }
                     }
+                }
+            }
+            if (podeAcesso) {
+                item {
+                    Text("Acesso do gestor", fontWeight = FontWeight.SemiBold)
+                    // Os tres modos do painel, com os mesmos nomes no fio ("own", "selected", "all").
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        listOf(
+                            "own" to "Setor próprio e gerenciados",
+                            "selected" to "Escolher setores",
+                            "all" to "Todos os setores",
+                        ).forEach { (valor, rotulo) ->
+                            FilterChip(
+                                selected = modo == valor,
+                                onClick = { modo = valor },
+                                label = { Text(rotulo, fontSize = 10.sp) },
+                            )
+                        }
+                    }
+                }
+                if (modo == "selected") {
+                    item {
+                        Text("Setores a mais que o gestor enxerga", fontSize = 12.sp)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            outrosSetores.forEach { outro ->
+                                val marcado = outro.id in escolhidos
+                                FilterChip(
+                                    selected = marcado,
+                                    onClick = { escolhidos = if (marcado) escolhidos - outro.id else escolhidos + outro.id },
+                                    label = { Text(outro.name, fontSize = 10.sp) },
+                                )
+                            }
+                        }
+                    }
+                }
+                item {
+                    Text(
+                        "Vale para o gestor escolhido acima. Tarefas atribuídas diretamente a ele continuam visíveis.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
                 }
             }
         },
@@ -4984,6 +5772,10 @@ private fun ConfirmEntityDeleteDialog(
     aviso: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    confirmar: String = "Excluir",
+    // No convite o botao vermelho ja se chama "Cancelar convite"; um segundo "Cancelar" ao lado
+    // deixaria ambiguo qual dos dois desiste.
+    voltar: String = "Cancelar",
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -4994,13 +5786,13 @@ private fun ConfirmEntityDeleteDialog(
                 Button(
                     onClick = onConfirm,
                     colors = ButtonDefaults.buttonColors(containerColor = PopRed, contentColor = Color.White),
-                ) { Text("Excluir") }
+                ) { Text(confirmar) }
             } else {
                 TextButton(onClick = onDismiss) { Text("Entendi") }
             }
         },
         dismissButton = if (bloqueio == null) ({
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
+            TextButton(onClick = onDismiss) { Text(voltar) }
         }) else null,
     )
 }

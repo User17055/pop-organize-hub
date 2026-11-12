@@ -71,6 +71,9 @@ data class CompanyMember(
     val sectorId: String? = null,
     /** Ver `ApiEmployee.pending`. Quem consome isto e `activeMembers`, logo abaixo. */
     val pending: Boolean = false,
+    /** Ver `ApiEmployee.groupIds`: nulo = nao da para trocar o setor sem apagar os grupos. */
+    val groupIds: List<String>? = null,
+    val isOwner: Boolean = false,
 )
 
 @Serializable
@@ -84,6 +87,15 @@ data class CompanySector(
     // oferecida. E o contrario do `canEdit` de tarefa, em que a acao ja existia antes do campo.
     val canEdit: Boolean = false,
     val canDelete: Boolean = false,
+    /**
+     * Ate onde o gestor deste setor enxerga: "own" (o setor dele e os que gerencia), "selected"
+     * (esses mais `managerVisibleDepartmentIds`) ou "all". Mesmos nomes do servidor e do painel.
+     *
+     * Nulo, e nao "own", por default: servidor anterior ao F7 nao manda o campo e tambem nao sabe
+     * grava-lo, entao a tela esconde a opcao em vez de mostrar um "own" que pode nao ser verdade.
+     */
+    val managerAccessMode: String? = null,
+    val managerVisibleDepartmentIds: List<String> = emptyList(),
 )
 
 @Serializable
@@ -144,9 +156,8 @@ data class CompanyWorkspace(
  * pendente nao pode ser contado, listado nem escolhido como responsavel: ele nao tem conta, e o
  * servidor nao resolveria o nome numa gravacao.
  *
- * O `members` cru fica acessivel de proposito, para o dia em que a tela Equipe ganhar uma secao de
- * convites pendentes como a do painel. Hoje o aplicativo nao sabe cancelar convite (so o Android
- * sabe), entao mostrar seria oferecer o que nao se pode desfazer.
+ * O `members` cru fica acessivel de proposito: a tela Equipe mostra os convites pendentes numa
+ * secao propria, so para quem pode cancela-los (`canManageEmployees`), e e de la que se cancela.
  */
 val CompanyWorkspace.activeMembers: List<CompanyMember>
     get() = members.filter { !it.pending }
@@ -193,6 +204,9 @@ data class PopTask(
     val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,
 
+    // Anexos do painel. So de leitura; ver a nota no ApiTask.
+    val panelAttachments: List<ApiPanelAttachment> = emptyList(),
+
     // Cofre da recorrencia: as palavras do servidor, guardadas cruas e devolvidas intactas.
     //
     // O RecurrenceKind acima so consegue representar quatro casos, e o servidor guarda mais: de
@@ -231,7 +245,17 @@ data class PopTask(
     val reminder: String = "Sem lembrete",
     val attachmentName: String = "",
     val duration: String = "Sem duração",
+
+    // Justificativa (F11). So de leitura; ver a nota no ApiTask. No FIM e com default porque o
+    // PopTask e um dos cinco simbolos que o modulo Android importa.
+    val canceled: Boolean = false,
+    val justification: ApiJustification? = null,
+    val canJustify: Boolean = false,
 )
+
+/** Ainda tem trabalho a fazer: nem concluida nem cancelada ("nao sera feita"). */
+val PopTask.aberta: Boolean
+    get() = !completed && !canceled
 
 @Serializable
 data class PopState(
@@ -324,6 +348,22 @@ data class ApiSession(
 @Serializable
 data class ApiError(val error: String = "Não foi possível concluir a operação.")
 
+/**
+ * Um anexo enviado pelo painel (`panelAttachments` em `taskToMobileTask`). So de leitura. `fileId`
+ * vazio e anexo antigo, do qual o servidor so guardou o nome: aparece na lista, mas nao abre.
+ */
+@Serializable
+data class ApiPanelAttachment(
+    val id: String = "",
+    val name: String = "",
+    val sizeLabel: String = "",
+    val fileId: String = "",
+)
+
+/** Resposta de `POST anexos/{fileId}`: endereco de poucos minutos para o Safari baixar o arquivo. */
+@Serializable
+data class ApiAttachmentLink(val url: String = "", val expiresAt: String = "")
+
 @Serializable
 data class ApiWorkspaceResponse(val workspaces: List<ApiWorkspace> = emptyList())
 
@@ -378,6 +418,14 @@ data class ApiEmployee(
      * equipe inteira.
      */
     val pending: Boolean = false,
+    /**
+     * Todos os grupos da pessoa (o servidor monta de `workspace.groups`, sem filtro de visibilidade).
+     * O `updateEmployee` REESCREVE os grupos com o que receber, e sem a lista tira a pessoa de todos;
+     * por isso a troca de setor manda esta lista de volta intacta. Nulo = nao veio, troca bloqueada.
+     */
+    val groupIds: List<String>? = null,
+    /** O dono nao pode ser alterado (o servidor recusa); a tela nem oferece. */
+    val isOwner: Boolean = false,
 )
 
 @Serializable
@@ -504,6 +552,32 @@ data class ApiTask(
     val canComplete: Boolean = true,
     val canCompleteAnytime: Boolean = false,
     val canDelete: Boolean = true,
+
+    // Os anexos enviados pelo painel. So de leitura, como os de revisao: o mobileTaskSchema nao os
+    // declara e o z.object os descarta na volta, entao nao tocam o `attachmentItems` do servidor.
+    // NULO, e nao lista vazia, para a chave sair do JSON da gravacao (`explicitNulls = false`) em
+    // vez de reenviar a lista inteira a cada sincronizacao. O arquivo nao vem aqui: sai por um
+    // link pedido na hora (`abrirAnexoDoPainel`).
+    val panelAttachments: List<ApiPanelAttachment>? = null,
+
+    // Justificativa de tarefa nao concluida. So de leitura, como os anexos do painel: o
+    // mobileTaskSchema nao os declara e o z.object os descarta na volta. Justificar, editar e
+    // desfazer saem por uma acao propria (`justifyTask`), nunca pelo PUT. Booleano em vez do status
+    // cru do servidor, que e a regra deste contrato. NULOS pelo mesmo motivo dos anexos: servidor
+    // antigo nao manda, e a chave sai do JSON da gravacao.
+    //  - canceled: a tarefa foi marcada como "nao sera feita" (status `canceled` no servidor).
+    //  - justification: so a que vale agora ("vou fazer depois" em aberta, ou o motivo da cancelada).
+    //  - canJustify: a mesma permissao de mudar o status (`canChangeStatus`).
+    val canceled: Boolean? = null,
+    val justification: ApiJustification? = null,
+    val canJustify: Boolean? = null,
+)
+
+@Serializable
+data class ApiJustification(
+    val text: String = "",
+    val authorName: String = "",
+    val createdAt: String = "",
 )
 
 @Serializable

@@ -1,4 +1,16 @@
-import { Calendar, Check, GripVertical, ListChecks, MessageSquare, Paperclip } from "lucide-react";
+import {
+  Building2,
+  Calendar,
+  Check,
+  Eye,
+  GripVertical,
+  Layers3,
+  ListChecks,
+  MessageSquare,
+  Network,
+  Paperclip,
+  UserRound,
+} from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   memo,
@@ -28,8 +40,69 @@ import {
 import type { CurrentUser, Department, Employee, Group, PermissionGroup, Task } from "@/lib/domain";
 import { unassignedResponsibleLabel } from "@/lib/domain";
 import { getTaskPermissions } from "@/lib/permissions";
+import { myTaskOriginLabels, type MyTaskLink, type MyTaskOrigin } from "@/lib/my-tasks";
 import { EmployeeAvatar } from "./employee-avatar";
-import { isOverdue, taskTargetLabel } from "./task-form-types";
+import { isJustifiedLate, isOverdue, taskTargetLabel } from "./task-form-types";
+
+/** F11: atrasada com "vou fazer depois". O motivo aparece na gaveta da tarefa. */
+function JustifiedBadge() {
+  return (
+    <span className="rounded-md bg-amber-500/12 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+      Justificada
+    </span>
+  );
+}
+
+const originStyles: Record<MyTaskOrigin, { icon: typeof UserRound; className: string }> = {
+  individual: {
+    icon: UserRound,
+    className: "border-primary/25 bg-primary/10 text-primary",
+  },
+  department: {
+    icon: Layers3,
+    className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  },
+  group: {
+    icon: Network,
+    className: "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
+  },
+  company: {
+    icon: Building2,
+    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  },
+};
+
+/** Selo "de onde veio": Individual, Setor · nome, Grupo · nome ou Empresa · nome. */
+export function TaskOriginBadge({ link }: { link: MyTaskLink }) {
+  const style = originStyles[link.origin];
+  const Icon = style.icon;
+  const text = link.originName
+    ? `${myTaskOriginLabels[link.origin]} · ${link.originName}`
+    : myTaskOriginLabels[link.origin];
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5">
+      <span
+        className={cn(
+          "inline-flex min-w-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+          style.className,
+        )}
+        title={text}
+      >
+        <Icon className="h-3 w-3 shrink-0" />
+        <span className="truncate">{text}</span>
+      </span>
+      {link.reason === "review" && (
+        <span
+          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-semibold text-sky-700 dark:text-sky-300"
+          title="Você revisa esta tarefa"
+        >
+          <Eye className="h-3 w-3" />
+          Revisar
+        </span>
+      )}
+    </span>
+  );
+}
 
 type MobileDragState = {
   taskId: string;
@@ -93,6 +166,7 @@ function TaskListImpl({
   isCompleting,
   preferences,
   onTitleWidthChange,
+  originFor,
 }: {
   tasks: Task[];
   employees: Employee[];
@@ -113,6 +187,8 @@ function TaskListImpl({
     showDescription: boolean;
   };
   onTitleWidthChange?: (width: number) => void;
+  /** Na visão "Minhas tarefas": a coluna de destino vira o selo de origem, também no celular. */
+  originFor?: (task: Task) => MyTaskLink | null;
 }) {
   const employeeById = useMemo(() => {
     const map = new Map<string, Employee>();
@@ -360,7 +436,7 @@ function TaskListImpl({
                   )}
                 </TableHead>
                 {showResponsible && <TableHead>Responsável</TableHead>}
-                <TableHead>Visível para</TableHead>
+                <TableHead>{originFor ? "Origem" : "Visível para"}</TableHead>
                 <TableHead>Prazo</TableHead>
                 <TableHead>Prioridade</TableHead>
                 <TableHead>Status</TableHead>
@@ -373,6 +449,7 @@ function TaskListImpl({
                 const overdue = isOverdue(task);
                 const permissions = permissionsByTaskId.get(task.id)!;
                 const progress = subtaskProgress(task);
+                const originLink = originFor?.(task) ?? null;
                 return (
                   <ContextMenu key={task.id}>
                     <ContextMenuTrigger asChild>
@@ -502,15 +579,19 @@ function TaskListImpl({
                           </TableCell>
                         )}
                         <TableCell className="px-4 py-4">
-                          <span
-                            className="task-chip inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-xs font-semibold text-foreground/62"
-                            title={taskTargetLabel(task.target)}
-                          >
-                            <span className="truncate">{taskTargetLabel(task.target)}</span>
-                          </span>
+                          {originLink ? (
+                            <TaskOriginBadge link={originLink} />
+                          ) : (
+                            <span
+                              className="task-chip inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-xs font-semibold text-foreground/62"
+                              title={taskTargetLabel(task.target)}
+                            >
+                              <span className="truncate">{taskTargetLabel(task.target)}</span>
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="px-4 py-4">
-                          <div className="flex items-center gap-1.5 text-sm">
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
                             <Calendar
                               className={cn(
                                 "h-4 w-4",
@@ -526,6 +607,7 @@ function TaskListImpl({
                             >
                               {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("pt-BR")}
                             </span>
+                            {isJustifiedLate(task) && <JustifiedBadge />}
                           </div>
                         </TableCell>
                         <TableCell className="px-4 py-4">
@@ -584,6 +666,7 @@ function TaskListImpl({
               const overdue = isOverdue(task);
               const permissions = permissionsByTaskId.get(task.id)!;
               const progress = subtaskProgress(task);
+              const originLink = originFor?.(task) ?? null;
               const isMobileDragging = mobileDrag?.taskId === task.id;
               const isMobileDropTarget =
                 mobileDrag?.hasMoved && mobileDrag.beforeTaskId === task.id;
@@ -707,6 +790,11 @@ function TaskListImpl({
                     <h3 className="line-clamp-2 font-display text-[15px] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
                       {task.title}
                     </h3>
+                    {originLink && (
+                      <div className="mt-1.5 min-w-0">
+                        <TaskOriginBadge link={originLink} />
+                      </div>
+                    )}
                     <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1.5 font-medium">
                         <Calendar className="h-3.5 w-3.5" />
@@ -719,6 +807,7 @@ function TaskListImpl({
                           Atrasada
                         </span>
                       )}
+                      {isJustifiedLate(task) && <JustifiedBadge />}
                       {progress && (
                         <span className="inline-flex items-center gap-1 font-semibold text-primary">
                           <ListChecks className="h-3.5 w-3.5" />

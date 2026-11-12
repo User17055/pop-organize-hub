@@ -591,7 +591,7 @@ function TaskListImpl({
                           )}
                         </TableCell>
                         <TableCell className="px-4 py-4">
-                          <div className="flex items-center gap-1.5 text-sm">
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
                             <Calendar
                               className={cn(
                                 "h-4 w-4",

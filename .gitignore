@@ -15,6 +15,7 @@ dist-ssr
 .vinxi
 .tanstack/**
 .nitro
+/.codex-temp/
 
 # Local/runtime secrets. Keep only the documented placeholder file.
 .env

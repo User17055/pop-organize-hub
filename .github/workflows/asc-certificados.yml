@@ -100,7 +100,7 @@ jobs:
               if [ "$ENVIAR_REVISAO" = "true" ]; then node scripts/asc-loja.mjs "${extra[@]}" --enviar-revisao
               elif [ "$APLICAR" = "true" ]; then node scripts/asc-loja.mjs "${extra[@]}" --aplicar
               else node scripts/asc-loja.mjs "${extra[@]}" --mostrar-textos; fi ;;
-            diagnosticos) node scripts/asc-diagnosticos.mjs --saida "$RUNNER_TEMP/saude" ;;
+            diagnosticos) node scripts/asc-diagnosticos.mjs --saida "$RUNNER_TEMP/saude" --dias 365 ;;
             *) echo "::error::tarefa desconhecida: $TAREFA"; exit 1 ;;
           esac
 

@@ -309,6 +309,7 @@ export function defaultDueDate() {
   return date.toISOString().slice(0, 10);
 }
 
+// O dia de São Paulo, igual ao do aplicativo; em UTC, das 21h à meia-noite já seria amanhã.
 export function today() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }

@@ -121,6 +121,102 @@ const tool = (id = "call", extra = {}) => ({
     },
   },
 });
+test("spoken creation is confirmed through native validation and server acknowledgement", async () => {
+  const f = fixture(async (body) =>
+    body.action === "connect"
+      ? { transport: { sdp: "answer" } }
+      : { created: true, id: "synthetic" },
+  );
+  try {
+    await f.start();
+    const event = tool("voice-confirm");
+    event.event.item.name = "confirmar_criacao";
+    event.event.item.arguments = JSON.stringify({ confirmation: "eu confirmo" });
+    f.emit(event);
+    f.emit(event);
+    await settle();
+    await settle();
+    assert.equal(f.requests.filter((item) => item.action === "confirm_voice").length, 1);
+    assert.equal(f.requests[1].draft, undefined);
+    assert.ok(f.sent.some((item) => item.item?.output?.includes('"created":true')));
+    assert.equal(
+      f.events.some((item) => item.type === "draft" || item.type === "preparing"),
+      false,
+    );
+  } finally {
+    f.close();
+  }
+});
+test("voice refusal never announces a successful creation", async () => {
+  const f = fixture(async (body) =>
+    body.action === "connect" ? { transport: { sdp: "answer" } } : { error: "Diga eu confirmo" },
+  );
+  try {
+    await f.start();
+    const event = tool("refused");
+    event.event.item.name = "confirmar_criacao";
+    event.event.item.arguments = '{"confirmation":"eu confirmo"}';
+    f.emit(event);
+    await settle();
+    await settle();
+    assert.ok(f.events.some((item) => item.type === "error"));
+    assert.equal(
+      f.sent.some((item) => item.item?.output?.includes('"created":true')),
+      false,
+    );
+  } finally {
+    f.close();
+  }
+});
+test("call diagnostics retain provider error codes and ignore errors after hangup", async () => {
+  const f = fixture();
+  try {
+    await f.start();
+    f.emit({
+      type: "error",
+      error: { code: "synthetic_failure", message: "Synthetic diagnostic" },
+    });
+    assert.equal(f.events.find((item) => item.type === "error").code, "synthetic_failure");
+    f.stop();
+    f.emit({ type: "error", error: { code: "already_closed" } });
+    assert.equal(f.events.filter((item) => item.type === "error").length, 1);
+  } finally {
+    f.close();
+  }
+});
+test("ending a call immediately stops capture during a pending query", async () => {
+  let finish;
+  const f = fixture(async (body) =>
+    body.action === "connect"
+      ? { transport: { sdp: "answer" } }
+      : await new Promise((resolve) => {
+          finish = resolve;
+        }),
+  );
+  try {
+    await f.start();
+    const lookup = tool("pending-query");
+    lookup.event.item.name = "consultar_tarefas";
+    f.emit(lookup);
+    await settle();
+    const end = tool("end-call");
+    end.event.item.name = "encerrar_chamada";
+    end.event.item.arguments = "{}";
+    f.emit(end);
+    assert.equal(f.tracks[0].stopped, true);
+    assert.ok(f.sent.some((item) => item.type === "session.close"));
+    f.close();
+    finish({ tasks: [], total: 0 });
+    await settle();
+    await settle();
+    assert.equal(
+      f.events.some((item) => item.type === "error"),
+      false,
+    );
+  } finally {
+    f.close();
+  }
+});
 test("WebRTC negotiation uses the native authenticated bridge", async () => {
   const f = fixture();
   try {
@@ -242,6 +338,32 @@ test("manual schedule changes update the conversation with validated data", asyn
     assert.equal(f.sent[0].type, "session.instructions.append");
     assert.match(f.sent[0].content, /09:00/);
     assert.match(f.sent[0].content, /durationMinutes/);
+  } finally {
+    f.close();
+  }
+});
+test("voice task lookup is read only and does not replace the draft", async () => {
+  const f = fixture(async (body) =>
+    body.action === "connect" ? { transport: { sdp: "answer" } } : { tasks: [], total: 0 },
+  );
+  try {
+    await f.start();
+    const event = tool("lookup");
+    event.event.item.name = "consultar_tarefas";
+    event.event.item.arguments = JSON.stringify({
+      query: "estoque",
+      date: null,
+      status: "all",
+      limit: 2,
+    });
+    f.emit(event);
+    await settle();
+    await settle();
+    assert.equal(f.requests[1].action, "search");
+    assert.equal(
+      f.events.some((item) => item.type === "draft"),
+      false,
+    );
   } finally {
     f.close();
   }

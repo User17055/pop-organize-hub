@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none">
+<defs>
+<radialGradient id="sphere" cx="48" cy="36" r="142" gradientUnits="userSpaceOnUse"><stop stop-color="#70BCFF"/><stop offset=".42" stop-color="#329DFC"/><stop offset=".76" stop-color="#1687F8"/><stop offset="1" stop-color="#0864DC"/></radialGradient>
+<linearGradient id="light" x1="80" y1="42" x2="80" y2="146" gradientUnits="userSpaceOnUse"><stop stop-color="white" stop-opacity="0"/><stop offset=".42" stop-color="white" stop-opacity=".4"/><stop offset=".72" stop-color="#99DCFF" stop-opacity=".38"/><stop offset="1" stop-color="#1687F8" stop-opacity="0"/></linearGradient>
+<linearGradient id="blue" x1="19" y1="20" x2="135" y2="143" gradientUnits="userSpaceOnUse"><stop stop-color="#2F9DF5" stop-opacity="0"/><stop offset=".5" stop-color="#2B9BF8" stop-opacity=".5"/><stop offset="1" stop-color="#DDF6FF" stop-opacity="0"/></linearGradient>
+<clipPath id="circle"><circle cx="80" cy="80" r="80"/></clipPath>
+<g id="flow"><path d="M-28 92C8 15 50 36 82 75C111 111 145 120 190 35L190 116C141 184 101 148 72 111C37 68 4 70 -28 139Z" fill="url(#light)"/><path d="M-15 31C43-4 86 7 103 41C121 79 89 111 168 139L184 170C89 152 83 113 82 76C79 37 38 20 -15 66Z" fill="url(#blue)"/></g>
+</defs>
+<g clip-path="url(#circle)"><circle cx="80" cy="80" r="80" fill="url(#sphere)"/><use href="#flow"><animateTransform attributeName="transform" type="rotate" from="0 80 80" to="360 80 80" dur="20s" repeatCount="indefinite"/></use><use href="#flow" opacity=".4"><animateTransform attributeName="transform" type="rotate" from="180 80 80" to="-180 80 80" dur="28s" repeatCount="indefinite"/></use></g>
+</svg>

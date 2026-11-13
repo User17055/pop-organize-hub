@@ -3987,7 +3987,7 @@ private fun PopMainContent(
                 PopBottomBar(
                     selected = destination,
                     showCalendar = canViewCalendar,
-                    onPop = if (canCreateTask && !sessionApiToken.isNullOrBlank()) ({ showPopAssistant = true }) else null,
+                    onPop = if (workSpace == WorkSpace.Company && isTaskAdmin && !sessionApiToken.isNullOrBlank()) ({ showPopAssistant = true }) else null,
                     onSelect = { selectedDestination ->
                         if (selectedDestination == PopDestination.More) {
                             showMoreSheet = true
@@ -4276,7 +4276,7 @@ private fun PopMainContent(
             }
     }
 
-    if (showPopAssistant && !sessionApiToken.isNullOrBlank()) {
+    if (showPopAssistant && workSpace == WorkSpace.Company && isTaskAdmin && !sessionApiToken.isNullOrBlank()) {
         val popWorkspaceId = if (workSpace == WorkSpace.Company) companyIds.getOrNull(selectedCompanyIndex).orEmpty() else ""
         key(sessionApiToken, popWorkspaceId) {
             PopAssistantDialog(
@@ -14313,10 +14313,10 @@ private fun PopBottomBar(
                 PopDestination.entries.filter { item ->
                     item != PopDestination.Calendar || showCalendar
                 }.forEach { item ->
-                    if (item == PopDestination.More && onPop != null) {
-                        PopNavigationItem("Pop", Icons.Outlined.AutoAwesome, false, onPop)
-                    }
                     PopNavigationItem(item.label, item.icon, selected == item) { onSelect(item) }
+                    if (item == PopDestination.Tasks && onPop != null) {
+                        PopNavigationItem("Pop", Icons.Outlined.AutoAwesome, false, accent = true, onClick = onPop)
+                    }
 
                 }
             }
@@ -14325,7 +14325,7 @@ private fun PopBottomBar(
 }
 
 @Composable
-private fun RowScope.PopNavigationItem(label: String, icon: ImageVector, active: Boolean, onClick: () -> Unit) {
+private fun RowScope.PopNavigationItem(label: String, icon: ImageVector, active: Boolean, accent: Boolean = false, onClick: () -> Unit) {
                     val scale by animateFloatAsState(
                         targetValue = if (active) 1.045f else 1f,
                         animationSpec = spring(dampingRatio = .72f, stiffness = 420f),
@@ -14337,7 +14337,7 @@ private fun RowScope.PopNavigationItem(label: String, icon: ImageVector, active:
                         label = "nav-background",
                     )
                     val contentColor by animateColorAsState(
-                        targetValue = if (active) Color.White else PopMuted,
+                        targetValue = if (active) Color.White else if (accent) PopBlue else PopMuted,
                         animationSpec = tween(160),
                         label = "nav-content",
                     )
@@ -14366,7 +14366,7 @@ private fun RowScope.PopNavigationItem(label: String, icon: ImageVector, active:
                                 label,
                                 color = contentColor,
                                 fontSize = 10.sp,
-                                fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                fontWeight = if (active || accent) FontWeight.ExtraBold else FontWeight.SemiBold,
                                 maxLines = 1,
                             )
                         }

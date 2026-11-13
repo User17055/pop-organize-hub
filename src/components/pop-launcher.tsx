@@ -5,6 +5,7 @@ import { useTaskMutations } from "@/components/tasks/use-task-mutations";
 import type { RecurrenceInput } from "@/components/tasks/task-form-types";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
 import { cn } from "@/lib/utils";
+import { isAdminUser } from "@/lib/permission-groups";
 
 // Estado global mínimo para abrir o Pop de qualquer página (sidebar, FAB, botões).
 let popOpen = false;
@@ -46,6 +47,17 @@ export function PopDock() {
   );
   const { createTaskMutation } = useTaskMutations();
   const { data } = useWorkspaceData();
+  if (
+    !data ||
+    data.company.kind !== "company" ||
+    (data.company.ownerId !== data.currentUser.id &&
+      !isAdminUser({
+        currentUser: data.currentUser,
+        employees: data.employees,
+        permissionGroups: data.permissionGroups,
+      }))
+  )
+    return null;
 
   async function handleCreate(draft: PopTaskDraft) {
     if (!draft.title || !draft.dueDate || !draft.targetType || !draft.targetId) {

@@ -432,7 +432,9 @@ export async function verifyMobileEmailCode(rawEmail: string, code: string) {
   const codeHash = emailCodeHash(email, code);
   const sessionToken = createSessionToken();
 
-  return mutateDatabase((platform) => {
+  // As recusas saem como valor, não como throw: um throw desfaz a transação e a tentativa contada
+  // em `attempts` se perderia, deixando adivinhar o código sem limite.
+  const result = await mutateDatabase((platform) => {
     const challenge = platform.emailChallenges
       .filter((item) => item.email === email && !item.consumedAt)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
@@ -442,12 +444,10 @@ export async function verifyMobileEmailCode(rawEmail: string, code: string) {
     challenge.attempts += 1;
     if (challenge.attempts > EMAIL_CODE_MAX_ATTEMPTS) {
       challenge.consumedAt = new Date().toISOString();
-      throw Object.assign(new Error("Muitas tentativas. Solicite um novo código."), {
-        statusCode: 429,
-      });
+      return { refused: "Muitas tentativas. Solicite um novo código.", statusCode: 429 } as const;
     }
     if (challenge.codeHash !== codeHash) {
-      throw Object.assign(new Error("Código incorreto."), { statusCode: 401 });
+      return { refused: "Código incorreto.", statusCode: 401 } as const;
     }
     challenge.consumedAt = new Date().toISOString();
 
@@ -493,6 +493,10 @@ export async function verifyMobileEmailCode(rawEmail: string, code: string) {
       workspaces: workspaceSummaries(platform, account.id),
     };
   });
+  if ("refused" in result) {
+    throw Object.assign(new Error(result.refused), { statusCode: result.statusCode });
+  }
+  return result;
 }
 
 export async function authenticateMobileGoogle(credential: string) {
@@ -2412,6 +2416,7 @@ export async function replaceMobileTasks(
     const requestedTaskOrder: string[] = [];
     const splitTaskIds = new Set<string>();
     const shiftedTaskIds = new Set<string>();
+    const rejectedCreations: string[] = [];
 
     if (taskOrder) {
       if (!baseTaskOrder || !baseTasks)
@@ -2884,10 +2889,11 @@ export async function replaceMobileTasks(
         continue;
       }
 
+      // Pula só esta tarefa: recusar o lote inteiro prendia no aparelho as outras mudanças dele
+      // (conclusões, edições), reenviadas e recusadas para sempre.
       if (!canCreateTasks) {
-        throw Object.assign(new Error("Seu grupo de permissão não pode criar tarefas."), {
-          statusCode: 403,
-        });
+        rejectedCreations.push(item.clientId || String(item.id));
+        continue;
       }
 
       const usedMobileIds = new Set(
@@ -3056,6 +3062,7 @@ export async function replaceMobileTasks(
       updated,
       deleted,
       statusResults,
+      rejectedCreations,
       ...(syncRequest ? { mutationId: syncRequest.mutationId, replayed: false } : {}),
     };
   });

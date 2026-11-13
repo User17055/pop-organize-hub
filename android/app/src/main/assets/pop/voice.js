@@ -36,7 +36,7 @@
     if (event.type === "session.input_transcript.delta" || event.type === "session.output_transcript.delta") {
       emit("transcript", { role: event.type.includes("input_") ? "user" : "assistant", text: event.delta, start: event.start_ms, end: event.end_ms });
     }
-    if (event.type === "error") emit("error", { message: "O Pop encontrou uma falha na chamada. Tente novamente." });
+    if (event.type === "error" && !closing) emit("error", { message: "O Pop encontrou uma falha na chamada. Tente novamente.", code: event.error?.code || "unknown", detail: String(event.error?.message || "").slice(0,600) });
     // Live forwards Responses events in an envelope. Calls exist on output_item.done,
     // not on response.completed (whose output is intentionally empty).
     const nested = event.type === "response.event" ? event.event : null;
@@ -44,16 +44,23 @@
     const call = nested.item;
     if (handled.has(call.call_id)) return;
     handled.add(call.call_id);
+    if (call.name === "encerrar_chamada") {
+      send({type:"response.item.create",item:{type:"function_call_output",call_id:call.call_id,output:JSON.stringify({ending:true})}});
+      window.PopVoice.stop();
+      return;
+    }
     queue = queue.catch(() => {}).then(async () => {
       if (token !== generation || closing) return;
-      emit("preparing");
+      const confirming = call.name === "confirmar_criacao";
+      if (!confirming) emit("preparing");
       let result;
       try {
-        if (call.name !== "preparar_rascunho") throw new Error("Ferramenta indisponível.");
-        result = await request({ ...JSON.parse(call.arguments), action: "prepare" });
+        const action = {preparar_rascunho:"prepare",consultar_tarefas:"search",consultar_indicadores:"indicators",consultar_estrutura:"structure",confirmar_criacao:"confirm_voice"}[call.name];
+        if (!action) throw new Error("Ferramenta indisponível.");
+        result = await request({ ...JSON.parse(call.arguments), action });
         if (token !== generation || closing) return;
-        emit("draft", { answer: result });
-      } catch (error) { result = { created: false, error: error.message }; emit("error", {message:error.message}); }
+        if(call.name === "preparar_rascunho") emit("draft", { answer: result });
+      } catch (error) { if(token !== generation || closing) return; result = { created: false, error: error.message }; emit("error", {message:error.message}); }
       emit("prepared");
       if (token !== generation || closing) return;
       send({ type: "response.item.create", item: { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(result) } });

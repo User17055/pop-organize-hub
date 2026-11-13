@@ -45,7 +45,7 @@ import {
   saoPauloToday,
 } from "../task-justification";
 import { invalidateNativeShadow } from "../native-shadow";
-import { hasPermission, resolvePermissionSet } from "../permission-groups";
+import { hasPermission, resolvePermissionSet, isAdminUser } from "../permission-groups";
 import {
   canViewTask,
   canConfigureDepartmentManager,
@@ -539,9 +539,7 @@ function resolveSessionContext(
     : undefined;
   const account = session
     ? platform.accounts.find((item) => item.id === session.userId)
-    : !import.meta.env.PROD
-      ? platform.accounts[0]
-      : undefined;
+    : undefined;
   if (!account) return null;
 
   const preferredWorkspaceId = session?.activeCompanyId;
@@ -719,6 +717,14 @@ function getTaskWithPermissions(db: Database, taskId: string, currentUserId: str
   });
 
   return { task, permissions };
+}
+
+function requirePopAdministrator(db: Database, userId: string) {
+  const user = db.employees.find(person => person.id === userId);
+  if (db.company.kind !== "company" || !user || user.status !== "active" ||
+      (db.company.ownerId !== userId && !isAdminUser({currentUser:user,employees:db.employees,permissionGroups:db.permissionGroups}))) {
+    throw createHttpError("O Pop está disponível somente para administradores da empresa.",403);
+  }
 }
 
 function requireGroupPermission(
@@ -1150,6 +1156,7 @@ export const askPop = createServerFn({ method: "POST" })
   .validator((data) => askPopSchema.parse(data))
   .handler(async ({ data }) => {
     const { account, workspace } = await requireSessionContext();
+    requirePopAdministrator(workspace,account.id);
     requireGroupPermission(
       workspace,
       account.id,
@@ -1227,6 +1234,7 @@ export const preparePopCallDraft = createServerFn({ method: "POST" })
   .validator((data) => popCallDraftSchema.parse(data))
   .handler(async ({data}) => {
     const {account,workspace} = await requireSessionContext();
+    requirePopAdministrator(workspace,account.id);
     requireGroupPermission(workspace,account.id,"tasks.create","Seu grupo de permissão não pode criar tarefas.");
     assertPopRateLimit(account.id);
     if (JSON.stringify(data).length > 12_000) throw createHttpError("O rascunho ficou muito extenso.",400);
@@ -1238,6 +1246,7 @@ export const createPopRealtimeSession = createServerFn({ method: "POST" })
  .validator((data) => z.object({draftContext:z.string().max(6_000).optional()}).parse(data ?? {}))
  .handler(async ({data}) => {
   const { account, workspace } = await requireSessionContext();
+    requirePopAdministrator(workspace,account.id);
   requireGroupPermission(
     workspace,
     account.id,

@@ -1,6 +1,6 @@
 # Horários e assinatura LisonTech
 
-Revisão de 12/11/2026: produção 1.0.16 (19), teste 1.0.16-teste (51). O build 18 já foi enviado à Google Play pelo usuário.
+Revisão de 12/11/2026: produção 1.0.16 (20), consolidando os ajustes abaixo. O build 18 já foi enviado à Google Play; o build 19 anterior foi preservado. A última revisão de teste instalada por USB foi o build 51.
 
 ## Comportamento
 
@@ -19,4 +19,8 @@ Revisão de 12/11/2026: produção 1.0.16 (19), teste 1.0.16-teste (51). O build
 
 65 testes Kotlin passaram, incluindo cálculo de duração, intervalo noturno e valores inválidos. Um teste instrumentado no Samsung SM-S721B com Android 16 verificou criação, edição, remoção do término, seleção de data e assinatura nos dois temas. O teste usa uma atividade isolada de depuração, sem gravar tarefas ou consultar a API; essa atividade não integra os pacotes otimizados.
 
-Os pacotes finais devem ser conferidos pelo relatório de verificação da pasta `release/Atualizacao-Pop-Organize-1.0.16-build19`. A geração e a instalação por USB não publicam arquivos na VPS nem na Google Play.
+Os pacotes finais devem ser conferidos pelo relatório de verificação da pasta `release/Atualizacao-Pop-Organize-1.0.16-build20`. A geração e a instalação por USB não publicam os arquivos de distribuição na VPS nem na Google Play.
+
+## Entrega de produção atual
+
+Usar `release/Atualizacao-Pop-Organize-1.0.16-build20`. Inclui os ajustes visuais das revisões de teste e a identificação de quem concluiu, descrita em `registro-de-conclusao.md`. A proposta da próxima versão está em `plano-pop-ia-1.0.17.md`; as novas funcionalidades de IA permanecem em planejamento.

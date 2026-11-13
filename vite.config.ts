@@ -76,7 +76,8 @@ export default defineConfig(({ mode, command }) => {
         "@tanstack/query-core",
       ],
     },
-    server: { host: "::", port: 8080 },
+    // Só nesta máquina; para abrir no celular pela rede use `npm run dev -- --host`.
+    server: { host: "localhost", port: 8080 },
     plugins: [
       tailwindcss(),
       tsConfigPaths({ projects: ["./tsconfig.json"] }),

@@ -22,3 +22,8 @@
 # classes themselves, so R8 can still shrink and optimize the application.
 -keepattributes Signature,InnerClasses,EnclosingMethod
 -keepattributes RuntimeVisibleAnnotations,RuntimeInvisibleAnnotations,AnnotationDefault
+
+# Only the local voice transport asset can reach this bridge.
+-keepclassmembers class br.com.poporganize.app.ui.PopVoiceBridge {
+    @android.webkit.JavascriptInterface <methods>;
+}

@@ -59,6 +59,8 @@ export function useTaskMutations(options?: {
       description: string;
       priority: Priority;
       dueDate: string;
+      dueTime?: string;
+      durationMinutes?: number;
       target: { type: TargetType; id: string };
       responsibleId: string;
       responsibleIds?: string[];

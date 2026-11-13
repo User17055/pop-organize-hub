@@ -95,6 +95,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
@@ -150,6 +151,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -381,6 +383,9 @@ private data class PopTask(
     val assignees: List<String> = emptyList(),
     val checklist: List<TaskChecklistItem> = emptyList(),
     val calendarProjection: Boolean = false,
+    val completedById: String = "",
+    val completedByName: String = "",
+    val completedAt: String = "",
 )
 
 private fun customReminderLabel(amount: Int, unit: String): String {
@@ -773,6 +778,9 @@ private fun decodeTasks(raw: String?, fallback: List<PopTask>, strict: Boolean =
                 canEdit = item.optBoolean("canEdit", true),
                 canComplete = item.optBoolean("canComplete", true),
                 canCompleteAnytime = item.optBoolean("canCompleteAnytime", false),
+                completedById = item.optString("completedById"),
+                completedByName = item.optString("completedByName"),
+                completedAt = item.optString("completedAt"),
                 canDelete = item.optBoolean("canDelete", true),
                 requiresReview = item.optBoolean("requiresReview", false),
                 isReviewer = item.optBoolean("isReviewer", false),
@@ -931,6 +939,7 @@ private fun calendarTasksForMonth(tasks: List<PopTask>, month: YearMonth): List<
                         dueLabel = dueLabelForDate(occurrenceDate),
                         completed = false,
                         recurrenceOccurrence = occurrenceNumber,
+                        completedById = "", completedByName = "", completedAt = "",
                         calendarProjection = true,
                     )
                 }
@@ -978,6 +987,9 @@ private fun tasksToJson(tasks: List<PopTask>): JSONArray {
                 .put("canEdit", task.canEdit)
                 .put("canComplete", task.canComplete)
                 .put("canCompleteAnytime", task.canCompleteAnytime)
+                .put("completedById", task.completedById)
+                .put("completedByName", task.completedByName)
+                .put("completedAt", task.completedAt)
                 .put("canDelete", task.canDelete)
                 .put("requiresReview", task.requiresReview)
                 .put("isReviewer", task.isReviewer)
@@ -3340,6 +3352,7 @@ private fun PopMainContent(
     val navigationScope = rememberCoroutineScope()
     var destination by remember { mutableStateOf(PopDestination.Dashboard) }
     var showMoreSheet by remember { mutableStateOf(false) }
+    var showPopAssistant by remember(sessionAccountId) { mutableStateOf(false) }
     var showSyncReview by remember(sessionAccountId) { mutableStateOf(false) }
     var syncReviewWorkspace by remember(sessionAccountId) { mutableStateOf("") }
     var syncReviewEntries by remember(sessionAccountId) { mutableStateOf(emptyList<SyncReviewEntry>()) }
@@ -3974,6 +3987,7 @@ private fun PopMainContent(
                 PopBottomBar(
                     selected = destination,
                     showCalendar = canViewCalendar,
+                    onPop = if (workSpace == WorkSpace.Company && isTaskAdmin && !sessionApiToken.isNullOrBlank()) ({ showPopAssistant = true }) else null,
                     onSelect = { selectedDestination ->
                         if (selectedDestination == PopDestination.More) {
                             showMoreSheet = true
@@ -4099,6 +4113,9 @@ private fun PopMainContent(
                                         val previousTask = tasks[index]
                                         tasks[index] = tasks[index].copy(
                                             completed = markingCompleted,
+                                            completedById = if (markingCompleted) sessionAccountId.orEmpty() else "",
+                                            completedByName = if (markingCompleted) googleAccount?.name.orEmpty() else "",
+                                            completedAt = "",
                                             awaitingReview = markingCompleted && task.requiresReview && !task.isReviewer,
                                             canComplete = task.canComplete &&
                                                 (!markingCompleted || !task.requiresReview || task.isReviewer),
@@ -4128,6 +4145,7 @@ private fun PopMainContent(
                                                         dueLabel = dueLabelForDate(nextOccurrence.first),
                                                         dueTime = nextOccurrence.second,
                                                         completed = false,
+                                                        completedById = "", completedByName = "", completedAt = "",
                                                         recurrenceOccurrence =
                                                             task.recurrenceOccurrence + 1,
                                                     ),
@@ -4256,6 +4274,19 @@ private fun PopMainContent(
                     )
                 }
             }
+    }
+
+    if (showPopAssistant && workSpace == WorkSpace.Company && isTaskAdmin && !sessionApiToken.isNullOrBlank()) {
+        val popWorkspaceId = if (workSpace == WorkSpace.Company) companyIds.getOrNull(selectedCompanyIndex).orEmpty() else ""
+        key(sessionApiToken, popWorkspaceId) {
+            PopAssistantDialog(
+                token = sessionApiToken,
+                workspaceId = popWorkspaceId,
+                workspaceName = if (workSpace == WorkSpace.Company) companyNames.getOrNull(selectedCompanyIndex).orEmpty() else "Meu espaço",
+                onCreated = { navigationScope.launch { refreshRemoteTasks(showFeedback = false) } },
+                onDismiss = { showPopAssistant = false },
+            )
+        }
     }
 
     if (showSyncReview) {
@@ -6330,6 +6361,9 @@ private fun TasksScreen(
                 if (currentIndex >= 0) {
                     tasks[currentIndex] = task.copy(
                         completed = true,
+                        completedById = currentUserId,
+                        completedByName = currentUserName,
+                        completedAt = "",
                         awaitingReview = task.requiresReview && !task.isReviewer,
                         canComplete = task.canComplete && (!task.requiresReview || task.isReviewer),
                     )
@@ -6352,6 +6386,7 @@ private fun TasksScreen(
                                 dueLabel = dueLabelForDate(nextOccurrence.first),
                                 dueTime = nextOccurrence.second,
                                 completed = false,
+                                completedById = "", completedByName = "", completedAt = "",
                                 recurrenceOccurrence = task.recurrenceOccurrence + 1,
                             ),
                         )
@@ -6371,7 +6406,8 @@ private fun TasksScreen(
         } else {
             val index = tasks.indexOfFirst { it.id == task.id }
             if (index >= 0) {
-                tasks[index] = tasks[index].copy(completed = false, awaitingReview = false)
+                tasks[index] = tasks[index].copy(completed = false, awaitingReview = false,
+                    completedById = "", completedByName = "", completedAt = "")
                 try { onCompletionCommitted(tasks[index]) }
                 catch (error: Exception) { tasks[index] = task; Toast.makeText(context, error.localizedMessage, Toast.LENGTH_LONG).show() }
             }
@@ -7767,7 +7803,7 @@ private fun TasksScreen(
                             },
                         )
                     }
-                    if (!openedTask?.createdBy.isNullOrBlank() || openedTask?.canDelete == true) {
+                    if (!openedTask?.createdBy.isNullOrBlank() || openedTask?.canDelete == true || openedTask?.completed == true) {
                         item {
                             Row(
                                 modifier = Modifier
@@ -7788,6 +7824,10 @@ private fun TasksScreen(
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 12.sp,
                                         )
+                                    }
+                                    openedTask?.takeIf { it.completed }?.let { completedTask ->
+                                        Spacer(Modifier.height(8.dp))
+                                        CompletionAttribution(completedTask)
                                     }
                                 }
                                 if (openedTask?.canDelete == true) {
@@ -9642,6 +9682,9 @@ private fun TaskCard(
                         modifier = Modifier.weight(1f),
                     )
                 }
+                CompletionAttribution(task,
+                    color = if (isUrgent) Color.White.copy(alpha = .82f) else PopMuted,
+                    modifier = Modifier.padding(end = 76.dp, top = if (task.completed) 3.dp else 0.dp))
             }
             if (showAssigneeAvatars && hasVisibleAssignees) {
                 Spacer(Modifier.width(10.dp))
@@ -9776,6 +9819,7 @@ private fun TaskRow(
                     )
                 }
             }
+            CompletionAttribution(task)
         }
         PriorityPill(task.priority)
     }
@@ -9853,6 +9897,15 @@ private fun PriorityPill(priority: String, colorOverride: Color? = null) {
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+    )
+}
+
+@Composable
+private fun CompletionAttribution(task: PopTask, color: Color = PopMuted, modifier: Modifier = Modifier) {
+    if (task.completed && !task.awaitingReview) Text(
+        "Concluída por: ${task.completedByName.ifBlank { "não registrado" }}",
+        color = color, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+        maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = modifier,
     )
 }
 
@@ -14236,6 +14289,7 @@ private fun MoreAccountAction(
 private fun PopBottomBar(
     selected: PopDestination,
     showCalendar: Boolean,
+    onPop: (() -> Unit)? = null,
     onSelect: (PopDestination) -> Unit,
 ) {
     Box(
@@ -14259,7 +14313,19 @@ private fun PopBottomBar(
                 PopDestination.entries.filter { item ->
                     item != PopDestination.Calendar || showCalendar
                 }.forEach { item ->
-                    val active = selected == item
+                    PopNavigationItem(item.label, item.icon, selected == item) { onSelect(item) }
+                    if (item == PopDestination.Tasks && onPop != null) {
+                        PopNavigationItem("Pop", Icons.Outlined.AutoAwesome, false, accent = true, onClick = onPop)
+                    }
+
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.PopNavigationItem(label: String, icon: ImageVector, active: Boolean, accent: Boolean = false, onClick: () -> Unit) {
                     val scale by animateFloatAsState(
                         targetValue = if (active) 1.045f else 1f,
                         animationSpec = spring(dampingRatio = .72f, stiffness = 420f),
@@ -14271,12 +14337,12 @@ private fun PopBottomBar(
                         label = "nav-background",
                     )
                     val contentColor by animateColorAsState(
-                        targetValue = if (active) Color.White else PopMuted,
+                        targetValue = if (active) Color.White else if (accent) PopBlue else PopMuted,
                         animationSpec = tween(160),
                         label = "nav-content",
                     )
                     Surface(
-                        onClick = { if (!active) onSelect(item) },
+                        onClick = { if (!active) onClick() },
                         color = itemColor,
                         contentColor = contentColor,
                         shape = RoundedCornerShape(21.dp),
@@ -14290,25 +14356,21 @@ private fun PopBottomBar(
                             verticalArrangement = Arrangement.Center,
                         ) {
                             Icon(
-                                item.icon,
-                                item.label,
+                                icon,
+                                label,
                                 tint = contentColor,
                                 modifier = Modifier.size(if (active) 23.dp else 22.dp),
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                item.label,
+                                label,
                                 color = contentColor,
                                 fontSize = 10.sp,
-                                fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                fontWeight = if (active || accent) FontWeight.ExtraBold else FontWeight.SemiBold,
                                 maxLines = 1,
                             )
                         }
                     }
-                }
-            }
-        }
-    }
 }
 
 /** Entry point used exclusively by the debug source-set activity. */

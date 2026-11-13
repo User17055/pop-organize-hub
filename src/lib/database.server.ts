@@ -852,7 +852,11 @@ function normalizePlatformDatabase(value: PlatformDatabase | Database): Platform
   }
 
   const sessions = (value.sessions ?? [])
-    .filter((session) => accountById.has(session.userId))
+    // Vencida sai aqui, numa vez só: várias buscas do celular não conferem o prazo.
+    .filter(
+      (session) =>
+        accountById.has(session.userId) && new Date(session.expiresAt).getTime() > now,
+    )
     .map((session) => {
       const validIds = validWorkspacesByAccount.get(session.userId) ?? [];
       const personalId = workspaces.find(

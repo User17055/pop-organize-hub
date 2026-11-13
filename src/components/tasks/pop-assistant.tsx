@@ -26,7 +26,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { askPop, createPopRealtimeSession } from "@/lib/api/pop-organize.functions";
+import {
+  askPop,
+  createPopRealtimeSession,
+  preparePopCallDraft,
+} from "@/lib/api/pop-organize.functions";
+import { PopCallSession } from "@/lib/pop-call-session";
 import { cn } from "@/lib/utils";
 
 type PopAnswer = Awaited<ReturnType<typeof askPop>>;
@@ -77,7 +82,7 @@ const greeting: ChatMessage = {
   id: "greeting",
   role: "assistant",
   content:
-    "Oi! Eu sou a Pop 😊 Bora deixar o dia mais organizado? Me conte o que precisa ser feito por texto, imagem, áudio ou ligação. Eu preparo o resumo e você confirma antes de criar.",
+    "Oi! Eu sou o Pop 😊 Bora deixar o dia mais organizado? Me conte o que precisa ser feito por texto, imagem, áudio ou ligação. Eu preparo o resumo e você confirma antes de criar.",
 };
 
 function createConversationId() {
@@ -132,7 +137,7 @@ function getCallErrorMessage(error: unknown) {
   if (error instanceof Error && /permission denied|not allowed/i.test(error.message)) {
     return "O microfone está bloqueado. Permita o acesso ao microfone nas configurações do navegador ou aplicativo e tente novamente.";
   }
-  return error instanceof Error ? error.message : "Não foi possível iniciar a ligação com a Pop.";
+  return error instanceof Error ? error.message : "Não foi possível iniciar a ligação com o Pop.";
 }
 
 export function PopAssistant({
@@ -174,13 +179,11 @@ export function PopAssistant({
   const callAudioFadeTimerRef = useRef<number | null>(null);
   const callAudioNeedsFadeInRef = useRef(false);
   const callSpeechActiveRef = useRef(false);
-  const callBargeInTimerRef = useRef<number | null>(null);
-  const callProvisionalInterruptPromiseRef = useRef<Promise<boolean> | null>(null);
   const handledCallItemsRef = useRef(new Set<string>());
   const pendingCallReplyRef = useRef<string | null>(null);
-  const pendingCallContinuationRef = useRef(false);
+  const pendingToolResumeRef = useRef(false);
   const callResponseActiveRef = useRef(false);
-  const callTaskQueueRef = useRef(Promise.resolve());
+  const callSessionRef = useRef(new PopCallSession());
   const messagesRef = useRef(messages);
   const answerRef = useRef(answer);
   const submitRecordedAudioRef = useRef<(recording: RecordedAudio) => void>(() => undefined);
@@ -295,10 +298,11 @@ export function PopAssistant({
 
   async function gentlyInterruptActiveCallResponse() {
     if (!callResponseActiveRef.current) return false;
+    const channel = callChannelRef.current;
     callAudioNeedsFadeInRef.current = true;
     fadeCallAudio(0, 120);
     await new Promise((resolve) => window.setTimeout(resolve, 130));
-    const channel = callChannelRef.current;
+    if (channel !== callChannelRef.current) return false;
     if (!callResponseActiveRef.current || channel?.readyState !== "open") {
       callAudioNeedsFadeInRef.current = false;
       fadeCallAudio(1, 120);
@@ -310,18 +314,16 @@ export function PopAssistant({
   }
 
   const stopCallResources = useCallback(() => {
+    callSessionRef.current.end();
     if (callAudioFadeTimerRef.current !== null) {
       window.clearInterval(callAudioFadeTimerRef.current);
       callAudioFadeTimerRef.current = null;
     }
     callAudioNeedsFadeInRef.current = false;
     callSpeechActiveRef.current = false;
-    if (callBargeInTimerRef.current !== null) {
-      window.clearTimeout(callBargeInTimerRef.current);
-      callBargeInTimerRef.current = null;
-    }
-    callProvisionalInterruptPromiseRef.current = null;
-    pendingCallContinuationRef.current = false;
+    pendingToolResumeRef.current = false;
+    pendingCallReplyRef.current = null;
+    callResponseActiveRef.current = false;
     callChannelRef.current?.close();
     callChannelRef.current = null;
     callPeerRef.current?.close();
@@ -451,7 +453,7 @@ export function PopAssistant({
       recorder.start();
       setIsRecording(true);
     } catch {
-      setError("Permita o acesso ao microfone para falar com a Pop.");
+      setError("Permita o acesso ao microfone para falar com o Pop.");
     }
   }
 
@@ -517,7 +519,7 @@ export function PopAssistant({
       setAnswer(nextAnswer);
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : "Não foi possível falar com a Pop.",
+        requestError instanceof Error ? requestError.message : "Não foi possível falar com o Pop.",
       );
     } finally {
       setIsSending(false);
@@ -528,179 +530,168 @@ export function PopAssistant({
     void sendMessage({ audioOverride: recording });
   };
 
-  async function processCallTranscript(itemId: string, transcript: string) {
-    const cleanTranscript = transcript.trim();
-    if (!cleanTranscript || handledCallItemsRef.current.has(itemId)) return;
-    handledCallItemsRef.current.add(itemId);
-    const provisionalInterruption = callProvisionalInterruptPromiseRef.current;
-    callProvisionalInterruptPromiseRef.current = null;
-    if (!isMeaningfulCallTranscript(cleanTranscript)) {
-      const wasInterrupted = provisionalInterruption ? await provisionalInterruption : false;
-      const channel = callChannelRef.current;
-      if (channel?.readyState === "open") {
-        channel.send(JSON.stringify({ type: "conversation.item.delete", item_id: itemId }));
-      }
-      if (wasInterrupted) {
-        pendingCallContinuationRef.current = true;
-        flushPendingCallReply();
-      }
-      return;
-    }
-
-    pendingCallContinuationRef.current = false;
-    if (provisionalInterruption) {
-      await provisionalInterruption;
-    } else {
-      await gentlyInterruptActiveCallResponse();
-    }
-
-    const userMessage: ChatMessage = {
-      id: `call-user-${itemId}`,
-      role: "user",
-      content: cleanTranscript,
-    };
-    const history = messagesRef.current
-      .filter((message) => message.id !== "greeting")
-      .slice(-12)
-      .map(({ role, content }) => ({ role, content }));
-    messagesRef.current = [...messagesRef.current, userMessage];
+  function appendCallTranscript(id: string, role: "user" | "assistant", transcript: string) {
+    const content = transcript.trim();
+    if (!content || handledCallItemsRef.current.has(id)) return;
+    handledCallItemsRef.current.add(id);
+    if (role === "user" && !isMeaningfulCallTranscript(content)) return;
+    messagesRef.current = [...messagesRef.current, { id, role, content }];
     setMessages(messagesRef.current);
-
-    try {
-      const result = await askPop({
-        data: {
-          messages: history,
-          message: cleanTranscript,
-          draftContext: answerRef.current ? JSON.stringify(answerRef.current.draft) : undefined,
-        },
-      });
-      const nextAnswer =
-        result.intent !== "create_task" && answerRef.current?.status === "ready"
-          ? answerRef.current
-          : result;
-      answerRef.current = nextAnswer;
-      setAnswer(nextAnswer);
-      const reply: ChatMessage = {
-        id: `call-reply-${itemId}`,
-        role: "assistant",
-        content: result.reply,
-      };
-      messagesRef.current = [...messagesRef.current, reply];
-      setMessages(messagesRef.current);
-      pendingCallReplyRef.current = result.reply;
-      flushPendingCallReply();
-    } catch (requestError) {
-      callAudioNeedsFadeInRef.current = false;
-      fadeCallAudio(1, 160);
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Não foi possível preparar a atividade falada.",
-      );
-    }
   }
 
   function flushPendingCallReply() {
-    const reply = pendingCallReplyRef.current;
-    const shouldContinue = pendingCallContinuationRef.current;
     const channel = callChannelRef.current;
     if (
-      (!reply && !shouldContinue) ||
       callResponseActiveRef.current ||
+      callSpeechActiveRef.current ||
       channel?.readyState !== "open"
-    ) {
+    )
       return;
-    }
-    if (shouldContinue && !reply) {
-      pendingCallContinuationRef.current = false;
+    const reply = pendingCallReplyRef.current;
+    if (!reply && !pendingToolResumeRef.current) return;
+    pendingCallReplyRef.current = null;
+    pendingToolResumeRef.current = false;
+    if (reply) {
       channel.send(
         JSON.stringify({
-          type: "response.create",
-          response: {
-            output_modalities: ["audio"],
-            instructions:
-              "Continue com naturalidade exatamente do ponto em que sua fala anterior foi interrompida. Não recomece, não repita e não mencione a interrupção.",
+          type: "conversation.item.create",
+          item: {
+            type: "message",
+            role: "system",
+            content: [
+              {
+                type: "input_text",
+                text: `Evento confirmado pelo aplicativo: ${reply}. O rascunho anterior foi criado e encerrado. Confirme brevemente o sucesso, sem preparar novamente a mesma tarefa.`,
+              },
+            ],
           },
         }),
       );
-      return;
     }
-    pendingCallReplyRef.current = null;
-    pendingCallContinuationRef.current = false;
+    // Reserve the response before sending to prevent two tool completions starting it twice.
+    callResponseActiveRef.current = true;
+    channel.send(JSON.stringify({ type: "response.create" }));
+  }
+
+  async function executeCallDraftTool(
+    generation: number,
+    call: { name?: string; call_id?: string; arguments?: string },
+  ) {
+    if (!call.call_id || !callSessionRef.current.isCurrent(generation)) return;
+    const callId = call.call_id;
+    // Duplicate response.done events must not execute or submit a tool result twice.
+    if (handledCallItemsRef.current.has(`tool-${callId}`)) return;
+    handledCallItemsRef.current.add(`tool-${callId}`);
+    let output: unknown;
+    try {
+      if (call.name !== "preparar_rascunho")
+        throw new Error("Ferramenta indisponível nesta ligação.");
+      const result = await callSessionRef.current.runTool(generation, callId, async () =>
+        preparePopCallDraft({ data: JSON.parse(call.arguments || "{}") }),
+      );
+      if (!result || !callSessionRef.current.isCurrent(generation)) return;
+      answerRef.current = result;
+      setAnswer(result);
+      output = { ...result, created: false };
+    } catch (toolError) {
+      output = {
+        created: false,
+        error:
+          toolError instanceof Error
+            ? toolError.message
+            : "Não foi possível validar o rascunho. Peça os detalhes novamente.",
+      };
+    }
+    if (!callSessionRef.current.isCurrent(generation)) return;
+    const channel = callChannelRef.current;
+    if (channel?.readyState !== "open") return;
     channel.send(
       JSON.stringify({
         type: "conversation.item.create",
         item: {
-          type: "message",
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: `[Resposta estruturada pelo aplicativo. Fale o conteúdo abaixo em português do Brasil, com naturalidade, sem acrescentar informações, introduções ou repetições:]\n${reply}`,
-            },
-          ],
-        },
-      }),
-    );
-    channel.send(
-      JSON.stringify({
-        type: "response.create",
-        response: {
-          output_modalities: ["audio"],
-          instructions:
-            "Fale somente a resposta estruturada mais recente, em ritmo natural e com sotaque brasileiro neutro.",
+          type: "function_call_output",
+          call_id: callId,
+          output: JSON.stringify(output),
         },
       }),
     );
   }
 
-  function handleCallEvent(rawEvent: string) {
+  function handleCallEvent(rawEvent: string, generation: number) {
+    if (!callSessionRef.current.isCurrent(generation)) return;
     try {
       const event = JSON.parse(rawEvent) as {
         type?: string;
         item_id?: string;
         transcript?: string;
+        error?: { code?: string; message?: string };
+        response?: {
+          id?: string;
+          status?: string;
+          output?: { type?: string; name?: string; call_id?: string; arguments?: string }[];
+        };
       };
       if (event.type === "input_audio_buffer.speech_started") {
         callSpeechActiveRef.current = true;
-        if (!callResponseActiveRef.current) {
-          setCallState("listening");
-        } else if (callBargeInTimerRef.current === null) {
-          callBargeInTimerRef.current = window.setTimeout(() => {
-            callBargeInTimerRef.current = null;
-            if (!callSpeechActiveRef.current || !callResponseActiveRef.current) return;
-            callProvisionalInterruptPromiseRef.current = gentlyInterruptActiveCallResponse();
-          }, 360);
-        }
+        setCallState("listening");
       }
       if (event.type === "input_audio_buffer.speech_stopped") {
         callSpeechActiveRef.current = false;
-        if (callBargeInTimerRef.current !== null) {
-          window.clearTimeout(callBargeInTimerRef.current);
-          callBargeInTimerRef.current = null;
+        // Server VAD starts the next answer automatically. A pending tool result is
+        // consumed by it; avoid racing it with a second response.create here.
+      }
+      if (event.type === "response.created") {
+        callResponseActiveRef.current = true;
+        pendingToolResumeRef.current = false;
+      }
+      if (
+        event.type === "response.output_audio.delta" ||
+        event.type === "output_audio_buffer.started"
+      ) {
+        setCallState("speaking");
+        if (callAudioNeedsFadeInRef.current) {
+          callAudioNeedsFadeInRef.current = false;
+          fadeCallAudio(1, 220);
         }
       }
-      if (event.type === "response.created") callResponseActiveRef.current = true;
-      if (event.type === "response.created" || event.type === "response.output_audio.delta") {
-        setCallState("speaking");
-      }
-      if (event.type === "response.output_audio.delta" && callAudioNeedsFadeInRef.current) {
-        callAudioNeedsFadeInRef.current = false;
-        fadeCallAudio(1, 220);
-      }
       if (event.type === "response.done") {
+        if (event.response?.id) {
+          const responseKey = `response-${event.response.id}`;
+          if (handledCallItemsRef.current.has(responseKey)) return;
+          handledCallItemsRef.current.add(responseKey);
+        }
         callResponseActiveRef.current = false;
         setCallState("listening");
-        flushPendingCallReply();
+        if (event.response?.status === "failed")
+          setError("O Pop não conseguiu responder. Tente falar novamente.");
+        const calls =
+          event.response?.status === "completed"
+            ? (event.response.output || []).filter((item) => item.type === "function_call")
+            : [];
+        if (calls.length) {
+          void Promise.all(calls.map((call) => executeCallDraftTool(generation, call))).then(() => {
+            if (!callSessionRef.current.isCurrent(generation)) return;
+            pendingToolResumeRef.current = true;
+            flushPendingCallReply();
+          });
+        } else flushPendingCallReply();
       }
       if (
         event.type === "conversation.item.input_audio_transcription.completed" &&
         event.item_id &&
         event.transcript
       ) {
-        callTaskQueueRef.current = callTaskQueueRef.current.then(() =>
-          processCallTranscript(event.item_id!, event.transcript!),
-        );
+        appendCallTranscript(`call-user-${event.item_id}`, "user", event.transcript);
+      }
+      if (
+        event.type === "response.output_audio_transcript.done" &&
+        event.item_id &&
+        event.transcript
+      ) {
+        appendCallTranscript(`voice-assistant-${event.item_id}`, "assistant", event.transcript);
+      }
+      if (event.type === "error" && event.error?.code !== "response_cancel_not_active") {
+        setError("O Pop encontrou uma falha na ligação. Se persistir, encerre e ligue novamente.");
       }
     } catch {
       // Ignore malformed transport events and keep the call alive.
@@ -708,18 +699,18 @@ export function PopAssistant({
   }
 
   async function startCall() {
-    if (callState !== "idle") return;
+    const generation = callSessionRef.current.begin();
+    if (generation === null) return;
     setError(null);
     setCallSeconds(0);
     setIsCallMuted(false);
     setCallState("connecting");
     handledCallItemsRef.current.clear();
     pendingCallReplyRef.current = null;
-    pendingCallContinuationRef.current = false;
+    pendingToolResumeRef.current = false;
     callResponseActiveRef.current = false;
     callAudioNeedsFadeInRef.current = false;
     callSpeechActiveRef.current = false;
-    callProvisionalInterruptPromiseRef.current = null;
 
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") {
@@ -729,8 +720,17 @@ export function PopAssistant({
       const microphone = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
+      if (!callSessionRef.current.isCurrent(generation)) {
+        microphone.getTracks().forEach((track) => track.stop());
+        return;
+      }
       callStreamRef.current = microphone;
-      const session = await createPopRealtimeSession();
+      const session = await createPopRealtimeSession({
+        data: {
+          draftContext: answerRef.current ? JSON.stringify(answerRef.current.draft) : undefined,
+        },
+      });
+      if (!callSessionRef.current.isCurrent(generation)) return;
 
       const peer = new RTCPeerConnection();
       callPeerRef.current = peer;
@@ -741,6 +741,7 @@ export function PopAssistant({
       remoteAudio.setAttribute("playsinline", "true");
       callAudioRef.current = remoteAudio;
       peer.ontrack = (event) => {
+        if (!callSessionRef.current.isCurrent(generation)) return;
         remoteAudio.srcObject = event.streams[0];
         void remoteAudio.play().catch(() => undefined);
       };
@@ -748,6 +749,7 @@ export function PopAssistant({
       const channel = peer.createDataChannel("oai-events");
       callChannelRef.current = channel;
       channel.addEventListener("open", () => {
+        if (!callSessionRef.current.isCurrent(generation)) return;
         setCallState("listening");
         channel.send(
           JSON.stringify({
@@ -760,7 +762,9 @@ export function PopAssistant({
           }),
         );
       });
-      channel.addEventListener("message", (event) => handleCallEvent(String(event.data)));
+      channel.addEventListener("message", (event) =>
+        handleCallEvent(String(event.data), generation),
+      );
       channel.addEventListener("close", () => {
         if (callPeerRef.current === peer) endCall();
       });
@@ -769,11 +773,13 @@ export function PopAssistant({
         if (callPeerRef.current !== peer) return;
         const failed = peer.connectionState === "failed";
         endCall();
-        if (failed) setError("A ligação com a Pop foi interrompida.");
+        if (failed) setError("A ligação com o Pop foi interrompida.");
       });
 
       const offer = await peer.createOffer();
+      if (!callSessionRef.current.isCurrent(generation)) return;
       await peer.setLocalDescription(offer);
+      if (!callSessionRef.current.isCurrent(generation)) return;
       const response = await fetch("https://api.openai.com/v1/realtime/calls", {
         method: "POST",
         body: offer.sdp,
@@ -782,9 +788,12 @@ export function PopAssistant({
           "Content-Type": "application/sdp",
         },
       });
-      if (!response.ok) throw new Error("A Pop não conseguiu atender a ligação agora.");
-      await peer.setRemoteDescription({ type: "answer", sdp: await response.text() });
+      if (!response.ok) throw new Error("O Pop não conseguiu atender a ligação agora.");
+      const sdp = await response.text();
+      if (!callSessionRef.current.isCurrent(generation)) return;
+      await peer.setRemoteDescription({ type: "answer", sdp });
     } catch (callError) {
+      if (!callSessionRef.current.isCurrent(generation)) return;
       stopCallResources();
       setCallState("idle");
       setError(getCallErrorMessage(callError));
@@ -806,8 +815,7 @@ export function PopAssistant({
     try {
       await onCreate(answer.draft);
       const messageId = `created-${Date.now()}`;
-      const finalSummary = answer.reply.split("\n\nEla ainda não foi criada.")[0];
-      const content = `Pronto! A atividade foi criada com sucesso.\n\n${finalSummary}`;
+      const content = `Pronto! A atividade “${answer.draft.title}” foi criada com sucesso.`;
       const createdMessage: ChatMessage = { id: messageId, role: "assistant", content };
       messagesRef.current = [...messagesRef.current, createdMessage];
       setMessages(messagesRef.current);
@@ -852,7 +860,7 @@ export function PopAssistant({
           "fixed inset-y-0 right-0 z-[220] grid h-dvh w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-l bg-background shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:inset-y-3 sm:right-3 sm:h-[calc(100dvh-1.5rem)] sm:w-[440px] sm:rounded-[26px] sm:border md:w-[480px]",
           open ? "translate-x-0" : "translate-x-[calc(100%+1.5rem)]",
         )}
-        aria-label="Conversa com a Pop"
+        aria-label="Conversa com o Pop"
       >
         <header className="flex items-center justify-between gap-3 border-b border-sky-200/70 bg-gradient-to-r from-sky-100/90 via-white to-blue-50 px-4 py-4 sm:px-5">
           <div className="flex min-w-0 items-center gap-3">
@@ -871,8 +879,8 @@ export function PopAssistant({
               onClick={() => void startCall()}
               disabled={callState !== "idle"}
               className="glass-icon-button flex h-9 w-9 items-center justify-center rounded-xl text-emerald-600 disabled:opacity-50"
-              aria-label="Ligar para a Pop"
-              title="Ligar para a Pop"
+              aria-label="Ligar para o Pop"
+              title="Ligar para o Pop"
             >
               <Phone className="h-4 w-4" />
             </button>
@@ -920,7 +928,7 @@ export function PopAssistant({
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <div>
-                <h3 className="text-sm font-bold">Histórico da Pop</h3>
+                <h3 className="text-sm font-bold">Histórico do Pop</h3>
                 <p className="text-xs text-muted-foreground">
                   Retome uma tarefa sem perder o contexto.
                 </p>
@@ -1101,7 +1109,7 @@ export function PopAssistant({
               disabled={isSending || isRecording || isCreating}
               rows={1}
               maxLength={4_000}
-              placeholder={isRecording ? "Gravando..." : "Peça uma atividade para a Pop..."}
+              placeholder={isRecording ? "Gravando..." : "Peça uma atividade para o Pop..."}
               className="max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none placeholder:text-muted-foreground/70"
             />
             <button
@@ -1111,7 +1119,7 @@ export function PopAssistant({
                 isSending || isRecording || isCreating || (!input.trim() && !image && !audio)
               }
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition hover:bg-primary/90 disabled:opacity-40"
-              aria-label="Enviar para a Pop"
+              aria-label="Enviar para o Pop"
             >
               {isSending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -1166,7 +1174,7 @@ export function PopAssistant({
 
               <p className="text-lg font-bold">
                 {callState === "connecting"
-                  ? "Chamando a Pop..."
+                  ? "Chamando o Pop..."
                   : isCallMuted
                     ? "Microfone desligado"
                     : callState === "speaking"
@@ -1174,7 +1182,7 @@ export function PopAssistant({
                       : "Pode falar"}
               </p>
               <p className="mt-2 max-w-xs text-sm leading-relaxed text-muted-foreground">
-                Converse naturalmente. A Pop entende o pedido, prepara a atividade e mostra a
+                Converse naturalmente. O Pop entende o pedido, prepara a atividade e mostra a
                 confirmação nesta tela.
               </p>
 
@@ -1229,7 +1237,7 @@ export function PopAssistant({
               </button>
             </div>
             <p className="mt-5 text-center text-[10px] text-muted-foreground">
-              A voz da Pop é gerada por inteligência artificial.
+              A voz do Pop é gerada por inteligência artificial.
             </p>
           </section>
         )}

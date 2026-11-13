@@ -294,6 +294,9 @@ export interface Task {
   description: string;
   priority: Priority;
   status: TaskStatus;
+  completedById?: string;
+  completedByName?: string;
+  completedAt?: string;
   dueDate: string;
   /** Hora escolhida no aplicativo. O painel ainda não mostra; sem o campo, ela só sobrevivia em `nativeData`. */
   dueTime?: string;

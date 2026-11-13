@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import useEmblaCarousel from "embla-carousel-react";
 import {
   ArrowLeft,
@@ -799,15 +799,6 @@ function LoginPage() {
                 <Mail className="h-5 w-5 text-[#a5b4fc]" />
                 Continuar com e-mail
               </button>
-
-              {!import.meta.env.PROD && (
-                <Link
-                  to="/"
-                  className="mt-4 flex h-14 w-full items-center justify-center rounded-[18px] bg-white text-sm font-bold text-[#191919] transition hover:bg-white/92 active:scale-[0.99]"
-                >
-                  Continuar sem login
-                </Link>
-              )}
 
               {googleError && (
                 <div className="mt-4 flex items-start justify-center gap-2 text-xs text-destructive">

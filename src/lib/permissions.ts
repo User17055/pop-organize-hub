@@ -512,9 +512,11 @@ function getHierarchyPermissions(input: PermissionInput): HierarchyPermissions {
   return {
     canEditContent: false,
     canChangeStatus: false,
-    canComplete: false,
+    // A responsabilidade identifica a atribuição, não é uma exclusividade de conclusão.
+    // O acesso à tarefa foi validado acima; o grupo de permissão ainda limita cada ação.
+    canComplete: true,
     canDelete: false,
-    roleLabel: "Somente leitura",
+    roleLabel: "Colaborador",
   };
 }
 

@@ -1,0 +1,38 @@
+{
+  "package": "br.com.poporganize.app",
+  "versionName": "1.0.16",
+  "versionCode": 19,
+  "debuggable": false,
+  "targetSdk": 36,
+  "previewComponentsAbsent": true,
+  "productionAPI": true,
+  "native16KVerified": [
+    ".apk:lib/arm64-v8a/libandroidx.graphics.path.so",
+    ".apk:lib/x86_64/libandroidx.graphics.path.so",
+    ".aab:base/lib/arm64-v8a/libandroidx.graphics.path.so",
+    ".aab:base/lib/x86_64/libandroidx.graphics.path.so"
+  ],
+  "artifacts": {
+    "Pop-Organize-1.0.16-build19.aab": {
+      "bytes": 15783133,
+      "sha256": "362cd62f2e4d9ddf31e55663ca2ca0108917e5d0f8c7216e4410f31ebc3e3bfe"
+    },
+    "Pop-Organize-1.0.16-build19.apk": {
+      "bytes": 12523482,
+      "sha256": "998df1330e38c46e57e3e86116790ceba69bd9530420750a7fe1b1478c441275"
+    }
+  },
+  "baseCommit": "d543c31229a7d5e01844405dd19d41dbdaf4532a",
+  "sourceIncludesUncommittedChanges": true,
+  "uploadCertificateSha256": "15ad0895bde195be2097664b3c1aaebe07d8131fb9a48ecbc139e0cbd44f8334",
+  "signatureMatchesPreviousBuild": true,
+  "bundletoolValidated": true,
+  "apk16KZipAlignment": true,
+  "validation": {
+    "kotlinTests": 65,
+    "deviceScheduleTests": 1,
+    "device": "Samsung SM-S721B, Android 16",
+    "deviceArtifact": "debug test variant; optimized test build installed separately"
+  },
+  "publication": "Local only; not uploaded to Google Play or VPS"
+}

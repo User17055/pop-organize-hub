@@ -267,6 +267,7 @@ import br.com.poporganize.app.data.AgendaInterval
 import br.com.poporganize.app.data.agendaHourHeight
 import br.com.poporganize.app.data.agendaMinimumCardHeight
 import br.com.poporganize.app.data.agendaMinimumDuration
+import br.com.poporganize.app.data.taskScheduleLabel
 import br.com.poporganize.app.data.agendaCardHeight
 import br.com.poporganize.app.data.agendaDurationHeight
 import br.com.poporganize.app.data.normalizedAgendaZoom
@@ -4082,7 +4083,7 @@ private fun PopMainContent(
                                 if (!task.canComplete) {
                                     Toast.makeText(
                                         context,
-                                        "Somente o responsável pode concluir esta tarefa",
+                                        taskStatusPermissionMessage(task),
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 } else if (isFutureTask(task) && !task.canCompleteAnytime) {
@@ -5841,7 +5842,6 @@ private fun ResponsibleSelector(
     val normalizedSelection = selectedNames
         .filterNot { it.equals("Sem responsável", ignoreCase = true) }
         .toSet()
-    val summary = normalizedSelection.joinToString(", ").ifBlank { "Sem responsável" }
 
     Surface(
         color = if (plain) Color.Transparent else PopSurface,
@@ -5850,38 +5850,41 @@ private fun ResponsibleSelector(
             .fillMaxWidth()
             .clickable(enabled = enabled) { expanded = true },
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(
                 horizontal = if (plain) 15.dp else 14.dp,
                 vertical = if (plain) 14.dp else 12.dp,
             ),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                Icons.Rounded.PersonOutline,
-                null,
-                tint = PopMuted,
-                modifier = Modifier.size(if (plain) 23.dp else 24.dp),
-            )
-            Spacer(Modifier.width(if (plain) 18.dp else 12.dp))
-            Column(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth().padding(start = if (plain) 41.dp else 40.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Responsável",
+                    if (normalizedSelection.size > 1) "Responsáveis" else "Responsável",
                     color = if (plain) PopText.copy(alpha = .82f) else PopMuted,
                     fontSize = if (plain) 14.sp else 11.sp,
                     fontWeight = if (plain) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier.weight(1f),
                 )
-                Text(
-                    summary,
-                    color = PopMuted,
-                    fontWeight = if (plain) FontWeight.Normal else FontWeight.Bold,
-                    fontSize = if (plain) 11.sp else 13.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (enabled) Icon(Icons.Rounded.KeyboardArrowDown, "Escolher responsável", tint = PopMuted)
             }
-            if (enabled) {
-                Icon(Icons.Rounded.KeyboardArrowDown, "Escolher responsável", tint = PopMuted)
+            normalizedSelection.toList().ifEmpty { listOf("") }.forEach { name ->
+                Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.width(if (plain) 41.dp else 40.dp), contentAlignment = Alignment.CenterStart) {
+                        if (name.isBlank()) {
+                            Icon(Icons.Rounded.PersonOutline, null, tint = PopMuted, modifier = Modifier.size(23.dp))
+                        } else {
+                            ResponsiblePhoto(name, members)
+                        }
+                    }
+                    Text(
+                        name.ifBlank { "Sem responsável" },
+                        color = PopMuted,
+                        fontWeight = if (plain) FontWeight.Normal else FontWeight.Bold,
+                        fontSize = if (plain) 11.sp else 13.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }
@@ -6094,8 +6097,7 @@ private fun TasksScreen(
     var taskDateTab by remember { mutableStateOf("Data") }
     var showTaskTimePicker by remember { mutableStateOf(false) }
     var showEditTimePicker by remember { mutableStateOf(false) }
-    var showDurationPicker by remember { mutableStateOf(false) }
-    var durationForEdit by remember { mutableStateOf(false) }
+    var showEditDatePicker by remember { mutableStateOf(false) }
     var editDuration by remember { mutableStateOf("Sem duração") }
     var showTaskYearMenu by remember { mutableStateOf(false) }
     var showCompleted by remember { mutableStateOf(false) }
@@ -6137,7 +6139,6 @@ private fun TasksScreen(
     val taskListState = rememberLazyListState()
     var taskViewportTopPx by remember { mutableFloatStateOf(0f) }
     var taskViewportBottomPx by remember { mutableFloatStateOf(Float.MAX_VALUE) }
-    val taskTimePickerState = rememberTimePickerState(initialHour = 9, initialMinute = 0, is24Hour = true)
     val newTaskTitleFocusRequester = remember { FocusRequester() }
     val taskActionScope = rememberCoroutineScope()
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -6310,7 +6311,7 @@ private fun TasksScreen(
         val task = tasks.firstOrNull { it.id == requestedTask.id } ?: return
         if (completingTaskId == task.id) return
         if (!canCompleteTask(task)) {
-            Toast.makeText(context, "Somente o responsável pode concluir esta tarefa", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, taskStatusPermissionMessage(task), Toast.LENGTH_SHORT).show()
             return
         }
         val markingCompleted = !task.completed
@@ -7357,6 +7358,7 @@ private fun TasksScreen(
                                     expanded = expandedDetailSection == "priority",
                                     enabled = detailCanEdit,
                                     valueColor = taskPriorityColor(editPriority),
+                                    iconColor = taskPriorityColor(editPriority),
                                 ) {
                                     expandedDetailSection = if (expandedDetailSection == "priority") null else "priority"
                                 }
@@ -7381,66 +7383,12 @@ private fun TasksScreen(
                                 DetailSettingRow(
                                     icon = Icons.Rounded.CalendarMonth,
                                     label = "Data de conclusão",
-                                    value = listOf(editDueDate, editDueTime).filter { it.isNotBlank() }.joinToString(" • "),
-                                    expanded = expandedDetailSection == "date",
+                                    value = editDueDate,
+                                    expanded = false,
+                                    showArrow = false,
                                     enabled = detailCanEdit,
                                     valueColor = if (detailIsOverdue) detailOverdueBackground else PopMuted,
-                                ) {
-                                    expandedDetailSection = if (expandedDetailSection == "date") null else "date"
-                                }
-                                AnimatedVisibility(visible = detailCanEdit && expandedDetailSection == "date") {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(9.dp),
-                                    ) {
-                                        TextField(
-                                            value = editDueDate,
-                                            onValueChange = { editDueDate = it.filter { char -> char.isDigit() || char == '/' }.take(10) },
-                                            label = { Text("Data") },
-                                            placeholder = { Text("dd/mm/aaaa") },
-                                            singleLine = true,
-                                            shape = RoundedCornerShape(12.dp),
-                                            colors = taskEditorFieldColors(PopSurface),
-                                            modifier = Modifier.fillMaxWidth(),
-                                        )
-                                        Surface(
-                                            onClick = { showEditTimePicker = true },
-                                            color = Color.Transparent,
-                                            shape = RoundedCornerShape(16.dp),
-                                            modifier = Modifier.fillMaxWidth(),
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(start = 15.dp, end = 6.dp, top = 11.dp, bottom = 11.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                Icon(Icons.Rounded.AccessTime, null, tint = PopBlue, modifier = Modifier.size(21.dp))
-                                                Spacer(Modifier.width(11.dp))
-                                                Column(Modifier.weight(1f)) {
-                                                    Text("Hora (opcional)", color = PopMuted, fontSize = 11.sp)
-                                                    Text(
-                                                        editDueTime.ifBlank { "Sem horário" },
-                                                        color = PopText,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 15.sp,
-                                                    )
-                                                }
-                                                if (editDueTime.isNotBlank()) {
-                                                    IconButton(
-                                                        onClick = {
-                                                            editDueTime = ""
-                                                            editReminder = "Sem notificação"
-                                                        },
-                                                    ) {
-                                                        Icon(Icons.Rounded.Close, "Remover horário", tint = PopMuted, modifier = Modifier.size(18.dp))
-                                                    }
-                                                } else {
-                                                    Icon(Icons.Rounded.KeyboardArrowDown, null, tint = PopMuted)
-                                                    Spacer(Modifier.width(10.dp))
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                ) { showEditDatePicker = true }
                             }
                         }
                     }
@@ -7449,10 +7397,12 @@ private fun TasksScreen(
                             Column {
                                 DetailSettingRow(
                                     icon = Icons.Rounded.AccessTime,
-                                    label = "Duração",
-                                    value = editDuration + taskEndLabel(editDueTime, editDuration),
+                                    label = "Horário",
+                                    value = taskScheduleLabel(editDueTime, editDuration),
                                     expanded = false,
-                                ) { durationForEdit = true; showDurationPicker = true }
+                                    showArrow = false,
+                                    enabled = detailCanEdit,
+                                ) { showEditTimePicker = true }
                                 DetailSettingRow(
                                     icon = Icons.Rounded.NotificationsActive,
                                     label = "Lembrar-me",
@@ -8083,19 +8033,8 @@ private fun TasksScreen(
                         DateSettingRow(
                             icon = Icons.Rounded.AccessTime,
                             label = "Hora",
-                            value = newTaskTime.ifBlank { "Sem horário" },
-                        ) {
-                            runCatching { LocalTime.parse(newTaskTime) }.getOrNull()?.let { selected ->
-                                taskTimePickerState.hour = selected.hour
-                                taskTimePickerState.minute = selected.minute
-                            }
-                            showTaskTimePicker = true
-                        }
-                        DateSettingRow(
-                            icon = Icons.Rounded.AccessTime,
-                            label = "Duração",
-                            value = newTaskDuration + taskEndLabel(newTaskTime, newTaskDuration),
-                        ) { durationForEdit = false; showDurationPicker = true }
+                            value = taskScheduleLabel(newTaskTime, newTaskDuration),
+                        ) { showTaskTimePicker = true }
                         DateSettingRow(
                             icon = Icons.Rounded.NotificationsActive,
                             label = "Lembrete",
@@ -8184,46 +8123,29 @@ private fun TasksScreen(
         )
     }
 
-    if (showDurationPicker) {
-        TaskDurationDialog(
-            selected = if (durationForEdit) editDuration else newTaskDuration,
-            startTime = if (durationForEdit) editDueTime else newTaskTime,
-            onSelect = { value ->
-                if (durationForEdit) {
-                    editDuration = value
-                    if (taskDurationMinutes(value) != null && editDueTime.isBlank()) showEditTimePicker = true
-                } else {
-                    newTaskDuration = value
-                    if (taskDurationMinutes(value) != null && newTaskTime.isBlank()) showTaskTimePicker = true
-                }
-                showDurationPicker = false
-            },
-            onDismiss = { showDurationPicker = false },
-        )
+    if (showEditDatePicker) {
+        TaskDueDateDialog(editDueDate, onSelect = { editDueDate = it; showEditDatePicker = false },
+            onDismiss = { showEditDatePicker = false })
     }
-
     if (showTaskTimePicker) {
-        WheelTimePickerDialog(
-            title = "Horário da tarefa",
+        TaskTimeRangeDialog(
             initialTime = newTaskTime,
-            onConfirm = { newTaskTime = it; showTaskTimePicker = false },
+            initialDuration = newTaskDuration,
+            onConfirm = { time, duration -> newTaskTime = time; newTaskDuration = duration; showTaskTimePicker = false },
             onClear = {
-                newTaskTime = ""
-                newTaskReminder = "Sem notificação"
+                newTaskTime = ""; newTaskDuration = "Sem duração"; newTaskReminder = "Sem notificação"
                 showTaskTimePicker = false
             },
             onDismiss = { showTaskTimePicker = false },
         )
     }
-
     if (showEditTimePicker) {
-        WheelTimePickerDialog(
-            title = "Hora de conclusão",
+        TaskTimeRangeDialog(
             initialTime = editDueTime,
-            onConfirm = { editDueTime = it; showEditTimePicker = false },
+            initialDuration = editDuration,
+            onConfirm = { time, duration -> editDueTime = time; editDuration = duration; showEditTimePicker = false },
             onClear = {
-                editDueTime = ""
-                editReminder = "Sem notificação"
+                editDueTime = ""; editDuration = "Sem duração"; editReminder = "Sem notificação"
                 showEditTimePicker = false
             },
             onDismiss = { showEditTimePicker = false },
@@ -8844,7 +8766,7 @@ private fun RecurrenceNumberSelector(
 }
 
 @Composable
-private fun TaskDatePickerCalendar(
+internal fun TaskDatePickerCalendar(
     month: YearMonth,
     selectedDate: LocalDate,
     onDateSelected: (LocalDate) -> Unit,
@@ -8877,7 +8799,7 @@ private fun TaskDatePickerCalendar(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(if (selected) PopBlue else Color.Transparent)
+                                    .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
                                     .clickable { onDateSelected(date) },
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -9014,102 +8936,7 @@ private fun PriorityChoicePill(label: String, selected: Boolean, onClick: () -> 
 }
 
 @Composable
-private fun WheelTimePickerDialog(
-    title: String,
-    initialTime: String,
-    onConfirm: (String) -> Unit,
-    onClear: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val parsed = remember(initialTime) { runCatching { LocalTime.parse(initialTime) }.getOrNull() }
-    var selectedHour by remember(initialTime) { mutableIntStateOf(parsed?.hour ?: 9) }
-    var selectedMinute by remember(initialTime) { mutableIntStateOf(parsed?.minute ?: 0) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                title,
-                fontWeight = FontWeight.ExtraBold,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    WheelNumberPicker(
-                        value = selectedHour,
-                        range = 0..23,
-                        onValueChange = { selectedHour = it },
-                    )
-                    Text(
-                        ":",
-                        color = PopText,
-                        fontSize = 50.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
-                    )
-                    WheelNumberPicker(
-                        value = selectedMinute,
-                        range = 0..59,
-                        onValueChange = { selectedMinute = it },
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ClockDialogAction("Sem horário", PopMuted, 1.18f, onClear)
-                ClockDialogAction("Cancelar", Color(0xFFFF2020), 1f, onDismiss)
-                ClockDialogAction("Confirmar", PopBlue, 1f) {
-                    onConfirm("%02d:%02d".format(selectedHour, selectedMinute))
-                }
-            }
-        },
-        shape = RoundedCornerShape(34.dp),
-        containerColor = PopSurface,
-    )
-}
-
-@Composable
-private fun RowScope.ClockDialogAction(
-    label: String,
-    color: Color,
-    weight: Float,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .weight(weight)
-            .clip(RoundedCornerShape(10.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            )
-            .padding(horizontal = 2.dp, vertical = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            color = color,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.ExtraBold,
-            maxLines = 1,
-            softWrap = false,
-        )
-    }
-}
-
-@Composable
-private fun WheelNumberPicker(
+internal fun WheelNumberPicker(
     value: Int,
     range: IntRange,
     onValueChange: (Int) -> Unit,
@@ -9132,7 +8959,7 @@ private fun WheelNumberPicker(
             snapAnimationSpec = tween(durationMillis = 620, easing = FastOutSlowInEasing),
         )
     }
-    val selectionThreshold = with(LocalDensity.current) { 31.dp.roundToPx() }
+    val selectionThreshold = with(LocalDensity.current) { 26.dp.roundToPx() }
     val selectedPage by remember(pickerState, selectionThreshold) {
         derivedStateOf {
             pickerState.firstVisibleItemIndex +
@@ -9151,21 +8978,22 @@ private fun WheelNumberPicker(
     LazyColumn(
         state = pickerState,
         flingBehavior = smoothFlingBehavior,
-        contentPadding = PaddingValues(vertical = 79.dp),
-        modifier = Modifier.width(126.dp).height(220.dp),
+        contentPadding = PaddingValues(vertical = 58.dp),
+        modifier = Modifier.width(96.dp).height(168.dp),
     ) {
         items(count = Int.MAX_VALUE) { page ->
             val selected = selectedPage == page
             val displayedValue = range.first + (page % itemCount)
-            Box(Modifier.fillMaxWidth().height(62.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().height(52.dp), contentAlignment = Alignment.Center) {
                 Text(
                     "%02d".format(displayedValue),
                     color = when {
                         selected && pickerState.isScrollInProgress -> PopBlue
                         selected -> PopText
-                        else -> PopMuted.copy(alpha = .42f)
+                        else -> PopMuted.copy(alpha = .62f)
                     },
-                    fontSize = if (selected) 54.sp else 30.sp,
+                    fontSize = if (selected) 44.sp else 24.sp,
+                    lineHeight = if (selected) 52.sp else 30.sp,
                     fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
@@ -9422,6 +9250,17 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     ) {
         Text(label, color = textColor, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold)
     }
+}
+
+@Composable
+private fun ResponsiblePhoto(name: String, members: List<CompanyMember>) {
+    val member = members.firstOrNull { it.name.equals(name, ignoreCase = true) }
+    GoogleProfileAvatar(
+        photoUrl = member?.photoUrl,
+        modifier = Modifier.size(28.dp),
+        fallbackName = name,
+        photoDescription = "Foto de $name",
+    )
 }
 
 @Composable
@@ -9950,6 +9789,8 @@ private fun DetailSettingRow(
     expanded: Boolean,
     enabled: Boolean = true,
     valueColor: Color = PopMuted,
+    iconColor: Color = PopMuted,
+    showArrow: Boolean = true,
     onClick: () -> Unit,
 ) {
     val rowModifier = if (enabled) {
@@ -9961,7 +9802,7 @@ private fun DetailSettingRow(
         modifier = rowModifier.padding(horizontal = 15.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = PopMuted, modifier = Modifier.size(23.dp))
+        Icon(icon, null, tint = iconColor, modifier = Modifier.size(23.dp))
         Spacer(Modifier.width(18.dp))
         Column(Modifier.weight(1f)) {
             Text(label, color = PopText.copy(alpha = .82f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -9969,7 +9810,7 @@ private fun DetailSettingRow(
                 Text(value, color = valueColor, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        if (enabled) {
+        if (enabled && showArrow) {
             Icon(
                 Icons.Rounded.KeyboardArrowDown,
                 if (expanded) "Recolher" else "Editar",
@@ -10013,6 +9854,12 @@ private fun PriorityPill(priority: String, colorOverride: Color? = null) {
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
     )
+}
+
+private fun taskStatusPermissionMessage(task: PopTask): String = when {
+    task.awaitingReview -> "Esta tarefa aguarda a aprovação do revisor"
+    task.completed -> "Seu acesso não permite reabrir esta tarefa"
+    else -> "Seu acesso não permite concluir esta tarefa"
 }
 
 private fun taskPriorityColor(priority: String): Color = when (priority) {
@@ -10526,54 +10373,6 @@ private fun taskEndLabel(start: String, duration: String): String {
     return " • até ${agendaTimeLabel(end)}" + if (end >= 1440) " (+1 dia)" else ""
 }
 
-@Composable
-private fun TaskDurationDialog(selected: String, startTime: String, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
-    var minutesText by remember(selected) { mutableStateOf(taskDurationMinutes(selected)?.toString().orEmpty()) }
-    val minutes = minutesText.toIntOrNull()?.takeIf { it in 1..1440 }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Duração da tarefa", fontWeight = FontWeight.ExtraBold) },
-        containerColor = PopSurface,
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Reserve um intervalo na agenda do dia.", color = PopMuted, fontSize = 12.sp)
-                listOf(15, 30, 45, 60, 90, 120).chunked(3).forEach { options ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        options.forEach { option ->
-                            Surface(
-                                onClick = { minutesText = option.toString() },
-                                color = if (minutes == option) PopBlue else PopSurfaceAlt,
-                                contentColor = if (minutes == option) Color.White else PopText,
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text(taskDurationLabel(option), fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(vertical = 11.dp))
-                            }
-                        }
-                    }
-                }
-                TextField(
-                    value = minutesText,
-                    onValueChange = { minutesText = it.filter(Char::isDigit).take(4) },
-                    label = { Text("Duração em minutos") },
-                    suffix = { Text("min") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    isError = minutesText.isNotBlank() && minutes == null,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (minutes != null && agendaMinute(startTime) != null) {
-                    Text("Início $startTime${taskEndLabel(startTime, taskDurationLabel(minutes))}", color = PopBlue, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                } else {
-                    Text("De 1 minuto a 24 horas. O horário de início será usado para calcular o término.", color = PopMuted, fontSize = 11.sp)
-                }
-                TextButton(onClick = { onSelect("Sem duração") }) { Text("Sem duração") }
-            }
-        },
-        confirmButton = { Button(enabled = minutes != null, onClick = { onSelect(taskDurationLabel(minutes)) }) { Text("Aplicar") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
-    )
-}
 
 private fun weekDayToken(dayOfWeek: Int): String =
     listOf("S", "T", "Q", "Q2", "S2", "Sá", "D")[dayOfWeek.coerceIn(1, 7) - 1]
@@ -10919,12 +10718,12 @@ private fun CalendarTaskDetails(task: PopTask, onDismiss: () -> Unit) {
                         CalendarTaskInfoRow(
                             Icons.Rounded.CalendarMonth,
                             "Data",
-                            displayDueLabel(task) + task.dueTime.takeIf { it.isNotBlank() }?.let { ", $it" }.orEmpty(),
+                            displayDueLabel(task),
                             valueColor = if (isTaskOverdue(task)) taskPriorityColor("Urgente") else null,
                         )
                     }
-                    if (taskDurationMinutes(task.duration) != null) {
-                        item { CalendarTaskInfoRow(Icons.Rounded.AccessTime, "Duração", task.duration + taskEndLabel(task.dueTime, task.duration)) }
+                    if (task.dueTime.isNotBlank()) {
+                        item { CalendarTaskInfoRow(Icons.Rounded.AccessTime, "Horário", taskScheduleLabel(task.dueTime, task.duration)) }
                     }
                     item { CalendarTaskInfoRow(Icons.Rounded.TaskAlt, "Prioridade", task.priority) }
                     if (task.recurrenceRule != "Não repetir") {
@@ -12007,8 +11806,9 @@ private fun MoreScreen(
             Surface(color = PopBackground, modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 40.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
+                    overscrollEffect = null,
                 ) {
                     item {
                         Row(
@@ -12191,6 +11991,7 @@ private fun MoreScreen(
                             )
                         }
                     }
+                    item { DeveloperSignature() }
                 }
             }
         }

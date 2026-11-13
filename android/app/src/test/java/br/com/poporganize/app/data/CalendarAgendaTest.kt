@@ -4,6 +4,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CalendarAgendaTest {
+    @Test fun choosingAnEndTimeCalculatesTheStoredDuration() {
+        assertEquals(90, taskDurationFromEndTime("09:00", "10:30"))
+        assertEquals("10:30", taskEndTime("09:00", taskDurationLabel(taskDurationFromEndTime("09:00", "10:30"))))
+        assertEquals("09:00 até 10:30", taskScheduleLabel("09:00", "1 h 30 min"))
+        assertEquals("09:00", taskScheduleLabel("09:00", "Sem duração"))
+        assertEquals("Sem horário", taskScheduleLabel("", "Sem duração"))
+    }
+    @Test fun anOvernightRangeKeepsTheFollowingDayAndFullDaysAreExplicit() {
+        assertEquals(120, taskDurationFromEndTime("23:00", "01:00"))
+        assertEquals("01:00 +1", taskEndTime("23:00", taskDurationLabel(taskDurationFromEndTime("23:00", "01:00"))))
+        assertNull(taskDurationFromEndTime("09:00", "09:00"))
+        assertEquals(1440, taskDurationFromEndTime("09:00", "09:00", fullDay = true))
+        assertNull(taskDurationFromEndTime("24:00", "10:00"))
+        assertNull(taskDurationFromEndTime("09:00", "10:70"))
+    }
     @Test fun endTimeUsesClockAndMarksTheFollowingDay() {
         assertEquals("10:30", taskEndTime("09:00", "1 h 30 min"))
         assertEquals("00:30 +1", taskEndTime("23:30", "1 h"))

@@ -23,12 +23,12 @@ android {
         applicationId "br.com.poporganize.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 18
-        versionName "1.0.15"
+        versionCode 19
+        versionName "1.0.16"
         manifestPlaceholders = [appLabel: "Pop Organize"]
         if (calendarTestInstall) {
-            versionCode 44
-            versionName "1.0.15-teste"
+            versionCode 51
+            versionName "1.0.16-teste"
         }
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "POP_API_BASE_URL", "\"${popApiBaseUrl.replace('\\', '\\\\').replace('"', '\\"')}\""

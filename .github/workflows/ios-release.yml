@@ -27,6 +27,10 @@ on:
         required: false
         default: true
         type: boolean
+      o_que_testar:
+        description: "Texto do O que testar no TestFlight (pt-BR); vazio = sem texto"
+        required: false
+        type: string
 
 jobs:
   release:
@@ -192,3 +196,35 @@ jobs:
           KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
           ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
         run: KEY_PATH=~/private_keys/AuthKey_${KEY_ID}.p8 node scripts/asc-certificados.mjs --revogar
+
+  # Depois do envio, leva o build ate os testadores pela App Store Connect API: espera o
+  # processamento da Apple, confere a criptografia, grava o "O que testar" e libera para os
+  # grupos internos. Em Linux, para nao segurar a maquina macOS durante a espera. So roda com
+  # numero de build explicito: sem ele o build sai com o numero fixo do projeto.
+  testflight:
+    needs: release
+    if: ${{ inputs.upload && inputs.build_number != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Distribuir no TestFlight
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          O_QUE_TESTAR: ${{ inputs.o_que_testar }}
+        run: |
+          set -e
+          KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          echo "$APPSTORE_API_PRIVATE_KEY" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          export KEY_PATH O_QUE_TESTAR
+          trap 'rm -f "$KEY_PATH"' EXIT
+          node scripts/asc-testflight.mjs --build "$BUILD_NUMBER" --esperar-min 60 --aplicar

@@ -1,0 +1,26 @@
+Pop Organize is a task manager for company teams, with a separate personal space ("Meu Espaço"). The app is in Brazilian Portuguese.
+
+HOW TO SIGN IN WITH THE DEMO ACCOUNT
+1. On first launch, tap "Pular" (or "Próximo" until "Começar") to skip the three intro screens.
+2. Tap "Entrar com e-mail".
+3. Enter <DEMO E-MAIL> and tap "Enviar código".
+4. Enter the 6-digit code shown in the Password field above. This demo account uses a fixed code, so no access to an e-mail inbox is needed.
+
+The demo account belongs to a sample company ("Aurora Café") with sectors, people, groups and tasks, so the screens are not empty. Sign in with Apple also works and creates a new, empty account. "Continuar sem uma conta" opens a personal space stored only on the device; team features require an account.
+
+WHAT TO LOOK AT
+1. "Início" — summary of the day and open tasks.
+2. "Tarefas" — the task list. Tap the circle to complete a task; tap the card to open its details.
+3. "Calendário" — month grid and the day agenda ordered by time.
+4. "Mais" — team, sectors, groups and settings.
+
+ACCOUNT DELETION (Guideline 5.1.1(v))
+"Mais" → "Configurações" → "Excluir minha conta". Deletion is permanent. To test it, please create a separate account (Sign in with Apple or another e-mail address) instead of deleting the demo account, so the other screens keep their data. There is also a public page: https://app.poporganize.com.br/excluir-conta
+
+DATA
+No tracking, no advertising and no third-party SDKs. The app handles name, e-mail address, user ID and the content the user creates (tasks and checklists), all linked to the account and used only to provide the service, as declared in the privacy manifest and in the App Privacy answers. Reminders are local notifications scheduled on the device.
+
+SUPPORT
+https://app.poporganize.com.br/suporte — contato@poporganize.com
+
+iPhone only. Requires an internet connection for the team features, because the workspace is shared with the web panel and the Android app.

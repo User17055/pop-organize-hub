@@ -29,6 +29,7 @@ import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ImprimirSetorRouteImport } from './routes/imprimir.setor'
 import { Route as ApiAnexosIndexRouteImport } from './routes/api/anexos/index'
 import { Route as ApiAnexosFileIdRouteImport } from './routes/api/anexos/$fileId'
+import { Route as ApiAppleWebhookRouteImport } from './routes/api/apple/webhook'
 import { Route as ApiMobileAccountRouteImport } from './routes/api/mobile/account'
 import { Route as ApiMobileInvitationsRouteImport } from './routes/api/mobile/invitations'
 import { Route as ApiMobileTaskListsRouteImport } from './routes/api/mobile/task-lists'
@@ -141,6 +142,11 @@ const ApiAnexosFileIdRoute = ApiAnexosFileIdRouteImport.update({
   path: '/api/anexos/$fileId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAppleWebhookRoute = ApiAppleWebhookRouteImport.update({
+  id: '/api/apple/webhook',
+  path: '/api/apple/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMobileAccountRoute = ApiMobileAccountRouteImport.update({
   id: '/api/mobile/account',
   path: '/api/mobile/account',
@@ -219,6 +225,7 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/imprimir/setor': typeof ImprimirSetorRoute
   '/api/anexos/$fileId': typeof ApiAnexosFileIdRoute
+  '/api/apple/webhook': typeof ApiAppleWebhookRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
@@ -252,6 +259,7 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/imprimir/setor': typeof ImprimirSetorRoute
   '/api/anexos/$fileId': typeof ApiAnexosFileIdRoute
+  '/api/apple/webhook': typeof ApiAppleWebhookRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
@@ -286,6 +294,7 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/imprimir/setor': typeof ImprimirSetorRoute
   '/api/anexos/$fileId': typeof ApiAnexosFileIdRoute
+  '/api/apple/webhook': typeof ApiAppleWebhookRoute
   '/api/mobile/account': typeof ApiMobileAccountRoute
   '/api/mobile/invitations': typeof ApiMobileInvitationsRoute
   '/api/mobile/task-lists': typeof ApiMobileTaskListsRoute
@@ -321,6 +330,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/imprimir/setor'
     | '/api/anexos/$fileId'
+    | '/api/apple/webhook'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
@@ -354,6 +364,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/imprimir/setor'
     | '/api/anexos/$fileId'
+    | '/api/apple/webhook'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
@@ -387,6 +398,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/imprimir/setor'
     | '/api/anexos/$fileId'
+    | '/api/apple/webhook'
     | '/api/mobile/account'
     | '/api/mobile/invitations'
     | '/api/mobile/task-lists'
@@ -421,6 +433,7 @@ export interface RootRouteChildren {
   ApiHealthRoute: typeof ApiHealthRoute
   ImprimirSetorRoute: typeof ImprimirSetorRoute
   ApiAnexosFileIdRoute: typeof ApiAnexosFileIdRoute
+  ApiAppleWebhookRoute: typeof ApiAppleWebhookRoute
   ApiMobileAccountRoute: typeof ApiMobileAccountRoute
   ApiMobileInvitationsRoute: typeof ApiMobileInvitationsRoute
   ApiMobileTaskListsRoute: typeof ApiMobileTaskListsRoute
@@ -577,6 +590,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAnexosFileIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/apple/webhook': {
+      id: '/api/apple/webhook'
+      path: '/api/apple/webhook'
+      fullPath: '/api/apple/webhook'
+      preLoaderRoute: typeof ApiAppleWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mobile/account': {
       id: '/api/mobile/account'
       path: '/api/mobile/account'
@@ -677,6 +697,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHealthRoute: ApiHealthRoute,
   ImprimirSetorRoute: ImprimirSetorRoute,
   ApiAnexosFileIdRoute: ApiAnexosFileIdRoute,
+  ApiAppleWebhookRoute: ApiAppleWebhookRoute,
   ApiMobileAccountRoute: ApiMobileAccountRoute,
   ApiMobileInvitationsRoute: ApiMobileInvitationsRoute,
   ApiMobileTaskListsRoute: ApiMobileTaskListsRoute,

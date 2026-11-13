@@ -516,10 +516,10 @@ function FuncionariosPage() {
                 {inviteLink
                   ? inviteEmailSent
                     ? `Enviamos o convite para ${form.email}. O link abaixo fica disponível como alternativa.`
-                    : "Copie o link abaixo e envie ao funcionário. Ele definirá a própria senha ao aceitar."
+                    : "Copie o link abaixo e envie ao funcionário. Ele confirma o e-mail com um código ao aceitar."
                   : editingEmployeeId
                     ? "Atualize os dados e as permissões do colaborador."
-                    : "Informe os dados do colaborador. A senha será criada por ele no aceite."}
+                    : "Informe os dados do colaborador. Ele recebe o convite por e-mail e entra com um código, sem senha."}
               </DialogDescription>
             </DialogHeader>
             {inviteLink ? (

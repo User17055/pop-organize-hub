@@ -3,7 +3,6 @@ import {
   deleteCookie,
   getCookie,
   getRequestHeader,
-  getRequestIP,
   getRequestProtocol,
   setCookie,
 } from "@tanstack/react-start/server";
@@ -68,14 +67,11 @@ import { recurrenceCadenceKey, seriesSlotDate } from "../recurrence";
 const SESSION_COOKIE = "pop_organize_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 const INVITATION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
-const LOGIN_ATTEMPT_LIMIT = 5;
-const LOGIN_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_ATTEMPT_MAP_LIMIT = 5_000;
 const POP_REQUEST_LIMIT = 20;
 const POP_REQUEST_WINDOW_MS = 60 * 1000;
 
 type LoginAttempt = { count: number; resetAt: number };
-const loginAttempts = new Map<string, LoginAttempt>();
 const popRequestWindows = new Map<string, LoginAttempt>();
 
 const prioritySchema = z.enum(["low", "medium", "high", "urgent"]);
@@ -222,9 +218,15 @@ const cancelEmployeeInvitationSchema = z.object({
   id: z.string().min(1, "Convite inválido."),
 });
 
-const acceptInvitationSchema = z.object({
+const invitationTokenSchema = z.object({
   token: z.string().min(20, "Convite inválido."),
-  password: z.string().min(8, "A senha deve ter pelo menos 8 caracteres."),
+});
+
+const acceptInvitationSchema = invitationTokenSchema.extend({
+  code: z
+    .string()
+    .regex(/^\d{6}$/, "Digite os 6 números do código.")
+    .optional(),
 });
 
 const permissionKeySchema = z.enum(allPermissionKeys as [PermissionKey, ...PermissionKey[]]);
@@ -368,26 +370,14 @@ const removeTaskAttachmentSchema = z.object({
   attachmentId: z.string().min(1),
 });
 
-const updateProfileSchema = z
-  .object({
-    name: z.string().trim().min(2, "Informe seu nome"),
-    avatar: z
-      .string()
-      .trim()
-      .max(200_000)
-      .optional()
-      .transform((value) => value || undefined),
-    currentPassword: z.string().optional(),
-    newPassword: z.string().min(8, "A nova senha deve ter pelo menos 8 caracteres").optional(),
-  })
-  .refine((data) => !data.newPassword || Boolean(data.currentPassword), {
-    message: "Informe a senha atual.",
-    path: ["currentPassword"],
-  });
-
-const loginSchema = z.object({
-  email: z.string().trim().email(),
-  password: z.string().min(1),
+const updateProfileSchema = z.object({
+  name: z.string().trim().min(2, "Informe seu nome"),
+  avatar: z
+    .string()
+    .trim()
+    .max(200_000)
+    .optional()
+    .transform((value) => value || undefined),
 });
 
 const googleLoginSchema = z.object({
@@ -404,44 +394,6 @@ const emailCodeLoginSchema = emailCodeRequestSchema.extend({
 
 function createHttpError(message: string, status = 400) {
   return Object.assign(new Error(message), { statusCode: status });
-}
-
-function getLoginRateLimitKey(email: string) {
-  const ip = getRequestHeader("x-real-ip") || getRequestIP() || "unknown";
-  return `${ip}:${email}`;
-}
-
-function assertLoginAllowed(key: string) {
-  const now = Date.now();
-  const attempt = loginAttempts.get(key);
-  if (!attempt || attempt.resetAt <= now) {
-    loginAttempts.delete(key);
-    return;
-  }
-  if (attempt.count >= LOGIN_ATTEMPT_LIMIT) {
-    throw createHttpError("Muitas tentativas. Aguarde 15 minutos e tente novamente.", 429);
-  }
-}
-
-function recordFailedLogin(key: string) {
-  const now = Date.now();
-  const current = loginAttempts.get(key);
-  if (!current || current.resetAt <= now) {
-    loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_ATTEMPT_WINDOW_MS });
-  } else {
-    current.count += 1;
-  }
-
-  if (loginAttempts.size > LOGIN_ATTEMPT_MAP_LIMIT) {
-    for (const [attemptKey, attempt] of loginAttempts) {
-      if (attempt.resetAt <= now) loginAttempts.delete(attemptKey);
-    }
-    while (loginAttempts.size > LOGIN_ATTEMPT_MAP_LIMIT) {
-      const oldestKey = loginAttempts.keys().next().value;
-      if (!oldestKey) break;
-      loginAttempts.delete(oldestKey);
-    }
-  }
 }
 
 function popWorkspaceContext(workspace: Database, userId: string): PopWorkspaceContext {
@@ -903,82 +855,6 @@ export const getSessionUser = createServerFn({ method: "GET" }).handler(async ()
   return employee ? toCurrentUser(employee) : null;
 });
 
-export const login = createServerFn({ method: "POST" })
-  .validator((data) => loginSchema.parse(data))
-  .handler(async ({ data }) => {
-    const {
-      createSessionToken,
-      hashPassword,
-      hashToken,
-      mutateDatabase,
-      passwordHashNeedsUpgrade,
-      readDatabase,
-      verifyPassword,
-    } = await dbServer();
-    const email = data.email.toLowerCase();
-    const rateLimitKey = getLoginRateLimitKey(email);
-    assertLoginAllowed(rateLimitKey);
-
-    const snapshot = await readDatabase();
-    const snapshotAccount = snapshot.accounts.find((item) => item.email.toLowerCase() === email);
-    const passwordMatches = snapshotAccount
-      ? await verifyPassword(data.password, snapshotAccount.passwordHash)
-      : false;
-    if (!snapshotAccount || !passwordMatches) {
-      recordFailedLogin(rateLimitKey);
-      throw createHttpError("E-mail ou senha inválidos.", 401);
-    }
-
-    const upgradedHash = passwordHashNeedsUpgrade(snapshotAccount.passwordHash)
-      ? await hashPassword(data.password)
-      : undefined;
-    const token = createSessionToken();
-    const user = await mutateDatabase((platform) => {
-      const account = platform.accounts.find((item) => item.id === snapshotAccount.id);
-      if (!account || account.passwordHash !== snapshotAccount.passwordHash) {
-        throw createHttpError("E-mail ou senha inválidos.", 401);
-      }
-
-      if (upgradedHash) {
-        account.passwordHash = upgradedHash;
-        for (const workspace of platform.workspaces) {
-          const employee = workspace.employees.find((item) => item.id === account.id);
-          if (employee) employee.passwordHash = upgradedHash;
-        }
-      }
-
-      const activeWorkspace =
-        platform.workspaces.find(
-          (workspace) =>
-            workspace.company.kind === "personal" && workspace.company.ownerId === account.id,
-        ) ??
-        platform.workspaces.find(
-          (workspace) =>
-            workspace.company.kind === "company" &&
-            workspace.employees.some(
-              (employee) => employee.id === account.id && employee.status === "active",
-            ),
-        );
-      const employee = activeWorkspace?.employees.find((item) => item.id === account.id);
-      if (!activeWorkspace || !employee) throw createHttpError("Conta sem espaço disponível.", 409);
-
-      platform.sessions.push({
-        id: nextId("s", platform.sessions),
-        tokenHash: hashToken(token),
-        userId: account.id,
-        activeCompanyId: activeWorkspace.company.id,
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString(),
-      });
-
-      return toCurrentUser(employee);
-    });
-
-    loginAttempts.delete(rateLimitKey);
-    setCookie(SESSION_COOKIE, token, getCookieOptions());
-    return { ok: true, user };
-  });
-
 export const loginWithGoogle = createServerFn({ method: "POST" })
   .validator((data) => googleLoginSchema.parse(data))
   .handler(async ({ data }) => {
@@ -1111,28 +987,9 @@ export const logout = createServerFn({ method: "POST" }).handler(async () => {
 export const updateProfile = createServerFn({ method: "POST" })
   .validator((data) => updateProfileSchema.parse(data))
   .handler(async ({ data }) => {
-    const { account: snapshotAccount } = await requireSessionContext();
-    const { hashPassword, verifyPassword } = await dbServer();
-    let nextPasswordHash: string | undefined;
-    let previousPasswordHash: string | undefined;
-    if (data.newPassword) {
-      if (!(await verifyPassword(data.currentPassword ?? "", snapshotAccount.passwordHash))) {
-        throw createHttpError("Senha atual inválida.", 401);
-      }
-      previousPasswordHash = snapshotAccount.passwordHash;
-      nextPasswordHash = await hashPassword(data.newPassword);
-    }
-
     return mutateCurrentWorkspace((workspace, currentUserId, platform) => {
       const account = platform.accounts.find((item) => item.id === currentUserId);
       if (!account) throw createHttpError("Usuário não encontrado.", 404);
-
-      if (nextPasswordHash) {
-        if (account.passwordHash !== previousPasswordHash) {
-          throw createHttpError("Senha atual inválida.", 401);
-        }
-        account.passwordHash = nextPasswordHash;
-      }
 
       account.name = data.name;
       account.avatar = data.avatar;
@@ -1141,7 +998,6 @@ export const updateProfile = createServerFn({ method: "POST" })
         if (!member) continue;
         member.name = account.name;
         member.avatar = account.avatar;
-        member.passwordHash = account.passwordHash;
       }
       const employee = workspace.employees.find((item) => item.id === currentUserId)!;
 
@@ -2447,69 +2303,97 @@ export const resendEmployeeInvitation = createServerFn({ method: "POST" })
     }
   });
 
+// Convite sem senha (13/11). Quem aceita prova que é dono do e-mail convidado: ou digita o código de
+// 6 números mandado a esse e-mail, ou já está conectado com ele (Google, Apple ou código). O link
+// sozinho não basta, porque o painel deixa copiar o link e mandar por mensagem. Entrar com Google
+// já aceitava o convite sozinho (loginWithGoogle) e continua igual.
+function findInvitationByToken(platform: PlatformDatabase, tokenHash: string) {
+  for (const workspace of platform.workspaces) {
+    if (workspace.company.kind !== "company") continue;
+    const invitation = workspace.invitations.find(
+      (item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > Date.now(),
+    );
+    if (invitation) return { workspace, invitation };
+  }
+  return null;
+}
+
+function maskEmail(email: string) {
+  const [user, domain] = email.split("@");
+  if (!user || !domain) return email;
+  const visible = user.slice(0, Math.min(2, user.length));
+  return `${visible}${"•".repeat(Math.max(1, user.length - visible.length))}@${domain}`;
+}
+
+export const getInvitationPreview = createServerFn({ method: "POST" })
+  .validator((data) => invitationTokenSchema.parse(data))
+  .handler(async ({ data }) => {
+    const { readDatabase, hashToken } = await dbServer();
+    const platform = await readDatabase();
+    const found = findInvitationByToken(platform, hashToken(data.token));
+    if (!found) throw createHttpError("Este convite é inválido ou expirou.", 410);
+    const invitedEmail = found.invitation.email.toLowerCase();
+    const context = resolveSessionContext(platform, await getSessionTokenHash());
+    const signedInEmail = context?.account.email.toLowerCase();
+    return {
+      companyName: found.workspace.company.name,
+      maskedEmail: maskEmail(invitedEmail),
+      signedInAsInvited: signedInEmail === invitedEmail,
+      signedInAsOther: Boolean(signedInEmail) && signedInEmail !== invitedEmail,
+    };
+  });
+
+export const requestInvitationCode = createServerFn({ method: "POST" })
+  .validator((data) => invitationTokenSchema.parse(data))
+  .handler(async ({ data }) => {
+    const { readDatabase, hashToken } = await dbServer();
+    const found = findInvitationByToken(await readDatabase(), hashToken(data.token));
+    if (!found) throw createHttpError("Este convite é inválido ou expirou.", 410);
+    const { requestMobileEmailCode } = await import("../mobile-api.server");
+    const result = await requestMobileEmailCode(found.invitation.email);
+    return { ok: true, expiresInSeconds: result.expiresInSeconds };
+  });
+
 export const acceptInvitation = createServerFn({ method: "POST" })
   .validator((data) => acceptInvitationSchema.parse(data))
   .handler(async ({ data }) => {
-    const {
-      mutateDatabase,
-      hashPassword,
-      hashToken,
-      createSessionToken,
-      createPersonalWorkspace,
-      verifyPassword,
-    } = await dbServer();
+    const { mutateDatabase, readDatabase, hashToken } = await dbServer();
     const invitationTokenHash = hashToken(data.token);
-    const currentSessionTokenHash = await getSessionTokenHash();
-    const sessionToken = createSessionToken();
-    const passwordHash = await hashPassword(data.password);
+    let sessionTokenHash = await getSessionTokenHash();
 
-    const user = await mutateDatabase(async (platform) => {
-      const workspace = platform.workspaces.find(
-        (item) =>
-          item.company.kind === "company" &&
-          item.invitations.some(
-            (invitation) =>
-              invitation.tokenHash === invitationTokenHash &&
-              new Date(invitation.expiresAt).getTime() > Date.now(),
-          ),
-      );
-      const invitation = workspace?.invitations.find(
-        (item) => item.tokenHash === invitationTokenHash,
-      );
-      if (!invitation) throw createHttpError("Este convite é inválido ou expirou.", 410);
-      if (!workspace) throw createHttpError("Empresa do convite não encontrada.", 404);
+    if (data.code) {
+      const found = findInvitationByToken(await readDatabase(), invitationTokenHash);
+      if (!found) throw createHttpError("Este convite é inválido ou expirou.", 410);
+      // Confere o código (com o limite de tentativas de sempre) e cria a conta se ela não existe.
+      const { verifyMobileEmailCode } = await import("../mobile-api.server");
+      const verified = await verifyMobileEmailCode(found.invitation.email, data.code);
+      setCookie(SESSION_COOKIE, verified.token, getCookieOptions());
+      sessionTokenHash = hashToken(verified.token);
+    }
+
+    const user = await mutateDatabase((platform) => {
+      const found = findInvitationByToken(platform, invitationTokenHash);
+      if (!found) throw createHttpError("Este convite é inválido ou expirou.", 410);
+      const { workspace, invitation } = found;
+      const context = resolveSessionContext(platform, sessionTokenHash);
+      const account = context?.account;
       if (
-        workspace.employees.some((employee) => employee.email.toLowerCase() === invitation.email)
+        !context?.session ||
+        !account ||
+        account.email.toLowerCase() !== invitation.email.toLowerCase()
+      ) {
+        throw createHttpError("Confirme o código enviado ao e-mail do convite.", 401);
+      }
+      if (
+        workspace.employees.some(
+          (employee) =>
+            employee.id === account.id ||
+            employee.email.toLowerCase() === invitation.email.toLowerCase(),
+        )
       ) {
         throw createHttpError("Esta pessoa já participa da empresa.");
       }
 
-      let account = platform.accounts.find(
-        (item) => item.email.toLowerCase() === invitation.email.toLowerCase(),
-      );
-      const currentContext = resolveSessionContext(platform, currentSessionTokenHash);
-      if (account && currentContext?.account.id !== account.id) {
-        const validPassword = await verifyPassword(data.password, account.passwordHash);
-        if (!validPassword) {
-          throw createHttpError(
-            account.googleSubject
-              ? "Entre com Google antes de aceitar este convite."
-              : "Use a senha da sua conta para aceitar o convite.",
-            401,
-          );
-        }
-      }
-      if (!account) {
-        account = {
-          id: nextId("u", platform.accounts),
-          name: invitation.name,
-          email: invitation.email,
-          passwordHash,
-          createdAt: new Date().toISOString(),
-        };
-        platform.accounts.push(account);
-        platform.workspaces.unshift(createPersonalWorkspace(account));
-      }
       const employee = {
         id: account.id,
         name: account.name,
@@ -2531,18 +2415,11 @@ export const acceptInvitation = createServerFn({ method: "POST" })
       });
       transferInvitationAssignments(workspace, invitation.id, employee.id);
       workspace.invitations = workspace.invitations.filter((item) => item.id !== invitation.id);
-      platform.sessions.push({
-        id: nextId("s", platform.sessions),
-        tokenHash: hashToken(sessionToken),
-        userId: account.id,
-        activeCompanyId: workspace.company.id,
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString(),
-      });
+      // A mesma sessão passa a abrir na empresa do convite.
+      context.session.activeCompanyId = workspace.company.id;
       return toCurrentUser(employee);
     });
 
-    setCookie(SESSION_COOKIE, sessionToken, getCookieOptions());
     return { ok: true, user };
   });
 

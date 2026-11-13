@@ -9,7 +9,7 @@ volta o texto.
 | `novidades/<versão>.txt` | Novidades desta versão (uma por versão; obrigatório para enviar) | 4000 |
 | `pt-BR/descricao.txt` | Descrição | 4000 |
 | `pt-BR/palavras-chave.txt` | Palavras-chave (separadas por vírgula) | 100 |
-| `pt-BR/texto-promocional.txt` | Texto promocional (hoje vazio na loja; sem arquivo) | 170 |
+| `pt-BR/texto-promocional.txt` | Texto promocional (muda sem nova versão, mas a tarefa só grava em versão editável) | 170 |
 | `pt-BR/url-suporte.txt` | URL de suporte | — |
 | `notas-revisao.txt` | Notas para a revisão (em inglês) | 4000 |
 

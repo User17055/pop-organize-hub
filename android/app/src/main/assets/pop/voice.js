@@ -49,6 +49,12 @@
       window.PopVoice.stop();
       return;
     }
+    if (call.name === "descartar_rascunho") {
+      emit("discard");
+      send({type:"response.item.create",item:{type:"function_call_output",call_id:call.call_id,output:JSON.stringify({discarded:true})}});
+      send({ type: "response.create" });
+      return;
+    }
     queue = queue.catch(() => {}).then(async () => {
       if (token !== generation || closing) return;
       const confirming = call.name === "confirmar_criacao";
@@ -103,6 +109,9 @@
     },
     created(title) {
       send({type:"session.instructions.append",delegation_id:null,content:`Evento confirmado pelo aplicativo: a tarefa ${JSON.stringify(title)} foi criada com sucesso. O rascunho anterior está encerrado. Confirme brevemente. Não repita o cadastro.`});
+    },
+    discarded() {
+      send({type:"session.instructions.append",delegation_id:null,content:"O usuário descartou o rascunho na tela. Não o mencione nem peça confirmação; prepare um novo só se ele pedir."});
     },
     updated(draft) {
       send({type:"session.instructions.append",delegation_id:null,content:`O usuário revisou o rascunho na tela. Estes são os dados atuais validados; preserve-os nas próximas alterações: ${JSON.stringify(draft)}`});

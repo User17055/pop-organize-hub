@@ -27,6 +27,7 @@ export const popChatResponseSchema = z.object({
   draft: popDraftSchema.nullable(),
   sourceTaskId: z.string().nullable(),
   missingFields: z.array(z.string()),
+  discardDraft: z.boolean(),
 });
 export const popTaskSearchSchema = z.object({
   query: z.string(),

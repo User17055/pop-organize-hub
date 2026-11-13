@@ -34,11 +34,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.style.TextAlign
@@ -48,11 +45,9 @@ import br.com.poporganize.app.data.taskDurationMinutes
 import br.com.poporganize.app.data.taskEndTime
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import kotlin.math.PI
-import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.random.Random
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -245,6 +240,7 @@ internal fun PopAssistantDialog(token: String, workspaceId: String, workspaceNam
             }
             "preparing" -> preparing = true
             "prepared" -> preparing = false
+            "discard" -> if(!creating && pendingCreation == null) { answer = null; success = null }
             "error" -> {
                 if(event.has("code")) {
                     preferences.edit().putString("last_live_error",JSONObject().put("code",event.optString("code")).put("detail",event.optString("detail")).put("at",System.currentTimeMillis()).toString()).apply()
@@ -287,6 +283,7 @@ internal fun PopAssistantDialog(token: String, workspaceId: String, workspaceNam
                 val result = popRequest(token,workspaceId,request)
                 messages.add(PopChatMessage(UUID.randomUUID().toString(),"assistant",result.getString("reply")))
                 result.optJSONObject("answer")?.let { answer = it; confirmationId = UUID.randomUUID().toString() }
+                if(result.optBoolean("discardDraft") && !creating && pendingCreation == null) answer = null
             } catch(e: CancellationException) { throw e } catch(e: Exception) { error = e.message ?: "Não foi possível enviar a mensagem."; message = text }
             finally { sending = false }
         }
@@ -349,7 +346,8 @@ internal fun PopAssistantDialog(token: String, workspaceId: String, workspaceNam
             // failures must never turn a saved activity into a failed creation.
             preferences.edit().remove(pendingKey).commit()
             pendingCreation = null; answer = null; creating = false
-            success = "Atividade criada com sucesso"
+            // Com o título, o histórico diz ao Pop qual tarefa foi criada (o chat consulta esta frase).
+            success = "Atividade “${snapshot.optString("title")}” criada com sucesso"
             messages.add(PopChatMessage(UUID.randomUUID().toString(),"assistant",success!!))
             if(onResult == null) runCatching { command("window.PopVoice.created(${JSONObject.quote(snapshot.optString("title"))})") }
             else onResult(serverResult!!)
@@ -418,7 +416,10 @@ internal fun PopAssistantDialog(token: String, workspaceId: String, workspaceNam
                         }
                     } else {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                            PopFireSun(state == "connected", preparing, popSpeaking)
+                            // Encolhe junto quando falta altura (teclado aberto ou rascunho na tela).
+                            BoxWithConstraints(Modifier.sizeIn(maxWidth = 184.dp,maxHeight = 184.dp).aspectRatio(1f)) {
+                                PopVoiceOrb(state == "connected",preparing,diameter = minOf(maxWidth,maxHeight),speaking = popSpeaking,muted = muted)
+                            }
                             if(voiceMode) Text(when(state) { "connecting" -> "Só um instante…"; "connected" -> if(preparing) "Preparando sua atividade…" else if(muted) "Microfone desligado" else "Pode falar, estou ouvindo"; "closing" -> "Até já!"; else -> "Oi! O que vamos organizar?" },
                                 color = PopText, fontSize = 16.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
 
@@ -427,7 +428,8 @@ internal fun PopAssistantDialog(token: String, workspaceId: String, workspaceNam
                 }
                 answer?.let { value ->
                     PopDraftReview(value, canEdit = !creating && !preparing && pendingCreation == null, canConfirm = !creating && !preparing, creating = creating, pending = pendingCreation != null,
-                        onSchedule = { scheduleOpen = true }, onDate = { dateOpen = true }, onConfirm = { confirm() }, maxHeight = previewHeight)
+                        onSchedule = { scheduleOpen = true }, onDate = { dateOpen = true }, onConfirm = { confirm() },
+                        onDiscard = { answer = null; success = null; command("window.PopVoice.discarded()") }, maxHeight = previewHeight)
                 }
                 success?.let { message ->
                     Row(Modifier.fillMaxWidth().background(PopBlueSoft,RoundedCornerShape(14.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -438,7 +440,7 @@ internal fun PopAssistantDialog(token: String, workspaceId: String, workspaceNam
                 if(voiceMode) {
                 Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(20.dp,Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
                     FilledIconButton(onClick = { muted = !muted; command("window.PopVoice.mute($muted)") },enabled = state == "connected",modifier = Modifier.size(56.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = PopSurfaceAlt,contentColor = PopText,disabledContainerColor = PopSurface,disabledContentColor = PopMuted)) {
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = if(muted) Color(0xFFE53935) else PopSurfaceAlt,contentColor = if(muted) Color.White else PopText,disabledContainerColor = PopSurface,disabledContentColor = PopMuted)) {
                         Icon(if(muted) Icons.Outlined.MicOff else Icons.Outlined.Mic, "Alternar microfone",Modifier.size(24.dp))
                     }
                     FilledIconButton(onClick = {
@@ -455,7 +457,6 @@ internal fun PopAssistantDialog(token: String, workspaceId: String, workspaceNam
                         Icon(Icons.Outlined.Keyboard,"Conversar por texto",Modifier.size(24.dp))
                     }
                 }
-                Text(if(captionsVisible) "Voz por IA · Legendas ativadas" else "Voz por IA", color = PopMuted, fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp))
                 } else {
                     PopChatComposer(message, { message = it.take(6000) }, selectedFiles,
                         busy = sending || readingFiles || creating,
@@ -521,58 +522,38 @@ internal fun PopAssistantDialog(token: String, workspaceId: String, workspaceNam
 }
 
 @Composable
-private fun PopVoiceOrb(active: Boolean, preparing: Boolean, diameter: Dp = 144.dp) {
-    val animation = rememberInfiniteTransition(label = "Pop aurora")
-    val rotation = animation.animateFloat(0f,360f,infiniteRepeatable(tween(if(preparing) 14000 else 20000,easing = LinearEasing)),label = "aurora-flow")
-    val counterRotation = animation.animateFloat(180f,-180f,infiniteRepeatable(tween(28000,easing = LinearEasing)),label = "aurora-light")
-    val breath = animation.animateFloat(1f,if(active || preparing) 1.055f else 1.025f,infiniteRepeatable(tween(2200,easing = FastOutSlowInEasing),RepeatMode.Reverse),label = "aurora-breath")
-    Box(Modifier.size(diameter).padding(diameter * .045f).graphicsLayer { scaleX = breath.value; scaleY = breath.value }.clip(CircleShape)) {
+private fun PopVoiceOrb(active: Boolean, preparing: Boolean, diameter: Dp = 144.dp, speaking: Boolean = false, muted: Boolean = false) {
+    val breath = rememberInfiniteTransition(label = "Pop aurora").animateFloat(1f,if(active || preparing) 1.055f else 1.025f,infiniteRepeatable(tween(2200,easing = FastOutSlowInEasing),RepeatMode.Reverse),label = "aurora-breath")
+    val speed by animateFloatAsState(when { speaking && !muted -> 6f; preparing -> 1.45f; else -> 1f },tween(600),label = "aurora-velocidade")
+    // "Volume" falso da fala: alvos aleatórios a cada 90–220 ms, para a esfera crescer e as ondas se agitarem
+    // como se acompanhassem a voz. Parado ou no mudo, volta a zero.
+    val voice = remember { Animatable(0f) }
+    LaunchedEffect(speaking && !muted) {
+        if(!speaking || muted) voice.animateTo(0f,tween(300))
+        else while(true) voice.animateTo(.15f + Random.nextFloat() * .85f,tween(Random.nextInt(90,220),easing = FastOutSlowInEasing))
+    }
+    var spin by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        var last = 0L
+        // 18°/s é uma volta a cada 20 s; volta a zero em 3600° (múltiplo das voltas de todas as camadas).
+        while(true) withFrameNanos { now -> if(last != 0L) spin = (spin + (now - last) / 1e9f * 18f * speed) % 3600f; last = now }
+    }
+    // No mudo a esfera fica azul e parada, sem pulsar.
+    Box(Modifier.size(diameter).padding(diameter * .045f).graphicsLayer { val scale = if(muted) 1f else breath.value * (1f + .14f * voice.value); scaleX = scale; scaleY = scale }.clip(CircleShape)) {
         Image(painterResource(R.drawable.pop_orb),null,Modifier.fillMaxSize())
-        Image(painterResource(R.drawable.pop_orb_flow),null,Modifier.fillMaxSize().graphicsLayer { rotationZ = rotation.value })
-        Image(painterResource(R.drawable.pop_orb_flow),null,Modifier.fillMaxSize().graphicsLayer { rotationZ = counterRotation.value; scaleX = 1.12f; scaleY = .94f; alpha = .4f })
-    }
-}
-
-/** A bolinha como um sol de fogo azul: labaredas em volta, mais altas enquanto o Pop fala. */
-@Composable
-private fun PopFireSun(active: Boolean, preparing: Boolean, speaking: Boolean) {
-    val time by rememberInfiniteTransition(label = "Pop sol").animateFloat(0f,1f,infiniteRepeatable(tween(4000,easing = LinearEasing)),label = "sol-tempo")
-    val heat by animateFloatAsState(when { speaking -> 1f; active || preparing -> .6f; else -> .3f },tween(500),label = "sol-calor")
-    // Encolhe junto quando falta altura (teclado aberto ou rascunho na tela).
-    BoxWithConstraints(Modifier.sizeIn(maxWidth = 248.dp,maxHeight = 248.dp).aspectRatio(1f).drawBehind { drawBlueFire(time,heat) },contentAlignment = Alignment.Center) {
-        val diameter = minOf(maxWidth,maxHeight) * .66f
-        Box(Modifier.graphicsLayer { val pulse = 1f + .045f * heat * (1f + sin(time * 12f * PI.toFloat())) / 2f; scaleX = pulse; scaleY = pulse }) {
-            PopVoiceOrb(active,preparing,diameter = diameter)
-        }
-    }
-}
-
-private fun DrawScope.drawBlueFire(time: Float, heat: Float) {
-    val core = size.minDimension * .3f
-    val t = time * 2f * PI.toFloat()
-    val glow = core * 1.7f
-    drawCircle(Brush.radialGradient(0f to Color(0xFF9BE7FF).copy(alpha = .25f + .35f * heat), .55f to Color(0xFF1E7BFF).copy(alpha = .12f + .2f * heat), 1f to Color.Transparent, center = center, radius = glow), glow)
-    // Da labareda mais larga e escura para a mais curta e clara. Os multiplicadores de t são inteiros
-    // para o ciclo de 4 s fechar sem salto.
-    listOf(Triple(Color(0xFF0A5CFF),.62f,0),Triple(Color(0xFF29A3FF),.42f,1),Triple(Color(0xFFCFF7FF),.22f,2)).forEach { (color,reach,layer) ->
-        val tip = core * (1f + reach)
-        val flame = Path()
-        for(step in 0..180) {
-            val angle = step / 180f * 2f * PI.toFloat()
-            val tongue = abs(sin(angle * (5 + layer) + t * (2 + layer) + layer)).pow(3)
-            val ripple = .5f + .5f * sin(angle * 13f - t * 3f + layer) * sin(angle * 3f + t * 2f)
-            val radius = core * (1f + reach * (.3f + .7f * heat) * (.6f * tongue + .4f * ripple))
-            val x = center.x + cos(angle) * radius
-            val y = center.y + sin(angle) * radius
-            if(step == 0) flame.moveTo(x,y) else flame.lineTo(x,y)
-        }
-        flame.close()
-        drawPath(flame,Brush.radialGradient(0f to color, core / tip to color, 1f to color.copy(alpha = 0f), center = center, radius = tip))
+        Image(painterResource(R.drawable.pop_orb_flow),null,Modifier.fillMaxSize().graphicsLayer {
+            val wave = sin(Math.toRadians(spin * 1.5).toFloat())
+            rotationZ = spin; scaleX = 1f + .12f * voice.value * wave; scaleY = 1f - .1f * voice.value * wave
+        })
+        Image(painterResource(R.drawable.pop_orb_flow),null,Modifier.fillMaxSize().graphicsLayer {
+            val angle = Math.toRadians(spin * 2.3).toFloat()
+            rotationZ = 180f - spin * .7f; scaleX = 1.12f + .12f * voice.value * sin(angle); scaleY = .94f + .1f * voice.value * cos(angle); alpha = .4f + .3f * voice.value
+        })
     }
 }
 
 @Composable
-private fun PopDraftReview(answer: JSONObject, canEdit: Boolean, canConfirm: Boolean, creating: Boolean, pending: Boolean, onSchedule: () -> Unit, onDate: () -> Unit, onConfirm: () -> Unit, maxHeight: Dp = 330.dp) {
+private fun PopDraftReview(answer: JSONObject, canEdit: Boolean, canConfirm: Boolean, creating: Boolean, pending: Boolean, onSchedule: () -> Unit, onDate: () -> Unit, onConfirm: () -> Unit, onDiscard: () -> Unit, maxHeight: Dp = 330.dp) {
     val draft = answer.optJSONObject("draft") ?: return
     val start = draft.optString("dueTime").takeUnless { it == "null" }.orEmpty()
     val minutes = if(draft.isNull("durationMinutes")) null else draft.optInt("durationMinutes").takeIf { it > 0 }
@@ -615,6 +596,7 @@ private fun PopDraftReview(answer: JSONObject, canEdit: Boolean, canConfirm: Boo
                 if(creating) CircularProgressIndicator(Modifier.size(18.dp),strokeWidth = 2.dp,color = Color.White)
                 else Text(if(pending) "Verificar confirmação" else if(answer.popSourceTaskId() != null) "Copiar sugestão" else "Confirmar e criar",fontWeight = FontWeight.Bold)
             } else Text(answer.optString("reply"),color = PopMuted,fontSize = 12.sp)
+            TextButton(onClick = onDiscard,enabled = !creating && !pending,modifier = Modifier.fillMaxWidth()) { Text("Descartar",color = PopMuted,fontWeight = FontWeight.SemiBold) }
         }
     }
 }

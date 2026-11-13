@@ -15,7 +15,7 @@ internal object TaskStatusOutbox {
     private const val RECEIPTS = "task_status_receipts_v1"
     val scopeLocks = mutableMapOf<String, Mutex>()
     private val storageLock = Any()
-    private val statusFields = listOf("completed", "awaitingReview", "canComplete", "canCompleteAnytime", "isReviewer", "requiresReview")
+    private val statusFields = listOf("completed", "awaitingReview", "canComplete", "canCompleteAnytime", "isReviewer", "requiresReview", "completedById", "completedByName", "completedAt")
 
     fun baselineKey(account: String, workspace: String) = "task_sync_base_v2_${account}_${workspace.ifBlank { "personal" }}"
     private fun cacheKey(account: String, workspace: String) = if (workspace.isBlank()) "pop_organize_account_tasks_$account" else "pop_organize_company_tasks_${account}_$workspace"
@@ -65,7 +65,12 @@ internal object TaskStatusOutbox {
             val task = result.getJSONObject(i)
             val id = identity(task, account)
             confirmed[id]?.getJSONObject("task")?.let { copyStatus(task, it) }
-            latest[id]?.let { task.put("completed", it.completed).put("awaitingReview", false) }
+            latest[id]?.let {
+                task.put("completed", it.completed).put("awaitingReview", false)
+                if (!it.completed || task.optString("completedById") != account) {
+                    task.put("completedById", "").put("completedByName", "").put("completedAt", "")
+                }
+            }
         }
         return result
     }

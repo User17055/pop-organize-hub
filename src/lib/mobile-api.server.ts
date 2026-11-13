@@ -25,6 +25,7 @@ import {
   type Task,
 } from "./domain";
 import { hasPermission, isAdminUser, resolvePermissionSet } from "./permission-groups";
+import { setTaskStatus } from "./task-completion";
 import {
   changedMobileTaskFields,
   reconcileMobileTask,
@@ -79,6 +80,9 @@ export type MobileTask = {
   priority: string;
   dueDate: string;
   completed: boolean;
+  completedById?: string;
+  completedByName?: string;
+  completedAt?: string;
   description: string;
   assignee: string;
   assignedBy?: string;
@@ -714,7 +718,7 @@ export async function revokeMobileSession(request: Request) {
   return { ok: true };
 }
 
-async function requireMobileWorkspace(request: Request, accountScope = false) {
+export async function requireMobileWorkspace(request: Request, accountScope = false) {
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
   if (!token) throw Object.assign(new Error("Sessão ausente."), { statusCode: 401 });
@@ -2043,6 +2047,9 @@ function taskToMobileTask(
     priority: mobilePriority(task.priority),
     dueDate: task.dueDate,
     completed: task.status === "completed",
+    completedById: task.status === "completed" ? task.completedById ?? "" : "",
+    completedByName: task.status === "completed" ? task.completedByName ?? "" : "",
+    completedAt: task.status === "completed" ? task.completedAt ?? "" : "",
     description: task.description === "Tarefa criada no aplicativo" ? "" : task.description,
     assignee,
     assignedBy: native?.assignedBy ?? assignedBy,
@@ -2299,6 +2306,9 @@ function taskStatusReceipt(
     serverId: mobile.serverId!,
     clientId: mobile.clientId,
     completed: mobile.completed,
+    completedById: mobile.completedById,
+    completedByName: mobile.completedByName,
+    completedAt: mobile.completedAt,
     awaitingReview: mobile.awaitingReview,
     requiresReview: mobile.requiresReview,
     isReviewer: mobile.isReviewer,
@@ -2713,10 +2723,10 @@ export async function replaceMobileTasks(
         };
         if (completed !== (existing.status === "completed")) {
           if (completed && permissions.canComplete) {
-            existing.status =
+            setTaskStatus(existing,
               existing.requiresReview && existing.reviewerId !== account.id
                 ? "waiting_review"
-                : "completed";
+                : "completed", account);
           }
           // Espelha reviewAwareStatus (src/routes/v2.tsx): só sair de "waiting_review" é
           // reabertura de verdade; desmarcar uma tarefa concluída volta para "pending". Daqui
@@ -2724,7 +2734,7 @@ export async function replaceMobileTasks(
           // nenhuma tarefa voltava a Pendente depois de concluída uma vez — o painel mostrava
           // "Pendente 0" com tarefa claramente em aberto.
           if (!completed && permissions.canReopen)
-            existing.status = existing.status === "waiting_review" ? "reopened" : "pending";
+            setTaskStatus(existing, existing.status === "waiting_review" ? "reopened" : "pending", account);
         }
         const isNativeOwner = existing.nativeOwnerId === account.id;
         if (permissions.canEditContent || isNativeOwner) {
@@ -2890,7 +2900,7 @@ export async function replaceMobileTasks(
         title: normalizeMobileTaskTitle(item.title),
         description: item.description.trim(),
         priority: priority(item.priority),
-        status: completed ? "completed" : "pending",
+        status: "pending",
         dueDate: item.dueDate,
         dueTime: item.dueTime.trim() || undefined,
         durationMinutes: parseTaskDuration(item.duration),
@@ -2922,6 +2932,7 @@ export async function replaceMobileTasks(
           title: normalizeMobileTaskTitle(item.title),
         },
       };
+      setTaskStatus(newTask, completed ? "completed" : "pending", account);
       workspace.tasks.unshift(newTask as Task);
       if (item.clientId)
         workspace.mobileTaskCreationIds = [...(workspace.mobileTaskCreationIds ?? []), newTask.id];
@@ -3001,12 +3012,12 @@ export async function replaceMobileTasks(
             statusCode: 403,
           });
         }
-        task.status =
+        setTaskStatus(task,
           task.requiresReview &&
           !permissions.canApproveReview &&
           permissions.reviewManagerId !== account.id
             ? "waiting_review"
-            : "completed";
+            : "completed", account);
       } else if (
         !change.completed &&
         (task.status === "completed" || task.status === "waiting_review")
@@ -3015,7 +3026,7 @@ export async function replaceMobileTasks(
           throw Object.assign(new Error("Seu acesso não permite reabrir esta tarefa."), {
             statusCode: 403,
           });
-        task.status = task.status === "waiting_review" ? "reopened" : "pending";
+        setTaskStatus(task, task.status === "waiting_review" ? "reopened" : "pending", account);
       }
       if (task.nativeData) task.nativeData.completed = task.status === "completed";
       workspace.mobileTaskStatusMutations ??= {};

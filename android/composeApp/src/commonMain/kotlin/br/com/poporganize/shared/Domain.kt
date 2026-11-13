@@ -571,6 +571,9 @@ data class ApiTask(
     val canceled: Boolean? = null,
     val justification: ApiJustification? = null,
     val canJustify: Boolean? = null,
+    val completedById: String = "",
+    val completedByName: String = "",
+    val completedAt: String = "",
 )
 
 @Serializable

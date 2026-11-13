@@ -6,7 +6,7 @@ import type { RecurrenceInput } from "@/components/tasks/task-form-types";
 import { useWorkspaceData } from "@/lib/api/use-workspace";
 import { cn } from "@/lib/utils";
 
-// Estado global mínimo para abrir a Pop de qualquer página (sidebar, FAB, botões).
+// Estado global mínimo para abrir o Pop de qualquer página (sidebar, FAB, botões).
 let popOpen = false;
 let popSessionId = 0;
 const listeners = new Set<() => void>();
@@ -49,7 +49,7 @@ export function PopDock() {
 
   async function handleCreate(draft: PopTaskDraft) {
     if (!draft.title || !draft.dueDate || !draft.targetType || !draft.targetId) {
-      throw new Error("A Pop ainda não reuniu todos os dados necessários para criar a atividade.");
+      throw new Error("O Pop ainda não reuniu todos os dados necessários para criar a atividade.");
     }
 
     const recurrence: RecurrenceInput =
@@ -75,6 +75,8 @@ export function PopDock() {
       description: draft.description ?? "",
       priority: draft.priority ?? "medium",
       dueDate: draft.dueDate,
+      dueTime: draft.dueTime || undefined,
+      durationMinutes: draft.durationMinutes || undefined,
       target: { type: draft.targetType, id: draft.targetId },
       responsibleId,
       reviewerId: draft.requiresReview
@@ -96,13 +98,13 @@ export function PopDock() {
           "pop-fab fixed bottom-6 right-6 z-[150] hidden h-14 w-14 items-center justify-center rounded-full lg:flex",
           open && "lg:hidden",
         )}
-        aria-label="Falar com a Pop (assistente de IA)"
-        title="Falar com a Pop"
+        aria-label="Falar com o Pop (assistente de IA)"
+        title="Falar com o Pop"
       >
         <Sparkles className="h-6 w-6" />
       </button>
       <PopAssistant
-        key={sessionId}
+        key={`${sessionId}:${data?.company.id ?? "loading"}:${data?.currentUser.id ?? "loading"}`}
         open={open}
         onOpenChange={setPopOpen}
         onCreate={handleCreate}

@@ -61,6 +61,17 @@ test("routing is one unit, preventing mixed targets and assignees", () => {
 test("server-only permission and presentation changes are not device mutations", () => {
   assert.deepEqual(changedMobileTaskFields(base, { ...base, canEdit: false, dueLabel: "11 nov" }), []);
 });
+
+test("completion attribution remains server-owned during stale edits and forged uploads", () => {
+  const remote = { ...base, completedById: "joao", completedByName: "João", completedAt: "server-time" };
+  const local = { ...base, title: "Edited", completedById: "fake", completedByName: "Fake", completedAt: "fake-time" };
+  const merged = reconcileMobileTask(base, local, remote, "arrival");
+  assert.equal(merged.title, "Edited");
+  assert.equal(merged.completedById, "joao");
+  assert.equal(merged.completedByName, "João");
+  assert.equal(merged.completedAt, "server-time");
+  assert.deepEqual(changedMobileTaskFields(base, { ...base, completedByName: "Fake" }), []);
+});
 test("clearing a field is an actual mutation", () => {
   const old = { ...base, description: "Texto" };
   assert.equal(reconcileMobileTask(old, base, old).description, "");

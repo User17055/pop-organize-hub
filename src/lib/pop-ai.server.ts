@@ -1,64 +1,29 @@
 import { createHash } from "node:crypto";
 import OpenAI, { toFile } from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
-import { z } from "zod";
+import { buildPopCallInstructions } from "./pop-call-policy";
 
-const recurrenceSchema = z.object({
-  frequency: z.enum(["none", "daily", "weekly", "biweekly", "monthly", "yearly", "custom"]),
-  interval: z.number().int().min(1).max(120).nullable(),
-  customUnit: z.enum(["days", "weeks", "months", "years"]).nullable(),
-  dayOfMonth: z.number().int().min(1).max(31).nullable(),
-  monthOfYear: z.number().int().min(1).max(12).nullable(),
-  endDate: z.string().nullable(),
-});
-
-export const popDraftSchema = z.object({
-  title: z.string().nullable(),
-  description: z.string().nullable(),
-  priority: z.enum(["low", "medium", "high", "urgent"]).nullable(),
-  dueDate: z.string().nullable(),
-  targetType: z.enum(["company", "department", "group", "user"]).nullable(),
-  targetId: z.string().nullable(),
-  responsibleId: z.string().nullable(),
-  responsibleConfirmed: z.boolean(),
-  reviewerId: z.string().nullable(),
-  requiresReview: z.boolean().nullable(),
-  tags: z.array(z.string()),
-  checklist: z.array(z.string()),
-  checklistConfirmed: z.boolean(),
-  recurrence: recurrenceSchema,
-  recurrenceConfirmed: z.boolean(),
-});
-
-const popAnswerSchema = z.object({
-  intent: z.enum(["conversation", "task_guidance", "create_task", "out_of_scope"]),
-  reply: z.string(),
-  status: z.enum(["needs_input", "ready"]),
-  missingFields: z.array(z.string()),
-  draft: popDraftSchema,
-});
-
-export type PopTaskDraft = z.infer<typeof popDraftSchema>;
-export type PopAssistantAnswer = z.infer<typeof popAnswerSchema>;
-
-export type PopWorkspaceContext = {
-  company: { id: string; name: string; kind: "personal" | "company" };
-  currentUser: { id: string; name: string };
-  employees: Array<{ id: string; name: string; status: string; departmentId: string }>;
-  departments: Array<{ id: string; name: string }>;
-  groups: Array<{ id: string; name: string; memberIds: string[] }>;
-  canCreateChecklist: boolean;
-};
-
-export type PopConversationMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
+import {
+  popAnswerSchema,
+  popCallDraftSchema,
+  restorePopDraft,
+  type PopTaskDraft,
+  type PopAssistantAnswer,
+  type PopWorkspaceContext,
+  type PopConversationMessage,
+} from "./pop-draft";
+export { popDraftSchema, restorePopDraft } from "./pop-draft";
+export type {
+  PopTaskDraft,
+  PopAssistantAnswer,
+  PopWorkspaceContext,
+  PopConversationMessage,
+} from "./pop-draft";
 
 function getClient() {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
-    throw Object.assign(new Error("A Pop ainda não foi configurada pelo administrador."), {
+    throw Object.assign(new Error("O Pop ainda não foi configurada pelo administrador."), {
       statusCode: 503,
     });
   }
@@ -83,7 +48,7 @@ function buildInstructions(context: PopWorkspaceContext) {
   });
 
   return `# Função
-Você é a Pop, especialista em criar, organizar e melhorar tarefas no Pop Organize. Fale em português do Brasil.
+Você é o Pop, especialista em criar, organizar e melhorar tarefas no Pop Organize. Fale em português do Brasil.
 
 # Objetivo
 Transforme a explicação da pessoa em UMA tarefa clara, executável e fiel ao que foi pedido. Você também pode ajudar a melhorar o modelo da tarefa: título, descrição, resultado esperado, prazo, prioridade, responsável, destino, etiquetas, recorrência e checklist.
@@ -115,7 +80,7 @@ Prepare somente UMA tarefa por conversa. Nunca afirme que criou a tarefa: o sist
 
 # Construção da tarefa
 - Use intent=create_task quando a pessoa descrever um trabalho, complementar/corrigir o rascunho ou pedir o resumo da tarefa atual.
-- Use intent=conversation exclusivamente para saudações, agradecimentos, perguntas sobre a própria Pop e pedidos genéricos para iniciar um cadastro.
+- Use intent=conversation exclusivamente para saudações, agradecimentos, perguntas sobre o próprio Pop e pedidos genéricos para iniciar um cadastro.
 - Use intent=task_guidance para orientar a criação ou melhoria de tarefas sem montar um rascunho específico. Use status=needs_input nesse caso.
 - Frases que apenas expressam a intenção de cadastrar algo, como "quero criar uma tarefa" ou "preciso registrar uma atividade", ainda não descrevem o trabalho. Use intent=conversation, pergunte o que precisa ser feito e aguarde a resposta.
 - Extraia e mantenha um rascunho completo a partir de toda a conversa e de eventuais imagens.
@@ -123,6 +88,7 @@ Prepare somente UMA tarefa por conversa. Nunca afirme que criou a tarefa: o sist
 - Preserve todos os fatos fornecidos pela pessoa. Melhore a redação, mas não invente clientes, valores, locais, resultados, nomes ou requisitos.
 - Use somente IDs existentes no contexto do workspace. Nunca invente funcionários, setores, grupos ou IDs.
 - Converta datas relativas usando today e devolva dueDate/endDate em YYYY-MM-DD.
+- Preserve horários informados em dueTime (HH:mm) e a duração em durationMinutes (1 a 1440 minutos). Se houver início e término, calcule a duração, considerando a passagem para o dia seguinte. Sem horário informado, use dueTime=null e durationMinutes=null.
 - Se o usuário não informar prioridade, use medium sem perguntar.
 - Em espaço pessoal, use targetType=user, targetId=currentUser.id, responsibleId=null e responsibleConfirmed=true.
 - Em empresa, quando o responsável ou destino não estiver claro, use currentUser como responsável e a empresa como destino. Use responsibleConfirmed=true.
@@ -307,8 +273,7 @@ function extractStoredDraft(sourceMessage: string) {
   if (markerIndex < 0) return null;
   const serialized = sourceMessage.slice(markerIndex + marker.length).trim();
   try {
-    const parsed = popDraftSchema.safeParse(JSON.parse(serialized));
-    return parsed.success ? parsed.data : null;
+    return restorePopDraft(JSON.parse(serialized));
   } catch {
     return null;
   }
@@ -354,6 +319,7 @@ Descrição: ${draft.description}
 Responsável: ${employeeName}
 Destino: ${targetName || context.company.name}
 Prazo: ${dueDate}
+Horário: ${draft.dueTime || "Sem horário"}${draft.durationMinutes ? ` · ${draft.durationMinutes} min` : ""}
 Prioridade: ${priorityLabel}
 Recorrência: ${recurrenceLabel}
 Checklist:
@@ -397,7 +363,7 @@ export async function runPopAssistant(options: {
 
   if (!response.output_parsed) {
     throw Object.assign(
-      new Error("A Pop não conseguiu interpretar este pedido. Tente novamente."),
+      new Error("O Pop não conseguiu interpretar este pedido. Tente novamente."),
       {
         statusCode: 502,
       },
@@ -434,10 +400,15 @@ export async function transcribePopAudio(audioDataUrl: string) {
   return text;
 }
 
-export async function createPopRealtimeClientSecret(safetyUserId: string, accountName: string) {
+export async function createPopRealtimeClientSecret(
+  safetyUserId: string,
+  accountName: string,
+  context: PopWorkspaceContext,
+  draft: PopTaskDraft | null = null,
+) {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
-    throw Object.assign(new Error("A Pop ainda não foi configurada pelo administrador."), {
+    throw Object.assign(new Error("O Pop ainda não foi configurada pelo administrador."), {
       statusCode: 503,
     });
   }
@@ -458,12 +429,12 @@ export async function createPopRealtimeClientSecret(safetyUserId: string, accoun
   const nameGreeting = firstName ? `, ${firstName}` : "";
   const greeting =
     saoPauloHour < 5
-      ? `Oiii${nameGreeting}! Sou a Pop. O que você tá fazendo acordado a essa hora, hein? Como posso te ajudar?`
+      ? `Oiii${nameGreeting}! Sou o Pop. Como posso te ajudar?`
       : saoPauloHour < 12
-        ? `Oiii${nameGreeting}! Bom dia, sou a Pop. Como posso te ajudar?`
+        ? `Oiii${nameGreeting}! Bom dia, sou o Pop. Como posso te ajudar?`
         : saoPauloHour < 18
-          ? `Oiii${nameGreeting}! Boa tarde, sou a Pop. Como posso te ajudar?`
-          : `Oiii${nameGreeting}! Boa noite, sou a Pop. Como posso te ajudar?`;
+          ? `Oiii${nameGreeting}! Boa tarde, sou o Pop. Como posso te ajudar?`
+          : `Oiii${nameGreeting}! Boa noite, sou o Pop. Como posso te ajudar?`;
 
   const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
     method: "POST",
@@ -482,54 +453,18 @@ export async function createPopRealtimeClientSecret(safetyUserId: string, accoun
         model: process.env.OPENAI_REALTIME_MODEL?.trim() || "gpt-realtime-2.1-mini",
         output_modalities: ["audio"],
         reasoning: { effort: "low" },
-        max_output_tokens: 700,
-        instructions: `# Função
-Você é a Pop, assistente do Pop Organize, em uma ligação de voz.
-
-# Personalidade
-Seja calorosa, bem-humorada e genuinamente prestativa. Use humor leve somente quando combinar com o momento; nunca force piadas, deboche ou minimize um problema. Soe humana, animada e atenta.
-
-# Pessoa
-A pessoa logada se chama ${firstName || "usuário"}. Use o primeiro nome com naturalidade quando for útil, sem repeti-lo em toda resposta.
-
-# Idioma e sotaque
-Responda sempre em português do Brasil com sotaque brasileiro neutro.
-- Mantenha o sotaque brasileiro estável do início ao fim, com ritmo, vogais, entonação e prosódia naturais do Brasil.
-- Não use sotaque de Portugal e não imite o sotaque do usuário.
-- Use vocabulário brasileiro, como "você", "celular", "tarefa" e "tela". Evite formas de Portugal, como "telemóvel", "ecrã" e "está bem" como resposta automática.
-- Fale em ritmo médio, com clareza, sem exagerar o sotaque.
-
-# Foco da conversa
-- Mantenha um único assunto ativo: a intenção mais recente e clara do usuário.
-- Use falas anteriores apenas quando forem necessárias para entender o pedido atual.
-- Interprete respostas curtas, como "sim", "amanhã" ou um nome, como resposta à sua pergunta mais recente.
-- Se o usuário corrigir ou complementar algo, incorpore a correção ao mesmo assunto; não volte ao início e não ressuscite tópicos antigos.
-- Não repita saudações, explicações, perguntas, avisos ou resumos já ditos.
-- Não anuncie mais de uma vez que está preparando o resumo da mesma tarefa.
-
-# Escopo
-- Você só ajuda a criar, detalhar, melhorar, resumir e cadastrar tarefas no Pop Organize.
-- Se a pessoa puxar um assunto claramente diferente, responda: "Eu só consigo ajudar com o cadastro e a organização de tarefas. Me conte o que precisa ser feito e eu monto a atividade para você."
-- Não responda perguntas gerais nem dê explicações sobre assuntos que não façam parte da tarefa.
-- Perguntas sobre como escrever, dividir ou melhorar uma tarefa estão dentro do seu escopo.
-
-# Forma de responder
-- Respostas diretas: uma ou duas frases curtas.
-- Faça no máximo uma pergunta por vez e somente quando uma informação realmente estiver incompreensível.
-- Diga primeiro a informação nova ou o próximo passo. Elimine introduções genéricas, paráfrases do pedido e frases de preenchimento.
-- Varie a linguagem naturalmente; não reutilize a mesma frase em turnos consecutivos.
-
-# Atividades
-Se a pessoa apenas disser que quer cadastrar, criar ou registrar uma tarefa, mas ainda não explicar o trabalho, pergunte somente: "O que precisa ser feito?". Não trate a intenção de cadastrar como o título da atividade.
-Quando a pessoa descrever o trabalho, use toda a conversa atual para entender título, descrição, entrega esperada, prazo, prioridade, responsável, destino, recorrência e possíveis etapas de checklist. Preserve os fatos e não invente informações.
-Quando receber um evento do aplicativo contendo o resumo estruturado, fale como a tarefa ficou, incluindo os campos e o checklist informados no evento. Esse resumo do aplicativo é a fonte correta e substitui qualquer suposição anterior.
-Se a pessoa perguntar como a tarefa ficou, repita o último resumo estruturado; não mude de assunto.
-Nunca diga que criou, salvou ou confirmou uma tarefa. A tarefa só será criada quando a pessoa tocar no botão "Confirmar e criar".
-Não invente pessoas, datas ou dados do workspace.
-
-# Áudio pouco claro
-Sons curtos, hesitações e preenchimentos como "aa", "eee", "hum", "hã" ou sílabas sem sentido não são pedidos. Ignore-os em silêncio e preserve o assunto atual.
-Se a fala estiver realmente incompreensível, peça para repetir com uma frase curta em português brasileiro. Não adivinhe e não repita o mesmo pedido de esclarecimento duas vezes seguidas.`,
+        max_output_tokens: 1_100,
+        instructions: buildPopCallInstructions(context, draft, currentDateInSaoPaulo()),
+        tools: [
+          {
+            type: "function",
+            name: "preparar_rascunho",
+            description:
+              "Preparar ou atualizar uma tarefa concreta. Valida o rascunho, sem criar ou alterar tarefas reais. Não chamar para saudação ou orientação geral.",
+            parameters: zodTextFormat(popCallDraftSchema, "pop_call_draft").schema,
+          },
+        ],
+        tool_choice: "auto",
         audio: {
           input: {
             transcription: {
@@ -539,12 +474,12 @@ Se a fala estiver realmente incompreensível, peça para repetir com uma frase c
             },
             turn_detection: {
               type: "semantic_vad",
-              eagerness: "low",
-              create_response: false,
-              interrupt_response: false,
+              eagerness: "medium",
+              create_response: true,
+              interrupt_response: true,
             },
           },
-          output: { voice: "marin" },
+          output: { voice: "cedar" },
         },
       },
     }),
@@ -557,7 +492,7 @@ Se a fala estiver realmente incompreensível, peça para repetir com uma frase c
   };
   if (!response.ok || !body.value) {
     throw Object.assign(
-      new Error(body.error?.message || "Não foi possível iniciar a ligação com a Pop."),
+      new Error(body.error?.message || "Não foi possível iniciar a ligação com o Pop."),
       { statusCode: response.status || 502 },
     );
   }

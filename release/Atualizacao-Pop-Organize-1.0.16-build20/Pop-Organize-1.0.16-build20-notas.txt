@@ -1,0 +1,6 @@
+Melhorias no calendário, na agenda de horas e nos filtros.
+Seleção conjunta de início e término, com cálculo de duração.
+Data de conclusão selecionada pelo calendário.
+Ajustes de fonte, cores, prioridade e fotos dos responsáveis.
+Identificação de quem concluiu a tarefa, sincronizada entre os aparelhos.
+Melhorias no fluxo de conclusão e sincronização.

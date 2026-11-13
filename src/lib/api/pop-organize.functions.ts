@@ -32,6 +32,9 @@ import {
   type TargetType,
 } from "../domain";
 import { removeDepartment } from "../department-removal";
+import { setTaskStatus } from "../task-completion";
+import { popCallDraftSchema, restorePopDraft, type PopWorkspaceContext } from "../pop-draft";
+import { validatePopCallDraft } from "../pop-call-policy";
 import { removeInvitation } from "../invitation-removal";
 import { applyManagerAccess } from "../department-access";
 import { removeAttachment } from "../attachment-removal";
@@ -125,6 +128,8 @@ const createTaskSchema = z.object({
   description: z.string().trim().max(4_000).default(""),
   priority: prioritySchema.default("medium"),
   dueDate: z.string().min(10).default(defaultDueDate()),
+  dueTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  durationMinutes: z.number().int().min(1).max(1440).optional(),
   target: targetSchema,
   responsibleId: z.string().default(""),
   responsibleIds: z.array(z.string().min(1)).max(100).default([]),
@@ -439,6 +444,19 @@ function recordFailedLogin(key: string) {
   }
 }
 
+function popWorkspaceContext(workspace: Database, userId: string): PopWorkspaceContext {
+  const currentUser = workspace.employees.find((employee) => employee.id === userId);
+  if (!currentUser) throw createHttpError("Usuário não encontrado.", 404);
+  return {
+    company: { id: workspace.company.id, name: workspace.company.name, kind: workspace.company.kind === "personal" ? "personal" : "company" },
+    currentUser: { id: currentUser.id, name: currentUser.name },
+    employees: workspace.employees.filter((employee) => employee.status === "active").map(({id,name,status,departmentId}) => ({id,name,status,departmentId})),
+    departments: workspace.departments.map(({id,name}) => ({id,name})),
+    groups: workspace.groups.map(({id,name,memberIds}) => ({id,name,memberIds})),
+    canCreateChecklist: true,
+  };
+}
+
 function assertPopRateLimit(userId: string) {
   const now = Date.now();
   const current = popRequestWindows.get(userId);
@@ -659,6 +677,8 @@ function createNextRecurringTask(db: Database, task: Task) {
     priority: task.priority,
     status: "pending",
     dueDate: nextDueDate,
+    dueTime: task.dueTime,
+    durationMinutes: task.durationMinutes,
     createdAt: today(),
     target: task.target,
     responsibleId: task.responsibleId,
@@ -675,7 +695,6 @@ function createNextRecurringTask(db: Database, task: Task) {
     recurrenceOccurrence: (task.recurrenceOccurrence ?? 1) + 1,
     recurrenceExcludedDates: task.recurrenceExcludedDates,
     recurrenceSeriesEndDate: task.recurrenceSeriesEndDate,
-    dueTime: task.dueTime,
     subtasks: (task.subtasks ?? []).map((subtask, index) => ({
       id: `ts${index + 1}`,
       title: subtask.title,
@@ -1204,7 +1223,20 @@ export const askPop = createServerFn({ method: "POST" })
     }
   });
 
-export const createPopRealtimeSession = createServerFn({ method: "POST" }).handler(async () => {
+export const preparePopCallDraft = createServerFn({ method: "POST" })
+  .validator((data) => popCallDraftSchema.parse(data))
+  .handler(async ({data}) => {
+    const {account,workspace} = await requireSessionContext();
+    requireGroupPermission(workspace,account.id,"tasks.create","Seu grupo de permissão não pode criar tarefas.");
+    assertPopRateLimit(account.id);
+    if (JSON.stringify(data).length > 12_000) throw createHttpError("O rascunho ficou muito extenso.",400);
+    const answer = validatePopCallDraft(data.draft,popWorkspaceContext(workspace,account.id),data.missingFields,today());
+    return {...answer,transcription:undefined};
+  });
+
+export const createPopRealtimeSession = createServerFn({ method: "POST" })
+ .validator((data) => z.object({draftContext:z.string().max(6_000).optional()}).parse(data ?? {}))
+ .handler(async ({data}) => {
   const { account, workspace } = await requireSessionContext();
   requireGroupPermission(
     workspace,
@@ -1215,9 +1247,13 @@ export const createPopRealtimeSession = createServerFn({ method: "POST" }).handl
   assertPopRateLimit(account.id);
   try {
     const { createPopRealtimeClientSecret } = await import("../pop-ai.server");
+    let draft = null;
+    try { draft = data.draftContext ? restorePopDraft(JSON.parse(data.draftContext)) : null; } catch { /* Ignore obsolete local history. */ }
     return await createPopRealtimeClientSecret(
       `${workspace.company.id}:${account.id}`,
       account.name,
+      popWorkspaceContext(workspace,account.id),
+      draft,
     );
   } catch (error) {
     const typed = error as Error & { status?: number; statusCode?: number };
@@ -1230,10 +1266,9 @@ export const createPopRealtimeSession = createServerFn({ method: "POST" }).handl
   }
 });
 
-export const createTask = createServerFn({ method: "POST" })
-  .validator((data) => createTaskSchema.parse(data))
-  .handler(async ({ data }) => {
-    return mutateCurrentWorkspace((db, currentUserId) => {
+/** Shared by the website and authenticated mobile Pop; one creation policy. */
+export function createTaskInWorkspace(db: Database, currentUserId: string, rawInput: unknown) {
+  const data = createTaskSchema.parse(rawInput);
       requireGroupPermission(
         db,
         currentUserId,
@@ -1324,6 +1359,8 @@ export const createTask = createServerFn({ method: "POST" })
         priority: data.priority,
         status: "pending" as const,
         dueDate: data.dueDate,
+        dueTime: data.dueTime,
+        durationMinutes: data.durationMinutes,
         createdAt: today(),
         target: { ...data.target, label: targetLabel },
         responsibleId: responsibleIds[0] ?? "",
@@ -1346,8 +1383,11 @@ export const createTask = createServerFn({ method: "POST" })
 
       db.tasks.unshift(task);
       return task;
-    });
-  });
+}
+
+export const createTask = createServerFn({ method: "POST" })
+  .validator((data) => createTaskSchema.parse(data))
+  .handler(async ({ data }) => mutateCurrentWorkspace((db, currentUserId) => createTaskInWorkspace(db, currentUserId, data)));
 
 export const updateTaskStatus = createServerFn({ method: "POST" })
   .validator((data) => updateTaskStatusSchema.parse(data))
@@ -1428,7 +1468,7 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
         );
       }
       const wasCompleted = task.status === "completed";
-      task.status = nextStatus;
+      setTaskStatus(task, nextStatus, { id: currentUserId, name: currentUser?.name ?? "" });
       if (nextStatus === "completed" && !wasCompleted) {
         createNextRecurringTask(db, task);
       }
@@ -1927,7 +1967,7 @@ export const deleteTask = createServerFn({ method: "POST" })
         }
         task.dueDate = nextDueDate;
         delete task.recurrenceSlotDate;
-        task.status = "pending";
+        setTaskStatus(task, "pending", { id: currentUserId, name: "" });
         task.recurrenceOccurrence = (task.recurrenceOccurrence ?? 1) + 1;
         invalidateNativeShadow(task, "dueDate", "recurrenceOccurrence");
         task.recurrenceExcludedDates = Array.from(

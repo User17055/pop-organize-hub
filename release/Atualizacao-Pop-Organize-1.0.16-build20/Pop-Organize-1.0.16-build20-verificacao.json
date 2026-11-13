@@ -1,0 +1,41 @@
+{
+  "package": "br.com.poporganize.app",
+  "versionName": "1.0.16",
+  "versionCode": 20,
+  "debuggable": false,
+  "targetSdk": 36,
+  "previewComponentsAbsent": true,
+  "productionAPI": true,
+  "native16KVerified": [
+    ".apk:lib/arm64-v8a/libandroidx.graphics.path.so",
+    ".apk:lib/x86_64/libandroidx.graphics.path.so",
+    ".aab:base/lib/arm64-v8a/libandroidx.graphics.path.so",
+    ".aab:base/lib/x86_64/libandroidx.graphics.path.so"
+  ],
+  "artifacts": {
+    "Pop-Organize-1.0.16-build20.aab": {
+      "bytes": 15791713,
+      "sha256": "b856936597c58f2c30120f6deff11510ef42101a18468330cb75ae8a771eb072"
+    },
+    "Pop-Organize-1.0.16-build20.apk": {
+      "bytes": 12523482,
+      "sha256": "6139a4c2b7e67b595b9a1c11d8c18e3d1c1cd3215d6b3f8aed913ae5c71a4567"
+    }
+  },
+  "baseCommit": "4d99a90409c6192837b5136eac2c66da5f2d69ef",
+  "sourceSnapshotSha256": "a48f02aefe15dfe29ff82707d91db34ab2146131e2160bf69c7e603ce22a95ec",
+  "uploadCertificateSha256": "15ad0895bde195be2097664b3c1aaebe07d8131fb9a48ecbc139e0cbd44f8334",
+  "signatureMatchesPreviousBuild": true,
+  "bundletoolValidated": true,
+  "apk16KZipAlignment": true,
+  "validation": {
+    "nodeTests": 31,
+    "integrationScenarios": 38,
+    "integrationPersistentWrites": 0,
+    "typecheck": true,
+    "priorKotlinTests": 65,
+    "priorDeviceScheduleTests": 1,
+    "latestCompletionUIPhysicallyTested": false
+  },
+  "publication": "AAB and APK local only; backend completion attribution deployed separately"
+}

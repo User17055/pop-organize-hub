@@ -14,7 +14,6 @@ import {
   Settings,
   LogOut,
   Camera,
-  KeyRound,
   Save,
   BriefcaseBusiness,
   ShieldCheck,
@@ -384,8 +383,6 @@ export function AppShell({
   const [profileForm, setProfileForm] = useState({
     name: currentEmployee?.name ?? currentUser?.name ?? "",
     avatar: avatar ?? "",
-    currentPassword: "",
-    newPassword: "",
   });
   const logoutMutation = useMutation({
     mutationFn: () => logout(),
@@ -395,12 +392,7 @@ export function AppShell({
     },
   });
   const profileMutation = useMutation({
-    mutationFn: (payload: {
-      name: string;
-      avatar?: string;
-      currentPassword?: string;
-      newPassword?: string;
-    }) => updateProfile({ data: payload }),
+    mutationFn: (payload: { name: string; avatar?: string }) => updateProfile({ data: payload }),
     onSuccess: ({ employee, currentUser: updatedCurrentUser }) => {
       queryClient.setQueryData<typeof data>(workspaceQueryKey, (current) =>
         current
@@ -414,7 +406,6 @@ export function AppShell({
           : current,
       );
       setProfileOpen(false);
-      setProfileForm((current) => ({ ...current, currentPassword: "", newPassword: "" }));
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
     },
   });
@@ -461,8 +452,6 @@ export function AppShell({
     setProfileForm({
       name: currentEmployee?.name ?? currentUser?.name ?? "",
       avatar: currentEmployee?.avatar ?? "",
-      currentPassword: "",
-      newPassword: "",
     });
     profileMutation.reset();
     setProfileOpen(true);
@@ -485,8 +474,6 @@ export function AppShell({
     profileMutation.mutate({
       name: profileForm.name,
       avatar: profileForm.avatar || undefined,
-      currentPassword: profileForm.currentPassword || undefined,
-      newPassword: profileForm.newPassword || undefined,
     });
   }
 
@@ -853,39 +840,6 @@ export function AppShell({
                   </label>
                 </div>
               </label>
-
-              <div className="rounded-xl border border-border bg-muted/30 p-3">
-                <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                  <KeyRound className="h-3.5 w-3.5" />
-                  Alterar senha
-                </div>
-                <div className="space-y-2">
-                  <input
-                    type="password"
-                    value={profileForm.currentPassword}
-                    onChange={(event) =>
-                      setProfileForm((current) => ({
-                        ...current,
-                        currentPassword: event.target.value,
-                      }))
-                    }
-                    placeholder="Senha atual"
-                    className="h-9 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-                  />
-                  <input
-                    type="password"
-                    value={profileForm.newPassword}
-                    onChange={(event) =>
-                      setProfileForm((current) => ({
-                        ...current,
-                        newPassword: event.target.value,
-                      }))
-                    }
-                    placeholder="Nova senha"
-                    className="h-9 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-                  />
-                </div>
-              </div>
 
               {profileError && <div className="text-xs text-destructive">{profileError}</div>}
 

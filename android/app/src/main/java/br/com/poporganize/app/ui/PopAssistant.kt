@@ -11,7 +11,6 @@ import android.webkit.*
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -35,8 +34,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,7 +64,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.webkit.WebViewAssetLoader
 import br.com.poporganize.app.BuildConfig
-import br.com.poporganize.app.R
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -524,12 +523,13 @@ internal fun PopAssistantDialog(token: String, workspaceId: String, workspaceNam
 @Composable
 private fun PopVoiceOrb(active: Boolean, preparing: Boolean, diameter: Dp = 144.dp, speaking: Boolean = false, muted: Boolean = false) {
     val breath = rememberInfiniteTransition(label = "Pop aurora").animateFloat(1f,if(active || preparing) 1.055f else 1.025f,infiniteRepeatable(tween(2200,easing = FastOutSlowInEasing),RepeatMode.Reverse),label = "aurora-breath")
-    val speed by animateFloatAsState(when { speaking && !muted -> 6f; preparing -> 1.45f; else -> 1f },tween(600),label = "aurora-velocidade")
+    val speed by animateFloatAsState(when { speaking -> 6f; preparing -> 1.45f; else -> 1f },tween(600),label = "aurora-velocidade")
+    val red by animateFloatAsState(if(muted) 1f else 0f,tween(400),label = "aurora-mudo")
     // "Volume" falso da fala: alvos aleatórios a cada 90–220 ms, para a esfera crescer e as ondas se agitarem
-    // como se acompanhassem a voz. Parado ou no mudo, volta a zero.
+    // como se acompanhassem a voz. Segue no mudo, porque o Pop continua falando; calado, volta a zero.
     val voice = remember { Animatable(0f) }
-    LaunchedEffect(speaking && !muted) {
-        if(!speaking || muted) voice.animateTo(0f,tween(300))
+    LaunchedEffect(speaking) {
+        if(!speaking) voice.animateTo(0f,tween(300))
         else while(true) voice.animateTo(.15f + Random.nextFloat() * .85f,tween(Random.nextInt(90,220),easing = FastOutSlowInEasing))
     }
     var spin by remember { mutableFloatStateOf(0f) }
@@ -538,19 +538,34 @@ private fun PopVoiceOrb(active: Boolean, preparing: Boolean, diameter: Dp = 144.
         // 18°/s é uma volta a cada 20 s; volta a zero em 3600° (múltiplo das voltas de todas as camadas).
         while(true) withFrameNanos { now -> if(last != 0L) spin = (spin + (now - last) / 1e9f * 18f * speed) % 3600f; last = now }
     }
-    // No mudo a esfera fica azul e parada, sem pulsar.
-    Box(Modifier.size(diameter).padding(diameter * .045f).graphicsLayer { val scale = if(muted) 1f else breath.value * (1f + .14f * voice.value); scaleX = scale; scaleY = scale }.clip(CircleShape)) {
-        Image(painterResource(R.drawable.pop_orb),null,Modifier.fillMaxSize())
-        Image(painterResource(R.drawable.pop_orb_flow),null,Modifier.fillMaxSize().graphicsLayer {
-            val wave = sin(Math.toRadians(spin * 1.5).toFloat())
-            rotationZ = spin; scaleX = 1f + .12f * voice.value * wave; scaleY = 1f - .1f * voice.value * wave
-        })
-        Image(painterResource(R.drawable.pop_orb_flow),null,Modifier.fillMaxSize().graphicsLayer {
-            val angle = Math.toRadians(spin * 2.3).toFloat()
-            rotationZ = 180f - spin * .7f; scaleX = 1.12f + .12f * voice.value * sin(angle); scaleY = .94f + .1f * voice.value * cos(angle); alpha = .4f + .3f * voice.value
-        })
-    }
+    // No mudo a esfera fica vermelha e não pulsa parada; se o Pop falar, ela continua reagindo à fala.
+    Box(Modifier.size(diameter).padding(diameter * .045f).graphicsLayer { val scale = (if(muted) 1f else breath.value) * (1f + .12f * voice.value); scaleX = scale; scaleY = scale }.clip(CircleShape).drawBehind {
+        val radius = size.minDimension / 2
+        val t = Math.toRadians(spin.toDouble()).toFloat()
+        val level = voice.value
+        // Fundo profundo (azul, ou vermelho no mudo), iluminado no alto à esquerda.
+        drawCircle(Brush.radialGradient(0f to lerp(Color(0xFF63B9FF),Color(0xFFFF8A80),red),.55f to lerp(Color(0xFF1C7CF2),Color(0xFFE53935),red),1f to lerp(Color(0xFF0A3FA8),Color(0xFF8E0E12),red),center = Offset(size.width * .38f,size.height * .32f),radius = radius * 1.7f))
+        // Nuvens de luz circulando por dentro; crescem e se afastam com a "voz".
+        for(cloud in popClouds) {
+            val at = center + Offset(cos(t * cloud.speedX + cloud.phase),sin(t * cloud.speedY + cloud.phase * 1.3f)) * (radius * (cloud.orbit + .08f * level))
+            val extent = radius * (cloud.size + .14f * level)
+            val color = lerp(cloud.color,cloud.muted,red)
+            drawCircle(Brush.radialGradient(0f to color,1f to color.copy(alpha = 0f),center = at,radius = extent),extent,at)
+        }
+        // Brilho de vidro e borda mais escura dão o volume de esfera.
+        drawCircle(Brush.radialGradient(0f to Color.White.copy(alpha = .55f),1f to Color.Transparent,center = Offset(size.width * .32f,size.height * .24f),radius = radius * .62f))
+        drawCircle(Brush.radialGradient(.72f to Color.Transparent,1f to lerp(Color(0x66001446),Color(0x664A0008),red)))
+    })
 }
+
+// Velocidades com décimos inteiros: o ângulo volta a zero em 3600° (20π) sem salto nas órbitas.
+private class PopCloud(val color: Color, val muted: Color, val orbit: Float, val speedX: Float, val speedY: Float, val phase: Float, val size: Float)
+private val popClouds = listOf(
+    PopCloud(Color(0xCC3D5BFF),Color(0xCCB3122A),.42f,.7f,1.1f,1f,.62f),
+    PopCloud(Color(0xCC7FDBFF),Color(0xCCFF8A65),.38f,-1.3f,.9f,2.2f,.5f),
+    PopCloud(Color(0xB3FFFFFF),Color(0xB3FFFFFF),.3f,1.6f,-1.2f,4f,.42f),
+    PopCloud(Color(0x99B9A8FF),Color(0x99FF9EB5),.46f,-.8f,-1.5f,5.3f,.48f),
+)
 
 @Composable
 private fun PopDraftReview(answer: JSONObject, canEdit: Boolean, canConfirm: Boolean, creating: Boolean, pending: Boolean, onSchedule: () -> Unit, onDate: () -> Unit, onConfirm: () -> Unit, onDiscard: () -> Unit, maxHeight: Dp = 330.dp) {

@@ -65,8 +65,18 @@ const create=async(id)=>{
 const results=[];
 async function check(name,fn){ reset(); await fn(); results.push(name); }
 
-await check('Cintia recebe teste após envio recusado',async()=>{
-  await assert.rejects(replaceMobileTasks(request(employeeToken),[draft(999999991)],[],[]),{statusCode:403});
+await check('Cintia recebe teste após criação sem permissão ignorada',async()=>{
+  // The mobile contract skips a forbidden creation so that pending edits cannot
+  // block reads. Control permissions in the memory fixture rather than relying
+  // on the customer's current permission settings.
+  const memoryWorkspace=globalThis.syncAudit.workspaces.find(w=>w.company.id===workspace.company.id);
+  const memoryEmployee=memoryWorkspace.employees.find(e=>e.id===employee.id);
+  memoryEmployee.role='Colaborador';memoryEmployee.canCreateTasks=false;
+  memoryEmployee.permissionGroupId=auditId+'-no-create';
+  memoryWorkspace.permissionGroups.push({id:memoryEmployee.permissionGroupId,name:'Auditoria sem cadastro',description:'Somente em memória',permissions:['tasks.changeStatus','tasks.complete','tasks.reopen']});
+  const skipped=await replaceMobileTasks(request(employeeToken),[draft(999999991)],[],[]);
+  assert.equal(skipped.created,0);
+  assert.equal(globalThis.syncAudit.workspaces.find(w=>w.company.id===workspace.company.id).tasks.some(t=>t.title==='Auditoria em memória 999999991'),false);
   assert.ok((await readMobileTasks(request(employeeToken))).some(t=>t.serverId==='t2458'));
 });
 await check('conclusão do João na teste compartilhada aparece para Cintia',async()=>{

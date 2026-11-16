@@ -59,6 +59,14 @@
       if (token !== generation || closing) return;
       const confirming = call.name === "confirmar_criacao";
       if (!confirming) emit("preparing");
+      // Consulta demorada: a cada 4 s (até 3 vezes) pede à voz um "quase lá" curtinho. Commentary é falado.
+      let waited = 0, progress;
+      const remind = () => {
+        if (token !== generation || closing || ++waited > 3) return;
+        send({ type: "session.commentary.append", event_id: `pop_wait_${++serial}`, delegation_id: null, content: "A consulta ainda está em andamento. Diga ao usuário só algo curtinho, como “Quase lá…”, sem adiantar nenhum resultado." });
+        progress = setTimeout(remind, 4000);
+      };
+      progress = setTimeout(remind, 4000);
       let result;
       try {
         const action = {preparar_rascunho:"prepare",consultar_tarefas:"search",consultar_indicadores:"indicators",consultar_estrutura:"structure",confirmar_criacao:"confirm_voice"}[call.name];
@@ -67,6 +75,7 @@
         if (token !== generation || closing) return;
         if(call.name === "preparar_rascunho") emit("draft", { answer: result });
       } catch (error) { if(token !== generation || closing) return; result = { created: false, error: error.message }; emit("error", {message:error.message}); }
+      finally { clearTimeout(progress); }
       emit("prepared");
       if (token !== generation || closing) return;
       send({ type: "response.item.create", item: { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(result) } });
@@ -103,18 +112,19 @@
         timer = setTimeout(() => window.PopVoice.stop(), 15 * 60 * 1000);
       } catch (error) { if (token === generation) { emit("error",{message:error.message}); cleanup(); } }
     },
+    // Mudo só fecha a escuta: segundo a OpenAI, o Pop continua falando o que já começou.
     mute(value) {
       microphone?.getAudioTracks().forEach(t => {t.enabled = !value;});
-      send({type:value?"session.input_audio.mute":"session.input_audio.unmute"});
+      send({type:value?"session.input_audio.mute":"session.input_audio.unmute",event_id:`pop_mute_${++serial}`});
     },
     created(title) {
-      send({type:"session.instructions.append",delegation_id:null,content:`Evento confirmado pelo aplicativo: a tarefa ${JSON.stringify(title)} foi criada com sucesso. O rascunho anterior está encerrado. Confirme brevemente. Não repita o cadastro.`});
+      send({type:"session.instructions.append",event_id:`pop_ctx_${++serial}`,delegation_id:null,content:`Evento confirmado pelo aplicativo: a tarefa ${JSON.stringify(title)} foi criada com sucesso. O rascunho anterior está encerrado. Confirme brevemente. Não repita o cadastro.`});
     },
     discarded() {
-      send({type:"session.instructions.append",delegation_id:null,content:"O usuário descartou o rascunho na tela. Não o mencione nem peça confirmação; prepare um novo só se ele pedir."});
+      send({type:"session.instructions.append",event_id:`pop_ctx_${++serial}`,delegation_id:null,content:"O usuário descartou o rascunho na tela. Não o mencione nem peça confirmação; prepare um novo só se ele pedir."});
     },
     updated(draft) {
-      send({type:"session.instructions.append",delegation_id:null,content:`O usuário revisou o rascunho na tela. Estes são os dados atuais validados; preserve-os nas próximas alterações: ${JSON.stringify(draft)}`});
+      send({type:"session.instructions.append",event_id:`pop_ctx_${++serial}`,delegation_id:null,content:`O usuário revisou o rascunho na tela. Estes são os dados atuais validados; preserve-os nas próximas alterações: ${JSON.stringify(draft)}`});
     },
     stop() {
       if (closing) return;

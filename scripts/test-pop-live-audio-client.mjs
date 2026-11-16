@@ -368,3 +368,32 @@ test("voice task lookup is read only and does not replace the draft", async () =
     f.close();
   }
 });
+test("a slow voice lookup asks for a short progress line and stops once the result arrives", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let finish;
+  const f = fixture(async (body) =>
+    body.action === "connect"
+      ? { transport: { sdp: "answer" } }
+      : new Promise((resolve) => {
+          finish = resolve;
+        }),
+  );
+  const progress = () => f.sent.filter((x) => x.type === "session.commentary.append");
+  try {
+    await f.start();
+    f.emit(tool());
+    await settle();
+    await settle();
+    t.mock.timers.tick(4000);
+    assert.equal(progress().length, 1);
+    assert.equal(progress()[0].delegation_id, null);
+    finish({ status: "ready", draft: { title: "Teste sintético" }, created: false });
+    await settle();
+    await settle();
+    t.mock.timers.tick(12000);
+    assert.equal(progress().length, 1);
+    assert.ok(f.sent.some((x) => x.type === "response.item.create"));
+  } finally {
+    f.close();
+  }
+});

@@ -15,7 +15,7 @@ Compilação `bundleRelease` e `assembleRelease` concluída. AAB validado com o 
 
 Versão 1.0.15, código 18, API de destino 36, pacote de produção e depuração desativada conferidos no manifesto. Componentes da prévia e do receptor de teste ausentes. API HTTPS de produção presente. ZIPs íntegros; alinhamento do APK e segmentos das bibliotecas nativas de 64 bits verificados para páginas de 16 KiB. Após o merge, passaram 17 testes Node, 63 testes Kotlin, a verificação de tipos e a compilação do site. Os testes físicos de gestos e as medições de desempenho anteriores estão documentados em `docs/android-calendario-e-atualizacao.md`; os pacotes de produção regenerados foram conferidos estruturalmente e não foram instalados sobre o aplicativo original do aparelho.
 
-| Artefato | Bytes | SHA-256 |
+| Artefato | Bytes | SHA-256 |w
 | --- | ---: | --- |
 | AAB | 15.782.146 | `d2bca30e7f8c466ce9a9d4d6f6c3e0e6392ddb9133e151e3a8d535a53ae32c1e` |
 | APK | 12.522.526 | `1698063bd5b6481f34c3bc4c73716c364c7f82b721037aa4179a8d663118b3b3` |
